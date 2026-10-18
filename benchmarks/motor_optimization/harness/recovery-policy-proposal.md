@@ -38,18 +38,15 @@ The paper and summary must list every replacement, its reason and evidence, and
 the original partial costs, and count the affected logical jobs. Unverified
 interruptions remain unresolved with no automatic rerun.
 
-Pending implementation: linked recovery execution and diagnostic-only dispatch,
-including fresh process-absence checks at dispatch, and execution tests of this
-adopted policy. The pure policy planner and fixed, exclusively owned registry now
-have controlled tests for first-completion selection, queue phases, replacement
-limits across generations, retained costs, immutable plans and process exclusion.
-These components do not themselves dispatch work. A separately recorded diagnostic-only worker now has controlled
-tests for input bindings, outcome preservation, interruption and process cleanup;
-it has no CLI and does not determine eligibility or authorize a launch.
-Cooperative run/session cancellation, stopped-result snapshots,
-sole-reaper launcher receipts and read-only process-identity/orphan verification
-now have controlled process tests. These do not by themselves authorize a
-replacement. `recovery_inventory.py` currently
-separates completed, never-started/deferred, contaminated and interrupted cases,
-checks bound inputs/traces, reports active ownership/torn journal tails, and refuses
-to treat an interrupted attempt as an automatically launchable job.
+Implementation status: `recovery.py` now connects the policy planner, fixed locked
+registry, fresh source/runtime/input/host/process checks and isolated optimizer or
+diagnostic workers. Nine controlled end-to-end cases and six mutation checks cover
+queue order, frozen unit, retained outcomes, cross-generation replacement limits,
+concurrent-launch exclusion, fresh verification refusal and real process cleanup.
+The original session remains untouched; plans, reviews, partial costs and sealed
+generation summaries retain the complete history. See the harness README for the
+CLI and the distinction between runtime verification and external-cause review.
+
+These tests do not establish native FEM correctness or main-run readiness. Reviewed
+dependency integration, independent review, native build provenance/cap reporting
+and main-host selection remain required. Policy adoption is not code approval.

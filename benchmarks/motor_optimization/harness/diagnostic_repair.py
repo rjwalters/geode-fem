@@ -1,6 +1,6 @@
-"""Diagnostic-only worker for a future linked recovery launcher.
+"""Internal diagnostic-only worker invoked by the linked recovery launcher.
 
-No CLI or optimizer dispatch. The caller must establish recovery eligibility,
+The worker CLI does not establish eligibility or dispatch an optimizer. Its caller must verify recovery eligibility,
 source/environment/host bindings, process absence and exclusive attempt ownership
 before calling this worker. This module verifies the stopped artifact and records
 a separate diagnostic attempt; it does not grant permission to recover a session.
@@ -10,6 +10,10 @@ import json
 import math
 from pathlib import Path
 import time
+import sys
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
 
 import interruption
 import resource_usage
@@ -105,3 +109,25 @@ def execute(snapshot_path, expected_sha256, session, out, *, attempt_id,
         return record
     finally:
         journal.close()
+
+
+def main(argv=None):
+    """Internal isolated worker; eligibility is enforced by recovery.py."""
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--snapshot", required=True, type=Path)
+    ap.add_argument("--snapshot-sha256", required=True)
+    ap.add_argument("--session", required=True, type=Path)
+    ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument("--attempt-id", required=True)
+    args = ap.parse_args(argv)
+    with interruption.StopSignals() as signals:
+        result = execute(args.snapshot, args.snapshot_sha256, json.loads(args.session.read_text()),
+                         args.out, attempt_id=args.attempt_id, signals=signals)
+    if result.get("process_interruption"):
+        return 128 + result["process_interruption"]["signal"]
+    return 0 if result["status"] in ("ok", "unavailable", "no incumbent") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

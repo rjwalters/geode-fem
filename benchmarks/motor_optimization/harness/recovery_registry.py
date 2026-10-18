@@ -126,6 +126,11 @@ class Registry:
                 end = finished[event["index"]]
                 if any(end[key] != value for key, value in observed.items()):
                     raise ValueError("finished recovery generation changed")
+                if end.get("summary"):
+                    summary = end["summary"]
+                    if (summary["file"] != "manifest.json"
+                            or digest(path / summary["file"]) != summary["sha256"]):
+                        raise ValueError("recovery summary changed")
             out.append({"index": event["index"], "path": str(path), "link": expected_link, **observed})
             previous = path
         return out
@@ -144,14 +149,18 @@ class Registry:
                 "previous": str(previous), "plan": binding}
         return self.root / name, link
 
-    def finish(self, index):
+    def finish(self, index, summary=None):
         entries = self.generations()
         if not entries or entries[-1]["index"] != index:
             raise ValueError("only the newest generation can finish")
         if any(e["kind"] == "generation_finished" and e["index"] == index
                for e in read_events(self.root / "events.jsonl")["events"]):
             raise ValueError("generation completion is already recorded")
-        self.emit("generation_finished", index=index,
+        if summary is not None:
+            path = Path(entries[-1]["path"])
+            if summary["file"] != "manifest.json" or digest(path / summary["file"]) != summary["sha256"]:
+                raise ValueError("invalid recovery summary binding")
+        self.emit("generation_finished", index=index, summary=summary,
                   **{key: entries[-1][key] for key in ("journal_sha256", "bindings_sha256")})
 
     def close(self):

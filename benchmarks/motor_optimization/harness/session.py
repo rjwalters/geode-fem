@@ -435,6 +435,11 @@ def _run_job(job, ctx, suffix="", wait=wait_for_idle, spawn=None):
            "--method", job["method"], "--space", job["space"], "--start", job["start"],
            "--repeat", str(job["repeat"]), "--position", str(job["position"]),
            "--out", str(trace)]
+    if ctx.get("command_builder") is not None:  # Controlled-process fixture adapter; no CLI option.
+        cmd = ctx["command_builder"](cmd)
+    if ctx.get("before_dispatch") is not None:
+        ctx["before_dispatch"](job)
+    interruption.check(ctx.get("stop"))
     t = time.time()
     if ctx.get("journal") is not None:
         ctx["journal"].emit("attempt_dispatched", attempt_id=ctx["attempt_id"],
@@ -797,7 +802,9 @@ def _main(argv=None, stop=None):
             "provenance": prov, "meshes": meshes, "host": before,
             "procs": a.procs, "unit_seconds": cal["unit_seconds"],
             "session_directory": str(out),
-            "recovery_registry": str(out.with_name(out.name + ".recoveries"))})
+            "recovery_registry": str(out.with_name(out.name + ".recoveries")),
+            "dispatch_settings": {"gate": ctx["gate"], "max_wait": a.max_wait,
+                                  "interval": a.load_interval, "max_deferrals": a.max_deferrals}})
         journal.emit("session_ready", bindings_sha256=sha256(out / "bindings.json"))
         try:
             results = schedule(jobs, ctx, a.max_deferrals)

@@ -632,9 +632,9 @@ retained on failed acceptance, mesh-infeasible validation and interrupted reques
 Waveform arrays are checked against their means/stds. Training mesh hashes identify
 the reference before design motion and must be interpreted with the selected point.
 
-This is partial implementation, not launch readiness. Durable
-session/recovery, contaminated-calibration refusal and full provenance/cap
-reporting remain required. Frozen-start and L0 gradient evidence is described below. The retained scalar-theta0
+This is partial implementation, not launch readiness. Durable session/recovery
+and contaminated-calibration refusal are implemented with controlled tests;
+independent review, native build provenance and full cap reporting remain required. Frozen-start and L0 gradient evidence is described below. The retained scalar-theta0
 mixed L0/L2 smoke verifies model separation, not an optimization outcome. Do not
 launch a main study from this intermediate branch. `test_baseline_wiring.py`
 checks model/validator separation, calibration denominator, shared optimizer
@@ -740,9 +740,9 @@ completion (including ordinary scientific failure/censoring), and lists never-st
 deferred, contaminated and interrupted work. It does not resume or relaunch anything.
 `recovery-policy-proposal.md` records the adopted disposition for external interruption
 (Squad review 28; #1185 comment 6249073475);
-its implementation still needs independent review before main execution. Owned-process cleanup,
-launcher lifetime receipts, orphan verification and linked recovery execution remain
-required. The current code is not a completed recovery workflow or main-run approval.
+its implementation still needs independent review before main execution. Owned-process
+cleanup, launcher lifetime receipts, orphan verification and linked recovery
+execution now have controlled tests, described below. This is not main-run approval.
 
 ### Stopped optimizer evidence and cooperative signals (#1202)
 
@@ -812,8 +812,8 @@ Cancellation sends SIGTERM to the run group and permits 35 seconds for the run's
 own evaluator cleanup, then uses SIGKILL if necessary. Forced termination leaves
 CPU completeness and descendant cleanup explicitly unverified. In particular,
 a killed run can leave an evaluator in a separate process group: process identity
-and orphan verification remain required before any replacement. There is still no
-linked recovery launcher or diagnostic-only execution command.
+and fresh orphan verification are required before any replacement. The linked
+recovery launcher below performs these checks before dispatch.
 
 `test_session_cancellation.py` verifies real launcher/run/evaluator/child shutdown,
 concurrent calibration cancellation, preservation of queued jobs and setup failure
@@ -860,7 +860,7 @@ It also covers normal exit, a very short child, failed launch, live owner locks,
 PID reuse, changed boot, malformed records, torn tails and missing journals. Nine
 tests and six private-copy mutations pass. A lifecycle test additionally confirms
 that a failing process journal cannot prevent constructor cleanup or discard the
-child receipt. Linked recovery dispatch remains unfinished.
+child receipt. The linked recovery launcher below consumes fresh verification.
 
 ### Diagnostic-only repair worker (#1202)
 
@@ -875,8 +875,8 @@ or interruption retains its own cost and never alters target attainment or the
 original outcome. Production evaluator launches have the same intent, process
 identity and exit-receipt tracking as ordinary runs.
 
-This is an internal worker, with no CLI. The linked recovery launcher is still
-required to establish job eligibility, frozen source/environment/host bindings,
+This worker has an internal CLI used by `recovery.py`. Use the linked launcher,
+which establishes job eligibility, frozen source/environment/host bindings,
 fresh process absence, exclusive attempt ownership and queue/retry policy before
 dispatch. A stopped snapshot alone is not permission to repeat a diagnostic, and
 the worker's input checks are not a substitute for those launcher checks.
@@ -965,6 +965,65 @@ inspection; it is never deleted automatically to reset the history.
 
 Ten policy tests, seven inventory tests and six registry tests pass. The registry
 test uses two real processes to verify exclusion and lock release after a forced
-exit. Nine private-copy regressions are caught. These components have no recovery
-dispatch CLI yet; connecting them to isolated workers, fresh checks and the frozen
-queue is the remaining implementation step.
+exit. Nine private-copy regressions are caught. The linked dispatcher below
+connects these components to isolated workers and fresh verification.
+
+
+### Linked recovery execution (#1202)
+
+`recovery.py` uses the original session's fixed recovery registry and holds its OS
+lock for the entire invocation. It reads every retained generation before selecting
+work, preserves the first eligible outcome, and keeps both replacement allowances
+across the full chain. It never changes the original session or remeasures its unit.
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/recovery.py --source ORIGINAL_SESSION --main
+# For a smoke session, use --smoke. Supply --external-events REVIEWED.json only
+# when a reviewed external-interruption attestation is needed.
+```
+
+There are no CLI overrides for output, workers, budget, unit or numerical settings.
+The original session also freezes its host-gate settings and deferral limit.
+Before reserving a generation and again before each worker dispatch, the launcher
+verifies source/runtime/input/host bindings, prior journals and process absence.
+It checks copied inputs, its own bindings, load-monitor health and retained external
+evidence at dispatch. A failed dispatch verification cancels active workers and
+leaves a recorded failure requiring disposition; a later invocation cannot silently
+use that generation. Missing or partial bootstrap records likewise require inspection.
+
+Remaining registered jobs run before the recovery tail, with a barrier between
+phases. Each phase uses the original worker count and relative queue order.
+Deferred and eligible replacement jobs retain their reasons and attempt identities.
+Diagnostic repairs use separate isolated processes and unique attempt directories,
+even after a gate deferral. They reconstruct the stopped optimizer's diagnostic
+only; the optimizer trajectory and target credit remain unchanged. A worker's bound
+terminal result can survive a killed parent, but its journal, inputs, snapshot and
+job/session identity must verify before it is used. The first terminal diagnostic,
+including failure, is retained.
+
+`--external-events` accepts a JSON object keyed by the full attempt key from the
+inventory. Each value needs `attempt`, `verified_external_interruption: true`, `event_kind` (operator_stop,
+host_shutdown or external_resource_loss), `reason`, `verified_by`, `verification_reference`,
+`event_id`, and a nonempty `evidence` list of `{path, sha256}` records. The planner
+validates structure and hashes; the named reviewer remains responsible for the
+external-cause determination. A signal or exit code alone is insufficient.
+Evidence bytes and reviewed records are retained in the registry; a later invocation
+cannot replace an earlier review or reset an exhausted replacement allowance.
+
+Each generation has an immutable plan, a process/event journal and a sealed
+`manifest.json` binding the aggregate policy and all retained attempt costs.
+`complete` is false while any registered job, allowed replacement, diagnostic repair
+or unresolved case remains. New contamination or interruption is considered by the
+next invocation against the full history. Launcher preparation, serialized dispatch
+verification and total recovery elapsed times are separately reported outside
+optimizer budgets. They can overlap worker time and must not be added together.
+
+Nine controlled execution tests pass: complete queue/history preservation, deferred
+diagnostic repair, two-worker receipts, changed-binding and live-orphan refusal,
+replacement exhaustion across generations, diagnostic input tampering, negative
+verification verdicts, and real launcher/run/evaluator/child SIGTERM cleanup with
+concurrent-launch exclusion. Six private-copy mutations are detected. Test adapters
+replace numerical evaluation and expensive source/runtime probes; these are process
+and policy checks, not native FEM or performance evidence. The CLI and internal
+worker still require independent review and the reviewed dependency rebase before
+main use. Native build provenance, cap reporting and main-host selection remain open.
