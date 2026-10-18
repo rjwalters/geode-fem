@@ -749,3 +749,38 @@ Keep the original pinned executor worktree available for later runtime checks:
 these native binaries resolve reference data and mesher sources through their
 compiled source paths. Moving the evidence archive is supported for verification;
 it does not make the executable runtime portable.
+
+
+`refinement_environment.py` binds a prepared bundle to the original pinned executor
+checkout, both recorded builds and the current mesher runtime. Run it with
+isolated Python from that executor checkout; the environment evidence output must
+be new and outside the source, bundle and build directories.
+
+```sh
+python3 -I -B /path/to/reviewed-tools/refinement_environment.py \
+  --bundle-root /path/to/bundle --bundle-sha256 "$BUNDLE_SHA256" \
+  --build-root /path/to/executors --build-sha256 "$BUILD_SHA256" \
+  --repo "$PWD" --executor-commit "$EXECUTOR_COMMIT" --out /path/to/new-environment.json
+```
+
+The check verifies input and executable receipts before and after probing. It
+requires the compiled reference-data and mesh-construction source paths to match
+the prepared inputs. The native mesher's exact `uv run` command probes isolated
+NumPy 2.5.4 and Gmsh 4.15.2, including installed-file inventories, BLAS/LAPACK and
+Gmsh library hashes. `RAYON_NUM_THREADS=1`, `GEODE_NUM_THREADS=1` and `UV_OFFLINE=1`
+are explicit execution controls. The full child environment is hashed without
+storing its values. A missing cached environment is a refusal: prepare the pinned
+packages separately, then verify offline.
+
+`verify(path, sha256=..., **original_arguments)` requires the independently retained
+evidence digest, recaptures all current bindings and runtime, and takes fresh
+process observations. The archived process table is never substituted for current
+build-process absence. This operation remains a prerequisite check: `can_launch`
+is false, and a journaled execution plus post-run verification is still needed.
+
+All 218 tests pass with the isolated discovery command, including ten new
+environment tests. `refinement-environment-checks.json` records the actual local
+record/verify pass using a synthetic selection and the real paired build. The
+nine-file `smoke/environment_318c23ad.tar.gz` retains those observations and
+reproduction scripts. It contains historical runtime evidence, not installed
+packages or a portable execution environment. No main cohort was selected.
