@@ -72,21 +72,30 @@ Completion requires the following evidence, checked at the final manuscript's ac
 
 There is no requirement to manufacture a favorable speedup: a null or negative result must be retained. Publication claims must match whichever comparison the data support, including the limits of five design starts and repeated timing trials.
 
-### Original-plan reconciliation (open, 2026-10-18)
+### Original-plan reconciliation (reviewed, 2026-10-18)
 
-The initial brief and October 16 screen contain broader proposed deliverables than the adopted main-run protocol. They must not silently disappear in a status update. The current implementation can proceed, but a scientific scope decision is needed before declaring the paper's research requirements complete.
+The initial brief and October 16 screen contain broader proposed deliverables than the adopted main-run protocol. The table retains those distinctions; Squad review #18 records the scientific scope decisions below. These decisions do not confer completed experimental evidence.
 
 | Original proposed deliverable | Adopted main-run evidence | Remaining distinction |
 |---|---|---|
 | CMA-ES as well as trust-region derivative-free search | COBYQA, empirical RBF, and both COBYQA/SLSQP on coarse nonlinear FEM | CMA-ES is not in the 100-run matrix; no superiority claim over it or over all credible alternatives is supported |
 | Mean-torque floors at each loaded current | A full-current mean floor; ripple at 0, 0.5 and 1; post-run .25/.75 checks | A full-current floor is not a half-current mean constraint |
 | Minimum gap/bridge thickness, bounded magnet area and fixed envelope/length | Fixed envelope/length/control policy, published variable bounds, construction and mesh guards, prospective 5% normalized construction margins | Construction feasibility is not a manufacturing constraint; equal parameter boxes do not hold magnet volume constant; any claimed resource or feature limits need explicit numerical definitions and checks |
-| Elapsed time, CPU-hours and peak memory | Measured wall-time ledger, solve counts, fixed process/thread limits; separate setup and diagnostic costs | Aggregate process-wall hours are not measured CPU-hours; peak memory is not yet specified |
+| Elapsed time, CPU-hours and peak memory | Measured wall-time ledger, solve counts, fixed process/thread limits; CPU deltas and scoped RSS observations required in #1202 | Resource instrumentation is pending; process-wall hours are not CPU-hours and separate process high-water marks are not a simultaneous process-tree peak |
 | Cheap-model response changes and scaled torque-residual Jacobian singular values across perturbed designs | Two local scalar L0/L1 gradient comparisons; prospective paired low/high-fidelity outputs | Gradient-vector cosine is not an effective-dimension analysis; no claim of intrinsic high-dimensional necessity follows |
 
 The original screen labels these as a proposed model and execution plan. A revised paper may make a narrower empirical claim if that change is explicitly justified and reviewed, but it must retain the user's central test: useful, refinement-validated optimization and honest end-to-end cost against a credible inexpensive physical competitor. Scope reconciliation must not be used to turn unmeasured performance into a completed result.
 
-An [independent geometry-bounds derivation](refs/geometry-bounds-audit.md), pending Claude's review, identifies guarantees already implied by the reference box and construction: magnet area in [20,300] mm² (initially 133), continuous rotor-to-bore separation greater than 0.32876 mm, and an outer surface-to-pocket/magnet web of at least 0.5 mm. These are scoped analytical bounds, not fixed magnet volume, every-feature bounds, mesh-approximation guarantees or manufacturing qualification. They may resolve the corresponding original physical-bound requirements without adding new constraints; the remaining scope questions are separate.
+Claude independently verified the [geometry-bounds derivation](refs/geometry-bounds-audit.md) in review #18. The [verbatim review](refs/geometry-bounds-review.md), SHA-256 `14346ff47cd567796d9e7ca4adf11bf4248fcdf18cfa1e6d4a9932c9f7387bb1`, checks six premises against pinned source and confirms all three conclusions: magnet area in [20,300] mm² (initially 133), continuous rotor-to-bore separation greater than 0.32876 mm, and an outer surface-to-pocket/magnet web of at least 0.5 mm. The review also derives tighter space-specific bounds. This discharges the corresponding physical-bound proposal without changing the domain. It does not establish fixed magnet volume, every-feature bounds, mesh-approximation guarantees or manufacturing qualification.
+
+The remaining decisions from #18 are:
+
+- CMA-ES and other population/evolutionary methods are explicitly deferred. The paper compares the tested model-based derivative-free method, empirical surrogate and gradient methods; it claims no superiority to untested optimizers or an entire algorithm class.
+- Only full-current mean torque is constrained. Report every final candidate's half-current mean against theta0 as a diagnostic; do not claim a partial-load torque guarantee. The .25/.75 checks remain separate.
+- Add measured user/system CPU time, including children with explicit measurement boundaries, and RSS observations to #1202, alongside wall time. The budget remains measured wall time. Resource measurements must distinguish cumulative process high-water RSS from per-request changes or a simultaneous process-tree peak; do not sum RSS high-water marks into a claimed peak. Record platform units and unavailable metrics explicitly.
+- Defer the residual-Jacobian effective-dimension study. Report observed differences between spaces A and B without calling them intrinsic dimensional necessity.
+
+No targets, starts, budgets or optimizer trajectories are changed by this scope decision. The central useful-design-space, refinement-validity and inexpensive-physics comparison remains required.
 
 ### Main-result figure guidance
 

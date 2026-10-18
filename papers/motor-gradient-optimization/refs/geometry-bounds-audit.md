@@ -42,4 +42,8 @@ This is specifically an **outer surface-to-pocket/magnet web bound**. It is not 
 
 The reference box already supplies bounded magnet area, positive air-gap separation and a positive outer rotor web under the stated construction assumptions. The paper can report these scoped bounds after independent verification. It must not substitute “fixed magnet volume” or “manufacturable motor” for them.
 
-Mean-torque floors at other loaded currents, a population-method comparator, measured CPU time/memory, and the effective-dimension diagnostic remain separate scope questions. None follows from these geometric bounds.
+Mean-torque floors at other loaded currents, a population-method comparator, measured CPU time/memory, and the effective-dimension diagnostic are separate scope questions. None follows from these geometric bounds. Their explicit decisions are recorded in `../EXPERIMENTS.md` under original-plan reconciliation.
+
+## Independent verification
+
+Claude verified all six premises and all three conclusions in Squad review #18 on 2026-10-18. The complete review is archived verbatim in `geometry-bounds-review.md` (SHA-256 `14346ff47cd567796d9e7ca4adf11bf4248fcdf18cfa1e6d4a9932c9f7387bb1`). It includes source line references, confirms the maximum rotor offset is an enclosing bound over the groups (CPR3 is limited to 1 mm), and provides optional tighter space-specific gap/web bounds. The conservative conclusions above are retained.
