@@ -130,11 +130,23 @@ Do not run these templates literally or before the required reviewed merges.
    in both spaces at L0 and L1. Record preflight cost outside run budgets.
    A mismatch needs investigation before launch; never silently replace
    starts based on optimizer outcomes.
-3. Export and inspect the pending #1202 queue. It must have 100 unique
-   logical jobs: five methods, two spaces, five starts, two repeats.
+3. Export and inspect the #1202 queue. The private exporter is implemented
+   at `d9a72442`; it uses the same method registry and queue constructor as
+   the launcher, and runs no FEM or calibration:
+
+   ```text
+   benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/export_queue.py --out <existing-archive-dir>/planned-queue.json
+   ```
+
+   Use a new filename; existing output is refused. Retain its printed file
+   hash and inspect the recorded source commit, file hashes and clean-tree
+   flag. Dirty development exports are labelled and cannot establish main
+   readiness. Re-export from the reviewed merged checkout before launch.
+   It must have 100 unique logical jobs: five methods, two spaces, five starts, two repeats.
    Within each space/start s (theta0 = 0 through lhs4 = 4), rotate ABCDE
    left by s for repeat 1 and reverse that exact order for repeat 2.
-   Archive planned order and actual dispatch/start order separately;
+   Compare the full exported `jobs` array with the session's frozen
+   `queue.json`. Archive planned order and actual dispatch/start order separately;
    concurrency and deferred jobs can make them differ.
 4. Create a new, previously nonexistent output directory. The current
    session entry point combines gated calibration and scheduling:
@@ -144,9 +156,9 @@ Do not run these templates literally or before the required reviewed merges.
    ```
 
    **Pending binding:** verify all flags against merged `--help`, confirm
-   five-method dispatch, and freeze the exact queue-export invocation.
-   `main_schedule.build_jobs()` supplies the pure queue construction; there
-   is no standalone queue-export CLI. The private session launcher refuses
+   five-method dispatch, and archive the concrete queue-export invocation.
+   `main_schedule.registered_jobs()` supplies the shared queue construction.
+   The private session launcher refuses
    an existing output directory. Recovery uses the separate command below;
    it is not optimizer-state resume.
 
