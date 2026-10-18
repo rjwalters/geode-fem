@@ -89,6 +89,21 @@ def _anchor(trace, setup, frozen):
         equal(original.get(key),setup['canonical_anchor'][k],'original anchor file values')
 
 
+def _training(trace, model):
+    ready=trace['evaluator_ready'];train=ready['session']['training'];level=model['train_level']
+    expected={'degrees':list(range(20)),'fractions':[0.,.5,1.],'i_peak0_A':9.677657374172274,
+        'level':level,'mesh_repair':True,'mode':'h45',
+        'newton_max_iterations':60,'newton_rel_tol':1e-8,'policy_min_angle_deg':5.,
+        'torque':'h45/coupling','warm':'Cold'}
+    equal(train,expected,'registered training evaluator settings')
+    # Native SessionConfig::is_registered compares to the original L1/L2
+    # configuration, not to the later approved five-method protocol. L0/L2
+    # therefore reports false. The complete training and primary-validation
+    # settings are independently checked; this flag cannot replace them.
+    if ready['session'].get('registered') is not (level==1):
+        raise ValueError('training-level registration flag disagrees with native configuration')
+
+
 def _assemble(capture, setup, reader, *, ledger_type, starts):
     """Internal assembly; caller must supply verified capture/setup, never flags alone."""
     chain=capture['chain'];session=capture['frozen']['session']
@@ -125,13 +140,7 @@ def _assemble(capture, setup, reader, *, ledger_type, starts):
             if not validations:continue
             _anchor(trace,setup,capture['frozen'])
             equal(bits(trace.get('x_start',[])),bits(starts['starts'][job['start']][job['space']]),'registered run start')
-            ready=trace['evaluator_ready'];train=ready['session']['training'];level=model['train_level']
-            expected={'degrees':list(range(20)),'fractions':[0.,.5,1.],'i_peak0_A':9.677657374172274,
-                'level':level,'mesh_repair':True,'mode':'h45',
-                'newton_max_iterations':60,'newton_rel_tol':1e-8,'policy_min_angle_deg':5.,
-                'torque':'h45/coupling','warm':'Cold'}
-            equal(train,expected,'registered training evaluator settings')
-            if ready['session'].get('registered') is not True:raise ValueError('unregistered evaluator session')
+            _training(trace,model)
             for record in validations:
                 adapted=setup['definitions'].adapt(trace,record,provenance=setup['provenance'])
                 if adapted['theta0'].key!=setup['theta0'][job['space']]['design'].key:

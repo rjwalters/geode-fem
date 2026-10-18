@@ -74,6 +74,7 @@ class StudySelectionTests(unittest.TestCase):
         ledger.charge('overhead',1.,note='synthetic startup')
         ready=copy.deepcopy(next(e['ready'] for e in self.b.original['anchor_preflight.json']['sessions'] if e['space']==job['space']))
         ready['train_msh_sha256']=model['train_mesh_sha256'];ready['session']['training']['level']=model['train_level']
+        ready['session']['registered']=model['train_level']==1
         anchor=copy.deepcopy(self.setup['effective_anchor']);binding=self.b.frozen['inputs']['anchor']
         anchor.update(targets={n:r*anchor['F0'] for n,r in (('T50',.5),('T90',.1),('T99',.01))},
             mean_floor=1.0025*anchor['mean0_full_current'],source=binding['path'],file_sha256=binding['sha256'],
@@ -145,6 +146,21 @@ class StudySelectionTests(unittest.TestCase):
         out=self.assemble()
         self.assertEqual(out['attempts'][1]['validation_unavailable_events'],[event])
         self.assertEqual(out['attempts'][1]['validations'],[])
+
+    def test_l0_baselines_use_native_false_registration_with_primary_l2_validation(self):
+        for position in (3,4):
+            original=self.generation['attempts'][position]
+            a=self.attempt(jobs()[position],original['attempt_id'],validations=True)
+            self.generation['attempts'][position]=a
+            out=self.assemble()
+            self.assertEqual(len(out['attempts'][position]['validations']),2)
+            a['trace']['evaluator_ready']['session']['registered']=True
+            with self.assertRaisesRegex(ValueError,'registration flag'):self.assemble()
+            self.generation['attempts'][position]=original
+
+    def test_l1_registration_flag_cannot_be_false(self):
+        self.generation['attempts'][0]['trace']['evaluator_ready']['session']['registered']=False
+        with self.assertRaisesRegex(ValueError,'registration flag'):self.assemble()
 
     def test_changed_credit_is_refused(self):
         self.generation['attempts'][0]['trace']['validations'][0]['credited']=False

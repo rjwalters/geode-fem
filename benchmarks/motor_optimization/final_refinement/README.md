@@ -640,10 +640,10 @@ python3 -I benchmarks/motor_optimization/final_refinement/study_selection.py \
 ```
 
 The output must be new and outside the archive. The command prints its SHA-256
-and cohort/check counts. Eleven integration tests include a complete synthetic
+and cohort/check counts. Thirteen integration tests include a complete synthetic
 100-job capture through the public API and CLI. Real frozen physics definitions
 and reviewed source computations are used, but build/runtime observations,
-training-mesh bytes and optimizer outcomes are explicitly synthetic. All 185
+training-mesh bytes and optimizer outcomes are explicitly synthetic. All 188
 Python tests pass. This test is not a completed main study; independent review,
 real closed capture, selected-cohort execution and paper results remain pending.
 
@@ -653,3 +653,15 @@ design mappings. Its pinned archive/capture digests and permission-preserving
 extraction checks are recorded in `study-selection-checks.json`. Run its
 `replay.py /path/to/geode-fem` with isolated Python. The fixture's independent
 capture identity is test data, not a witness for real scientific execution.
+
+
+The first parent-finalized main trace is retained separately in
+`smoke/main_first_terminal_schema.tar.gz`. Its six validations and 1,377 ledger
+entries replay against the original setup, source, anchor, starts and mesh bytes.
+It exposed and corrected a reader assumption: native `SessionConfig::is_registered`
+means equality with the original L1/L2 configuration, so the approved L0/L2
+baselines correctly report `false`. The reader now checks that level-dependent
+flag alongside the complete training and common-validation configuration.
+Both D/E acceptance and wrong-flag rejection are regression tested; the real
+trace replay is an additional test. This is partial live-study evidence only:
+no closed capture, final cohort selection, target or speedup claim follows.
