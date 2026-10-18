@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "scope": "Real frozen setup records from a live main study; no closed capture, optimization result or scientific selection.",
+  "reviewed_producer_commit": "9486a9da58beeca91968d4d3608f06b998abff45",
+  "source_sha256": {
+    "setup_evidence.py": "26923bd1fe449b3bbd82ffbf5f9f96dbf474146b6285684dd3f95a70f5da1e09",
+    "test_setup_evidence.py": "cdc74578ec711c5f06d28b90a2aee17ff33b3295b2411c590ea94da1e737e5ad"
+  },
+  "tests": {
+    "command": "python3 -I -m unittest discover -s benchmarks/motor_optimization/final_refinement -p 'test_*.py'",
+    "passed": 174,
+    "new_tests": 12,
+    "exit_code": 0
+  },
+  "archive": {
+    "file": "smoke/live_frozen_setup_9486a9da.tar.gz",
+    "sha256": "d4bd51232f9ac3c4b7a4e3635f798a987391dabe6694193ae9acc6705303a58f"
+  },
+  "setup": {
+    "anchor_spaces": [
+      "a",
+      "b"
+    ],
+    "starting_design_checks": 20,
+    "calibrations": [
+      "L1",
+      "L0"
+    ],
+    "processes": 15,
+    "unit_seconds": 70.935572288,
+    "effective_anchor_F0": 0.009603404147653405,
+    "effective_anchor_mean0_full_current": 1.4408390361492982,
+    "host_recomputation_replaces_canonical_anchor": false,
+    "can_select": false,
+    "can_launch": false
+  },
+  "remaining": [
+    "Complete capture-to-selection driver with per-validation scientific/design/mesh/credit evidence.",
+    "Exercise capture entry wrapper on complete scientific capture.",
+    "Independent review and real closed main capture, selected-cohort refinement and paper results."
+  ]
+}

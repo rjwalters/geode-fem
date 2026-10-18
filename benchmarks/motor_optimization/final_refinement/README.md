@@ -581,3 +581,29 @@ the fixture evaluator from mode `0555` to `0755`, which the complete census
 correctly rejects. For this hash-pinned archive, validate that all members are
 regular relative paths with ordinary permission bits, then use the `tar` filter
 to preserve modes; `capture-archive-checks.json` records that packaged replay.
+
+
+`setup_evidence.verify` checks the original frozen setup after capture verification.
+It replays the reviewed producer's pure setup, anchor-comparison and calibration
+functions from Git without importing its launcher or executing a solve. Both
+motion-map anchors must agree, their waveforms must reproduce the aggregates,
+and the canonical anchor remains the source of targets. The ready-record parse
+uses the original driver's four-epsilon bound; the host recomputation does not
+replace it. The session's anchor receipt and training-mesh paths remain bound.
+
+All twenty frozen starting-design checks must retain their registered coordinates,
+passing geometry and moved-mesh quality, and zero FEM charges. The two calibration
+records must pass their host gates, contain three timings per worker, reproduce
+all medians, weights and training values, and reuse the primary common unit.
+Verified starting checks supply the geometry guard definitions for subsequent
+validation-record checks. The result retains both matched theta0 designs.
+
+The hash-pinned `smoke/live_frozen_setup_9486a9da.tar.gz` contains the real frozen
+setup records copied read-only from the running main study. Twelve tests replay
+these records and reject changed targets, waveforms, sources, start coordinates,
+geometry, costs, calibration samples, units, training values and host gates.
+This is a live frozen-setup schema check, not a closed main capture or optimization
+result. The capture-entry wrapper has not yet been exercised on a complete real
+scientific capture. Per-validation adaptation, generated-mesh byte checks and
+archive-to-selection integration remain required; selection and launch flags
+remain false.
