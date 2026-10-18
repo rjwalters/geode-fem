@@ -1,17 +1,17 @@
-% Prospective support fragment. Not a completed study or reviewed implementation.
+% Prospective manuscript fragment bound to reviewed source; no completed study.
 % Sources: main-study-settings-supplement.json and protocol source snapshot.
 % Render with amsmath, amssymb, booktabs, array and hyperref.
 \section{Prospective settings supplement}
 \label{sec:prospective-settings}
 
 This supplement records the adopted experiment definitions and their source
-provenance before main results. Geometry tables use merged source
-\texttt{43db1c62}; additional implementation observations use provisional,
-unmerged sources \texttt{116d08c7} (optimizer options) and
-\texttt{848fa480} (anchor preflight). Those observations require reconciliation
-with the reviewed merge before execution. The accompanying JSON records full
-commit identifiers and file SHA-256 hashes. No main-run manifest or outcome
-is supplied here.
+provenance before main results. All ten source files are bound to reviewed
+merge \texttt{9486a9da} (PR~1206), the source used by the main session.
+The accompanying JSON records the full commit identifier and file SHA-256
+hashes. Numeric tables, optimizer options and the anchor tolerance are
+checked against those immutable sources. This transcription check does not
+replace the complete main-run manifest or measured outcomes, which are not
+supplied here.
 
 \subsection{Design coordinates and bounds}
 
@@ -115,7 +115,7 @@ The separately adopted platform check precedes calibration: the relative
 errors in the recomputed $F_0$ and full-current mean must each be at most
 $10^{-9}$, and each torque sample's absolute error must be at most
 $10^{-9}\,\mathrm{N\,m}$. The source snapshot and numeric verifier bind these
-limits to the proposed implementation; they do not establish execution on
+limits to the reviewed implementation; they do not establish execution on
 the main host. The canonical anchor, strict file parsing, input identities
 and same-host checks remain fixed. Newton counts are recorded without a
 cross-platform equality requirement. Python is pinned to the 3.12 minor
@@ -143,11 +143,11 @@ is pinned; success flags never determine target attainment.}
 \label{tab:prospective-optimizer-settings}
 \end{table}
 
-The provisional driver additionally sets SLSQP \texttt{maxiter=100000},
+The reviewed driver additionally sets SLSQP \texttt{maxiter=100000},
 COBYQA \texttt{maxiter} and \texttt{maxfev} to $10^9$, and \texttt{scale=False}; the explicit
 unit-box transform already scales its variables. These are finite
-implementation caps, not literally unlimited iterations. These settings were accepted before main outcomes; the reviewed
-merge must be checked against them. Every main-run record must state whether
+implementation caps, not literally unlimited iterations. These settings were
+accepted before main outcomes and match the reviewed merge. Every main-run record must state whether
 any cap was reached. This does not assert that a cap has been reached.
 
 SLSQP's refusal mechanism permits at most twenty restarts and twenty
@@ -219,7 +219,7 @@ forwards are charged as forwards, the initial fit as setup/calibration,
 and subsequent subproblems/refits as surrogate updates. Nothing is removed
 from the charged wall time as overhead.
 
-For reproducibility, the provisional implementation orders points using
+For reproducibility, the reviewed implementation orders points using
 \begin{equation}
  v(u)=\max(0,-g_r(u))+\sum_i\max(0,-h_i(u)),
 \end{equation}
@@ -228,33 +228,35 @@ wins; between feasible points, smaller training $F$ wins. It solves the RBF
 saddle system directly, falls back to a flagged least-squares solution if
 singular, uses $\rho=-\infty$ for nonpositive predicted reduction, and
 solves its surrogate subproblem with
-\texttt{maxiter=200}, $\mathrm{ftol}=10^{-14}$. The finite subproblem caps were accepted before main outcomes. The other
-observed details still require reviewed freezing; they are not new permissions to alter the
-registered comparison after outcomes.
+\texttt{maxiter=200}, $\mathrm{ftol}=10^{-14}$. The finite subproblem caps were
+accepted before main outcomes and match the reviewed source. The fixed
+implementation does not permit changes to the comparison after outcomes.
 
 \subsection{Execution provenance preparation}
 
-Private implementation \texttt{d1bae200} adds recorded evaluator builds,
+Reviewed merge \texttt{9486a9da} includes recorded evaluator builds,
 linked recovery with frozen calibration and runtime inputs, and explicit solver
-termination records. Its optimizer BLAS/LAPACK fingerprint matches the peer
-helper at \texttt{1a3a94ea}; full backend dependency dictionaries also retain
-ABI details. The source and evidence bindings are listed separately in
-\path{main-study-runtime-preparation.json}. They do not replace the earlier
-numeric-table source snapshot or establish an executed main study.
+termination records. Its optimizer runtime fingerprint includes BLAS and LAPACK
+configuration and backend dependency dictionaries with ABI details. The
+earlier runtime-preparation snapshot remains a historical private-source
+record; it is not the main execution receipt.
+The dated launch observation in \path{EXPERIMENTS.md} records accepted main
+setup and identifies the local receipts to include in the closed-session
+artifact. No optimizer outcome is included in this supplement.
 
 The final execution manifest must identify the actual build, host, concurrency,
 NumPy/SciPy and mesher runtimes, BLAS/LAPACK configurations, thread/environment
 settings and calibration. Build receipts and controlled-process tests are
-preparation evidence; the reviewed native build and main measurements remain
-pending. Whole-run solver caps and local surrogate-subproblem caps will be
+preparation evidence; the complete main measurements remain pending.
+Whole-run solver caps and local surrogate-subproblem caps will be
 reported separately, with no change to target credit.
 
 \subsection{Outstanding verification}
 
 The independent source inventory and prospective protocol do not replace
 an executable study. Before this supplement becomes publication evidence,
-bind the reviewed implementation, full guard/scale and numerical model
+link the reviewed implementation, full guard/scale and numerical model
 tables, exact main starts, host/environment/calibration, gradient sweeps,
-mixed-resolution smoke and recovery checks. All main runs and final
-candidate checks remain pending. [PENDING reviewed implementation/settings
-freeze, complete executable manifests and measured results]
+mixed-resolution smoke and recovery checks. The main session is running;
+its completed cohort and final candidate checks remain pending.
+[PENDING complete public artifact links, executable manifests and measured results]

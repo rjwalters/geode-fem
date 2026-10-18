@@ -1,48 +1,45 @@
 {
-  "status": "prospective supplement data, not main-run manifest or verified implementation",
+  "status": "Prospective manuscript supplement bound to reviewed main source; not a closed main-run manifest or result.",
   "source_files": {
     "benchmarks/motor_reference/reference_data.json": {
-      "commit": "43db1c626bdc2367f896905d7807979789ee22b3",
+      "commit": "9486a9da58beeca91968d4d3608f06b998abff45",
       "sha256": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3"
     },
     "crates/geode-core/tests/common/icem_experiment2.rs": {
-      "commit": "43db1c626bdc2367f896905d7807979789ee22b3",
-      "sha256": "e398f3ab4b05a0c7e951b0fd7543b82b4db2fba85c0561aef573a7d19912c837"
+      "commit": "9486a9da58beeca91968d4d3608f06b998abff45",
+      "sha256": "62d71adc8a243e4f78b1f52e31049481a30f0994b08d282725dfab5330796aae"
     },
     "crates/geode-core/src/mesh/icem_parametric.rs": {
-      "commit": "43db1c626bdc2367f896905d7807979789ee22b3",
+      "commit": "9486a9da58beeca91968d4d3608f06b998abff45",
       "sha256": "56f26f7ca7b452674e81055c1a229c962f8299cb2cd9d663e9959889e8b2f315"
     },
     "crates/geode-core/src/mesh/icem_controlpoints.rs": {
-      "commit": "43db1c626bdc2367f896905d7807979789ee22b3",
+      "commit": "9486a9da58beeca91968d4d3608f06b998abff45",
       "sha256": "208ad7b607184ed4b98650e465681971f068bfc3eee454531707207291076803"
     },
     "benchmarks/motor_optimization/harness/driver.py": {
-      "commit": "116d08c7b7de56bd0ab2753d80419fa0a222cc85",
-      "sha256": "3583fb84cd6ee8209730afcd9fdd987e5d5006de5062b9f861a9b54cf8756e4d",
-      "review_status": "provisional unmerged implementation; rebind after review"
+      "commit": "9486a9da58beeca91968d4d3608f06b998abff45",
+      "sha256": "fc1487ecd3f1c8d67256fadb7356a625d014336d4ba50bb2c3c5af731ec1f773"
     },
     "benchmarks/motor_optimization/harness/surrogate.py": {
-      "commit": "116d08c7b7de56bd0ab2753d80419fa0a222cc85",
-      "sha256": "b893ce4665be2a96bd9341b67cd5b10edb9402d7f93d7a502ac581489af895c8",
-      "review_status": "provisional unmerged implementation; rebind after review"
+      "commit": "9486a9da58beeca91968d4d3608f06b998abff45",
+      "sha256": "b893ce4665be2a96bd9341b67cd5b10edb9402d7f93d7a502ac581489af895c8"
     },
     "crates/geode-core/tests/common/icem_design.rs": {
-      "commit": "43db1c626bdc2367f896905d7807979789ee22b3",
+      "commit": "9486a9da58beeca91968d4d3608f06b998abff45",
       "sha256": "5b2f55318446e9abba8c35661b5af29f045ff62dc4c3c4b6932d2dce3774baed"
     },
     "crates/geode-core/tests/common/icem_cp_design.rs": {
-      "commit": "43db1c626bdc2367f896905d7807979789ee22b3",
+      "commit": "9486a9da58beeca91968d4d3608f06b998abff45",
       "sha256": "2db1ccf3002cf9b0b7d36a16e753bab294955c7ed0fd54f6cab384163a9b3db4"
     },
     "crates/geode-core/tests/common/icem_remesh.rs": {
-      "commit": "43db1c626bdc2367f896905d7807979789ee22b3",
-      "sha256": "6ec7a63da77a014de90a90988516c4062fb371d25139bde222ab8b1b6570d209"
+      "commit": "9486a9da58beeca91968d4d3608f06b998abff45",
+      "sha256": "69fb0f0b74962456624068d764610004ce6105ed4b0a7effda2a542e6432d2b7"
     },
     "benchmarks/motor_optimization/harness/anchor_preflight.py": {
-      "commit": "848fa480a3c7c54773afca036b47af9ceced3eab",
-      "sha256": "11697536e6811044d336ed97c0aa203bbf9ef2d95880bfea85384d694eaf9c31",
-      "review_status": "PR #1206 awaiting independent review; adopted rule recorded separately"
+      "commit": "9486a9da58beeca91968d4d3608f06b998abff45",
+      "sha256": "11697536e6811044d336ed97c0aa203bbf9ef2d95880bfea85384d694eaf9c31"
     }
   },
   "scalar_parameters": [
@@ -222,31 +219,22 @@
       "duplicate_tol": 0.001
     }
   },
-  "observed_provisional_options": {
-    "SLSQP_maxiter": 100000,
-    "COBYQA_maxiter": 1000000000,
-    "COBYQA_maxfev": 1000000000,
-    "COBYQA_scale": false,
-    "C_subproblem_maxiter": 200,
-    "C_subproblem_ftol": 1e-14
-  },
   "pending": [
-    "reviewed implementation and exact options",
-    "guard/scales inventory",
-    "main starts and meshes",
-    "host/calibration/environment",
-    "derivative and smoke evidence",
-    "main and final-check results"
+    "public guard/scales and numerical model tables bound to merged source",
+    "closed main manifests including starts/meshes/host/calibration/runtime",
+    "publication links for derivative, mixed-resolution and recovery evidence",
+    "main and final-check results",
+    "new manuscript independent review and audit"
   ],
   "accepted_clarification": {
     "url": "https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248418735",
     "squad_message": 724,
-    "scope": "Disclose space-motion confound; accept listed finite caps and report cap hits; reviewed merge still pending"
+    "scope": "Disclose space-motion confound; listed finite caps accepted before outcomes and verified against reviewed main source; actual cap hits remain to be reported."
   },
   "refusal_clarification": {
     "url": "https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248450266",
     "rule": "Refused C candidates count toward every-second-rejection geometry sample; sample requires buildability; never fit refused data.",
-    "implementation_status": "Provisional116d08c7 early continue must be fixed; regression and mutation pending."
+    "implementation_status": "Reviewed implementation merged through PR #1206; source-level and retained regression evidence must remain linked in the final artifact."
   },
   "repair_admissibility_clarification": {
     "url": "https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248970362",
@@ -259,7 +247,7 @@
       "5 degree mesh floor implicitly excludes some geometries",
       "space B unguarded slot-opening wall can reach 0.16 micrometres"
     ],
-    "implementation_status": "Adopted policy; reviewed merge and affected re-verification pending"
+    "implementation_status": "Reviewed implementation merged through PR #1206; actual cohort repair outcomes remain pending."
   },
   "interruption_policy": {
     "url": "https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6249073475",
@@ -270,7 +258,7 @@
     "unverified_interruption": "unresolved, never automatic retry",
     "postrun_diagnostic": "repair only diagnostic, never repeat optimizer",
     "report": "each replacement reason, evidence, original partial cost and affected job count",
-    "implementation_status": "Policy adopted; recovery execution pending"
+    "implementation_status": "Recovery implementation merged through PR #1206; complete main-session recovery history remains pending."
   },
   "cross_platform_anchor": {
     "url": "https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6252347196",
@@ -282,5 +270,19 @@
     "canonical_anchor_unchanged": true,
     "newton_iteration_counts": "record only; no cross-platform equality requirement",
     "same_host": "deterministic; A/B bitwise; calibration F and mean exactly match host preflight"
+  },
+  "reviewed_execution_source": {
+    "commit": "9486a9da58beeca91968d4d3608f06b998abff45",
+    "pull_request": "https://github.com/rjwalters/geode-fem/pull/1206",
+    "merged_at": "2026-10-18T17:53:12Z",
+    "scope": "Reviewed implementation; observed live session setup is recorded separately in EXPERIMENTS.md. Complete cohort/refinement evidence is pending."
+  },
+  "observed_reviewed_options": {
+    "SLSQP_maxiter": 100000,
+    "COBYQA_maxiter": 1000000000,
+    "COBYQA_maxfev": 1000000000,
+    "COBYQA_scale": false,
+    "C_subproblem_maxiter": 200,
+    "C_subproblem_ftol": 1e-14
   }
 }
