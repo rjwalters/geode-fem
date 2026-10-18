@@ -1,6 +1,6 @@
 {
-  "status": "Generation, validation, recovery and complete parameter/settings readers implemented against candidate schema; complete adapter integration awaits reviewed #1202 merge",
-  "commit": "89d0bf9efa901e9a103d551570642330145e44fd",
+  "status": "Source hashes reconciled unchanged against reviewed #1202 merge; complete adapter and native refinement integration remain pending",
+  "commit": "9486a9da58beeca91968d4d3608f06b998abff45",
   "source_sha256": {
     "benchmarks/motor_optimization/harness/driver.py": "fc1487ecd3f1c8d67256fadb7356a625d014336d4ba50bb2c3c5af731ec1f773",
     "benchmarks/motor_optimization/harness/run.py": "8bb3610ed859975077df4c566a6c91c018fb7886fe71f067ee38637ba2913bc2",
@@ -25,5 +25,6 @@
     "benchmarks/motor_reference/reference_data.json": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3",
     "benchmarks/motor_optimization/harness/starts.json": "d4840d876b35e8dffe775c109e3d195a2fa3d980224738213b9d22c01128f759"
   },
-  "scope": "Read-only archive/recovery reconciliation, recorded validation checks and registered parameter/settings mapping; source/runtime/capture authentication, geometry reconstruction and native refinement remain pending; no main result"
+  "scope": "Read-only archive/recovery reconciliation, recorded validation checks and registered parameter/settings mapping; source/runtime/capture authentication, geometry reconstruction and native refinement remain pending; no main result",
+  "candidate_commit": "89d0bf9efa901e9a103d551570642330145e44fd"
 }

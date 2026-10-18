@@ -76,10 +76,11 @@ offsets, build fresh meshes and verify supported rotations before choosing
 the estimator. Unknown or nonzero offsets cannot imply conforming eligibility.
 Nonzero rotor offsets alone do not exclude an otherwise supported check.
 
-Dependency #1201 has merged at `5c998bda`; #1202 five-method integration
-remains under review in PR #1206. Recovery-chain reconciliation, scientific validation adaptation, the
-L3/g40/tight/shifted/conforming runner, resource accounting, and a real wiring
-smoke remain pending integration against the reviewed merge.
+Dependency #1201 merged at `5c998bda`; #1202 five-method integration merged
+through PR #1206 at `9486a9da`. This branch incorporates that reviewed merge;
+all 22 adapter source bindings match the previously tested candidate byte for byte.
+The complete archive adapter, L3/g40/tight/shifted/conforming runner, resource
+accounting, and a real wiring smoke remain pending.
 This module alone does not complete #1203 or validate any scientific claim.
 
 
@@ -137,7 +138,7 @@ The read-only [adapter contract](adapter-contract.md) maps the current trace
 and recovery fields to this API, bound to the source hashes in
 `adapter-source-contract.json`. It identifies the credit-margin distinction
 and the need to obtain fresh primary waveforms for refinement. The generation reader below implements its file-binding layer; the complete
-adapter and merged-source reconciliation remain pending.
+adapter remains pending; source hashes have been reconciled against the reviewed merge.
 
 `geometry_evidence.py` is a pure preparation helper for the future adapter. It
 checks complete declared guard sets, finite normalized margins, construction
@@ -266,11 +267,11 @@ Its 100 completed jobs retain 101 attempts, including one contamination replacem
 the entire resulting policy matches the reader, and archive bytes/modification times
 remain unchanged. No optimizer or FEM solve runs. Nine semantic mutation checks and
 the raw production-probe archive are recorded in `recovery-evidence-checks.json`.
-Until the dependency merge, pass the explicit candidate harness directory:
+Recovery tests now use the merged harness in this checkout by default:
 
 ```sh
-python3 -I benchmarks/motor_optimization/final_refinement/test_recovery_evidence.py --harness /path/to/candidate/benchmarks/motor_optimization/harness
-python3 -I benchmarks/motor_optimization/final_refinement/recovery_mutations.py --harness /path/to/candidate/benchmarks/motor_optimization/harness
+python3 -I benchmarks/motor_optimization/final_refinement/test_recovery_evidence.py
+python3 -I benchmarks/motor_optimization/final_refinement/recovery_mutations.py --harness benchmarks/motor_optimization/harness
 ```
 
 
