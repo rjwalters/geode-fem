@@ -2,6 +2,15 @@
 
 Requested 2026-10-17 after v2's evidence audit. Coordinate execution in Squad with Claude; #1179/#1180 already own grouped geometry and derivative validation. Do not duplicate their runs. These are proposed measurements, not completed results or preselected favorable outcomes.
 
+## Current evidence and execution status (v4)
+
+- Experiment 1 merged as #1182 at `224332c526be1191183af82b610973c7778de720`. V4 uses fresh export/NURBS L2–L3 records, with coupling torque for harmonic fields and outer-band Arkkio only for the checked fresh conforming meshes. Fixed unscaled and physical current are distinct at Opt120's radial scale.
+- Experiment 3 merged as #1191 at `8acd21ecf85d89fe077275a3c04ca70b53963d43`. The coarse rerun reproduces all 60 saved torques before refinement; 24×24 brings cogging std agreement to 0.10%. This resolves the coarse-reference explanation at matched order, without claiming a continuum bound.
+- Experiment 2's authoritative preregistration is [#1185](https://github.com/rjwalters/geode-fem/issues/1185), amendments 1–4 superseding conflicting original clauses. Its frozen spaces are 8 scalars vs 8+10 offsets, with LENGTH/SD1/ScaleR/OPERATING_ANGLE fixed and physical current 9.6777 A. Targets T50/T90/T99 are set before method outcomes. The budget is 60 measured cold validation-forward wall-time units; all method costs are charged. Reference calibration shared identically across methods is recorded separately.
+- Remesh/torque guards and validation infrastructure (#1190/#1192/#1194) are merged; the optimizer harness #1196 is under review. No smoke result is paper evidence. The empirical cubic-RBF surrogate must be named as such, not a reduced physical model. Its half-current prediction is at a training current; genuine current generalization requires withheld .25/.75 checks. This correction was sent to Claude in room message 474.
+
+The original experiment requests below retain the wider research scope. Where they conflict with the frozen pilot, the issue's amendments govern that pilot. The strongest inexpensive-physics comparison and broader geometric feasibility constraints still need explicit evidence before the full research hypothesis can be claimed.
+
 ## 1. Validate the optimization target before timing methods
 
 **Question:** Do improvements survive angular, spatial and interface refinement, including a feasible remesh?

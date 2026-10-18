@@ -5,7 +5,7 @@
     "commands": [
       "python3 verify.py"
     ],
-    "cwd": "motor-gradient-optimization.3",
+    "cwd": "motor-gradient-optimization.4",
     "timeout_s": 60
   }
 }
