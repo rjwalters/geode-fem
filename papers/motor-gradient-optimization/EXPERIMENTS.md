@@ -97,6 +97,12 @@ The remaining decisions from #18 are:
 
 No targets, starts, budgets or optimizer trajectories are changed by this scope decision. The central useful-design-space, refinement-validity and inexpensive-physics comparison remains required.
 
+### Start sampling (explicit rule before main outcomes)
+
+Squad review #21 and the [start-eligibility clarification](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247585770) retain the moved-mesh preflight: a start must be buildable and geometrically admissible in both spaces, and the theta0 mesh moved to it must pass the mesh policy **without remeshing**, at both L0 and L1. The optimizer's later iterates may use the full four-attempt repair policy. Try the frozen pilot indices first and keep them if eligible; record every rejection and deterministic replacement. Geometry/mesh preflight costs are recorded outside the run budgets; no FEM is needed for this selection.
+
+This samples the part of the domain reachable by acceptable motion of the reference meshes, tending toward moderate deformations. The five starts are not uniform draws from the admissible box, and two timing repeats are not additional independent designs. Report the comparison as a paired per-start case study under this sampling rule. The historical pilot checked L0; the main study adds L1 and the prospective normalized construction margins.
+
 ### Final-refinement selection (reviewed before main outcomes)
 
 Squad review #19, the [adopted amendment-8 addendum](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247383821), and its [feasibility/repeat clarification](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247421487) define the final check cohort. [Implementation #1203](https://github.com/rjwalters/geode-fem/issues/1203) follows #1202; the following are prospective checks, not completed evidence.
