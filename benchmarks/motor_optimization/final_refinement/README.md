@@ -574,3 +574,10 @@ calibration consistency, canonical anchor parsing, per-validation geometry/mesh/
 credit/timing checks, full design adaptation and scientific selection remain the
 next integration layer. A trusted digest must not be manufactured by hashing an
 untrusted archive and then treating that hash as an independent capture receipt.
+
+The synthetic archive preserves permission bits as well as bytes. Its extracted
+replay passes when those modes are retained. Python's `data` tar filter changes
+the fixture evaluator from mode `0555` to `0755`, which the complete census
+correctly rejects. For this hash-pinned archive, validate that all members are
+regular relative paths with ordinary permission bits, then use the `tar` filter
+to preserve modes; `capture-archive-checks.json` records that packaged replay.

@@ -36,5 +36,13 @@
     "Original setup/calibration and per-validation scientific/design/mesh/credit integration.",
     "Independently reviewed full driver and actual closed main capture.",
     "Final selected-cohort execution and main-study performance evidence."
-  ]
+  ],
+  "packaged_replay": {
+    "status": "PASS",
+    "source_archive_sha256": "4f39a22361c5f195cdae93a9c62107095e1120df96379c5582ec2a2a7e623856",
+    "files_checked": 128,
+    "extraction": "Verify pinned archive SHA-256, require regular relative members without traversal or special mode bits, then tarfile.extractall(filter=\"tar\") to preserve original ordinary permission bits.",
+    "command_after_extraction": "python3 -I replay.py /path/to/geode-fem",
+    "permission_mutation_check": "Python data filter changed the fixture evaluator mode from 0555 to 0755; full census verification correctly refused it. Permission-preserving extraction passed."
+  }
 }
