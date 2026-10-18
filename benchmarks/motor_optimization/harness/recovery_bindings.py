@@ -90,6 +90,8 @@ def inputs(session):
     evaluator = session["evaluator"]
     paths = {"binary": evaluator["binary"], "validation_mesh": evaluator["val_mesh"],
              "anchor": evaluator["anchor"], "starts": session["starts"]}
+    if evaluator.get("build_receipt"):
+        paths["build_receipt"] = evaluator["build_receipt"]
     paths.update({f"training_{name}": model["train_mesh"] for name, model in session["models"].items()})
     return {name: {"path": str(Path(path).resolve()), "sha256": runtime_fingerprint.sha(path)}
             for name, path in paths.items()}
@@ -133,6 +135,11 @@ def validate_setup(bound, provenance, meshes):
                 "validation_mesh": meshes["validation"]["sha256"],
                 "anchor": meshes["anchor"]["sha256"], "starts": meshes["starts"]["sha256"],
                 "training_" + bound["session"]["primary_model"]: meshes["train"]["sha256"]}
+    if provenance.get("evaluator_build"):
+        proof = provenance["evaluator_build"]
+        if proof.get("verified") is not True:
+            raise ValueError("evaluator build provenance is unverified")
+        expected["build_receipt"] = proof["sha256"]
     for name, sha in expected.items():
         if bound["inputs"][name]["sha256"] != sha:
             raise ValueError(f"input changed during setup: {name}")

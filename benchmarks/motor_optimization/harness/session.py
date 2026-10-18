@@ -64,6 +64,7 @@ import main_schedule  # noqa: E402
 import session_journal  # noqa: E402
 import interruption  # noqa: E402
 import owned_child  # noqa: E402
+import build_provenance  # noqa: E402
 
 ROOT = HERE.parents[2]
 OPT = ROOT / "benchmarks/motor_optimization"
@@ -651,6 +652,7 @@ def _main(argv=None, stop=None):
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--smoke", action="store_true")
     mode.add_argument("--main", action="store_true")
+    ap.add_argument("--build-receipt", type=Path, help="required for main: witnessed evaluator build receipt")
     ap.add_argument("--budget-fe", type=float, default=None)
     ap.add_argument("--max-wait", type=float, default=1800.0,
                     help="longest pre-run wait for load <= N + 1 (s)")
@@ -676,6 +678,8 @@ def _main(argv=None, stop=None):
         interruption.check(stop)
         before = host_record()
         prov = provenance(a.binary)
+        if a.main or a.build_receipt is not None:
+            prov["evaluator_build"] = build_provenance.verify(a.build_receipt, a.binary, prov.get("source"))
         journal.emit("setup_started", host=before, provenance=prov)
         label = "smoke" if a.smoke else "main"
         starts_path = HERE / "starts.json"
@@ -759,6 +763,8 @@ def _main(argv=None, stop=None):
                                  "train_level": tl, "val_level": vl},
                    "starts": str(starts_path), "procs": a.procs,
                    "linear_algebra": prov["linear_algebra"]}
+        if a.build_receipt is not None:
+            session["evaluator"]["build_receipt"] = str(a.build_receipt.resolve())
         interruption.check(stop)
         session_journal.freeze(out / "session.json", session)
         jobs = (build_jobs(starts, SPACES, repeats) if a.smoke else

@@ -76,6 +76,7 @@ class JournalTests(unittest.TestCase):
                 cals = [good_cal(), good_cal()]; cals[bad_index]["host"]["host_contaminated"] = True
                 with patch.object(session, "host_record", return_value={}), \
                      patch.object(session, "provenance", return_value={}), \
+                     patch("build_provenance.verify", return_value={"verified": True}), \
                      patch.object(session, "sha256", return_value="fixture-hash"), \
                      patch("start_preflight.verify", return_value={"status": "PASS"}), \
                      patch.object(session, "gated_calibration", side_effect=cals), \
@@ -107,6 +108,7 @@ class JournalTests(unittest.TestCase):
                 return [dict(rows[0], status="deferred", exit=None, host_contaminated=None), *rows]
             with patch.object(session, "host_record", return_value={}), \
                  patch.object(session, "provenance", return_value={}), \
+                 patch("build_provenance.verify", return_value={"verified": True}), \
                  patch.object(session, "MESHES", meshes), patch.object(session, "OPT", root), \
                  patch.object(session, "HERE", root), \
                  patch("recovery_bindings.capture", return_value={"schema": 1, "source": {"tree_clean": True}}) as capture, \

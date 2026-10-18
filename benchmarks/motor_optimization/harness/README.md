@@ -610,7 +610,8 @@ $H/pyrun.sh $H/session.py --smoke --procs 6 --budget-fe 20 [--host-gate off] \
 $H/pyrun.sh $H/summarize_session.py benchmarks/motor_optimization/smoke/amendment7
 $H/pyrun.sh $H/mutation_checks.py
 # Main runs (not run here; they need the operator's host):
-# $H/pyrun.sh $H/session.py --main --procs N --out benchmarks/motor_optimization/runs/main
+# $H/pyrun.sh $H/session.py --main --procs N --out benchmarks/motor_optimization/runs/main \
+#   --binary BUILD_RECORD/icem_harness_eval --build-receipt BUILD_RECORD/build-receipt.json
 ```
 
 ### Amendment-8 integration in progress (#1202)
@@ -634,7 +635,7 @@ the reference before design motion and must be interpreted with the selected poi
 
 This is partial implementation, not launch readiness. Durable session/recovery
 and contaminated-calibration refusal are implemented with controlled tests;
-independent review and native build provenance remain required. Frozen-start and L0 gradient evidence is described below. The retained scalar-theta0
+independent review and a recorded native build on the reviewed source remain required. Frozen-start and L0 gradient evidence is described below. The retained scalar-theta0
 mixed L0/L2 smoke verifies model separation, not an optimization outcome. Do not
 launch a main study from this intermediate branch. `test_baseline_wiring.py`
 checks model/validator separation, calibration denominator, shared optimizer
@@ -1026,7 +1027,7 @@ concurrent-launch exclusion. Six private-copy mutations are detected. Test adapt
 replace numerical evaluation and expensive source/runtime probes; these are process
 and policy checks, not native FEM or performance evidence. The CLI and internal
 worker still require independent review and the reviewed dependency rebase before
-main use. Native build provenance and main-host selection remain open.
+main use. The recorded native build on reviewed sources and main-host selection remain open.
 
 
 ### Solver termination and cap reporting (#1202)
@@ -1059,3 +1060,46 @@ ordinary convergence, all four A/B/D/E methods, target-stop preservation, aborte
 calls and C's separate local limits. Four mutations are detected; 88 related
 harness/safeguard/inventory/journal/interruption tests pass. These checks use scalar
 test objectives or controlled evaluator fixtures, not native performance data.
+
+
+### Witnessed evaluator build (#1202)
+
+A binary hash alone does not establish which source produced it. Before main
+execution, run the build recorder from the clean worktree root:
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/build_provenance.py --out target/build-record-UNIQUE
+```
+
+The recorder uses the Loom-owned target named by the environment/marker when
+present, otherwise this worktree's `target/`. An advisory OS lock excludes another
+recorder on that target. It invokes `cargo build --locked --release -p geode-core
+--example icem_harness_eval`, records the exact command, verbose Cargo JSON/log,
+compiler/Cargo versions and executable hashes, Cargo configuration hashes and
+build-environment digest. The clean experiment source inventory, commit and build
+environment must match before and after compilation. Failed or interrupted builds
+keep their journal/log and never publish a successful receipt. After interruption,
+verify process cleanup before starting another build against that target.
+
+Cargo must report a successful build and exactly one evaluator artifact at the
+selected private target. Its `fresh` field is retained: a cached artifact is not
+misrepresented as recompilation. A separate read-only evaluator copy, receipt,
+inputs and log are hash-bound by the completed journal. The immutable copy remains
+usable if later work replaces Cargo's mutable output. This is witnessed local
+build provenance, not a signature, independent review or proof against a dishonest
+local producer.
+
+Main sessions require both `--binary BUILD_RECORD/icem_harness_eval` and
+`--build-receipt BUILD_RECORD/build-receipt.json`. The verifier checks the current
+clean source inventory/commit, receipt journal and evidence hashes, Cargo artifact
+record and selected evaluator hash before preflight or calibration. The receipt is
+also bound into frozen recovery inputs and checked for changes during setup and
+recovery. A source commit change requires a new build record. Keep the record
+outside tracked experiment sources (for example in the private target as above).
+Smoke mode may optionally supply a receipt; historical smokes remain identifiable.
+
+Six controlled-build tests and four mutations pass, plus 37 journal, preflight,
+binding, cancellation and recovery-execution regressions. The tests launch actual
+controlled child processes that emit fixture Cargo records; they do not compile
+Rust. The native recorder invocation, reviewed dependency rebase, affected native
+verification, independent review and main-host selection are still pending.

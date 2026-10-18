@@ -43,6 +43,7 @@ class PreflightTests(unittest.TestCase):
             binary.write_bytes(b"fixture")
             with patch.object(session, "host_record", return_value={}), \
                  patch.object(session, "provenance", return_value={}), \
+                 patch("build_provenance.verify", return_value={"verified": True}), \
                  patch.object(session, "sha256", return_value="fixture-hash"), \
                  patch.object(preflight, "verify", return_value={"status": "failed"}), \
                  patch.object(session, "gated_calibration", side_effect=AssertionError("calibration must not begin")) as gate, \
