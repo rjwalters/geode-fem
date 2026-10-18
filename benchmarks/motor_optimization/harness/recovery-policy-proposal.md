@@ -40,7 +40,10 @@ interruptions remain unresolved with no automatic rerun.
 
 Pending implementation: linked recovery execution and diagnostic-only dispatch,
 including fresh process-absence checks at dispatch, and execution tests of this
-adopted policy. A separately recorded diagnostic-only worker now has controlled
+adopted policy. The pure policy planner and fixed, exclusively owned registry now
+have controlled tests for first-completion selection, queue phases, replacement
+limits across generations, retained costs, immutable plans and process exclusion.
+These components do not themselves dispatch work. A separately recorded diagnostic-only worker now has controlled
 tests for input bindings, outcome preservation, interruption and process cleanup;
 it has no CLI and does not determine eligibility or authorize a launch.
 Cooperative run/session cancellation, stopped-result snapshots,

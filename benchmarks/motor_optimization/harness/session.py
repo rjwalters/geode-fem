@@ -360,10 +360,20 @@ def session_host_idle(results):
         done = [r for r in runs if r.get("status", "ran") == "ran"]
         if not done:
             return False
+        if any(r["host_contaminated"] is None for r in done):
+            return False
         if done[0]["host_contaminated"] and not any(
                 not r["host_contaminated"] for r in done[1:]):
             return False
     return True
+
+
+def completed_attempt(result):
+    """Complete scientific outcomes include recorded failures and censoring."""
+    return (result.get("status") == "ran" and result.get("optimizer_completed") is True
+            and result.get("stop_reason") != "interrupted"
+            and result.get("diagnostic_status") in
+            ("not_requested", "ok", "failed", "unavailable", "no incumbent"))
 
 
 def gate(ctx, wait=wait_for_idle):
@@ -380,7 +390,8 @@ def gate(ctx, wait=wait_for_idle):
 def run_job(job, ctx, suffix="", wait=wait_for_idle, spawn=None):
     """Journal each attempt before its gate, and each terminal disposition."""
     journal = ctx.get("journal")
-    attempt = (journal.emit("attempt_created", job=job, suffix=suffix)
+    attempt = (journal.emit("attempt_created", job=job, suffix=suffix,
+                            recovery_reason=(ctx.get("recovery_reasons") or {}).get(job["name"]))
                if journal is not None else None)
     local = dict(ctx, attempt_id=attempt)
     try:
@@ -784,7 +795,9 @@ def _main(argv=None, stop=None):
         session_journal.freeze(out / "bindings.json", {
             "files": {name: sha256(out / name) for name in pinned},
             "provenance": prov, "meshes": meshes, "host": before,
-            "procs": a.procs, "unit_seconds": cal["unit_seconds"]})
+            "procs": a.procs, "unit_seconds": cal["unit_seconds"],
+            "session_directory": str(out),
+            "recovery_registry": str(out.with_name(out.name + ".recoveries"))})
         journal.emit("session_ready", bindings_sha256=sha256(out / "bindings.json"))
         try:
             results = schedule(jobs, ctx, a.max_deferrals)
@@ -794,6 +807,7 @@ def _main(argv=None, stop=None):
             # re-run: contamination is only recorded.
             again = [j for j in jobs
                      if any(r["job_name"] == j["name"] and r["status"] == "ran"
+                            and r.get("optimizer_completed") is True
                             and r["host_contaminated"] for r in results)]
             if ctx["gate"] and again:
                 results += schedule(again, ctx, a.max_deferrals, suffix="_rerun1")
@@ -815,7 +829,7 @@ def _main(argv=None, stop=None):
             and not cal["host"]["host_contaminated"] \
             and not (secondary_cal and secondary_cal["host"]["host_contaminated"])
         unresolved = [j["name"] for j in jobs if not any(
-            r["job_name"] == j["name"] and r["status"] == "ran" and r["exit"] == 0
+            r["job_name"] == j["name"] and completed_attempt(r)
             and (not ctx["gate"] or r["host_contaminated"] is False) for r in results)]
         complete = not unresolved and monitor.error is None
         manifest = {"issue": 1201, "label": label, "session_id": session_id,

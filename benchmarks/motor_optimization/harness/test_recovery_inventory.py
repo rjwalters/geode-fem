@@ -23,12 +23,14 @@ class RecoveryInventoryTests(unittest.TestCase):
         j.emit("session_ready", bindings_sha256=digest(root / "bindings.json"))
         return j, jobs
 
-    def complete(self, j, job, suffix="", contaminated=False, reason="budget", objective=10):
+    def complete(self, j, job, suffix="", contaminated=False, reason="budget", objective=10, exit_code=0):
         attempt = j.emit("attempt_created", job=job, suffix=suffix)
         j.emit("attempt_dispatched", attempt_id=attempt, trace=job["name"] + suffix + ".json")
         name = job["name"] + suffix + ".json"
-        freeze(j.root / name, dict(job, stop_reason=reason, objective=objective))
-        j.emit("attempt_finished", attempt_id=attempt, result={"status": "ran", "exit": 0,
+        freeze(j.root / name, dict(job, stop_reason=reason, objective=objective,
+                                  unit_seconds=3., budget_fe=120., optimizer_completed=True,
+                                  diagnostic_status="not_requested"))
+        j.emit("attempt_finished", attempt_id=attempt, result={"status": "ran", "exit": exit_code,
                "trace": name, "trace_sha256": digest(j.root / name), "host_contaminated": contaminated})
         return attempt
 
@@ -116,6 +118,34 @@ class RecoveryInventoryTests(unittest.TestCase):
             result = inventory(root)
             self.assertGreater(result["incomplete_tail_bytes"], 0)
             self.assertEqual(result["jobs"][0]["disposition"], "interrupted_unresolved")
+
+    def test_nonzero_scientific_error_is_a_completed_preserved_outcome(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "session"; j, jobs = self.prepare(root)
+            first = self.complete(j, jobs[0], reason="error", exit_code=1)
+            self.complete(j, jobs[0], suffix="_later", objective=1)
+            j.close()
+            row = inventory(root)["jobs"][0]
+            self.assertEqual(row["disposition"], "completed_preserve")
+            self.assertEqual(row["eligible_completion"]["attempt_id"], first)
+
+    def test_killed_before_trace_and_unfinalized_completed_trace_remain_distinct(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "session"; j, jobs = self.prepare(root)
+            attempt = j.emit("attempt_created", job=jobs[0], suffix="")
+            j.emit("attempt_dispatched", attempt_id=attempt, trace="done.json")
+            j.emit("attempt_finished", attempt_id=attempt, result={"status": "ran", "exit": -9,
+                "trace": "done.json", "trace_sha256": None, "host_contaminated": False})
+            attempt = j.emit("attempt_created", job=jobs[1], suffix="")
+            j.emit("attempt_dispatched", attempt_id=attempt, trace="scientific.json")
+            freeze(root / "scientific.json", dict(jobs[1], optimizer_completed=True,
+                diagnostic_status="pending", ledger={"total_fe": 120.}))
+            j.close()
+            rows = inventory(root)["jobs"]
+            self.assertTrue(rows[0]["attempts"][0]["outcome"]["missing_trace"])
+            self.assertEqual(rows[0]["disposition"], "interrupted_unresolved")
+            self.assertTrue(rows[1]["attempts"][0]["unfinalized_trace"]["optimizer_completed"])
+            self.assertIsNone(rows[1]["eligible_completion"])
 
 
 if __name__ == "__main__":

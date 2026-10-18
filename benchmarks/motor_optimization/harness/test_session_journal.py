@@ -100,8 +100,10 @@ class JournalTests(unittest.TestCase):
             def preflight(binary, starts, meshes, path, **kwargs):
                 record = {"status": "PASS"}; freeze(path, record); return record
             def schedule(jobs, *a, **k):
-                rows = [dict(job, job_name=job["name"], status="ran", exit=0, host_contaminated=False)
+                rows = [dict(job, job_name=job["name"], status="ran", exit=0, host_contaminated=False,
+                             optimizer_completed=True, diagnostic_status="not_requested", stop_reason="budget")
                         for job in jobs]
+                rows[0].update(exit=1, stop_reason="error")
                 return [dict(rows[0], status="deferred", exit=None, host_contaminated=None), *rows]
             with patch.object(session, "host_record", return_value={}), \
                  patch.object(session, "provenance", return_value={}), \
@@ -163,6 +165,7 @@ class JournalTests(unittest.TestCase):
                    "procs": 1, "max_wait": 1, "interval": .01, "gate": True}
             job = {"name": "slsqp_a_theta0_r1", "method": "slsqp", "space": "a", "start": "theta0",
                    "repeat": 1, "position": 0}
+            ctx["recovery_reasons"] = {job["name"]: "external_interruption"}
             def spawn(cmd, **kw):
                 p = Path(cmd[cmd.index("--out") + 1]); p.write_text(json.dumps({"stop_reason": "budget"}))
                 return SimpleNamespace(returncode=0)
@@ -174,6 +177,7 @@ class JournalTests(unittest.TestCase):
             events = read_events(root / "events.jsonl")["events"]
             self.assertEqual([e["kind"] for e in events], ["session_created", "attempt_created",
                              "attempt_dispatched", "attempt_finished", "attempt_created", "attempt_failed"])
+            self.assertEqual(events[1]["recovery_reason"], "external_interruption")
             self.assertEqual((root / result["trace"]).read_bytes(), raw)
             self.assertIsNotNone(result["trace_sha256"])
 

@@ -924,3 +924,47 @@ installed package contents with unchanged version labels, host/settings/unit
 changes, failed probes and changes during calibration. Six private-copy mutations
 are detected. The journal integration test also verifies that a dirty-source
 refusal cannot dispatch or emit `session_ready`.
+
+### Recovery policy and durable chain (#1202)
+
+`recovery_policy.plan` consumes the original inventory followed by every recovery
+generation in registry order. It preserves the first clean completed optimizer
+outcome, including scientific errors with nonzero process exits. The normal
+session summary uses the same completion rule; a pending/interrupted diagnostic
+keeps the session incomplete while preserving its optimizer outcome. Unknown
+load coverage does not establish an idle host, and incomplete optimization cannot
+earn a contamination rerun just because its observed load was high.
+
+Jobs with no attempt ever created remain in the registered queue. Created but
+never-dispatched/deferred jobs, allowed external replacements and contamination
+reruns form the following phase, in original relative order. Dispatched recovery
+attempts record their policy reason; the original `_rerun1` suffix also counts
+against the single contamination allowance. Neither allowance resets when a new
+generation is opened. A deferred replacement consumes no allowance until dispatch.
+The plan retains every attempt and its partial cost evidence and reports both
+replacement-job and unresolved-job counts.
+
+Whole-run replacement requires an explicitly supplied, separately reviewed,
+attempt-bound external-event attestation with reviewer/reference/reason and hashed
+evidence files. The planner verifies its structure and file hashes; the named
+reviewer remains responsible for verifying the cause. Observing a signal alone is
+insufficient. A trace showing completed optimization without a finalized parent
+record remains unresolved and cannot become a whole-run replacement. Diagnostic
+repairs preserve the optimizer and the first terminal diagnostic result, including
+failure; later better-looking results do not replace it.
+
+The original session now freezes its own location and a sibling `NAME.recoveries`
+registry path. `recovery_registry.Registry` uses an OS file lock to serialize the
+whole chain, saves an immutable plan before each generation reservation, binds
+the previous journal, and seals completed generation hashes. It never changes the
+original session. A renamed source, redirected registry, missing generation,
+changed plan/history, unregistered branch, torn append or live generation is a
+refusal, not permission to start a fresh chain. The process-absence and runtime
+checks remain separate requirements. An unresolved partial reservation requires
+inspection; it is never deleted automatically to reset the history.
+
+Ten policy tests, seven inventory tests and six registry tests pass. The registry
+test uses two real processes to verify exclusion and lock release after a forced
+exit. Nine private-copy regressions are caught. These components have no recovery
+dispatch CLI yet; connecting them to isolated workers, fresh checks and the frozen
+queue is the remaining implementation step.

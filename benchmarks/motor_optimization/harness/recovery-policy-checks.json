@@ -1,0 +1,153 @@
+{
+  "python": "3.12.13 (main, May 10 2026, 19:20:41) [Clang 22.1.3 ]",
+  "baseline_source_sha256": {
+    "test_baseline_wiring.py": "822d009c09260270c3db7f3598aa27cfa434978df31d8255925bd1762ca28d78",
+    "test_run_interruption.py": "779daa40f7bae89175b1851fee0327cc2cee5e632b37c68fa90a0d379989fee5",
+    "test_session_journal.py": "2d467afd565cec6f95c06d2146dc48cd25810729ad6f588204361925e6240bb2",
+    "physical_diagnostic.py": "bc3ad1fd113fc8f9661856e795cfe18db516fa495eac30a4c80d2a189a4761f2",
+    "test_recovery_registry.py": "1ee006f652875f8a99d350e1b127a8869ed35fd6dce4c458b0a8bb631c6222a4",
+    "run.py": "8172b40c7c0f5cf4e5018db84b81f894b09b80f0dc9bbe7c818d098f81f32925",
+    "diagnostic_repair_mutations.py": "dd1fda4fc1e01d0761d6a0c2f4bb18515037b2f0dc8e5cb4a4379c300226c679",
+    "resource_usage.py": "38d7c3ef6522766d15a08defe9668d5b6298b2ac52c86f82578a54d0fa6cb368",
+    "process_verification.py": "fce9667df3fb454a85f1d353e00f4322809ed4f227694c9df03be3149a445ea5",
+    "runtime_fingerprint.py": "ca6ab217aa04f05233c33535393a411ef9864575a2084064a9d3c6dfd005bb58",
+    "test_harness.py": "163758206f1a5ec6f8e7879ca4c964688931300ba0d425038d800f571a4c0075",
+    "session_cancellation_mutations.py": "22c6464bba4a9d54f70ff4390b2cbb17e0a14d82b5b9d5e4bccc7b94341290d7",
+    "run_interruption_mutations.py": "e6ade09c532bdd305e0e603e324180dc902128716e4d2b603d487cbfb2babb11",
+    "mixed_model_smoke.py": "eb729482e01bd521f4a198a7c95e7aa676713502921921c2c9b5da12ae9d6a47",
+    "acceptance.py": "a224695f0c10082ac2b1ebf8473d11c050f25e5edb669bd9d4db283072346db6",
+    "test_physical_diagnostic.py": "afe702cc6c198a208f113c5bfb97d10c2ef39570f53abf25820f5e4181d540cd",
+    "session_durability_mutations.py": "9008b630f21637d7f82f3756d64300d872b70f15cfe18402c363882d9aef477f",
+    "summarize_pilot.py": "35103a2b70f19cfbc39c82a97ed39e4b0ff5b31f97a01b6d820aa6d3d41794b0",
+    "summarize_session.py": "5eb96346eed517f0db1fb96f7cdb5632dbd6775d9ef6778477e93fdb99bfc20e",
+    "recovery_inventory.py": "26038009f093ed7416ab5b583fc3f39db289f95402ed27de097ad4700762b367",
+    "test_start_preflight.py": "74b9263fd4c0d6ff37198c0edeb28a2d103696a7e8f2a03f5c19b7ec805fbc68",
+    "ledger.py": "f9e30323b718944c7519b33aff8aa5b30bf7531008656130dc5adfb5b6dd3ea0",
+    "session.py": "33bd804a9e28ad08a374564cea145347de06232c1ba77a889bb802944cf83f65",
+    "recovery_bindings_mutations.py": "2b854c73d5a6606b347eec6958cd8735b4fdef94a062bde97221bfef9bdaaf9f",
+    "test_session_cancellation.py": "d6a5969d69ca06707350aec5d2be4f7aea366f49c33e51a5c5a5dab6f3e14218",
+    "recovery_bindings.py": "876b5b49354144d13a3710fd372cab178057bf9766a99a52901e9549c6086e3a",
+    "recovery_policy.py": "78688b65fc4221501eb7a676183ce949be31270abb75daada3b6b4d8b5b8b7db",
+    "l0_gradient_check.py": "d0c496480eae43018f6fa9efb71280622378acd3d3f9764c13bb51100ddbec9c",
+    "test_diagnostic_repair.py": "c3d445dc197f0a257d7be2f060652bf178d94df6d8b58da8146b40304f46ed76",
+    "test_recovery_inventory.py": "11598e7d4509ca94655cdd3cbe732159cc2eb0a69333fc6359d4f08ffcf0d35b",
+    "test_safeguards.py": "1889c43a9cf89ab405fbf0ccd07028a3f84db6abea1ee5156d6de8e4b1709e7e",
+    "resource_lifecycle_mutations.py": "66fcdd3d92f12debb1bcff9b6a38f796fe04a8af673770b101b2c0394d2b8f2e",
+    "test_process_verification.py": "798109b8c9b287190c13f35314c94319feceda24ecddbe622238e3ee64aa4b13",
+    "fd_check.py": "995ba489aa00916c13121f718665cef9ae9f461ee89c978215915be416c627b0",
+    "process_tracking.py": "50fcddcc894607a7a560e474ed9cd95408ee35bc7438625de2ab27b1bff4ac36",
+    "lhs.py": "3a3e85b34dfbec5742fbb9a9c0e7ed106e3a929f75c098a7ba3d1b155707badc",
+    "recovery_registry.py": "b613ad83862bb7a4d591204a889f8a11e169bee0416a5f729d293c4b380c8917",
+    "main_preparation_mutations.py": "b2e5056473a556aa27fe385e8e00e83b64d0a3f0545c27fecacccb85a71f5f33",
+    "session_journal.py": "dd2fa15a7b9bd764e61e2a6d55d68e83e814ae47a77f359d9796b11bbfa630f7",
+    "process_identity.py": "189f2add1591fbdbf979dec251b78e71c8ac6e1d8ca22ca72c2fc0c30098f729",
+    "surrogate.py": "b893ce4665be2a96bd9341b67cd5b10edb9402d7f93d7a502ac581489af895c8",
+    "test_recovery_policy.py": "d1e1d9e729279f8669b2dd345cab54c9075c6efa5fd438f4bb53ff8535028d20",
+    "setup_validation_mutations.py": "01c7ac1707c6df3276da3a27d1484905e3fe10f4f887a5fabc4f87f03b5acbe2",
+    "process_verification_mutations.py": "3dd45352d817289ccd1d75136ec7664dc1c2083e36a35ccdedb6b79a256e2c7c",
+    "recovery_policy_mutations.py": "9da712b93858e222742e36ad514aaaf9bb7128c826a42e69aea8b07b8d8badf9",
+    "resource_wiring_smoke.py": "e5009b861ab65b11b560e9efbd86ac21764d107b1e948a2bfd354f53076c9a7c",
+    "main_schedule.py": "40d7b61d963b6f9315afedde1d86665ec86f2370b084df98836a0c908877b84d",
+    "driver.py": "da3bb9405150bee20a102e1fa4f30c44a1804410564a93dc53416ea5587037be",
+    "mutation_checks.py": "979e0c7ac61cb9ff4163a85c3f161dbf38319448d457f95fa2bf4edbca901454",
+    "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8",
+    "test_recovery_bindings.py": "cc40020fc294d1aa985c494ebe48bf5b3b73259aa255a2e75016c1022c957bdf",
+    "interruption.py": "f699769cf67e2f9f5cbddb223ad3cd0dcd87e6a5110cbc1bc6da912c68fe6cee",
+    "baseline_wiring_mutations.py": "af2d6af9e32f8f381382551420dd2b39b13427eca9d2a504f817237768aaead8",
+    "recover_pilot_failures.py": "1e97e9aabd162081bbc8d3becd86a9abfc6f735c656408c18104af79b4b0dbfd",
+    "make_starts.py": "930f903c2d43f5d540d0f30c0be77e566fe08b498501881472553cbccd00540a",
+    "evaluator.py": "8b8da2194c53760be27917a4832ab518bd533c4f2284a41a096026cefa764687",
+    "owned_child.py": "873b7910ad0038e2d7df1eb9e19415d4505cc62b0fd41ad3a0fb7d09c3d63f82",
+    "physical_diagnostic_mutations.py": "ab8d6e872e5dcdb283a7b4f1f2345034fe33fe6bdb98c1ef3e7711cb09e81eca",
+    "diagnostic_repair.py": "e45159fc9fc28d4a7a5d40f0b652b3fad007833c9754f0e143ef410f53d4f99e",
+    "test_l0_gradient_check.py": "2e4346f03717437a1a172fe933ad2c6c9f21988030b4c205bbc02f5b89a0c5eb",
+    "start_preflight.py": "a15b291118599e5438222693782bd2c4252ae794ffd54d0440addd5efcbbd8f3",
+    "test_evaluator_resources.py": "59c3ed2f9301e562c3f5d8ce2eccf725cf3810958c60a5bc6df000c779d873c6"
+  },
+  "checks": [
+    {
+      "name": "baseline_policy",
+      "expected_result": true,
+      "exit_code": 0,
+      "test": null,
+      "stderr": "test_active_torn_reordered_or_unreasoned_chain_is_refused (__main__.PolicyTests.test_active_torn_reordered_or_unreasoned_chain_is_refused) ... ok\ntest_contamination_allowance_carries_original_and_recovery_reruns (__main__.PolicyTests.test_contamination_allowance_carries_original_and_recovery_reruns) ... ok\ntest_deferred_replacement_does_not_spend_allowance_before_dispatch (__main__.PolicyTests.test_deferred_replacement_does_not_spend_allowance_before_dispatch) ... ok\ntest_diagnostic_repair_preserves_optimizer_and_first_terminal_repair (__main__.PolicyTests.test_diagnostic_repair_preserves_optimizer_and_first_terminal_repair) ... ok\ntest_external_allowance_does_not_reset_across_generations (__main__.PolicyTests.test_external_allowance_does_not_reset_across_generations) ... ok\ntest_first_clean_scientific_failure_survives_later_better_results (__main__.PolicyTests.test_first_clean_scientific_failure_survives_later_better_results) ... ok\ntest_remaining_queue_precedes_original_order_recovery_tail (__main__.PolicyTests.test_remaining_queue_precedes_original_order_recovery_tail) ... ok\ntest_session_completion_preserves_scientific_failures_but_requires_finished_diagnostic (__main__.PolicyTests.test_session_completion_preserves_scientific_failures_but_requires_finished_diagnostic) ... ok\ntest_signal_alone_unknown_crash_and_changed_attestation_never_authorize_replacement (__main__.PolicyTests.test_signal_alone_unknown_crash_and_changed_attestation_never_authorize_replacement) ... ok\ntest_unfinalized_completed_optimizer_never_becomes_whole_run_replacement (__main__.PolicyTests.test_unfinalized_completed_optimizer_never_becomes_whole_run_replacement) ... ok\n\n----------------------------------------------------------------------\nRan 10 tests in 0.435s\n\nOK\n"
+    },
+    {
+      "name": "baseline_registry",
+      "expected_result": true,
+      "exit_code": 0,
+      "test": null,
+      "stderr": "test_chain_preserves_original_and_seals_plans_and_prior_generations (__main__.RegistryTests.test_chain_preserves_original_and_seals_plans_and_prior_generations) ... ok\ntest_changed_origin_prior_journal_plan_or_link_refuses_reopen (__main__.RegistryTests.test_changed_origin_prior_journal_plan_or_link_refuses_reopen) ... ok\ntest_different_source_location_cannot_reset_registry (__main__.RegistryTests.test_different_source_location_cannot_reset_registry) ... ok\ntest_live_generation_and_missing_reserved_generation_cannot_be_skipped (__main__.RegistryTests.test_live_generation_and_missing_reserved_generation_cannot_be_skipped) ... ok\ntest_real_process_lock_excludes_second_launcher_and_releases_after_kill (__main__.RegistryTests.test_real_process_lock_excludes_second_launcher_and_releases_after_kill) ... ok\ntest_torn_registry_tail_is_retained_and_not_reinitialized (__main__.RegistryTests.test_torn_registry_tail_is_retained_and_not_reinitialized) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.631s\n\nOK\n"
+    },
+    {
+      "name": "baseline_inventory",
+      "expected_result": true,
+      "exit_code": 0,
+      "test": null,
+      "stderr": "test_changed_calibration_or_trace_is_not_silently_accepted (__main__.RecoveryInventoryTests.test_changed_calibration_or_trace_is_not_silently_accepted) ... ok\ntest_classifications_preserve_all_attempts_and_never_choose_best_outcome (__main__.RecoveryInventoryTests.test_classifications_preserve_all_attempts_and_never_choose_best_outcome) ... ok\ntest_completed_optimizer_with_interrupted_diagnostic_is_never_a_rerun_candidate (__main__.RecoveryInventoryTests.test_completed_optimizer_with_interrupted_diagnostic_is_never_a_rerun_candidate) ... ok\ntest_killed_before_trace_and_unfinalized_completed_trace_remain_distinct (__main__.RecoveryInventoryTests.test_killed_before_trace_and_unfinalized_completed_trace_remain_distinct) ... ok\ntest_nonzero_scientific_error_is_a_completed_preserved_outcome (__main__.RecoveryInventoryTests.test_nonzero_scientific_error_is_a_completed_preserved_outcome) ... ok\ntest_rejected_calibration_or_different_unit_cannot_be_recovered (__main__.RecoveryInventoryTests.test_rejected_calibration_or_different_unit_cannot_be_recovered) ... ok\ntest_torn_finished_event_leaves_interrupted_attempt_unresolved (__main__.RecoveryInventoryTests.test_torn_finished_event_leaves_interrupted_attempt_unresolved) ... ok\n\n----------------------------------------------------------------------\nRan 7 tests in 0.318s\n\nOK\n"
+    },
+    {
+      "name": "later_completion_selected",
+      "expected_result": true,
+      "exit_code": 1,
+      "test": "PolicyTests.test_first_clean_scientific_failure_survives_later_better_results",
+      "stderr": "test_first_clean_scientific_failure_survives_later_better_results (__main__.PolicyTests.test_first_clean_scientific_failure_survives_later_better_results) ... FAIL\n\n======================================================================\nFAIL: test_first_clean_scientific_failure_survives_later_better_results (__main__.PolicyTests.test_first_clean_scientific_failure_survives_later_better_results)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-recovery-policy-a_hv66q5/test_recovery_policy.py\", line 77, in test_first_clean_scientific_failure_survives_later_better_results\n    self.assertEqual(out[\"jobs\"][0][\"selected_completion\"][\"key\"], key)\nAssertionError: 'recovery1#0' != 'original#0'\n- recovery1#0\n+ original#0\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "external_allowance_reset",
+      "expected_result": true,
+      "exit_code": 1,
+      "test": "PolicyTests.test_external_allowance_does_not_reset_across_generations",
+      "stderr": "test_external_allowance_does_not_reset_across_generations (__main__.PolicyTests.test_external_allowance_does_not_reset_across_generations) ... FAIL\n\n======================================================================\nFAIL: test_external_allowance_does_not_reset_across_generations (__main__.PolicyTests.test_external_allowance_does_not_reset_across_generations)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-recovery-policy-57ixx2mi/test_recovery_policy.py\", line 88, in test_external_allowance_does_not_reset_across_generations\n    self.assertEqual(out[\"jobs\"][0][\"disposition\"], \"unresolved\")\nAssertionError: 'external_replacement' != 'unresolved'\n- external_replacement\n+ unresolved\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "contamination_allowance_reset",
+      "expected_result": true,
+      "exit_code": 1,
+      "test": "PolicyTests.test_contamination_allowance_carries_original_and_recovery_reruns",
+      "stderr": "test_contamination_allowance_carries_original_and_recovery_reruns (__main__.PolicyTests.test_contamination_allowance_carries_original_and_recovery_reruns) ... \n  test_contamination_allowance_carries_original_and_recovery_reruns (__main__.PolicyTests.test_contamination_allowance_carries_original_and_recovery_reruns) (original_rerun=False) ... FAIL\n  test_contamination_allowance_carries_original_and_recovery_reruns (__main__.PolicyTests.test_contamination_allowance_carries_original_and_recovery_reruns) (original_rerun=True) ... FAIL\n\n======================================================================\nFAIL: test_contamination_allowance_carries_original_and_recovery_reruns (__main__.PolicyTests.test_contamination_allowance_carries_original_and_recovery_reruns) (original_rerun=False)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-recovery-policy-2uz75b5e/test_recovery_policy.py\", line 107, in test_contamination_allowance_carries_original_and_recovery_reruns\n    self.assertEqual(out[\"jobs\"][0][\"disposition\"], \"unresolved\")\nAssertionError: 'contamination_rerun' != 'unresolved'\n- contamination_rerun\n+ unresolved\n\n\n======================================================================\nFAIL: test_contamination_allowance_carries_original_and_recovery_reruns (__main__.PolicyTests.test_contamination_allowance_carries_original_and_recovery_reruns) (original_rerun=True)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-recovery-policy-2uz75b5e/test_recovery_policy.py\", line 107, in test_contamination_allowance_carries_original_and_recovery_reruns\n    self.assertEqual(out[\"jobs\"][0][\"disposition\"], \"unresolved\")\nAssertionError: 'contamination_rerun' != 'unresolved'\n- contamination_rerun\n+ unresolved\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nFAILED (failures=2)\n"
+    },
+    {
+      "name": "recovery_before_remaining_queue",
+      "expected_result": true,
+      "exit_code": 1,
+      "test": "PolicyTests.test_remaining_queue_precedes_original_order_recovery_tail",
+      "stderr": "test_remaining_queue_precedes_original_order_recovery_tail (__main__.PolicyTests.test_remaining_queue_precedes_original_order_recovery_tail) ... FAIL\n\n======================================================================\nFAIL: test_remaining_queue_precedes_original_order_recovery_tail (__main__.PolicyTests.test_remaining_queue_precedes_original_order_recovery_tail)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-recovery-policy-hxqo8x3l/test_recovery_policy.py\", line 66, in test_remaining_queue_precedes_original_order_recovery_tail\n    self.assertEqual([a[\"job\"][\"position\"] for a in out[\"remaining_registered\"]], [3, 5])\nAssertionError: Lists differ: [0] != [3, 5]\n\nFirst differing element 0:\n0\n3\n\nSecond list contains 1 additional elements.\nFirst extra element 1:\n5\n\n- [0]\n+ [3, 5]\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "external_evidence_not_verified",
+      "expected_result": true,
+      "exit_code": 1,
+      "test": "PolicyTests.test_signal_alone_unknown_crash_and_changed_attestation_never_authorize_replacement",
+      "stderr": "test_signal_alone_unknown_crash_and_changed_attestation_never_authorize_replacement (__main__.PolicyTests.test_signal_alone_unknown_crash_and_changed_attestation_never_authorize_replacement) ... FAIL\n\n======================================================================\nFAIL: test_signal_alone_unknown_crash_and_changed_attestation_never_authorize_replacement (__main__.PolicyTests.test_signal_alone_unknown_crash_and_changed_attestation_never_authorize_replacement)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-recovery-policy-o9yid0th/test_recovery_policy.py\", line 124, in test_signal_alone_unknown_crash_and_changed_attestation_never_authorize_replacement\n    with self.assertRaises(ValueError):\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ValueError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "unfinalized_completed_optimizer_repeated",
+      "expected_result": true,
+      "exit_code": 1,
+      "test": "PolicyTests.test_unfinalized_completed_optimizer_never_becomes_whole_run_replacement",
+      "stderr": "test_unfinalized_completed_optimizer_never_becomes_whole_run_replacement (__main__.PolicyTests.test_unfinalized_completed_optimizer_never_becomes_whole_run_replacement) ... FAIL\n\n======================================================================\nFAIL: test_unfinalized_completed_optimizer_never_becomes_whole_run_replacement (__main__.PolicyTests.test_unfinalized_completed_optimizer_never_becomes_whole_run_replacement)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-recovery-policy-j2g5wg_p/test_recovery_policy.py\", line 149, in test_unfinalized_completed_optimizer_never_becomes_whole_run_replacement\n    self.assertEqual(out[\"jobs\"][0][\"disposition\"], \"unresolved\")\nAssertionError: 'external_replacement' != 'unresolved'\n- external_replacement\n+ unresolved\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "later_diagnostic_selected",
+      "expected_result": true,
+      "exit_code": 1,
+      "test": "PolicyTests.test_diagnostic_repair_preserves_optimizer_and_first_terminal_repair",
+      "stderr": "test_diagnostic_repair_preserves_optimizer_and_first_terminal_repair (__main__.PolicyTests.test_diagnostic_repair_preserves_optimizer_and_first_terminal_repair) ... FAIL\n\n======================================================================\nFAIL: test_diagnostic_repair_preserves_optimizer_and_first_terminal_repair (__main__.PolicyTests.test_diagnostic_repair_preserves_optimizer_and_first_terminal_repair)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-recovery-policy-ce7v9rv8/test_recovery_policy.py\", line 141, in test_diagnostic_repair_preserves_optimizer_and_first_terminal_repair\n    self.assertEqual(out[\"jobs\"][0][\"selected_diagnostic\"][\"status\"], \"failed\")\nAssertionError: 'ok' != 'failed'\n- ok\n+ failed\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "registry_lock_ignored",
+      "expected_result": true,
+      "exit_code": 1,
+      "test": "RegistryTests.test_real_process_lock_excludes_second_launcher_and_releases_after_kill",
+      "stderr": "test_real_process_lock_excludes_second_launcher_and_releases_after_kill (__main__.RegistryTests.test_real_process_lock_excludes_second_launcher_and_releases_after_kill) ... /var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-recovery-policy-ep__8nr_/test_recovery_registry.py:136: ResourceWarning: unclosed file <_io.TextIOWrapper name='/private/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/tmp0jhm7033/source.recoveries/owner.lock' mode='r+' encoding='UTF-8'>\n  with self.assertRaises(BlockingIOError): Registry(source)\nResourceWarning: Enable tracemalloc to get the object allocation traceback\n/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-recovery-policy-ep__8nr_/test_recovery_registry.py:136: ResourceWarning: unclosed file <_io.TextIOWrapper name='/private/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/tmp0jhm7033/source.recoveries/events.jsonl' mode='a' encoding='UTF-8'>\n  with self.assertRaises(BlockingIOError): Registry(source)\nResourceWarning: Enable tracemalloc to get the object allocation traceback\nFAIL\n\n======================================================================\nFAIL: test_real_process_lock_excludes_second_launcher_and_releases_after_kill (__main__.RegistryTests.test_real_process_lock_excludes_second_launcher_and_releases_after_kill)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-recovery-policy-ep__8nr_/test_recovery_registry.py\", line 136, in test_real_process_lock_excludes_second_launcher_and_releases_after_kill\n    with self.assertRaises(BlockingIOError): Registry(source)\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: BlockingIOError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.073s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "reserved_plan_hash_ignored",
+      "expected_result": true,
+      "exit_code": 1,
+      "test": "RegistryTests.test_changed_origin_prior_journal_plan_or_link_refuses_reopen",
+      "stderr": "test_changed_origin_prior_journal_plan_or_link_refuses_reopen (__main__.RegistryTests.test_changed_origin_prior_journal_plan_or_link_refuses_reopen) ... /var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-recovery-policy-kq4oranr/test_recovery_registry.py:102: ResourceWarning: unclosed file <_io.TextIOWrapper name='/private/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/tmp4iplt06z/source.recoveries/owner.lock' mode='r+' encoding='UTF-8'>\n  with self.assertRaises(ValueError): Registry(source)\nResourceWarning: Enable tracemalloc to get the object allocation traceback\n/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-recovery-policy-kq4oranr/test_recovery_registry.py:102: ResourceWarning: unclosed file <_io.TextIOWrapper name='/private/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/tmp4iplt06z/source.recoveries/events.jsonl' mode='a' encoding='UTF-8'>\n  with self.assertRaises(ValueError): Registry(source)\nResourceWarning: Enable tracemalloc to get the object allocation traceback\n\n  test_changed_origin_prior_journal_plan_or_link_refuses_reopen (__main__.RegistryTests.test_changed_origin_prior_journal_plan_or_link_refuses_reopen) (changed='plan') ... FAIL\n\n======================================================================\nFAIL: test_changed_origin_prior_journal_plan_or_link_refuses_reopen (__main__.RegistryTests.test_changed_origin_prior_journal_plan_or_link_refuses_reopen) (changed='plan')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-recovery-policy-kq4oranr/test_recovery_registry.py\", line 102, in test_changed_origin_prior_journal_plan_or_link_refuses_reopen\n    with self.assertRaises(ValueError): Registry(source)\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ValueError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.286s\n\nFAILED (failures=1)\n"
+    }
+  ]
+}

@@ -65,7 +65,7 @@ def inventory(root):
             raise ValueError(f"missing or changed frozen input: {name}")
     session = json.loads((root / "session.json").read_text())
     unit = session["unit_seconds"]
-    if not isinstance(unit, (int, float)) or not math.isfinite(unit) or unit <= 0:
+    if type(unit) not in (int, float) or not math.isfinite(unit) or unit <= 0:
         raise ValueError("invalid frozen validation unit")
     for name in ("calibration_primary.json", "calibration_secondary.json"):
         if name not in bindings["files"]:
@@ -83,7 +83,8 @@ def inventory(root):
     for e in events:
         if e["kind"] == "attempt_created":
             attempts[e["sequence"]] = {"attempt_id": e["sequence"], "job": e["job"],
-                                       "suffix": e["suffix"], "created_time": e["time"]}
+                                       "suffix": e["suffix"], "created_time": e["time"],
+                                       "recovery_reason": e.get("recovery_reason")}
         elif e["kind"] in ("attempt_dispatched", "attempt_finished", "attempt_failed"):
             a = attempts[e["attempt_id"]]
             key = e["kind"].removeprefix("attempt_")
@@ -102,8 +103,27 @@ def inventory(root):
         for a in prior:
             result = a.get("finished", {}).get("result")
             if result is None or result["status"] != "ran":
+                # An interrupted launcher can leave a completed optimizer trace
+                # without a terminal parent event. Retain it for forensic work;
+                # it must never become a whole-optimizer replacement candidate.
+                name = a.get("dispatched", {}).get("trace")
+                if name and Path(name).name == name and (root / name).exists():
+                    raw = json.loads((root / name).read_text())
+                    if any(raw.get(k) != job[k] for k in ("method", "space", "start", "repeat")):
+                        raise ValueError("unfinalized trace identity differs from its logical job")
+                    a["unfinalized_trace"] = {"file": name, "sha256": digest(root / name),
+                                              "optimizer_completed": raw.get("optimizer_completed"),
+                                              "ledger": raw.get("ledger"),
+                                              "diagnostic_status": raw.get("diagnostic_status")}
                 continue
             trace_name = result.get("trace")
+            if type(result.get("exit")) is not int:
+                raise ValueError("finished run lacks a process exit code")
+            if (trace_name and Path(trace_name).name == trace_name and not result.get("trace_sha256")
+                    and not (root / trace_name).exists() and result.get("exit") != 0):
+                a["outcome"] = {"optimizer_completed": False, "missing_trace": True,
+                                "reason": "no trace published before process exit"}
+                continue
             if not trace_name or Path(trace_name).name != trace_name or not result.get("trace_sha256"):
                 raise ValueError("finished attempt lacks bound trace")
             trace = root / trace_name
@@ -112,12 +132,26 @@ def inventory(root):
             raw = json.loads(trace.read_text())
             if any(raw.get(k) != job[k] for k in ("method", "space", "start", "repeat")):
                 raise ValueError("trace identity differs from its logical job")
+            for key in ("unit_seconds", "budget_fe"):
+                if raw.get(key) != session[key]:
+                    raise ValueError(f"trace changed frozen {key}")
+            if raw.get("session") != session.get("session_id") or raw.get("label") != session.get("label"):
+                raise ValueError("trace belongs to a different frozen session")
+            if type(raw.get("optimizer_completed")) is not bool:
+                raise ValueError("trace lacks explicit optimizer completion state")
+            if (raw["optimizer_completed"] is False) != (raw.get("stop_reason") == "interrupted"):
+                raise ValueError("optimizer completion contradicts its recorded stop reason")
+            if raw["optimizer_completed"] is False and result.get("exit") == 0:
+                raise ValueError("normal exit contradicts incomplete optimizer")
+            a["outcome"] = {key: raw.get(key) for key in (
+                "optimizer_completed", "stop_reason", "diagnostic_status", "ledger", "interruption",
+                "in_run_wall_seconds", "post_run_wall_seconds", "resources", "optimizer_snapshot")}
             pending_snapshot = diagnostic_pending_snapshot(root, raw)
             if result.get("host_contaminated") is False:
                 if pending_snapshot is not None:
                     a["diagnostic_pending_snapshot"] = pending_snapshot
                     completed.append((a, result))
-                elif result.get("exit") == 0:
+                elif raw["optimizer_completed"] is True and raw.get("stop_reason") != "interrupted":
                     completed.append((a, result))
         if completed:
             # First eligible completion, never lowest objective or fastest time.
@@ -131,7 +165,9 @@ def inventory(root):
                 eligible["optimizer_snapshot"] = selected["diagnostic_pending_snapshot"]
         elif not any("dispatched" in a for a in prior):
             disposition, launch, eligible = "never_started_or_deferred", True, None
-        elif any("dispatched" in a and "finished" not in a for a in prior):
+        elif any("dispatched" in a and ("finished" not in a
+                                       or a.get("outcome", {}).get("optimizer_completed") is False)
+                 for a in prior):
             disposition, launch, eligible = "interrupted_unresolved", False, None
         elif all(a.get("finished", {}).get("result", {}).get("host_contaminated") is True
                  for a in prior if "dispatched" in a):
