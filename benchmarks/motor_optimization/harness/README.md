@@ -382,8 +382,27 @@ error of the reply against central differences.
 
 ### Mutation checks
 
-`mutation_checks.py` makes 36 single-snippet mutations: 26 of the driver,
-10 of the evaluator; all 36 are killed. The four the issue names:
+`mutation_checks.py` makes 79 single-snippet mutations, all killed
+(`../logs/harness_mutation_checks.log`, one unedited run): 57 of the
+driver, session and acceptance (the Python tests), 16 of the evaluator (the
+`motor_experiment2_harness` and `motor_experiment2_domain` targets), 4 of
+the domain (that target and the `icem_domain` library tests), 1 of the
+remesh loop (the `design_remesh` library tests) and 1 of the repair
+sequence. 40 bind the amendment-7 rules of #1201 (strictness, τ, the
+derivative domain, safe evaluation, the evaluator's refusals and credit,
+the driver's credit and best feasible, C's total violation, the start
+check, the refusal before any FEM, the restoration anchor, the restart at
+y, the bisection and restart limits, the mesh probe, COBYQA's NaN, C's
+−σ retry, halvings, refusal-as-rejection and its geometry point, the
+non-cumulative attempts, the registered repair, the attempt history, the
+charged attempts, the checkpoint, the host gate, factor, limit, interval
+and idle rule, the calibration gate, the remesh hashes, the failed,
+transport-failed and aborted request points, the wall-time split and the
+validation record's evidence); 3 are #1197's K2 (B and C) and K4. A mutant
+that loops is killed by the Python suite's timeout. The #1193 script
+(`../mutation_checks.py`, 35 mutations of the validation layer) was
+regenerated after the Validator's repair loop changed: 35/35 killed
+(`../logs/mutation_checks.log`). The four the issue #1195 names:
 
 - **Wrong target:** the recorded target, and T90's fraction.
 - **δF at the wrong point:** δF at F0, and δF at the training value.
