@@ -490,21 +490,23 @@ pub struct MeshAttempt {
     pub options: &'static [(&'static str, f64)],
 }
 
-/// The frozen mesh-repair sequence (amendment 7 §3): the default; gmsh
-/// `Mesh.Optimize = 1` with `Mesh.OptimizeNetgen = 1`; the characteristic
-/// length factor 0.9; then 0.8 (`Mesh.MeshSizeFactor`, gmsh 4's name of
-/// `Mesh.CharacteristicLengthFactor`). The default already sets
-/// `Mesh.Optimize = 1`; attempt 1 adds the Netgen optimizer. The coupling
-/// circles are transfinite, so the size factor leaves the coupling grid
-/// (`120 · 2^L` segments) unchanged.
+/// The frozen mesh-repair sequence (amendment 7 §3, with the #1185 ruling
+/// on attempt 2): the default (`Mesh.Algorithm = 6`, Frontal-Delaunay);
+/// `Mesh.Algorithm = 5` (Delaunay); the characteristic length factor 0.9;
+/// then 0.8 (`Mesh.MeshSizeFactor`, gmsh 4's name of
+/// `Mesh.CharacteristicLengthFactor`). The registered attempt 2 (`Mesh.Optimize
+/// = 1` with `Mesh.OptimizeNetgen = 1`) acts on tetrahedra only and gave the
+/// default's 2-D mesh byte for byte; the ruling replaced it. The coupling
+/// circles are transfinite, so neither the algorithm nor the size factor
+/// changes the coupling grid (`120 · 2^L` segments).
 pub const MESH_REPAIR_ATTEMPTS: [MeshAttempt; 4] = [
     MeshAttempt {
         label: "default",
         options: &[],
     },
     MeshAttempt {
-        label: "optimize_netgen",
-        options: &[("Mesh.Optimize", 1.0), ("Mesh.OptimizeNetgen", 1.0)],
+        label: "algorithm_delaunay",
+        options: &[("Mesh.Algorithm", 5.0)],
     },
     MeshAttempt {
         label: "size_factor_0.9",

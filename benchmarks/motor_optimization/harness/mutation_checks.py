@@ -165,7 +165,13 @@ MUTATIONS = [
     ("evaluator_gradient_at_undefined_derivative [#1201]", RS,
      "        if gradient && !d.jacobian_defined() {", "        if false {"),
     ("evaluator_credit_without_admissibility [#1201]", RS,
-     "        let a = a.with_admissibility(d.admissible());", "        let a = a;"),
+     "        let a = a.with_admissibility(d.credit_admissible());", "        let a = a;"),
+    ("evaluator_credit_tolerance_is_zero [#1201]", DOM,
+     "pub const CREDIT_H_TOLERANCE: f64 = 1e-12;", "pub const CREDIT_H_TOLERANCE: f64 = 0.0;"),
+    ("driver_credit_tolerance_is_zero [#1201]", ACC,
+     "CREDIT_H_TOLERANCE = 1e-12", "CREDIT_H_TOLERANCE = 0.0"),
+    ("driver_credit_tolerance_too_wide [#1201]", ACC,
+     "CREDIT_H_TOLERANCE = 1e-12", "CREDIT_H_TOLERANCE = 1e-6"),
     # ── #1201: credit (adoption correction 2) ───────────────────────────
     ("driver_credit_without_admissibility [#1201]", ACC,
      "        flags[name] = (upper <= t) and mean_ok and admissible is True",
@@ -260,7 +266,8 @@ MUTATIONS = [
      '    trace["in_run_wall_seconds"] = trace["ledger"]["total_seconds"]',
      '    trace["in_run_wall_seconds"] = trace["ledger"]["total_seconds"] + (trace.get("post_run_diagnostic") or {}).get("seconds", 0.0)'),
     ("validation_record_without_geometry_evidence [#1201]", DRV,
-     '                   geometry=g["detail"], **values)', "                   geometry=None, **values)"),
+     'h_nonnegative=g["admissible"], geometry=g["detail"], **values)',
+     'h_nonnegative=g["admissible"], geometry=None, **values)'),
 ]
 
 

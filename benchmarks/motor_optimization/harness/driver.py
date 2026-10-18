@@ -53,7 +53,8 @@ import time
 import numpy as np
 from scipy.optimize import Bounds, NonlinearConstraint, minimize
 
-from acceptance import MEAN_FLOOR_MARGIN, TARGET_NAMES, Anchor, check_acceptance
+from acceptance import (CREDIT_H_TOLERANCE, MEAN_FLOOR_MARGIN, TARGET_NAMES, Anchor,
+                        check_acceptance)
 from evaluator import Aborted, EvaluatorFailure, to_bits
 from ledger import BudgetExhausted
 from surrogate import Models
@@ -297,6 +298,12 @@ class Run:
                "construction_error": g["construction_error"]}
         if rec["admissible"] and not rec["buildable"]:
             raise WiringError("an admissible point that is not buildable")
+        # Credit admissibility (the ruled tolerance), computed here from the
+        # raw h and cross-checked against the evaluator's.
+        rec["credit_admissible"] = credit_admissible(rec)
+        if g.get("credit_admissible") is not rec["credit_admissible"]:
+            raise WiringError("the evaluator's credit admissibility is not the driver's")
+        rec["detail"]["credit_admissible"] = rec["credit_admissible"]
         self._geo[key] = rec
         return rec
 
@@ -437,16 +444,16 @@ class Run:
             if not credited:
                 raise BudgetExhausted()
             return rec
-        adm = r.get("admissibility", {}).get("admissible")
-        if adm is not g["admissible"]:
+        adm = r.get("admissibility", {}).get("credit_admissible")
+        if adm is not g["credit_admissible"]:
             raise WiringError("the evaluator's admissibility is not the driver's")
         flags, values = check_acceptance(self.anchor, r["F_val"], r["mean_full"],
-                                         r["acceptance"], g["admissible"])
+                                         r["acceptance"], g["credit_admissible"])
         rec = dict(stamp, index=len(self.validations), x=x.tolist(), note=note, status="ok",
                    F_val=r["F_val"], mean_full=r["mean_full"], stds=r["stds"],
                    fractions=r["fractions"], attained=flags, credited=credited,
                    mesh=r["mesh"], msh_sha256=r["msh_sha256"], min_h=g["min_h"],
-                   geometry=g["detail"], **values)
+                   h_nonnegative=g["admissible"], geometry=g["detail"], **values)
         train = self._train.get(key)
         if train is not None:
             rec["F_train"] = train["F"]
@@ -455,7 +462,7 @@ class Run:
         self._val[key] = rec
         self.events.append(dict(stamp, kind="validate", x=x.tolist(), F_val=r["F_val"],
                                 mean_full=r["mean_full"], attained=flags, credited=credited,
-                                admissible=g["admissible"]))
+                                admissible=g["credit_admissible"]))
         if prediction is not None:
             k = r["fractions"].index(0.5)
             s_pred, m_pred, f_pred = prediction
@@ -531,6 +538,13 @@ class Run:
             "ledger": self.ledger.to_json(),
             "anchor": dict(self.anchor.to_json(), file_values=self.anchor_file_values),
         }
+
+
+def credit_admissible(g):
+    """Buildable, every discrete guard, and every h_i >= -CREDIT_H_TOLERANCE
+    (the admissibility of credit and of the best feasible point)."""
+    return bool(g["buildable"] and all(d["pass"] for d in g["detail"]["discrete"])
+                and all(h >= -CREDIT_H_TOLERANCE for h in g["h"]))
 
 
 def ulp_close(a, b, ulps=4):

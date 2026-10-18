@@ -133,6 +133,7 @@ class FakeEvaluator:
         dh_dx = dm_du / s[:, None] / self.width
         buildable = bool(np.all(m > 0))
         return {"buildable": buildable, "admissible": buildable and bool(np.all(h >= 0)),
+                "credit_admissible": buildable and bool(np.all(h >= -1e-12)),
                 "h": h.tolist(), "min_h": float(h.min()), "jacobian_defined": True,
                 "inadmissible_guards": [f"g{i}" for i in range(2) if h[i] < 0],
                 "construction_error": None if buildable else "slot flank degenerates",
@@ -232,7 +233,7 @@ class FakeEvaluator:
             d = max(0.10 * fval, 2.5e-7)
             mean_ok = mval >= MEAN0 * (1.0 + 0.0025)
             flip = self.tamper.get("flip_attained", ())
-            adm = dom["admissible"] if "admissible" not in self.tamper \
+            adm = dom["credit_admissible"] if "admissible" not in self.tamper \
                 else self.tamper["admissible"]
             targets = [{"name": n, "T": fr[n] * F0,
                         "attained": ((fval + d <= fr[n] * F0) and mean_ok and adm)
@@ -240,7 +241,8 @@ class FakeEvaluator:
                         "F_ok": True, "slack": 0.0}
                        for n in ("T50", "T90", "T99")]
             reply.update(status="ok", F_val=fval, mean_full=mval, fractions=[0.0, 0.5, 1.0],
-                         admissibility={"buildable": True, "admissible": adm,
+                         admissibility={"buildable": True, "admissible": dom["admissible"],
+                                        "credit_admissible": adm,
                                         "min_h": dom["min_h"]},
                          stds=[0.0, math.sqrt(0.3 * fval), math.sqrt(0.7 * fval)],
                          means=[0.0, 0.5 * mval, mval],

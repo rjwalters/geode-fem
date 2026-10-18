@@ -49,7 +49,7 @@ class TrapEvaluator(th.FakeEvaluator):
     def domain(self, u):
         d = super().domain(u)
         if self.trap(u):
-            d = dict(d, buildable=False, admissible=False,
+            d = dict(d, buildable=False, admissible=False, credit_admissible=False,
                      construction_error="slot flank degenerates (trap)")
         return d
 
@@ -646,6 +646,63 @@ class PilotReplayTests(unittest.TestCase):
                 # the training reference's remesh history.
                 cut = lambda e: e.split(" (moved mesh:")[0]  # noqa: E731
                 self.assertEqual(cut(r["probe_error"]), cut(r["trace_error"]))
+
+
+class PinnedHEvaluator(TrapEvaluator):
+    """h of guard g0 pinned to `h_pin` at the optimum (CENTRE_U): buildable,
+    and inadmissible under h >= 0 whenever h_pin < 0."""
+
+    def __init__(self, clock, h_pin, **kw):
+        super().__init__(clock, **kw)
+        self.h_pin = h_pin
+
+    def domain(self, u):
+        d = super().domain(u)
+        if not np.allclose(u, th.CENTRE_U, rtol=0, atol=1e-12):
+            return d
+        h = list(d["h"])
+        h[0] = self.h_pin
+        guards = [dict(g) for g in d["guards"]]
+        guards[0]["h"] = self.h_pin
+        return dict(d, h=h, guards=guards, min_h=min(h),
+                    admissible=d["buildable"] and min(h) >= 0,
+                    credit_admissible=d["buildable"] and min(h) >= -1e-12)
+
+
+class CreditToleranceTests(unittest.TestCase):
+    """The #1185 ruling: credit and the best feasible point need every
+    h_i >= -1e-12; the same for every method."""
+
+    def run_at(self, h_pin):
+        clock = th.FakeClock()
+        led = Ledger(1.0, 1000.0, weights=th.WEIGHTS, clock=clock)
+        fake = PinnedHEvaluator(clock, h_pin)
+        prob = Problem(fake.ready["space"], th.theta0_train(fake))
+        return Run(fake, led, th.Anchor(th.F0, th.MEAN0, 0, th.SHA), prob, "slsqp",
+                   clock=clock)
+
+    def test_an_iterate_at_h_minus_5e_16_that_meets_the_target_earns_credit(self):
+        run = self.run_at(-5e-16)
+        g = run.geometry(th.CENTRE_U)
+        self.assertFalse(g["admissible"])  # h >= 0 exactly: not admissible
+        self.assertTrue(g["credit_admissible"])
+        with self.assertRaises(driver.TargetReached):
+            run.validate(th.CENTRE_U)
+        self.assertEqual(set(run.attained), {"T50", "T90", "T99"})
+        self.assertIsNotNone(run.result()["best_validated_feasible"])
+
+    def test_an_iterate_at_h_minus_1e_9_earns_nothing(self):
+        run = self.run_at(-1e-9)
+        v = run.validate(th.CENTRE_U)
+        self.assertFalse(any(v["attained"].values()))
+        self.assertEqual(run.attained, {})
+        self.assertIsNone(run.result()["best_validated_feasible"])
+
+    def test_the_tolerance_is_for_credit_only(self):
+        # The restoration anchor still needs h >= 0 exactly.
+        run = self.run_at(-5e-16)
+        run.train(th.CENTRE_U, gradient=False)
+        self.assertIsNone(run.anchor_u)
 
 
 if __name__ == "__main__":

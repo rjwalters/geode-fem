@@ -93,6 +93,14 @@ use super::icem_parametric::{
 /// The admissibility threshold on the scaled margins: `h = c − τ`.
 pub const TAU: f64 = 0.05;
 
+/// The tolerance on `h` for target credit and the best feasible point (the
+/// #1185 ruling on amendment 7): a validated candidate is credit-admissible
+/// when it is buildable and every `h_i ≥ −CREDIT_H_TOLERANCE`, the same for
+/// every method. It absorbs the rounding of a constraint held active by an
+/// optimizer (`h ≈ −5e-16`). Buildability, the optimizers' constraints,
+/// the restoration anchor and the start rule keep `h ≥ 0` exactly.
+pub const CREDIT_H_TOLERANCE: f64 = 1e-12;
+
 /// Guards whose margin is zero at θ0, with the stated scale (in the
 /// guard's unit) and its justification. Empty: every smooth guard of both
 /// spaces has a nonzero θ0 margin (checked by the tests), so every scale is
@@ -192,6 +200,12 @@ impl Domain {
     /// Buildable and every `h_i ≥ 0`.
     pub fn admissible(&self) -> bool {
         self.buildable() && self.guards.iter().all(|g| g.h >= 0.0)
+    }
+
+    /// Buildable and every `h_i ≥ −CREDIT_H_TOLERANCE`: the admissibility
+    /// of target credit and of the best feasible point.
+    pub fn credit_admissible(&self) -> bool {
+        self.buildable() && self.guards.iter().all(|g| g.h >= -CREDIT_H_TOLERANCE)
     }
 
     /// The smallest `h_i` (`−∞` without guards).
@@ -565,6 +579,24 @@ mod tests {
         }
         assert_eq!(a.guards.len(), 11);
         assert_eq!(b.guards.len(), 11 + 55);
+    }
+
+    #[test]
+    fn credit_admissibility_tolerates_rounding_but_not_more() {
+        let base = scalar_domain(&IcemDesign::INITIAL);
+        let at = |h: f64| {
+            let mut d = base.clone();
+            d.guards[9].h = h;
+            d
+        };
+        // An iterate held on an active constraint: h = −5e-16.
+        assert!(!at(-5e-16).admissible() && at(-5e-16).credit_admissible());
+        assert!(at(-CREDIT_H_TOLERANCE).credit_admissible());
+        assert!(!at(-1e-9).credit_admissible());
+        // Never more than buildable.
+        let mut d = IcemDesign::INITIAL;
+        d.values[8] = 0.0;
+        assert!(!scalar_domain(&d).credit_admissible());
     }
 
     #[test]

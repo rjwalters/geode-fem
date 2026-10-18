@@ -11,8 +11,9 @@ run instead of producing a number.
 - target T in {T50, T90, T99} = {0.5, 0.1, 0.01} F0 is attained when
   F_val + delta_F <= T and mean_full >= (1 + 0.25%) mean0,
 - **and the candidate is admissible** (#1185 amendment 7, adoption
-  correction 2): every h_i >= 0, every discrete guard passes, and the
-  validation mesh passes the policy. A buildable but inadmissible trial may
+  correction 2): every h_i >= -CREDIT_H_TOLERANCE (1e-12, the ruled
+  tolerance), every discrete guard passes, and the validation mesh passes
+  the policy. A buildable but inadmissible trial may
   be evaluated, but it never earns credit, at a callback or at
   termination; nor does it count as the best feasible point.
 """
@@ -23,6 +24,11 @@ import math
 DELTA_F_REL = 0.10
 DELTA_F_ABS = 2.5e-7
 MEAN_FLOOR_MARGIN = 0.0025
+#: The tolerance on h for credit and the best feasible point (the #1185
+#: ruling on amendment 7): every h_i >= -1e-12, the same for every method.
+#: Buildability, the optimizers' constraints, the restoration anchor and the
+#: start rule keep h >= 0 exactly.
+CREDIT_H_TOLERANCE = 1e-12
 TARGETS = (("T50", 0.5), ("T90", 0.1), ("T99", 0.01))
 TARGET_NAMES = tuple(n for n, _ in TARGETS)
 

@@ -264,11 +264,17 @@ Every validation is charged to the method.
   space-B channel wall (moved corner to the opening end) has no
   construction guard; it is recorded as a known meshing risk handled by
   mesh repair and mesh-infeasible handling, not a new constraint.
-- **Credit (correction 2).** A target, and the best feasible point, need
-  admissibility (every `h_i ≥ 0`, the discrete guard, a valid validation
-  mesh) on top of the F and mean rule, on both sides (Rust
-  `Acceptance::with_admissibility`, `acceptance.rule`). A validation that
-  is mesh-infeasible has no value and no credit.
+- **Credit (correction 2, with the #1185 ruling on the tolerance).** A
+  target, and the best feasible point, need admissibility on top of the F
+  and mean rule: buildable, the discrete guard, a valid validation mesh,
+  and every `h_i ≥ −1e-12` (`CREDIT_H_TOLERANCE`, the same for every
+  method; it absorbs the rounding of a constraint an optimizer holds
+  active, `h ≈ −5e-16`). Both sides decide it (Rust
+  `Domain::credit_admissible` and `Acceptance::with_admissibility`; the
+  driver from the raw `h`, cross-checked). The optimizers' constraints,
+  buildability (the exact construction guards), the restoration anchor
+  and the start rule keep `h ≥ 0` exactly. A validation that is
+  mesh-infeasible has no value and no credit.
 - **Refused points (§2).** Not buildable, mesh-infeasible, or a gradient
   where the derivative is undefined. No FEM value or gradient is made up or
   returned for another point; each refusal is recorded with its x, its
@@ -297,15 +303,24 @@ Every validation is charged to the method.
   includes `h ≥ 0`. The feasible-first ordering uses the total violation:
   the mean-floor violation plus Σ max(0, −h_i), and a failed discrete
   guard is infeasible.
-- **Mesh repair (§3).** At most 4 attempts, each from the defaults plus its
-  own options only (`icem_remesh::MESH_REPAIR_ATTEMPTS`): the default;
-  `Mesh.Optimize = 1` with `Mesh.OptimizeNetgen = 1`; `Mesh.MeshSizeFactor
-  = 0.9`; `= 0.8`. Every attempt is charged and recorded (outcome, `.msh`
-  SHA-256, times). **Note:** in gmsh both options of attempt 2 act on
-  tetrahedra only, so on this 2-D sector attempt 2 gives the default's
-  mesh byte for byte (`../logs/mesh_repair_attempts_L0.log`); it is still
-  made and charged as registered. All 4 failing is `mesh_infeasible`;
-  `failed` stays for real errors.
+- **Mesh repair (§3, with the #1185 ruling on attempt 2).** At most 4
+  attempts, each from the defaults plus its own options only
+  (`icem_remesh::MESH_REPAIR_ATTEMPTS`): the default (`Mesh.Algorithm =
+  6`, Frontal-Delaunay); `Mesh.Algorithm = 5` (Delaunay); `Mesh.MeshSizeFactor
+  = 0.9`; `= 0.8`. The registered attempt 2 (`Mesh.Optimize = 1` with
+  `Mesh.OptimizeNetgen = 1`) acts on tetrahedra only and gave the default's
+  2-D mesh byte for byte; the ruling replaced it. At θ0 every attempt now
+  gives a different mesh (`../logs/mesh_repair_attempts_L0.log`). Every
+  attempt is charged and recorded (outcome, `.msh` SHA-256, times). All 4
+  failing is `mesh_infeasible`; `failed` stays for real errors.
+- **Limitations (disclosed).** (1) Near the slot-flank boundary the
+  geometry itself can have an angle below 5° (a point at 4.017° failed all
+  four attempts with the same minimum angle): there the minimum-angle
+  policy acts as an implicit domain constraint, which mesh repair cannot
+  lift. (2) The space-B channel wall (moved slot-opening corner to the
+  opening end) has no construction guard and is 0.16 µm long at SW3 at
+  its minimum with CPS1 at its maximum; it is left to the remesh policy,
+  mesh repair and mesh-infeasible handling, not made a new constraint.
 - **Host (§6).** `session.py`: the pre-run 1-minute load must be at most
   N + 1; a run that cannot start within `--max-wait` is `deferred` (not
   started) and requeued, up to `--max-deferrals`. A run whose in-run phase

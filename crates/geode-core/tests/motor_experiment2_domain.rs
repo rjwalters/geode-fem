@@ -434,9 +434,9 @@ fn refused_requests_never_reach_the_mesher_or_the_solver() {
     }
 }
 
-/// The θ0 L0 mesh with every repair attempt through gmsh: each attempt
-/// produces a mesh that keeps the coupling grid; attempt 1 is the
-/// default's mesh (2-D: no effect), attempts 2 and 3 are new meshes. Needs uv and gmsh
+/// The θ0 L0 mesh (the fixture design) with every repair attempt through
+/// gmsh: each attempt produces a mesh that keeps the coupling grid, and
+/// each differs from the default's. Needs uv and gmsh
 /// (`cargo test ... -- --ignored`); the record is
 /// `benchmarks/motor_optimization/logs/mesh_repair_attempts_L0.log`.
 #[test]
@@ -473,14 +473,13 @@ fn every_repair_attempt_meshes_theta0_through_gmsh() {
         assert_eq!(n, 120);
         hashes.push(rec.sha256.clone().unwrap());
     }
-    // Attempt 1 (Mesh.Optimize = 1 with Mesh.OptimizeNetgen = 1) gives the
-    // default's mesh byte for byte: in gmsh both act on tetrahedra only, so
-    // on this 2-D sector the frozen attempt 1 changes nothing (it is still
-    // made and charged, as amendment 7 §3 registers it). The size factors
-    // give two further, different meshes.
-    assert_eq!(hashes[1], hashes[0], "attempt 1 is a no-op in 2-D");
+    // Attempt 1 (Mesh.Algorithm = 5, Delaunay; the default is 6) gives a
+    // mesh different from the default's (the registered Optimize/Netgen
+    // attempt gave the default's byte for byte, which the #1185 ruling
+    // replaced); the size factors give two more: four different meshes.
+    assert_ne!(hashes[1], hashes[0], "attempt 1 differs from the default");
     let set: std::collections::BTreeSet<_> = hashes.iter().collect();
-    assert_eq!(set.len(), 3, "{hashes:?}");
+    assert_eq!(set.len(), 4, "{hashes:?}");
     // Attempt 3 run again gives the same mesh: no state carries over.
     let again = rm.fresh_mesh_attempt(&IcemCpDesign::INITIAL, 3).unwrap();
     let h3 = rm.records.last().unwrap().sha256.clone().unwrap();
@@ -504,7 +503,7 @@ fn the_gmsh_attempts_are_non_cumulative() {
     // The frozen sequence, each attempt from the defaults: its own options
     // and nothing from an earlier attempt.
     assert_eq!(opts(0), Vec::<String>::new());
-    assert_eq!(opts(1), ["Mesh.Optimize=1.0", "Mesh.OptimizeNetgen=1.0"]);
+    assert_eq!(opts(1), ["Mesh.Algorithm=5.0"]);
     assert_eq!(opts(2), ["Mesh.MeshSizeFactor=0.9"]);
     assert_eq!(opts(3), ["Mesh.MeshSizeFactor=0.8"]);
     assert_eq!(MESH_REPAIR_ATTEMPTS.len(), 4);
@@ -513,7 +512,7 @@ fn the_gmsh_attempts_are_non_cumulative() {
         labels,
         [
             "default",
-            "optimize_netgen",
+            "algorithm_delaunay",
             "size_factor_0.9",
             "size_factor_0.8"
         ]
@@ -637,7 +636,9 @@ fn inventory() -> Value {
         "tau": TAU,
         "rule": "buildable: the construction succeeds and every discrete guard passes (every \
                  smooth guard as the construction tests it); admissible: buildable and every \
-                 h_i = m_i / s_i - tau >= 0; s_i = |m_i(theta0)|",
+                 h_i = m_i / s_i - tau >= 0; s_i = |m_i(theta0)|; credit and the best \
+                 feasible point: buildable and every h_i >= -credit_h_tolerance",
+        "credit_h_tolerance": geode_core::mesh::icem_domain::CREDIT_H_TOLERANCE,
         "zero_reference_scales": ZERO_REFERENCE_SCALES.iter()
             .map(|(n, v, w)| json!({"name": n, "scale": v, "why": w})).collect::<Vec<_>>(),
         "guards": {"space_a": guards(scalar_guard_specs(), scalar_theta0_margins(), &da),

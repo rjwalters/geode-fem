@@ -1,14 +1,12 @@
-   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1201/crates/geode-core)
-   Compiling geode-util v0.8.0 (/Volumes/Stripe/geode-fem/issue-1201/crates/geode-util)
-    Finished `release` profile [optimized] target(s) in 13.43s
+    Finished `release` profile [optimized] target(s) in 0.77s
      Running tests/motor_experiment2_domain.rs (/Volumes/Stripe/cargo-target-1201/release/deps/motor_experiment2_domain-018c871fffd61d0d)
 
 running 1 test
 attempt 0 default: 272277 bytes, coupling 120, sha256 d077cb55d537eefb40335044851afdede3d8a38ed9b186865352ec17c7e1d56a
-attempt 1 optimize_netgen: 272277 bytes, coupling 120, sha256 d077cb55d537eefb40335044851afdede3d8a38ed9b186865352ec17c7e1d56a
+attempt 1 algorithm_delaunay: 279798 bytes, coupling 120, sha256 23111ef8a9b9740c45bbe1603b4b36847fbdb7a5dcf12747390a348e70b167aa
 attempt 2 size_factor_0.9: 313071 bytes, coupling 120, sha256 4e7f45e6c3c70074be0a309eaac36d15757f9123087df617be8bab458ac3c54a
 attempt 3 size_factor_0.8: 374124 bytes, coupling 120, sha256 81817c3c006f25a6684f999a9094000eafed67bf21f77695d808a6425c63839a
 test every_repair_attempt_meshes_theta0_through_gmsh ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 3.42s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 3.63s
 

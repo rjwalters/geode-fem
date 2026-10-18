@@ -66,7 +66,7 @@ use serde_json::{Value, json};
 use crate::icem;
 use crate::icem_design::Mode;
 use geode_core::mesh::design_remesh::RemeshError;
-use geode_core::mesh::icem_domain::{Domain, TAU};
+use geode_core::mesh::icem_domain::{CREDIT_H_TOLERANCE, Domain, TAU};
 
 use crate::icem_experiment2::{
     Anchor, CostCategory, CostLedger, Exp2Error, FeRule, FrozenSpace, Purpose, ValidationConfig,
@@ -558,8 +558,9 @@ impl<Sp: Space> Session<Sp> {
                 return Err(e.to_string());
             }
         };
-        // Target credit requires admissibility (amendment 7, correction 2).
-        let a = a.with_admissibility(d.admissible());
+        // Target credit requires admissibility (amendment 7, correction 2),
+        // with the ruled tolerance h_i >= -1e-12 (CREDIT_H_TOLERANCE).
+        let a = a.with_admissibility(d.credit_admissible());
         ledger.charge_validation(&v, note);
         Ok(json!({
             "x": x, "x_bits": x_bits(&x), "status": "ok", "F_val": v.f,
@@ -569,6 +570,8 @@ impl<Sp: Space> Session<Sp> {
             "stds": v.currents.iter().map(|c| c.std).collect::<Vec<_>>(),
             "acceptance": a.to_json(), "mesh": v.mesh.to_json(), "msh_sha256": v.mesh_sha256,
             "admissibility": {"buildable": d.buildable(), "admissible": d.admissible(),
+                "credit_admissible": d.credit_admissible(),
+                "credit_h_tolerance": CREDIT_H_TOLERANCE,
                 "min_h": d.min_h(), "inadmissible_guards": d.inadmissible_guards()},
             "validator_msh_sha256": self.validator.base_sha256,
             "anchor_msh_sha256": anchor.mesh_sha256,
@@ -919,6 +922,7 @@ pub fn domain_json(d: &Domain, idx: &[usize]) -> Value {
         .collect();
     json!({
         "tau": TAU, "buildable": d.buildable(), "admissible": d.admissible(),
+        "credit_admissible": d.credit_admissible(), "credit_h_tolerance": CREDIT_H_TOLERANCE,
         "construction_ok": d.construction.is_ok(),
         "construction_error": d.construction.as_ref().err(),
         "guards_pass": d.guards_pass(), "discrete_pass": d.discrete_pass(),
