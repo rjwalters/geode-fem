@@ -11,6 +11,7 @@ Run the stdlib checks from the repository root:
 ```sh
 python3 -I benchmarks/motor_optimization/final_refinement/test_selection.py
 python3 -I benchmarks/motor_optimization/final_refinement/mutation_checks.py
+python3 -I benchmarks/motor_optimization/final_refinement/test_check_plan.py
 ```
 
 The suite has eighteen tests. `mutation-results.json` records the baseline and
@@ -43,7 +44,39 @@ slot, even when their validation ordinals differ. Multiple validations within
 the chosen attempt remain eligible; representative and crossing selection can
 choose different validations from that attempt.
 
+`check_plan.py` prepares the all-mode schedule for the selected cohort under
+the [part-2 addendum](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248492318).
+`make_plan(selection_manifest)` binds the full selector manifest by SHA-256,
+preserves exact identities and roles, and assigns each candidate a theta0
+reference with identical requested check settings. Every design receives:
+
+| Check | Spatial level / harmonics | Angles (degrees) | Newton relative tolerance | Current fractions |
+| --- | --- | --- | --- | --- |
+| Primary comparison | L2 / h93 | 0:1:19 | 1e-8 | 0, 0.5, 1 |
+| Spatial refinement | L3 / h93 | 0:1:19 | 1e-8 | 0, 0.5, 1 |
+| Angular refinement | L2 / h93 | 0:0.5:19.5 | 1e-8 | 0, 0.5, 1 |
+| Tight nonlinear solve | L2 / h93 | 0:1:19 | 1e-12 | 0, 0.5, 1 |
+| Independent shifted sweep | L2 / h93 | 0.5:1:19.5 | 1e-8 | 0, 0.5, 1 |
+| Withheld-current diagnostic | L2 / h93 | 0:1:19 | 1e-8 | 0.25, 0.75 |
+
+Each current sweep starts cold, then continues from the preceding angle.
+All scheduled jobs require complete sweeps with retained raw waveforms; g40
+subsamples cannot satisfy the independent shifted check. Primary records can
+be reused only after the eventual runner verifies exact provenance/settings
+equivalence. Half-current is already included in each training-current check.
+The withheld check is the fine-model diagnostic, separate from #1202's paired
+L0/common-validator diagnostics. No cross-current waveform subtraction or
+withheld-current objective normalization is defined by this schedule.
+
+Eight additional synthetic tests cover the matrix, references, source binding,
+preserved cohort/credit, explicit non-execution and invalid identities. They
+do not verify any actual FEM invocation. The plan intentionally leaves the
+conforming-interface check pending: a runner must inspect actual stator
+offsets, build fresh meshes and verify supported rotations before choosing
+the estimator. Unknown or nonzero offsets cannot imply conforming eligibility.
+Nonzero rotor offsets alone do not exclude an otherwise supported check.
+
 Pending dependencies: #1201 safeguards and #1202 five-method integration. Raw
-trace adaptation, the L3/g40/conforming runner, resource accounting, result
+trace adaptation, the L3/g40/tight/shifted/conforming runner, resource accounting, result
 summaries and a real wiring smoke remain to be implemented after those merge.
 This module alone does not complete #1203 or validate any scientific claim.
