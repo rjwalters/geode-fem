@@ -632,9 +632,9 @@ retained on failed acceptance, mesh-infeasible validation and interrupted reques
 Waveform arrays are checked against their means/stds. Training mesh hashes identify
 the reference before design motion and must be interpreted with the selected point.
 
-This is partial implementation, not launch readiness. Both-resolution moved-mesh start preflight, durable
-session/recovery and contaminated-calibration refusal, full provenance/cap
-reporting and L0 derivative sweeps remain required. The retained scalar-theta0
+This is partial implementation, not launch readiness. Durable
+session/recovery, contaminated-calibration refusal and full provenance/cap
+reporting remain required. Frozen-start and L0 gradient evidence is described below. The retained scalar-theta0
 mixed L0/L2 smoke verifies model separation, not an optimization outcome. Do not
 launch a main study from this intermediate branch. `test_baseline_wiring.py`
 checks model/validator separation, calibration denominator, shared optimizer
@@ -655,3 +655,39 @@ benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/har
 validation, unavailable/failed diagnostics and unchanged stopped-run results.
 `physical_diagnostic_mutations.py` checks six deliberate regressions in private
 copies. These checks and the smoke do not establish optimization performance.
+
+### L0 gradient and frozen-start checks (#1202)
+
+`l0_gradient_check.py` records directional central differences on the frozen L0
+reference, with h45/g20 and all three currents. The points and direction are fixed
+before solving: theta0 and x0 + 0.25 (centre - x0), the existing box-scaled direction,
+and steps 1e-3, 1e-4, 1e-5. The reported criterion uses h=1e-4 and the existing
+CI relative-error threshold 1e-5 for both F and full-current mean. Every stencil
+must be admissible and pass the moved-mesh policy, and every solve must remain
+on generation0 without remeshing. Default and tight Newton records are separate.
+
+| Space / point | Newton | Relative dF error at h=1e-4 | Relative full-current mean error |
+|---|---|---|---|
+| A / theta0 | default | 2.45e-8 | 8.33e-9 |
+| A / interior | default | 7.74e-8 | 1.14e-8 |
+| B / interior | default | 1.77e-7 | 2.22e-8 |
+| A / theta0 | tight | 1.67e-8 | 4.77e-9 |
+| A / interior | tight | 1.98e-8 | 5.46e-9 |
+| B / interior | tight | 2.09e-7 | 1.42e-8 |
+
+The planned B/theta0 central stencil is **inapplicable**: theta0 is on the CPR1
+upper bound0, and the +h perturbation crosses that bound. Both raw records retain
+that pre-solve rejection and the script exits nonzero; neither is presented as an
+all-points pass. No point or step was selected after seeing gradient outcomes.
+All replies, failures, source/binary hashes and child resource receipts are in
+`../smoke/l0_gradient_{a,b}_{default,tight}_1202.json`. These are setup checks, not
+optimization timing or a speedup result.
+
+`start_preflight.py` rechecks the committed five starts on L0 and L1 in both
+spaces, using `check` only (no FEM or remesh). It preserves raw replies and costs,
+refuses output reuse, never changes start identities and rejects wrong design or
+mesh identities, domain/quality failures and unexpected solve counts. All20 checks
+passed in `../smoke/start_preflight_1202_final.json`, with zero reported FEM solves.
+The main launcher runs this gate before calibration or optimizer dispatch; the
+test suite verifies that a failure prevents both. `setup_validation_mutations.py`
+detects four deliberate point/quality/gate/FD-step regressions.

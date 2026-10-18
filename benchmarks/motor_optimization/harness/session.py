@@ -561,6 +561,14 @@ def main(argv=None):
         starts, repeats = STARTS, 2
         if budget != 120.0:
             raise SystemExit("the main budget is 120 FE (amendment 7 §4)")
+    preflight = None
+    if not a.smoke:
+        from start_preflight import verify
+        preflight = verify(a.binary, starts_path,
+                           {level: MESHES / f"icem_initial_sector_L{level}.msh" for level in (0, 1)},
+                           out / "start_preflight.json")
+        if preflight["status"] != "PASS":
+            raise SystemExit("frozen-start preflight failed; no calibration or main jobs launched")
     meshes = {"train": {"file": str(train_mesh), "level": tl, "sha256": sha256(train_mesh)},
               "validation": {"file": str(val_mesh), "level": vl, "sha256": sha256(val_mesh)},
               "anchor": {"file": str(anchor), "sha256": sha256(anchor)},
@@ -655,7 +663,7 @@ def main(argv=None):
                               "contamination_seconds": CONTAMINATION_SECONDS,
                               "load_samples": monitor.samples},
                 "procs": a.procs, "provenance": prov, "meshes": meshes, "calibration": cal,
-                "secondary_calibration": secondary_cal,
+                "secondary_calibration": secondary_cal, "start_preflight": preflight,
                 "unit_seconds": cal["unit_seconds"], "budget_fe": budget, "jobs": results,
                 "gate_drill": gate_drill}
     write(out / "manifest.json", manifest)
