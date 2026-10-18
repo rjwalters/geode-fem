@@ -1,11 +1,11 @@
 {
-  "max_iterations": 5,
+  "max_iterations": 6,
   "public_repo_url": "https://github.com/rjwalters/geode-fem",
   "artifact_verify": {
     "commands": [
       "python3 verify.py"
     ],
-    "cwd": "motor-gradient-optimization.5",
+    "cwd": "motor-gradient-optimization.6",
     "timeout_s": 60
   }
 }
