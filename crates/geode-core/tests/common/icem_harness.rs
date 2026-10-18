@@ -400,6 +400,13 @@ impl<Sp: Space> Session<Sp> {
             .anchor
             .as_ref()
             .map(|a| a.f0.to_bits() == val[0].f.to_bits() && a.mean0.to_bits() == v_mean.to_bits());
+        // An anchor read from a file went through serde_json's decimal
+        // parse, which can be an ulp off (`Anchor::from_json` allows 4).
+        let ulp4 = |x: f64, y: f64| (x - y).abs() <= 4.0 * f64::EPSILON * y.abs();
+        let anchor_agrees_4ulp = self
+            .anchor
+            .as_ref()
+            .map(|a| ulp4(a.f0, val[0].f) && ulp4(a.mean0, v_mean));
         let w_fwd = median(&fwd_s) / unit;
         let w_adj = median(&adj_s) / unit;
         Ok(json!({
@@ -423,6 +430,7 @@ impl<Sp: Space> Session<Sp> {
             "theta0_validation": {"F": val[0].f, "mean_full": v_mean,
                 "mesh": val[0].mesh.kind()},
             "anchor_agrees_bitwise": anchor_agrees,
+            "anchor_agrees_4ulp": anchor_agrees_4ulp,
             "deterministic": deterministic,
         }))
     }

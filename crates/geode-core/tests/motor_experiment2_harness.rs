@@ -470,6 +470,7 @@ fn calibrate_unit_is_the_median_of_three_cold_theta0_validations() {
     assert_eq!(c["unit_seconds"].as_f64().unwrap(), median(&val));
     assert_eq!(c["deterministic"], true);
     assert_eq!(c["anchor_agrees_bitwise"], true);
+    assert_eq!(c["anchor_agrees_4ulp"], true);
     assert_eq!(c["theta0_validation"]["mesh"], "own");
     let w = &c["weights"];
     assert_eq!(w["validation_eval"], 1.0);
