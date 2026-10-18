@@ -27,7 +27,10 @@ def fingerprint():
     """{system, machine, numpy, scipy, numpy_blas, ..., scipy_lapack}."""
     import numpy
     import scipy
+    # The macOS product version too: Accelerate ships with the OS and can
+    # change between releases ("" elsewhere).
     out = {"system": platform.system(), "machine": platform.machine(),
+           "macos_version": platform.mac_ver()[0],
            "numpy": numpy.__version__, "scipy": scipy.__version__}
     for name, mod in (("numpy", numpy), ("scipy", scipy)):
         for k, v in _deps(mod).items():
@@ -36,8 +39,9 @@ def fingerprint():
 
 
 #: The keys a bit-for-bit replay depends on.
-REPLAY_KEYS = ("system", "machine", "numpy", "scipy", "numpy_blas", "numpy_lapack",
-               "scipy_blas", "scipy_lapack")
+REPLAY_KEYS = ("system", "machine", "macos_version", "numpy", "scipy",
+               "numpy_blas", "numpy_blas_version", "numpy_lapack", "numpy_lapack_version",
+               "scipy_blas", "scipy_blas_version", "scipy_lapack", "scipy_lapack_version")
 
 
 def same_stack(a, b):

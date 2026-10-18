@@ -798,5 +798,40 @@ class CreditToleranceTests(unittest.TestCase):
         self.assertIsNone(run.anchor_u)
 
 
+class LinearAlgebraGateTests(unittest.TestCase):
+    """The gate of the bit-for-bit pilot replay (`linalg_info.same_stack`)."""
+
+    def test_same_stack_checks_every_key(self):
+        import linalg_info
+        for k in ("system", "machine", "macos_version", "numpy", "scipy", "numpy_blas",
+                  "numpy_blas_version", "numpy_lapack", "numpy_lapack_version", "scipy_blas",
+                  "scipy_blas_version", "scipy_lapack", "scipy_lapack_version"):
+            self.assertIn(k, linalg_info.REPLAY_KEYS)
+        fp = linalg_info.fingerprint()
+        self.assertTrue(linalg_info.same_stack(fp, dict(fp)))
+        for k in linalg_info.REPLAY_KEYS:
+            other = dict(fp, **{k: f"{fp.get(k)}-other"})
+            self.assertFalse(linalg_info.same_stack(fp, other), k)
+            self.assertFalse(linalg_info.same_stack(other, fp), k)
+
+    def test_a_mismatched_stack_skips_the_exact_replay(self):
+        import linalg_info
+        real = linalg_info.fingerprint
+        host = json.loads((HERE / "pilot_replay_host.json").read_text())["linear_algebra"]
+        linalg_info.fingerprint = lambda: dict(host, numpy_blas="openblas")
+        try:
+            t = PilotReplayTests("test_the_replay_is_bit_for_bit_on_the_pilot_stack")
+            with self.assertRaises(unittest.SkipTest):
+                t.test_the_replay_is_bit_for_bit_on_the_pilot_stack()
+        finally:
+            linalg_info.fingerprint = real
+
+    def test_the_recorded_pilot_stack_names_its_macos_version(self):
+        host = json.loads((HERE / "pilot_replay_host.json").read_text())
+        self.assertEqual(host["linear_algebra"]["system"], "Darwin")
+        self.assertTrue(host["linear_algebra"]["macos_version"])
+        self.assertIn(host["linear_algebra"]["macos_version"], host["pilot_host"]["platform"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

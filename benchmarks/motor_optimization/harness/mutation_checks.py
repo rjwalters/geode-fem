@@ -33,6 +33,9 @@ SES = HERE / "session.py"
 DOM = ROOT / "crates/geode-core/src/mesh/icem_domain.rs"
 LOOP = ROOT / "crates/geode-core/src/mesh/design_remesh.rs"
 REM = ROOT / "crates/geode-core/tests/common/icem_remesh.rs"
+LIN = HERE / "linalg_info.py"
+TSF = HERE / "test_safeguards.py"
+BDM = ROOT / "benchmarks/motor_shape_gradient/design/build_design_mesh.py"
 
 MUTATIONS = [
     # ── [#1195] wrong target ────────────────────────────────────────────
@@ -289,6 +292,25 @@ MUTATIONS = [
      '    if not passed:\n        spawn(["true"])\n        return dict(base, status="deferred", exit=None, host_contaminated=None)'),
     ("J8_c_refused_initial_step_counts [#1204]", DRV,
      "            if r is not None:\n                break", "            break"),
+    ("G1_same_stack_always_false [#1204]", LIN,
+     "    return all(a.get(k) == b.get(k) for k in REPLAY_KEYS)", "    return False"),
+    ("G2_gate_ignores_blas_lapack [#1204]", LIN,
+     '''REPLAY_KEYS = ("system", "machine", "macos_version", "numpy", "scipy",
+               "numpy_blas", "numpy_blas_version", "numpy_lapack", "numpy_lapack_version",
+               "scipy_blas", "scipy_blas_version", "scipy_lapack", "scipy_lapack_version")''',
+     'REPLAY_KEYS = ("system", "machine", "macos_version", "numpy", "scipy")'),
+    ("G2b_gate_ignores_the_macos_version [#1204]", LIN,
+     'REPLAY_KEYS = ("system", "machine", "macos_version", "numpy", "scipy",',
+     'REPLAY_KEYS = ("system", "machine", "numpy", "scipy",'),
+    ("G3_mismatch_returns_instead_of_skipping [#1204]", TSF,
+     '            self.skipTest("bit-for-bit replay holds only',
+     '            return\n            self.skipTest("bit-for-bit replay holds only'),
+    ("R3_rust_mesh_failure_exit_not_the_scripts [#1204]", REM,
+     "pub const MESH_FAILURE_EXIT: i32 = 3;", "pub const MESH_FAILURE_EXIT: i32 = 4;"),
+    ("R3b_script_mesh_failure_exit_not_rusts [#1204]", BDM,
+     "\nMESH_FAILURE_EXIT = 3\n", "\nMESH_FAILURE_EXIT = 4\n"),
+    ("R3c_script_marker_not_rusts [#1204]", BDM,
+     '\nMESH_FAILURE_MARKER = "MESH_FAILURE"\n', '\nMESH_FAILURE_MARKER = "MESH_FAILED"\n'),
     ("mesher_exit_1_is_a_meshing_failure [#1204]", REM,
      "    if code == Some(MESH_FAILURE_EXIT) && log.contains(MESH_FAILURE_MARKER) {",
      "    if code.is_some() {"),
@@ -356,7 +378,8 @@ def run_remesher():
     return rc, failed, ce
 
 
-RUNNERS = {RS: run_rust, DOM: run_domain, LOOP: run_loop, REM: run_remesher}
+RUNNERS = {RS: run_rust, DOM: run_domain, LOOP: run_loop, REM: run_remesher,
+           BDM: run_remesher}
 
 
 def main(argv=None):
@@ -385,7 +408,8 @@ def main(argv=None):
             ok = rc != 0
             killed += ok
             why = "compile error" if compile_error else ", ".join(failed)
-            where = {RS: "rust", DOM: "domain", LOOP: "loop", REM: "remesher"}.get(path,
+            where = {RS: "rust", DOM: "domain", LOOP: "loop", REM: "remesher",
+                     BDM: "remesher"}.get(path,
                                                                                 "python")
             print(f"{name} ({where}): {'KILLED' if ok else 'SURVIVED'} ({why})", flush=True)
         print(f"{killed}/{len(muts)} mutations killed")

@@ -44,7 +44,7 @@ only) is in `../runs/pilot/`, with its `SUMMARY.md`.
 | `crates/geode-core/tests/motor_experiment2_domain.rs` | CI target of the domain (no FEM): guard/construction agreement, Jacobian against FD, the pilot designs, θ0 and Opt120, the zero discriminant, the gmsh attempts, the inventory record. |
 | `domain_inventory.json` | The guard inventory, every scale and τ floor, and the designs each excludes (written by that target). |
 | `recover_pilot_failures.py`, `pilot_failures.json`, `pilot_replay_host.json` | The design points of the pilot's 13 failed requests, recovered by re-driving the pilot's own harness on its traces. COBYQA's and C's replays are bit for bit only on the pilot's linear-algebra stack (BLAS/LAPACK: Accelerate on macOS, OpenBLAS on Linux diverges after a few steps); the CI test checks the platform-independent part everywhere (construction verdicts, error strings) and the replay only where the stack matches (`pilot_replay_host.json`). |
-| `linalg_info.py` | The interpreter's platform, numpy/scipy versions and BLAS/LAPACK, recorded in every session and run record. |
+| `linalg_info.py` | The interpreter's platform, macOS version, numpy/scipy versions and BLAS/LAPACK names and versions, recorded in every session and run record; `same_stack` (every one of those keys) gates the bit-for-bit pilot replay. |
 | `test_safeguards.py` | The amendment-7 safeguard tests, the host rule, and #1197 (K2, K4). |
 | `fd_check.py` | FD check of the gradient replies through the process. |
 | `mutation_checks.py` | Mutations of the harness wiring. |
@@ -386,7 +386,7 @@ error of the reply against central differences.
   - A refused request charges its handling time.
   - `diagnose` runs both models at the requested currents only, and leaves
     the session's currents (and so the primary validation model) intact.
-- **Python (`test_harness.py`, 31 tests, and `test_safeguards.py`, 42 tests; CI job
+- **Python (`test_harness.py`, 31 tests, and `test_safeguards.py`, 45 tests; CI job
   `motor-harness-driver`).**
   - Every request category, plus the driver's `setup_calibration`,
     `surrogate_update` and `overhead`, reaches the ledger in full, and the

@@ -5,6 +5,7 @@
  "linear_algebra": {
   "system": "Darwin",
   "machine": "arm64",
+  "macos_version": "27.0.1",
   "numpy": "2.5.4",
   "scipy": "1.18.1",
   "numpy_blas": "accelerate",

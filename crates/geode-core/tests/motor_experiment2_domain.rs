@@ -777,3 +777,26 @@ fn only_gmsh_meshing_failures_are_design_dependent() {
         );
     }
 }
+
+#[test]
+fn the_mesh_failure_exit_code_is_the_scripts() {
+    // The contract between build_design_mesh.py and the classification:
+    // if either side drifts, every gmsh meshing failure would be `failed`.
+    use icem_remesh::{MESH_FAILURE_EXIT, MESH_FAILURE_MARKER, design_mesh_script};
+    let text = std::fs::read_to_string(design_mesh_script()).expect("build_design_mesh.py");
+    assert_eq!(
+        text.matches(&format!("\nMESH_FAILURE_EXIT = {MESH_FAILURE_EXIT}\n"))
+            .count(),
+        1,
+        "build_design_mesh.py's MESH_FAILURE_EXIT is not {MESH_FAILURE_EXIT}"
+    );
+    assert_eq!(
+        text.matches(&format!(
+            "\nMESH_FAILURE_MARKER = \"{MESH_FAILURE_MARKER}\"\n"
+        ))
+        .count(),
+        1,
+        "build_design_mesh.py's MESH_FAILURE_MARKER is not {MESH_FAILURE_MARKER:?}"
+    );
+    assert!(text.contains("sys.exit(MESH_FAILURE_EXIT)"));
+}
