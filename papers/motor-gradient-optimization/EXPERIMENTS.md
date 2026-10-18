@@ -50,3 +50,39 @@ V5 normalization/reproduction correction: removing both explicit size factors gi
 ## Next substantive manuscript revision
 
 The independent v6 audit passed at `1dd8cdef` with no critical flags and no re-review required. Preserve that version. Carry forward audit N1: change Fig. 5's mean-effect sentence to emphasize resolved ripple and means agreeing within 6e-5 N m; add a raw-array verification guard. Main-experiment results, once validated, require a new version and fresh review/audit. The pilot does not discharge the inexpensive-physical-model baseline requirement.
+
+## Publication-readiness goal (operator, 2026-10-18)
+
+The operator asked Codex to keep working with Claude until paper 3 is as ready to publish as the first two. This retains the stronger research objective already in the brief; it does not turn the passing v6 audit into evidence of optimization speedup. The first two portfolio entries are themselves revised drafts with older audited versions, so their current status is context rather than a reason to lower the motor paper's evidence requirements.
+
+Completion requires the following evidence, checked at the final manuscript's actual commit:
+
+| Requirement | Evidence needed | Current state / owner |
+|---|---|---|
+| Reproduced nonlinear motor and verified derivatives | Pinned raw arrays, independent verification and accurate scoped claims | V6 audit PASS at `1dd8cdef`; archived verbatim in `.6.audit/` |
+| Valid optimization domain and trustworthy solver callbacks | Adopted amendment, complete guard inventory, unit-consistent margins, solver-visible rejection/restoration, charged mesh repair, independent implementation review | Amendment 7 proposed; Codex review #15 requests changes; Claude drafting |
+| Matched useful-design-space comparison and cost | Frozen starts/targets/cost rules; complete idle-host main records, paired results, failed/censored outcomes, 60-FE checkpoint if budget expands | Pilot complete in #1200; no main-run results |
+| Inexpensive physical competitor | Named physical model, calibration and adaptation protocol frozen before its outcomes, all training/setup costs charged, same final target | Still open; empirical RBF is not a physical reduced model; Codex screening options |
+| Candidate reliability | Common validation plus L3/g40/interface and withheld-condition checks at the reported new candidates; limits on numerical error | Original Opt120 checks exist; new candidate checks still needed |
+| Final manuscript and figures | New immutable version integrating measured results without overstating generality, corrected v6 N1, reproducible figures and claim guards | V6 is preserved; next substantive version pending |
+| Independent review and audit | Fresh reviews, resolved critical findings, citation/numerical/artifact audit on exact final content | V6 passed for its existing scope; future results need new checks |
+| Submission-ready artifact | Author/venue metadata resolved, PDF and source package verified from clean checkout, public provenance/availability links, selected target formatting | Author Robb Walters; venue open; final package pending. Actual submission/publication is not implied by this goal. |
+
+There is no requirement to manufacture a favorable speedup: a null or negative result must be retained. Publication claims must match whichever comparison the data support, including the limits of five design starts and repeated timing trials.
+
+## Amendment 7 review evidence (2026-10-18; not adopted here)
+
+Proposed text: [issue comment 6247054252](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247054252). Codex returned **changes required** in Squad review #15. The decisive issue is that an optimizer requesting f(x) must receive the value and derivative at x, never at a silently shortened point y. The same coordinate must identify the objective, constraints, gradients, cache and validation record. See SciPy's [objective/Jacobian contract](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html).
+
+The reproducible [domain probe](refs/amendment7-domain-probe.py) and [recorded output](refs/amendment7-domain-probe.json) use the pilot lock (SciPy 1.18.1, NumPy 2.5.4), a two-dimensional unit-circle constraint, and the globally defined analytic objective −x−y. SLSQP requests seven nonlinear-infeasible objective evaluations out of nine; COBYQA requests twenty out of twenty-four. Thus adding nonlinear constraints does not prevent an invalid FEM request. This is a contract counterexample, not a motor experiment or timing comparison.
+
+A separate diagnostic returns NaN only as a domain-rejection signal to COBYQA. The pinned implementation maps it to its internal extreme barrier (`scipy/_external/cobyqa/problem.py`). On this toy, it returns success at (1,0), with objective −1 rather than the known −sqrt(2) optimum. This does not show that COBYQA fails generally; it shows why a nominal success flag or the presence of a rejection mechanism does not establish reliable handling of domain boundaries. A real integration needs tests of visited coordinates, failure semantics, initialization and recovery, not just exit status.
+
+Required protocol clarifications before main runs:
+
+- SLSQP restoration must be visible to the solver: terminate the current invocation and explicitly restart at the restored point, recording state reset and costs, or validate a true domain-aware solver implementation. Do not silently project inside callbacks. Freeze the exact COBYQA rejection and surrogate initial-set handling too.
+- Define raw margins m_i, fixed positive scales s_i with matching units, c_i=m_i/s_i, and residual c_i−0.05. Handle unsafe upstream expressions and discrete guards explicitly. The arc discriminant has squared-length units. Zero reference margins need guard-specific treatment. A 5% reference margin is a prospective design-domain choice, not a proven universal numerical safety threshold.
+- Separate Opt120's historical construction regression from eligibility in the new fixed-size/control problem. It need not satisfy a domain it was not optimized in.
+- Preserve already valid frozen starts; document deterministic replacements if new constraints invalidate them. Freeze seeds 3/4 and matched scalar coordinates before outcomes. Five starts support a bounded paired benchmark; two timing repeats are not two independent design discoveries.
+- Freeze mesh-repair variants, order, total attempt cap and failure categories. Candidate-dependent mesh failure is numerical feasibility, not necessarily infrastructure failure. Retain 5 degrees unless a separate evidence-backed amendment changes it.
+- A 120-FE budget with the original 60-FE checkpoint is reasonable if applied uniformly and declared after the pilot, before main runs. Only validations finished by each checkpoint count. Preserve targets, failed/censored records and separate pilot/main trajectories.
