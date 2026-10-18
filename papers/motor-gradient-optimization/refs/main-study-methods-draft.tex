@@ -3,7 +3,7 @@
 % Governing protocol: #1185 amendments 7 (revision 1 + adoption corrections), 8.
 % Amendment 8 text: ca25a11bda465add9240ac794ed787a081d50772,
 % refs/amendment8-physical-baseline.md.
-% Final selection: comments 6247383821 + 6247421487.
+% Final selection: comments 6247383821 + 6247421487 + 6248492318.
 % Start sampling: comment 6247585770 + subsequent rationale correction.
 % Scope decisions: Squad reviews 18, 19, 21; EXPERIMENTS.md.
 % Before incorporation: verify against merged implementation and main manifests;
@@ -314,6 +314,19 @@ rotations. For other designs the missing conforming check and resulting
 model dependence will be stated. Exact geometry/settings identities may
 share a check while retaining every source role. A failed refinement will
 not trigger substitution of a different selected candidate.
+
+At all three training currents, the same initial design and deduplicated
+cohort will also receive two L2/$h93$ checks: g20 with Newton relative
+tolerance $10^{-12}$ against the default $10^{-8}$, and an independently
+solved grid $0.5^\circ,1.5^\circ,\ldots,19.5^\circ$ at the default tolerance.
+Each current sweep starts cold; successive angles use continuation from
+the preceding solution. Signed waveform, mean, standard-deviation and
+objective changes, together with failures, will be retained. Each candidate
+will be compared with the initial design at matching settings. These checks
+are charged separately after the run and neither replace candidates nor
+change common-validator target credit. The even/odd samples of g40 may
+additionally diagnose angular sampling without further solves; their shared
+sweep history prevents treating them as an independent shifted-grid solve.
 
 Time-to-target statements will refer to common L2/$h93$/g20 validation.
 The selected refinement checks will qualify those statements where they

@@ -92,3 +92,9 @@ refused candidates count toward the every-second-rejection geometry sample,
 which must itself pass buildability. The supplement states this explicitly.
 The builder is responsible for the fix, a two-refusal regression and mutation;
 those implementation checks are still pending, not discharged by the ruling.
+
+## Subsequent final-check completion
+
+Claude adopted [amendment 8 addendum part 2](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248492318) in review #25 before main outcomes. The prospective Methods and EXPERIMENTS now include L2/h93/g20 at Newton relative tolerance 1e-12 and an independently solved half-degree-shifted g20 sweep at 1e-8, for theta0 and the existing deduplicated cohort at all three training currents. Each current sweep starts cold, with continuation between angles. Signed waveform/mean/std/F changes, failures and separate post-run costs remain required; candidates and target credit are unchanged. The optional g40 even/odd split is only a sampling diagnostic, not an independent shifted solve. These requirements close the BRIEF-to-protocol omission; execution, cost measurements and results remain pending.
+
+The updated Methods fragment compiles to five pages with no LaTeX warnings or box overflows; `git diff --check` passes. This verifies the prospective text, not execution of either new check.
