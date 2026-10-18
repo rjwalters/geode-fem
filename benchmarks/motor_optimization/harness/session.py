@@ -58,6 +58,7 @@ from driver import METHOD_LABELS, METHOD_SPECS, method_order  # noqa: E402
 from evaluator import Evaluator  # noqa: E402
 from linalg_info import fingerprint as linalg_fingerprint  # noqa: E402
 from run import thread_env  # noqa: E402
+import resource_usage  # noqa: E402
 
 ROOT = HERE.parents[2]
 OPT = ROOT / "benchmarks/motor_optimization"
@@ -194,14 +195,23 @@ def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out, procs):
     training forwards and gradients of the weights); the unit is the median
     of the 3N validation timings. Space B must give θ0's training values to
     the bit."""
+    resources_before = resource_usage.snapshot()
+
     def one(k, tag):
         ev = Evaluator(evaluator_args(binary, "a", train_mesh, val_mesh, tl, vl, anchor,
                                       out / f"calibration.meshes/{tag}{k}"),
                        env=thread_env(), stderr_path=out / "calibration.stderr.log")
+        result = None
         try:
-            return ev.request("calibrate_unit", repeats=3)
+            result = ev.request("calibrate_unit", repeats=3)
+            return result
         finally:
             ev.close()
+            if result is not None:
+                # Each calibration has a separate evaluator; the launcher
+                # has concurrent threads, so its CHILDREN delta cannot be
+                # attributed to this calibration.
+                result["process_resources"] = ev.resources()
 
     single = one(0, "single")
     if not single.get("ok"):
@@ -212,6 +222,7 @@ def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out, procs):
     cal["single_process"] = {"unit_seconds": single["unit_seconds"],
                              "validation_seconds": single["validation_seconds"],
                              "weights": single["weights"],
+                             "process_resources": single["process_resources"],
                              "note": "diagnostic only; not the unit"}
     evb = Evaluator(evaluator_args(binary, "b", train_mesh, val_mesh, tl, vl, anchor,
                                    out / "calibration.meshes/b"),
@@ -221,11 +232,20 @@ def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out, procs):
         tb = evb.request("train", x_bits=to_bits(evb.ready["space"]["x0"]))
     finally:
         evb.close()
+    cal["space_b_setup_resources"] = evb.resources()
     same = tb.get("F") == cal["theta0_train"]["F"] \
         and tb.get("mean_full") == cal["theta0_train"]["mean_full"]
     if not same:
         raise SystemExit("space B theta0 training value differs from space A's")
     cal["space_b_theta0_train_agrees_bitwise"] = same
+    receipts = [single["process_resources"], cal["space_b_setup_resources"]]
+    receipts.extend(c["process_resources"] for c in cals)
+    complete = all((e.get("child_receipt") or {}).get("cpu_complete") is True
+                   for e in receipts)
+    cal["resources"] = resource_usage.interval(
+        resources_before, resource_usage.snapshot(), label="whole_calibration_batch",
+        children_complete=complete,
+        incomplete_reason="not all calibration evaluator lifetimes have complete receipts")
     return cal
 
 
@@ -516,7 +536,8 @@ def main(argv=None):
         write(anchor, {"issue": 1201, "label": "smoke",
                        "note": "L0 anchor for the smoke session only; not the registered "
                                "anchor (benchmarks/motor_optimization/anchor.json)",
-                       "anchor": r["anchor"], "validation": r["validation"]})
+                       "anchor": r["anchor"], "validation": r["validation"],
+                       "process_resources": ev.resources()})
         # The smoke's starts: the committed ones and the boundary drill.
         st = json.loads(starts_path.read_text())
         st["starts"]["drill"] = drill_start(a.binary, out, starts_path)

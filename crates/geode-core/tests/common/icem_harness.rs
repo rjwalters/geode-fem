@@ -57,6 +57,9 @@
 //! `mod icem_experiment2;` next to this module.
 #![allow(dead_code)] // each binary uses a subset
 
+#[path = "motor_resources.rs"]
+pub mod resources;
+
 use std::time::Instant;
 
 use geode_core::mesh::design_remesh::{MovingMesh, RemeshPolicy};
@@ -263,6 +266,7 @@ impl<Sp: Space> Session<Sp> {
     /// Answer one request (module docs). Never panics on a bad request.
     pub fn handle(&mut self, req: &Value) -> Value {
         let t0 = Instant::now();
+        let resources_before = resources::snapshot();
         let op = req["op"].as_str().unwrap_or("").to_string();
         let mut ledger = CostLedger::new(FeRule::WallTime { unit_seconds: 1.0 }, f64::INFINITY);
         let note = req["note"].as_str().unwrap_or("").to_string();
@@ -302,6 +306,11 @@ impl<Sp: Space> Session<Sp> {
         body["op"] = json!(op);
         body["charges"] = charges_json(&ledger);
         body["handler_s"] = json!(seconds);
+        // Every child launched by a completed handler is synchronously
+        // waited for. A killed request supplies no reply; the caller must
+        // retain that interruption as incomplete accounting.
+        body["resources"] =
+            resources::interval(&resources_before, &resources::snapshot(), &op, true, None);
         body
     }
 

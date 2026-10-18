@@ -487,7 +487,7 @@ unedited run.
 
 ## Reproduce
 
-### Amendment-8 preparation (#1202, not integrated)
+### Amendment-8 integration in progress (#1202)
 
 `main_schedule.py` defines the prospective 100-job queue from an explicit
 A–E method registry: rotate ABCDE by start index for repeat 1, then reverse
@@ -498,10 +498,13 @@ establishes that all owned descendants were reaped. Request CPU must not be
 added again to inclusive run totals, and RSS observations are not memory deltas
 or a sum of simultaneous process peaks.
 
-These helpers are not wired into `session.py`, `run.py` or the Rust evaluator.
-The resource adapter inside the evaluator and the five-method integration
-still await #1201's reviewed merge. Do not launch the main study using these
-helpers alone. Their isolated checks are:
+Squad review 26 permits private integration against `8bbc516d`; PR and main
+execution still require #1201's reviewed merge, rebasing and affected checks.
+The resource adapter is now connected to evaluator startup/requests, optimizer
+runs, post-run diagnostics and calibration. The five-method registry, queue
+connection, recovery and remaining main-study requirements are still pending.
+Do not launch the main study from this intermediate implementation.
+The queue/resource helper checks are:
 
 ```sh
 benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/test_main_preparation.py
@@ -513,7 +516,7 @@ lifetimes, RSS units and incomplete accounting; thirteen semantic mutations must
 be detected. `main-preparation-checks.json` retains raw output and exact source
 hashes. These are synthetic/process-accounting fixtures, not motor outcomes.
 
-`resource_usage.reap_usage` also prepares a child-specific `wait4` receipt
+`resource_usage.reap_usage` supplies a child-specific `wait4` receipt
 for the driver cross-check. Its caller must own the PID and be its sole reaper:
 capture this receipt before `Popen.poll`, `wait` or `communicate` can consume
 the child's status, retain it, and synchronize the process handle's return
@@ -524,10 +527,10 @@ descendant accounting. The helper does not drain pipes or kill processes.
 Tests use two concurrent children reaped in reverse order to check attribution.
 See the [Python wait4 contract](https://docs.python.org/3.12/library/os.html#os.wait4).
 
-The standalone Rust counterpart is
+The Rust counterpart is
 `crates/geode-core/tests/common/motor_resources.rs`. It uses the already-locked
 `nix = 0.29.0` safe wrapper as a Unix-only dev-dependency with only its
-`resource` feature. No library code or evaluator requests call it yet. Other
+`resource` feature. It is used by benchmark evaluator code only, not the core library. Other
 platforms explicitly report unavailable counters. macOS and Linux RSS units
 are normalized separately; other platforms retain an unknown unit.
 
@@ -539,10 +542,50 @@ CARGO_TARGET_DIR="$PWD/target" cargo clippy -p geode-core --test motor_resource_
 Four checks on the macOS preparation host cover unit conversion, CPU deltas,
 separate lifetime RSS observations, incomplete/invalid intervals, and real
 self/child CPU. The conditional non-Unix unavailable-path test requires a
-non-Unix host and has not been executed here. At integration, driver-side
-`wait4` CPU totals must cross-check the evaluator's request observations;
+non-Unix host and has not been executed here. Driver-side
+`wait4` CPU totals cross-check the evaluator's request observations;
 startup and between-request work can make the inclusive total larger than
 their sum. Do not add request observations again to inclusive run totals.
+
+#### Evaluator lifecycle and resource wiring
+
+The Python evaluator client is its child's sole reaper. It retains a `wait4`
+receipt before any ordinary `Popen` wait, closes pipes/logs on every startup
+failure, and attaches failure evidence to the exception for `run_one` to save.
+After an acknowledged shutdown it allows up to 0.25 seconds for normal exit;
+otherwise it kills the owned process group and reports incomplete descendant
+accounting. Repeated cleanup retains the original receipt. Request interruption
+retains an explicit unavailable request measurement.
+
+`resources` on a run covers its measured Python phase through evaluator cleanup;
+Python import and final trace-serialization costs are outside that interval.
+The wall-time budget and original attainment records are unchanged. Diagnostics
+have their own resource interval outside the stopped run. Calibration retains
+each evaluator's receipts and one whole-batch parent/self-plus-reaped-children
+interval; concurrent child costs are never attributed using overlapping parent
+deltas. Request measurements, child lifetime receipts and inclusive phase CPU
+are overlapping views, not summands. Session launcher lifetime receipts and
+complete setup/recovery accounting remain pending with the scheduler work.
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/test_evaluator_resources.py
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/resource_lifecycle_mutations.py
+CARGO_TARGET_DIR="$PWD/target" cargo test -p geode-core --release --test motor_experiment2_harness request_resources_cover_success_and_failure_without_summing_rss
+CARGO_TARGET_DIR="$PWD/target" cargo build -p geode-core --release --example icem_harness_eval
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/resource_wiring_smoke.py \
+  --binary "$PWD/target/release/examples/icem_harness_eval" --out /path/to/new-resource-smoke.json
+```
+
+Seven lifecycle/calibration tests cover actual child exits, malformed/EOF/timeout
+startup failures, launch failure, interrupted requests, run/diagnostic failure
+recording and distinct calibration receipts. Three deliberate lifecycle
+regressions must fail with assertions; raw output and source hashes are in
+`resource-lifecycle-checks.json`. The labelled `smoke/resource_wiring_1202.json`
+checks a compiled evaluator's startup, nonlinear L0 training, expected validation
+failure without an anchor, normal shutdown and startup failure. Its child CPU
+receipt covers the sum of request measurements. It is all-L0 with four training
+angles; it does not establish L0/L2 separation, optimizer performance or main-run
+readiness.
 
 ### Existing harness commands
 

@@ -34,6 +34,20 @@ from driver import (DIAGNOSTIC_FRACTIONS, METHOD_LABELS, METHOD_SPECS, METHODS, 
 from evaluator import Aborted, Evaluator, EvaluatorFailure, to_bits  # noqa: E402
 from ledger import Ledger  # noqa: E402
 from linalg_info import fingerprint as linalg_fingerprint  # noqa: E402
+import resource_usage  # noqa: E402
+
+
+def phase_resources(before, ev, error, label):
+    evidence = (ev.resources() if ev is not None and hasattr(ev, "resources")
+                else getattr(error, "evaluator_resources", None))
+    receipt = (evidence or {}).get("child_receipt") or {}
+    measured = resource_usage.interval(
+        before, resource_usage.snapshot(), label=label,
+        children_complete=receipt.get("cpu_complete") is True,
+        incomplete_reason="evaluator clean exit and descendant accounting not established")
+    measured["evaluator"] = evidence or {
+        "available": False, "reason": "no evaluator lifecycle measurements"}
+    return measured
 
 
 def model_of(session, method=None):
@@ -89,17 +103,24 @@ def post_run_diagnostic(run, make_evaluator, unit, clock=time.monotonic):
     if pred is None:
         return dict(out, status="no incumbent")
     t0 = clock()
+    resources_before = resource_usage.snapshot()
     ev = None
+    failure = None
+    r = None
     try:
         ev = make_evaluator()
         r = ev.request("diagnose", timeout=max(10 * unit, 60.0), x_bits=to_bits(pred["x"]),
                        fractions=list(DIAGNOSTIC_FRACTIONS))
-    except (Aborted, EvaluatorFailure) as e:
-        return dict(out, status="failed", error=str(e) or "timeout",
-                    seconds=clock() - t0)
+    except Exception as e:  # a diagnostic failure cannot discard the stopped run
+        failure = e
+        out.update(status="failed", error=str(e) or "timeout")
     finally:
         if ev is not None:
             ev.close()
+        out["resources"] = phase_resources(resources_before, ev, failure, "post_run_diagnostic")
+        out["seconds"] = clock() - t0
+    if r is None:
+        return out
     out.update(status="ok" if r.get("ok") else "failed", error=r.get("error"),
                charges=r.get("charges", []), seconds=clock() - t0)
     if not r.get("ok"):
@@ -123,6 +144,7 @@ def run_one(session, method, space, start, repeat, out, position=None, clock=tim
     """Run and write the trace; return it."""
     if method not in METHODS:
         raise ValueError(method)
+    resources_before = resource_usage.snapshot()
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     anchor = Anchor.from_file(session["evaluator"]["anchor"])
@@ -141,6 +163,7 @@ def run_one(session, method, space, start, repeat, out, position=None, clock=tim
              "load_before": load_before, "linear_algebra": linalg_fingerprint()}
     ev = None
     run = None
+    failure = None
     mesh_out = out.with_name(out.stem + ".meshes")
     try:
         if evaluator_factory is None:
@@ -160,16 +183,19 @@ def run_one(session, method, space, start, repeat, out, position=None, clock=tim
             # budget exactly, and nothing after it.
             ledger.sync("driver end")
         trace.update(stop_reason=reason, message=message, error=error, **run.result())
-    except Aborted:
+    except Aborted as e:
+        failure = e
         ledger.charge_to_budget("overhead", "start-up aborted at the budget")
         trace.update(stop_reason="budget", message="budget spent during start-up",
                      error=None, ledger=ledger.to_json())
     except Exception as e:  # noqa: BLE001 - every outcome is recorded
+        failure = e
         trace.update(stop_reason="error", message=type(e).__name__, error=str(e),
                      traceback=traceback.format_exc(), ledger=ledger.to_json())
     finally:
         if ev is not None:
             ev.close()
+        trace["resources"] = phase_resources(resources_before, ev, failure, "optimizer_run")
     # The in-run phase ends here (wall clock, for the session's host monitor,
     # amendment 7 §6): the post-run diagnostic below is outside it.
     trace["in_run_start_time"] = in_run_start

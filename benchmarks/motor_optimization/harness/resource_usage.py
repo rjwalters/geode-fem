@@ -1,4 +1,4 @@
-"""Observational process accounting for #1202; integration is still pending.
+"""Observational process accounting for #1202.
 
 Call inside one isolated optimizer/calibration process, never use the shared
 session launcher's RUSAGE_CHILDREN to attribute concurrent jobs. CPU counters
@@ -102,7 +102,7 @@ def interval(before, after, *, label, children_complete=False, incomplete_reason
 
 
 def reap_usage(pid, *, block=False, descendants_complete=False):
-    """Reap one owned child and retain its wait4 receipt (not yet wired).
+    """Reap one owned child and retain its wait4 receipt.
 
     The caller must be this PID's sole reaper: do not call Popen.poll/wait or
     communicate first. Retain the receipt after reaping, and synchronize the

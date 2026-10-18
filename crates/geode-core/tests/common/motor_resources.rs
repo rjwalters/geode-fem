@@ -1,6 +1,6 @@
 //! Standalone process accounting for the motor benchmark (#1202).
 //!
-//! Not yet connected to evaluator requests. Each process samples its own
+//! Evaluator requests and startup sample their own process
 //! counters. Child CPU includes only descendants accounted for after waiting;
 //! killing a process group may leave that total incomplete. Nested request
 //! totals must not be added again to an inclusive run total. RSS observations
