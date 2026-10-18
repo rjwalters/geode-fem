@@ -408,13 +408,14 @@ error of the reply against central differences.
 
 ### Mutation checks
 
-`mutation_checks.py` makes 91 single-snippet mutations, all killed
-(`../logs/harness_mutation_checks.log`, one unedited run): 67 of the
+`mutation_checks.py` makes 98 single-snippet mutations, all killed
+(`../logs/harness_mutation_checks.log`, one unedited run): 71 of the
 driver, session and acceptance (the Python tests), 16 of the evaluator (the
 `motor_experiment2_harness` and `motor_experiment2_domain` targets), 5 of
 the domain (that target and the `icem_domain` library tests), 1 of the
-remesh loop (the `design_remesh` library tests) and 2 of the remesher
-(the repair sequence and the mesher's exit classification). 43 bind the amendment-7 rules of #1201 (strictness, τ, the
+remesh loop (the `design_remesh` library tests) and 5 of the remesher
+(the repair sequence, the mesher's exit classification, and the exit code
+and marker on either side of the script/Rust contract). 43 bind the amendment-7 rules of #1201 (strictness, τ, the
 credit tolerance on both sides (zero, and too wide), the
 derivative domain, safe evaluation, the evaluator's refusals and credit,
 the driver's credit and best feasible, C's total violation, the start
@@ -425,8 +426,9 @@ non-cumulative attempts, the registered repair, the attempt history, the
 charged attempts, the checkpoint, the host gate, factor, limit, interval
 and idle rule, the calibration gate, the remesh hashes, the failed,
 transport-failed and aborted request points, the wall-time split and the
-validation record's evidence); 3 are #1197's K2 (B and C) and K4; 9 are
-the #1204 Judge's J1–J8 and the exit classification. A mutant
+validation record's evidence); 3 are #1197's K2 (B and C) and K4; 16 are
+the #1204 Judge's J1–J8, the BLAS gate (G1–G3 and the macOS version), the
+exit classification and the exit-code contract (R3 both ways). A mutant
 that loops is killed by the Python suite's timeout. The #1193 script
 (`../mutation_checks.py`, 35 mutations of the validation layer) was
 regenerated after the Validator's repair loop changed: 35/35 killed

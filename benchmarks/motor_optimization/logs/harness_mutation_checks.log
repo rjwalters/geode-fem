@@ -91,7 +91,14 @@ J5_driver_credit_boundary_strict [#1204] (python): KILLED (test_an_iterate_at_ex
 J6_deferred_job_never_requeued [#1204] (python): KILLED (test_a_deferred_job_is_requeued_and_never_started_while_deferred)
 J7_deferred_but_spawned [#1204] (python): KILLED (test_no_process_is_spawned_when_the_idle_wait_times_out)
 J8_c_refused_initial_step_counts [#1204] (python): KILLED (test_a_coordinate_with_no_buildable_step_is_restoration_failed, test_the_initial_set_keeps_full_rank_with_the_minus_sigma_retry)
+G1_same_stack_always_false [#1204] (python): KILLED (test_same_stack_checks_every_key)
+G2_gate_ignores_blas_lapack [#1204] (python): KILLED (test_a_mismatched_stack_skips_the_exact_replay, test_same_stack_checks_every_key)
+G2b_gate_ignores_the_macos_version [#1204] (python): KILLED (test_same_stack_checks_every_key)
+G3_mismatch_returns_instead_of_skipping [#1204] (python): KILLED (test_a_mismatched_stack_skips_the_exact_replay)
+R3_rust_mesh_failure_exit_not_the_scripts [#1204] (remesher): KILLED (the_mesh_failure_exit_code_is_the_scripts)
+R3b_script_mesh_failure_exit_not_rusts [#1204] (remesher): KILLED (the_mesh_failure_exit_code_is_the_scripts)
+R3c_script_marker_not_rusts [#1204] (remesher): KILLED (the_mesh_failure_exit_code_is_the_scripts)
 mesher_exit_1_is_a_meshing_failure [#1204] (remesher): KILLED (only_gmsh_meshing_failures_are_design_dependent)
 validation_record_without_geometry_evidence [#1201] (python): KILLED (test_an_inadmissible_candidate_with_low_F_and_high_mean_earns_nothing)
-91/91 mutations killed
+98/98 mutations killed
 exit 0
