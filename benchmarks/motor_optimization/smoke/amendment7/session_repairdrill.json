@@ -1,17 +1,17 @@
 {
  "issue": 1201,
  "label": "smoke",
- "session_id": "smoke-20261018T110340Z",
+ "session_id": "smoke-20261018T125328Z",
  "budget_fe": 20.0,
  "checkpoint_fe": 60.0,
- "unit_seconds": 3.366327667,
+ "unit_seconds": 3.318281604,
  "weights": {
   "validation_eval": 1.0,
-  "train_forward_eval": 0.779497735090801,
-  "adjoint_eval": 0.1748594274616702,
+  "train_forward_eval": 0.7806954196947054,
+  "adjoint_eval": 0.1750375728509147,
   "validation_solve": 0.016666666666666666,
-  "train_forward_solve": 0.012991628918180016,
-  "adjoint_solve": 0.002914323791027837,
+  "train_forward_solve": 0.013011590328245089,
+  "adjoint_solve": 0.0029172928808485783,
   "validation_solves_per_eval": 60,
   "train_solves_per_eval": 60
  },
@@ -80,11 +80,11 @@
    },
    "weights": {
     "validation_eval": 1.0,
-    "train_forward_eval": 0.779497735090801,
-    "adjoint_eval": 0.1748594274616702,
+    "train_forward_eval": 0.7806954196947054,
+    "adjoint_eval": 0.1750375728509147,
     "validation_solve": 0.016666666666666666,
-    "train_forward_solve": 0.012991628918180016,
-    "adjoint_solve": 0.002914323791027837,
+    "train_forward_solve": 0.013011590328245089,
+    "adjoint_solve": 0.0029172928808485783,
     "validation_solves_per_eval": 60,
     "train_solves_per_eval": 60
    }
@@ -105,5 +105,19 @@
  },
  "starts": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/starts_smoke.json",
  "procs": 6,
+ "linear_algebra": {
+  "system": "Darwin",
+  "machine": "arm64",
+  "numpy": "2.5.4",
+  "scipy": "1.18.1",
+  "numpy_blas": "accelerate",
+  "numpy_blas_version": "unknown",
+  "numpy_lapack": "accelerate",
+  "numpy_lapack_version": "unknown",
+  "scipy_blas": "Accelerate",
+  "scipy_blas_version": "unknown",
+  "scipy_lapack": "Accelerate",
+  "scipy_lapack_version": "unknown"
+ },
  "drill": "the first 1 mesher attempts fail"
 }
