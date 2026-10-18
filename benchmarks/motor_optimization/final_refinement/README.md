@@ -235,3 +235,40 @@ pending.
 python3 -I benchmarks/motor_optimization/final_refinement/test_validation_evidence.py
 python3 -I benchmarks/motor_optimization/final_refinement/validation_mutations.py
 ```
+
+
+`recovery_evidence.reconcile` loads the original archive and supplied recovery
+registry without constructing a registry or dispatching work. It verifies origin,
+reserved plans, generation links, seals and original frozen inputs. Every reserved
+optimizer/diagnostic action is checked against the prior history using the actual
+hash-pinned `recovery_policy.plan`, executed in an isolated subprocess from verified
+source bytes. A stale bytecode cache cannot replace that source. All three policy
+source dependencies must be pinned by the caller.
+
+The first clean completed optimizer remains selected, including scientific failure;
+later outcomes do not replace it. Replacement allowances carry across generations.
+Unfinalized traces, unresolved interruptions, exhausted replacements, incomplete
+registry seals and pending diagnostics remain explicit. Diagnostic-only repairs
+bind the complete original optimizer/snapshot identity and cannot add an optimizer.
+Copied external-attestation evidence is hash-checked and remapped only in memory;
+its original absolute paths remain in the returned record.
+
+`all_registered_jobs_resolved` describes the supplied chain only. The reader still
+returns `can_select=false` and `can_launch=false`. A copied archive cannot prove
+remote process absence or that no later generation exists. The caller must establish
+capture completeness, externally reviewed interruption causes, complete source/runtime
+and canonical-anchor provenance, and full geometry/settings/mesh identities before
+scientific selection. This layer supplies attempt dispositions to that later adapter.
+
+Seventeen tests exercise these rules. A production schema probe creates a private
+synthetic study using the actual Registry writer, inventory and recovery policy.
+Its 100 completed jobs retain 101 attempts, including one contamination replacement;
+the entire resulting policy matches the reader, and archive bytes/modification times
+remain unchanged. No optimizer or FEM solve runs. Nine semantic mutation checks and
+the raw production-probe archive are recorded in `recovery-evidence-checks.json`.
+Until the dependency merge, pass the explicit candidate harness directory:
+
+```sh
+python3 -I benchmarks/motor_optimization/final_refinement/test_recovery_evidence.py --harness /path/to/candidate/benchmarks/motor_optimization/harness
+python3 -I benchmarks/motor_optimization/final_refinement/recovery_mutations.py --harness /path/to/candidate/benchmarks/motor_optimization/harness
+```

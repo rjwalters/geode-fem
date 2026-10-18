@@ -93,7 +93,7 @@ The adapter must test corrupted hashes, missing jobs, unfinalized traces,
 changed units/anchors/settings, ambiguous replacements, ignored contamination,
 post-budget records, tiny negative admissibility margins, empty guard lists,
 coordinate rounding and attempts to substitute diagnostic results for primary
-credit. These tests are pending implementation, not discharged by this map.
+credit. The tests below cover the implemented layers; complete integration and design/runtime checks remain pending.
 
 The pure helper `geometry_evidence.verify_geometry` now checks the normalized
 margin/declared-verdict portion of this map. Its tests include the explicit
@@ -120,3 +120,24 @@ numerical decision independent of `credited`; post-budget rows must retain that
 flag while receiving no target credit. Eight-ulp arithmetic checks do not soften
 any eligibility inequality. See `validation-evidence-checks.json` for exact
 source and test/probe scope.
+
+
+The recovery layer is now `recovery_evidence.reconcile`. It consumes the original
+session and an explicitly supplied registry capture, verifies original inputs and
+each reservation/link/seal, and recomputes actions with the exact pinned production
+policy. It retains all attempts, selects the first clean completion irrespective of
+scientific success, carries allowances across generations, and verifies diagnostic
+snapshot identity. Original source paths survive copying; external evidence is
+hash-checked before in-memory path remapping. No registry constructor or dispatcher
+runs while analyzing evidence.
+
+This resolves dispositions within a supplied capture, not the completeness of that
+capture or scientific eligibility. `all_registered_jobs_resolved` requires 100
+selected completions, no unresolved/pending actions, all recovery seals and a complete
+final manifest. `can_select` and `can_launch` remain false. A stopped remote capture,
+reviewed external cause, global source/runtime/anchor bindings, full physical design
+reconstruction and actual mesh bytes are still caller obligations. The source pin
+must include `recovery_policy.py`, `session_journal.py` and `process_identity.py`;
+verified source bytes execute directly rather than trusting cached bytecode.
+See `recovery-evidence-checks.json` for synthetic tests, mutations and exact policy
+agreement with the production Registry/inventory schema probe.
