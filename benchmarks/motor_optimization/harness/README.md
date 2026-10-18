@@ -1,4 +1,10 @@
-# Motor experiment 2: the optimizer harness (issues #1195, #1201)
+# Motor experiment 2: the optimizer harness (issues #1195, #1201, #1202)
+
+**Current private #1202 status:** five-method dispatch, shared validation,
+resource accounting, recovery and build/runtime bindings are implemented.
+Reviewed dependency integration, affected native checks and independent review
+remain required before a main run. The historical implementation sections below
+retain their original staged scope; they are not current launch approval.
 
 This directory compares three optimizers on the frozen spaces A and B of
 experiment 2 (#1185). The comparison follows the pre-registration and
@@ -9,10 +15,10 @@ and held-out currents; comment 6245012709) and **amendment 7** (the
 geometry domain, the method safeguards, mesh repair, the 120-FE budget,
 the starts and the host rule; revision 1, comment 6247097203, with the
 adoption corrections, comment 6247152017, which govern). §2–§7 below follow
-them. Amendment 8 (methods D and E on L0; comment 6247152174) is not wired
-here: its extension points are the method specs (`driver.METHOD_SPECS`,
-(optimizer, resolution)) and the session's per-resolution model records
-(`session.json` `models`); its start rule (eligible at L0 and L1) is.
+them. This private branch wires amendment 8 (methods D and E on L0;
+comment 6247152174) through `driver.METHOD_SPECS` (optimizer, resolution)
+and the session's per-resolution `models` records. Its start rule requires
+eligibility at L0 and L1.
 
 Every cost is charged. Every new incumbent is validated on the validation
 model and scored against the anchor; no start is ever validated.
@@ -36,7 +42,8 @@ only) is in `../runs/pilot/`, with its `SUMMARY.md`.
 | `driver.py` | The problem scaling, the charged `Run` (the validation policy and attainment), and methods A, B and C. |
 | `ledger.py`, `acceptance.py`, `evaluator.py`, `surrogate.py` | The driver's ledger, its independent copy of the acceptance rule, the process client, and the RBF model. |
 | `run.py` | One run: a fresh process, a fresh ledger, one trace. |
-| `session.py` | The run manifest: calibrates the unit, then launches every job (`--procs N --out DIR`; the pilot by default, `--smoke` for the smoke). |
+| `session.py` | The run manifest: gated calibration, then scheduling; requires explicit `--main` or `--smoke`. Main uses five methods and requires a witnessed build receipt. |
+| `export_queue.py` | Export the same 100-job main queue for prelaunch inspection, without FEM/calibration. |
 | `summarize_session.py` | Writes `SUMMARY.md` for a session directory. |
 | `summarize_pilot.py` | The pilot analysis (#1198): attainment, budget profile, feasibility, failures, host load, quality-versus-cost curves (`curves.csv`, `quality_vs_cost.svg`) and method C's held-out-current diagnostic, into the session's `SUMMARY.md`. |
 | `lhs.py`, `make_starts.py`, `starts.json` | The deterministic LHS starts (committed; seeds 1–4, amendment 7 §5). |
@@ -1129,3 +1136,28 @@ thirteen flat keys. The local environments both report Accelerate. The initial
 offline mesher probe refused because its package-resolution cache was absent; the
 unchanged pinned uv command populated it, after which offline verification passed.
 No source/package versions were changed and no FEM/main job ran for this check.
+
+
+### Export and inspect the main queue (#1202)
+
+From the pinned checkout, run the following with a new file in an existing
+archive directory. It does not require an evaluator binary or launch any FEM:
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/export_queue.py --out NEW_PLANNED_QUEUE.json
+```
+
+The export contains all 100 logical jobs and their intended dispatch order,
+the actual method registry, source commit and per-file hashes, and canonical
+JSON hashes for the job list and registry. Its printed receipt hashes the
+complete export file. The export refuses an existing file and source changes
+during collection. Dirty development sources are explicitly recorded, not
+accepted as main readiness. Re-export after reviewed integration and inspect
+the clean source binding before launch. Both export and session use
+`main_schedule.registered_jobs`; duplicate letters or extra registry entries
+are refused rather than silently discarded.
+
+Compare the complete `jobs` array with the session's frozen `queue.json`.
+Archive actual dispatch/start order separately: concurrent starts and deferred
+jobs can differ from planned order. The export supplies neither a time unit
+nor permission to bypass build, calibration, host, or review prerequisites.

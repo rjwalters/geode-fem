@@ -93,6 +93,9 @@ class JournalTests(unittest.TestCase):
     def test_main_freezes_full_queue_and_transient_deferral_is_not_an_unresolved_job(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td); out = root / "session"; meshes = root / "meshes"; meshes.mkdir()
+            import export_queue
+            export_queue.export(root / "planned-queue.json")
+            planned_jobs = json.loads((root / "planned-queue.json").read_text())["jobs"]
             binary = root / "eval"; binary.write_bytes(b"fixture")
             for level in (0, 1, 2):
                 (meshes / f"icem_initial_sector_L{level}.msh").write_bytes(f"fixture{level}".encode())
@@ -131,6 +134,7 @@ class JournalTests(unittest.TestCase):
             self.assertEqual(manifest["unresolved_jobs"], [])
             jobs = json.loads((out / "queue.json").read_text())["jobs"]
             self.assertEqual(len(jobs), 100)
+            self.assertEqual(jobs, planned_jobs)
             bindings = json.loads((out / "bindings.json").read_text())
             from session_journal import digest
             for name, sha in bindings["files"].items():

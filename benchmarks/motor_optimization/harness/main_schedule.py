@@ -9,6 +9,13 @@ STARTS = ("theta0", "lhs1", "lhs2", "lhs3", "lhs4")
 SPACES = ("a", "b")
 
 
+def registered_jobs(method_specs):
+    """Use the execution registry without silently discarding duplicate letters."""
+    if len(method_specs) != len(LETTERS):
+        raise ValueError("the main study requires exactly five method specs")
+    return build_jobs({spec["letter"]: method for method, spec in method_specs.items()})
+
+
 def method_order(start_index, repeat):
     """Rotate ABCDE by the start index; reverse that rotation for repeat 2."""
     if type(start_index) is not int or not 0 <= start_index < len(STARTS):

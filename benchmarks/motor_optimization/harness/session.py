@@ -768,7 +768,7 @@ def _main(argv=None, stop=None):
         interruption.check(stop)
         session_journal.freeze(out / "session.json", session)
         jobs = (build_jobs(starts, SPACES, repeats) if a.smoke else
-                main_schedule.build_jobs({s["letter"]: m for m, s in METHOD_SPECS.items()}))
+                main_schedule.registered_jobs(METHOD_SPECS))
         if a.smoke:
             # The drills (module docs).
             for m in method_order(1):
