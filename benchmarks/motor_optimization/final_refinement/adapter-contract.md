@@ -153,3 +153,14 @@ parameter dictionaries and supply one theta0 `Design` per space through
 each candidate's reference must match its exact settings. The selector, plan and
 comparison reducer now enforce these declared identities. This does not discharge
 the adapter's obligation to establish the declarations from native source/data.
+
+
+The registered parameter/settings mapping is implemented in `design_evidence.py`.
+It hashes the supplied reference/start files, verifies both coordinate mappings,
+expands all twenty-two parameters, checks native readiness/common-validator
+settings, and creates candidate and per-space theta0 identities without including
+optimizer identity or training resolution. Native point order and exact coordinate
+bits remain available for the eventual runner. The caller still authenticates the
+source/build/runtime manifest and complete capture, reconstructs actual geometry,
+and verifies mesh bytes and canonical-anchor provenance. A zero-stator-offset
+predicate alone is not a conforming-estimator authorization.

@@ -1,5 +1,5 @@
 {
-  "status": "Generation, validation and recovery readers implemented against candidate schema; complete adapter integration awaits reviewed #1202 merge",
+  "status": "Generation, validation, recovery and complete parameter/settings readers implemented against candidate schema; complete adapter integration awaits reviewed #1202 merge",
   "commit": "89d0bf9efa901e9a103d551570642330145e44fd",
   "source_sha256": {
     "benchmarks/motor_optimization/harness/driver.py": "fc1487ecd3f1c8d67256fadb7356a625d014336d4ba50bb2c3c5af731ec1f773",
@@ -14,7 +14,16 @@
     "crates/geode-core/tests/common/icem_harness.rs": "8ffc2cffb1aef2ac6812256ae2a00641f0549f9126a43ed99d2735f1df4eb45e",
     "crates/geode-core/tests/common/icem_experiment2.rs": "62d71adc8a243e4f78b1f52e31049481a30f0994b08d282725dfab5330796aae",
     "crates/geode-core/src/mesh/icem_domain.rs": "2a15b39e72daf286db7d19b47653077ee83ee8ca94c551bb456e098b648778a6",
-    "benchmarks/motor_optimization/harness/process_identity.py": "189f2add1591fbdbf979dec251b78e71c8ac6e1d8ca22ca72c2fc0c30098f729"
+    "benchmarks/motor_optimization/harness/process_identity.py": "189f2add1591fbdbf979dec251b78e71c8ac6e1d8ca22ca72c2fc0c30098f729",
+    "crates/geode-core/src/mesh/icem_controlpoints.rs": "208ad7b607184ed4b98650e465681971f068bfc3eee454531707207291076803",
+    "crates/geode-core/src/mesh/icem_parametric.rs": "56f26f7ca7b452674e81055c1a229c962f8299cb2cd9d663e9959889e8b2f315",
+    "crates/geode-core/tests/common/icem_design.rs": "5b2f55318446e9abba8c35661b5af29f045ff62dc4c3c4b6932d2dce3774baed",
+    "crates/geode-core/tests/common/icem_cp_design.rs": "2db1ccf3002cf9b0b7d36a16e753bab294955c7ed0fd54f6cab384163a9b3db4",
+    "crates/geode-core/tests/common/icem_forward.rs": "01d2121a839cb0552bd0d1dae71dabceb18d7ada15b182cbaec5269bb6949040",
+    "crates/geode-core/tests/common/icem_remesh.rs": "69fb0f0b74962456624068d764610004ce6105ed4b0a7effda2a542e6432d2b7",
+    "crates/geode-core/examples/icem_harness_eval.rs": "c109381f7099a650bfc3e906cd0437dd99047e392ef24566d7a8d3139aa0eee9",
+    "benchmarks/motor_reference/reference_data.json": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3",
+    "benchmarks/motor_optimization/harness/starts.json": "d4840d876b35e8dffe775c109e3d195a2fa3d980224738213b9d22c01128f759"
   },
-  "scope": "Read-only archive and recovery reconciliation plus recorded validation checks; complete source/runtime/design provenance and native refinement remain pending; no main result"
+  "scope": "Read-only archive/recovery reconciliation, recorded validation checks and registered parameter/settings mapping; source/runtime/capture authentication, geometry reconstruction and native refinement remain pending; no main result"
 }

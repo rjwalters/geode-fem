@@ -301,3 +301,43 @@ matching-reference mutations are detected. `matched-reference-checks.json` binds
 this evidence and a synthetic four-design, 24-check example. The motion distinction
 is established by the source implementation; actual full-design adaptation and
 native refinement wiring remain pending.
+
+
+`design_evidence.RegisteredDesigns.load` reads the reference and frozen-start
+files against supplied SHA-256 values, checks all twelve scalar registrations,
+the four frozen values, coordinate order, boxes and both theta0 vectors.
+`adapt(trace, validation, provenance=...)` checks the native ready protocol,
+full parameter-name order, space/map and common L2/h93/g20 validator settings.
+It expands the free coordinates to twelve scalars plus ten explicit offsets,
+returns their exact bits in native order, and builds both the candidate `Design`
+and its matching-space theta0 reference. Coordinates are never projected,
+rounded or inferred from an objective. Endpoints are accepted; missing,
+nonfinite, out-of-box or contradictory-bit records are refused.
+
+Final-check identity includes the originating space/motion map, complete
+parameters, observed common-validator settings/reference mesh, reference-data
+hash and declared source/binary provenance. Optimizer identity and training
+resolution do not change that final-check identity. The two spaces retain
+identical physical theta0 parameters and distinct numerical identities. The
+reported zero-stator-offset predicate is only one prerequisite for a conforming
+check: it grants no permission without the native fresh-mesh/rotation gate.
+
+Eleven tests and ten assertion-detected mutations pass. A real evaluator probe
+checks readiness and geometry at all five frozen starts in both spaces, with
+zero FEM/optimizer solves. A separate composition replay maps retained native
+theta0 coordinates/values through the design and validation adapters, selector
+and matched-reference plan; it preserves mean-floor exclusion and both reference
+sets. Its run/host/timing context is synthetic. `design-evidence-checks.json` binds
+both probes, scripts and raw data.
+
+This maps the complete registered parameter vector; it does not reconstruct
+curves or mesh nodes or authenticate the caller's source/build/runtime claims.
+The caller must bind these declarations to the verified main capture, canonical
+anchor, actual mesh bytes and independently reviewed execution. Actual native
+refinement, conforming checks and complete end-to-end main-data adaptation remain
+pending. Run the local checks with:
+
+```sh
+python3 -I benchmarks/motor_optimization/final_refinement/test_design_evidence.py
+python3 -I benchmarks/motor_optimization/final_refinement/design_mutations.py
+```
