@@ -12,7 +12,8 @@
     "benchmarks/motor_optimization/harness/recovery_registry.py": "da3c3ef58a3cc08d36c066883e74a91d3161bb6e2a523cd4d8c4917a82295752",
     "benchmarks/motor_optimization/harness/session_journal.py": "dd2fa15a7b9bd764e61e2a6d55d68e83e814ae47a77f359d9796b11bbfa630f7",
     "crates/geode-core/tests/common/icem_harness.rs": "8ffc2cffb1aef2ac6812256ae2a00641f0549f9126a43ed99d2735f1df4eb45e",
-    "crates/geode-core/tests/common/icem_experiment2.rs": "62d71adc8a243e4f78b1f52e31049481a30f0994b08d282725dfab5330796aae"
+    "crates/geode-core/tests/common/icem_experiment2.rs": "62d71adc8a243e4f78b1f52e31049481a30f0994b08d282725dfab5330796aae",
+    "crates/geode-core/src/mesh/icem_domain.rs": "2a15b39e72daf286db7d19b47653077ee83ee8ca94c551bb456e098b648778a6"
   },
   "scope": "Field map only; no runtime validation or main result"
 }

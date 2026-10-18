@@ -138,3 +138,22 @@ and recovery fields to this API, bound to the source hashes in
 `adapter-source-contract.json`. It identifies the credit-margin distinction
 and the need to obtain fresh primary waveforms for refinement. It does not
 implement the adapter or replace the required merged-source reconciliation.
+
+`geometry_evidence.py` is a pure preparation helper for the future adapter. It
+checks complete declared guard sets, finite normalized margins, construction
+and discrete verdicts, and agreement between exact and tolerance-aware flags.
+It uses credit `h >= -1e-12`, so a validation with `h = -5e-16` remains eligible
+even when `h_nonnegative` is false. Six synthetic checks exercise that mapping
+through representative/crossing selection, the inclusive boundary and next
+float below it, construction failures, absent/duplicate guards, nonfinite
+margins and inconsistent flags. Run:
+
+```sh
+python3 -I benchmarks/motor_optimization/final_refinement/test_geometry_evidence.py
+```
+
+This helper trusts the supplied guard definitions and declared construction
+verdicts. It does not bind files to hashes, reconstruct geometry, verify margin
+normalization/scales, validate a mesh, reconcile attempts or grant whole-run
+eligibility. Those remain full-adapter responsibilities. No FEM ran in these
+tests and no main-study evidence is implied.

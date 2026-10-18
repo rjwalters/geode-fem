@@ -49,7 +49,10 @@ the reviewed merge before integrating; do not import or alter the live run.
 
 The adopted credit and best-feasible rule uses every `h >= -1e-12`.
 `h_nonnegative` records the stricter `h >= 0` rule and is **not** the selector's
-credit predicate. Buildability, starts and restoration keep their exact rule.
+credit predicate. Starts, restoration and optimizer constraints keep the exact admissibility
+rule. The raw `geometry.buildable` flag describes successful construction
+and physical guards, not the normalized five-percent margin; it must not be
+redefined as `h >= 0`.
 Check the complete registered guard name set; `all([])` is not evidence.
 Missing margins, NaNs, unknown mesh kinds, absent quality or missing discrete
 guards must not yield an eligible design.
@@ -90,3 +93,8 @@ changed units/anchors/settings, ambiguous replacements, ignored contamination,
 post-budget records, tiny negative admissibility margins, empty guard lists,
 coordinate rounding and attempts to substitute diagnostic results for primary
 credit. These tests are pending implementation, not discharged by this map.
+
+The pure helper `geometry_evidence.verify_geometry` now checks the normalized
+margin/declared-verdict portion of this map. Its tests include the explicit
+`h = -5e-16` regression requested in Squad message 911. The file, run, mesh
+and full-geometry provenance layers above remain unimplemented.
