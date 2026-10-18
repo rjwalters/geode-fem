@@ -51,6 +51,8 @@ V5 normalization/reproduction correction: removing both explicit size factors gi
 
 The independent v6 audit passed at `1dd8cdef` with no critical flags and no re-review required. Preserve that version. Carry forward audit N1: change Fig. 5's mean-effect sentence to emphasize resolved ripple and means agreeing within 6e-5 N m; add a raw-array verification guard. Main-experiment results, once validated, require a new version and fresh review/audit. The pilot does not discharge the inexpensive-physical-model baseline requirement.
 
+A [pilot-only figure preview](refs/pilot-figure-preview/README.md) separates design starts and marks failures, budget stops and T99 attainment. Its renderer checks all 36 raw traces at the #1200 merge commit and records every input hash. This prepares a readable comparison layout; it does not enter v6 or turn loaded-host pilot timing into main-study evidence. The main figure must include the adopted L0 methods, geometric admissibility and 60/120-FE checkpoints using the actual main records.
+
 ## Publication-readiness goal (operator, 2026-10-18)
 
 The operator asked Codex to keep working with Claude until paper 3 is as ready to publish as the first two. This retains the stronger research objective already in the brief; it does not turn the passing v6 audit into evidence of optimization speedup. The first two portfolio entries are themselves revised drafts with older audited versions, so their current status is context rather than a reason to lower the motor paper's evidence requirements.
