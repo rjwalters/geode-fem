@@ -143,9 +143,17 @@ restoration bisections, from the last admissible evaluated anchor toward
 the rejected point. Geometry-only restoration tests the actual restored
 point; mesh-infeasible restoration also tests mesh policy. No admissible
 probe ends the run as restoration failure. Fresh repair tries default,
-Optimize+OptimizeNetgen, size factor $0.9$, then $0.8$, each from defaults
+\texttt{Mesh.Algorithm=5} (or 1 when the default is 5), size factor $0.9$,
+then $0.8$, each from defaults
 and with every cost charged. All-four failure is mesh infeasibility, not
-an infrastructure error. Complete strict/discrete guard formulas, scales,
+an infrastructure error. The actual algorithm must be recorded and a fixture
+must show distinct mesh bytes on attempt 2. Credit and best-feasible selection
+allow $h_i\geq-10^{-12}$; optimizer constraints remain $h_i\geq0$ and
+buildability checks remain exact. The $5^\circ$ mesh floor is also an implicit
+geometric constraint. Space B's unguarded slot-opening wall can narrow to
+$0.16\,\mu\mathrm{m}$ at minimum SW3 and maximum CPS1; repair/refusal handles
+this known risk without an additional thickness constraint.
+Complete strict/discrete guard formulas, scales,
 safe downstream derivatives and their regression evidence remain to be
 bound to the reviewed implementation.
 

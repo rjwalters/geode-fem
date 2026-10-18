@@ -138,15 +138,31 @@ Before launch, bind and test a durable session-level recovery procedure in
 status/load evidence during execution, not just at normal session exit.
 On interruption, inventory completed, running/partial and never-started
 jobs; verify no orphan evaluator is still executing before any replacement.
-Preserve all original files. Resume only unresolved jobs in a new recovery
-directory linked to the original session, under the same pinned settings
-and verified host condition. Completed eligible jobs must not be repeated
-or overwritten. An interrupted attempt needs an explicit predeclared
-disposition before any whole-run retry; retain both records and costs.
+Preserve all original files and the first clean completed attempt, including
+scientific failures and censored results. The [adopted interruption policy](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6249073475)
+allows at most one whole-run replacement per logical job for a **verified
+external interruption**, after proof that old processes have stopped. Unknown
+crashes stay unresolved; solver errors, mesh infeasibility, safeguard stops and
+target misses are not retry permission. Recovery never resets the separate
+single contamination-rerun allowance.
 
-If the host, source, meshes, settings or calibration must change, stop
-combining records and obtain a documented protocol decision. A command
-template alone is not proof that recovery is implemented or reviewed.
+Recovered never-started/deferred jobs and verified external-interruption
+replacements run after the remaining registered queue, in their original
+relative order. Use a new linked directory and distinct attempt IDs. A
+replacement receives the full registered budget and is labelled a new attempt;
+never concatenate trajectories. Match source, environment, binary/input hashes,
+settings, host and worker count. Reuse the original recorded calibration unit
+without remeasurement; changed host or unusable unit needs a new protocol
+decision. Apply the host gate to replacements. Preserve original costs,
+explicitly marking incomplete measurements. Report every replacement with its
+reason/evidence/partial costs and the count of affected jobs.
+
+If optimization completed but its post-run diagnostic was interrupted, repair
+only the diagnostic with separate provenance and cost; never repeat optimization.
+The private #1202 branch has a durable journal and read-only inventory, but owned
+process cleanup, orphan verification, linked execution and diagnostic-only
+recovery remain implementation work. Bind exact reviewed commands and exercise
+these paths before launch. Policy adoption does not establish working recovery.
 
 ## 6. Archive, review and hand off
 

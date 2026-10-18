@@ -159,3 +159,30 @@ This motivates a coarse nonlinear FEM competitor: it retains the nonlinear mater
 Claude independently accepted that exact proposal at `ca25a11bda465add9240ac794ed787a081d50772` in Squad review #17 and [adopted it on #1185](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247152174). Keep the linked proposal unchanged as the reviewed text. The comparison has 100 runs: five methods, two spaces, five starts and two timing repeats. A/B/D/E are the optimizer-by-resolution factorial comparison; C is the empirical RBF competitor. Codex owns the additional L0 method integration in [#1202](https://github.com/rjwalters/geode-fem/issues/1202), after #1201 merges. Its acceptance criteria bind a single validation-cost denominator, actual mixed-resolution wiring, complete diagnostics and the five-method scheduling rules.
 
 For planning only, 100 runs spending their full 120-unit budgets at approximately 35 seconds per unit require about 117 aggregate process-hours, or 19.4 hours at six continuously occupied workers, excluding setup and post-run checks. That unit is a proxy from the pilot's single-process diagnostic on a loaded host, not an idle-host measurement. Early stops may shorten the runs; setup, diagnostics and contamination reruns may lengthen the session. The actual main-run unit must be measured on the selected host. Host preference has been requested while implementation proceeds.
+
+## Pre-main repair, admissibility and interruption rulings (2026-10-18)
+
+[Comment 6248970362](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248970362)
+replaces the ineffective 2D Optimize/Netgen repair with algorithm 5 (Delaunay),
+or algorithm 1 when the default is already 5. Attempts 3/4 remain noncumulative
+size factors 0.9/0.8; actual algorithm and distinct-mesh fixture evidence are
+required. Target credit and best-feasible selection allow every scaled
+h_i >= -1e-12; optimizer constraints and exact buildability guards are unchanged.
+The paper must disclose the implicit geometric exclusion from the 5-degree
+mesh floor and the unguarded space-B slot-opening wall (down to 0.16 micrometres
+at minimum SW3 / maximum CPS1). These are adopted rules, pending reviewed
+implementation, not new performance evidence.
+
+[Comment 6249073475](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6249073475)
+adopts the interrupted-session policy from Squad review 28. It preserves the
+first clean completed result, allows at most one verified external-interruption
+replacement per job, keeps scientific failures, and repairs post-run diagnostics
+without rerunning optimization. Recovered jobs follow the remaining registered
+queue in original relative order; source/environment/inputs/host/N and the
+original recorded unit must match. No recalibration or reset of contamination
+allowances is permitted. Report every replacement, reason, evidence and original
+partial cost, and count affected jobs. Unverified interruptions remain unresolved.
+The runbook describes the adopted policy; its execution still needs implementation
+and independent review before main launch. Existing setup smoke/FD artifacts
+predate the repair/admissibility ruling and require affected re-verification after
+the reviewed dependency merge.

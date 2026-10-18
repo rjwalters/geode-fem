@@ -4,6 +4,7 @@
 % Amendment 8 text: ca25a11bda465add9240ac794ed787a081d50772,
 % refs/amendment8-physical-baseline.md.
 % Final selection: comments 6247383821 + 6247421487 + 6248492318.
+% Repair/admissibility: comment 6248970362; recovery: comment 6249073475.
 % Start sampling: comment 6247585770 + subsequent rationale correction.
 % Scope decisions: Squad reviews 18, 19, 21; EXPERIMENTS.md.
 % Before incorporation: verify against merged implementation and main manifests;
@@ -154,6 +155,10 @@ not be tuned on optimizer outcomes. Guards are evaluated before unsafe square
 roots or inverse trigonometric operations, retaining raw margins and defined
 downstream refusal information. A zero arc discriminant can permit a value
 while its design derivative is undefined; no gradient is invented there.
+For target credit and best-feasible selection only, every scaled margin must
+satisfy $h_i\geq-10^{-12}$, allowing rounding at active constraints.
+Optimizer constraints remain $h_i\geq0$; buildability retains its exact guards
+without a rounding tolerance.
 Geometry Jacobians use analytic expressions or geometry-only central
 differences, with their checks and costs recorded separately from field solves.
 An undefined construction or derivative will be rejected before the
@@ -182,11 +187,20 @@ the geometry constraints as well as the mean constraint.
 Any inverted moved triangle or a minimum angle below $5^\circ$ triggers mesh
 repair. Fresh meshes must meet the same quality policy. At most four attempts
 are permitted, each beginning from defaults: default settings;
-\texttt{Mesh.Optimize=1} with \texttt{Mesh.OptimizeNetgen=1}; characteristic-length
+\texttt{Mesh.Algorithm=5} (Delaunay), or algorithm 1 (MeshAdapt) if the default is
+already 5; characteristic-length
 factor $0.9$; then factor $0.8$. Every attempt, refusal and restoration is
 recorded and charged, including the SHA-256 of every training remesh.
-All-four failure is candidate-dependent mesh infeasibility and invokes the
-method's refusal mechanism. Real solver or infrastructure errors are a
+The actual algorithm is recorded, and a fixture must establish that the
+second attempt changes mesh bytes. All-four failure is candidate-dependent
+mesh infeasibility and invokes the method's refusal mechanism.
+The $5^\circ$ floor also imposes an implicit geometric constraint: refinement
+cannot remove a limiting geometric corner angle (a development fixture
+remained at $4.017^\circ$ on all four attempts). Space B's slot-opening
+channel wall is unguarded and can narrow to $0.16\,\mu\mathrm{m}$ at
+minimum SW3 and maximum CPS1. This known meshing risk is handled by repair
+and mesh-infeasible refusal; the protocol adds no wall-thickness constraint.
+Real solver or infrastructure errors are a
 separate failed-run outcome. A request in flight at budget exhaustion is
 aborted with its process group, its remaining budget is charged, and its
 requested coordinates and category are retained. Ordinary scientific
@@ -207,7 +221,7 @@ $T_{99}=0.01F_0$. A target is attained only when
  F_{\mathrm{val}}(\theta)+\delta F(\theta)\leq T,
  \qquad \mu_{\mathrm{val},1}(\theta)\geq1.0025\mu_0,
 \end{equation}
-$h_i\geq0$ and every discrete guard and validation-mesh policy check pass,
+$h_i\geq-10^{-12}$ and every discrete guard and validation-mesh policy check pass,
 and validation finishes within budget. Each validation cold-starts and
 depends only on its candidate; training-model infeasibility does not prevent
 an otherwise eligible incumbent from being validated. The allowance is an
@@ -264,11 +278,30 @@ Reference constants and common calibration define the session and sit outside
 individual run budgets; their costs remain in the end-to-end totals.
 All methods use the same thread limits. Post-run diagnostics have a separate
 interval and cost record. A run will not launch after a failed idle gate; contaminated runs
-will retain their records and be rerun at the session's end. The pre-run
+will retain their records and receive at most one contamination rerun at the
+session's end. The pre-run
 one-minute load average must be at most $N+1$; load above $1.5N$ continuously
 for more than 60 seconds during a run marks it contaminated. The session is
 eligible as idle-host evidence only if no run is contaminated or every such
 run has a clean replacement. Calibration must be clean before dispatch.
+
+Recovery preserves the first clean completed attempt for each logical job,
+including scientific failures and censored outcomes. Recovered never-started
+or deferred jobs and verified external-interruption replacements run after
+the remaining registered queue, in their original relative order. Each job
+may receive at most one whole-run replacement for a verified external
+interruption, after the old processes are proved stopped. This is a new
+attempt with the full registered budget, never a continued trajectory.
+The source, environment, input hashes, settings, host, worker count and
+recorded calibration unit must match; recovery never remeasures that unit.
+Unknown interruptions remain unresolved. Solver failures, mesh infeasibility,
+safeguard stops and target misses do not permit replacements, and recovery
+does not reset the separate contamination allowance. An interrupted post-run
+diagnostic is repaired independently, without repeating completed optimization.
+All original records and partial costs are retained, with incomplete accounting
+identified. The report will list every replacement, reason, supporting evidence
+and original partial cost, and count the affected jobs. These are adopted
+rules; recovery execution still requires implementation and review.
 
 The charged run ledger includes evaluator startup, geometry checks, mesh
 updates and repairs, assembly and solves, adjoints, search overhead,
@@ -293,7 +326,7 @@ environment versions, calibration records and source/data hashes]
 For each method and space, the best-observed representative will be the
 lowest-$F_{\mathrm{val}}$ eligible feasible validation from uncontaminated
 main runs. Feasibility here requires the common full-current mean floor,
-$h\geq0$, all discrete and validation-mesh checks, and validation completion
+$h_i\geq-10^{-12}$, all discrete and validation-mesh checks, and validation completion
 within budget. Ties are broken by start
 index, repeat index and validation ordinal. Earlier eligible records of
 failed runs remain candidates. A missing feasible representative will be

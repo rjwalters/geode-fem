@@ -242,5 +242,29 @@
     "url": "https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248450266",
     "rule": "Refused C candidates count toward every-second-rejection geometry sample; sample requires buildability; never fit refused data.",
     "implementation_status": "Provisional116d08c7 early continue must be fixed; regression and mutation pending."
+  },
+  "repair_admissibility_clarification": {
+    "url": "https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248970362",
+    "repair_algorithm": 5,
+    "repair_algorithm_if_default_5": 1,
+    "credit_margin_lower_bound": -1e-12,
+    "buildability_tolerance": 0,
+    "optimizer_constraint_lower_bound": 0,
+    "limitations": [
+      "5 degree mesh floor implicitly excludes some geometries",
+      "space B unguarded slot-opening wall can reach 0.16 micrometres"
+    ],
+    "implementation_status": "Adopted policy; reviewed merge and affected re-verification pending"
+  },
+  "interruption_policy": {
+    "url": "https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6249073475",
+    "external_replacements_per_job": 1,
+    "selection": "first clean completed attempt, including scientific failures",
+    "order": "after remaining registered queue, original relative order",
+    "calibration": "reuse original recorded unit, never remeasure",
+    "unverified_interruption": "unresolved, never automatic retry",
+    "postrun_diagnostic": "repair only diagnostic, never repeat optimizer",
+    "report": "each replacement reason, evidence, original partial cost and affected job count",
+    "implementation_status": "Policy adopted; recovery execution pending"
   }
 }
