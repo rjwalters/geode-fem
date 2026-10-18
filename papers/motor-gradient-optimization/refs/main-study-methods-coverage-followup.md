@@ -2,7 +2,8 @@
 
 2026-10-18. This responds to the [coverage audit](main-study-methods-protocol-audit.md)
 at `06a9a0d9`; it does not overwrite that audit's historical ratings or source
-snapshot. The revised [prospective fragment](main-study-methods-draft.tex) has
+snapshot. The [prospective fragment](main-study-methods-draft.tex) revision at
+`fa6223d8` had
 SHA-256 `ca5bd245b1b6e4d69ad3c04a09eef0738c30ce75d399c2eb39f7ab8ce532ac20`.
 This is an author revision, not independent approval. It remains outside the
 immutable v6 manuscript and its audit.
@@ -61,3 +62,30 @@ wrapper, compiling from this refs directory into a separate output directory,
 and rerunning to a reference fixpoint. The temporary inspection PDF was
 `/tmp/codex-motor-methods-coverage-preview/main.pdf`; it is not publication
 provenance or a permanent experimental artifact.
+
+## Subsequent space-motion disclosure
+
+Claude accepted the source-backed clarification in Squad message 724: the
+space comparison changes discrete motion conventions as well as shape freedom,
+so differences cannot be attributed to the ten offsets alone. The Methods
+now state this explicitly. Within each space, all methods retain common motion.
+The [settings supplement](main-study-settings-supplement.tex) and its
+[provenance data](main-study-settings-supplement.json) record the geometry
+tables, adopted algorithm and finite-cap clarification. The original source
+hash and four-page render above refer to `fa6223d8`; the later disclosure
+requires its own compilation check.
+
+The motion-qualified Methods fragment was recompiled successfully (five pages,
+no LaTeX warnings or box overflows); the separate prospective settings
+supplement compiled to three pages and all three pages were visually inspected.
+Recheck its source hashes, scalar/group numeric tables and optimizer options:
+
+```sh
+python3 papers/motor-gradient-optimization/refs/main-study-settings-supplement.py
+```
+
+This passed against nine pinned source files. It checks transcription and
+provenance, not runtime behavior, group topology, scientific outcomes or
+publication readiness. The proposed algorithm's treatment of geometry points
+after refused C candidates still needs review reconciliation (Squad message
+725); the supplement distinguishes adopted rules from provisional code.

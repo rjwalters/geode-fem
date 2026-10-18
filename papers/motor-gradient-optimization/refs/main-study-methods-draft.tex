@@ -105,7 +105,12 @@ reviewed mixed-resolution verification]
 
 Space A has eight free engineering parameters. Space B contains the same
 scalars and ten grouped surface-control offsets acting on 55 control points;
-the points are not independent design variables. Axial length, overall radial
+the points are not independent design variables. The spaces also use different
+discrete mesh-motion conventions: Jacobian-stiffened extension for the scalar
+map and plain harmonic extension for the control-point map, with different
+boundary parameter conventions. Space comparisons therefore do not isolate
+the effect of the ten extra offsets. Within each space, all methods share
+the same motion scheme. Axial length, overall radial
 scale, stator diameter and operating-angle convention remain fixed at
 $0.1\,\mathrm{m}$, $1$, $0.135\,\mathrm{m}$ and $0^\circ$, respectively.
 The historical Opt120 design is a construction-regression reference outside

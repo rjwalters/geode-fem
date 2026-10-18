@@ -1,0 +1,241 @@
+{
+  "status": "prospective supplement data, not main-run manifest or verified implementation",
+  "source_files": {
+    "benchmarks/motor_reference/reference_data.json": {
+      "commit": "43db1c626bdc2367f896905d7807979789ee22b3",
+      "sha256": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3"
+    },
+    "crates/geode-core/tests/common/icem_experiment2.rs": {
+      "commit": "43db1c626bdc2367f896905d7807979789ee22b3",
+      "sha256": "e398f3ab4b05a0c7e951b0fd7543b82b4db2fba85c0561aef573a7d19912c837"
+    },
+    "crates/geode-core/src/mesh/icem_parametric.rs": {
+      "commit": "43db1c626bdc2367f896905d7807979789ee22b3",
+      "sha256": "56f26f7ca7b452674e81055c1a229c962f8299cb2cd9d663e9959889e8b2f315"
+    },
+    "crates/geode-core/src/mesh/icem_controlpoints.rs": {
+      "commit": "43db1c626bdc2367f896905d7807979789ee22b3",
+      "sha256": "208ad7b607184ed4b98650e465681971f068bfc3eee454531707207291076803"
+    },
+    "benchmarks/motor_optimization/harness/driver.py": {
+      "commit": "116d08c7b7de56bd0ab2753d80419fa0a222cc85",
+      "sha256": "3583fb84cd6ee8209730afcd9fdd987e5d5006de5062b9f861a9b54cf8756e4d",
+      "review_status": "provisional unmerged implementation; rebind after review"
+    },
+    "benchmarks/motor_optimization/harness/surrogate.py": {
+      "commit": "116d08c7b7de56bd0ab2753d80419fa0a222cc85",
+      "sha256": "b893ce4665be2a96bd9341b67cd5b10edb9402d7f93d7a502ac581489af895c8",
+      "review_status": "provisional unmerged implementation; rebind after review"
+    },
+    "crates/geode-core/tests/common/icem_design.rs": {
+      "commit": "43db1c626bdc2367f896905d7807979789ee22b3",
+      "sha256": "5b2f55318446e9abba8c35661b5af29f045ff62dc4c3c4b6932d2dce3774baed"
+    },
+    "crates/geode-core/tests/common/icem_cp_design.rs": {
+      "commit": "43db1c626bdc2367f896905d7807979789ee22b3",
+      "sha256": "2db1ccf3002cf9b0b7d36a16e753bab294955c7ed0fd54f6cab384163a9b3db4"
+    },
+    "crates/geode-core/tests/common/icem_remesh.rs": {
+      "commit": "43db1c626bdc2367f896905d7807979789ee22b3",
+      "sha256": "6ec7a63da77a014de90a90988516c4062fb371d25139bde222ab8b1b6570d209"
+    }
+  },
+  "scalar_parameters": [
+    {
+      "name": "MAG",
+      "unit": "m",
+      "initial": 0.007,
+      "minimum": 0.006,
+      "maximum": 0.015
+    },
+    {
+      "name": "MH",
+      "unit": "m",
+      "initial": 0.007,
+      "minimum": 0.002,
+      "maximum": 0.012
+    },
+    {
+      "name": "MW",
+      "unit": "m",
+      "initial": 0.019,
+      "minimum": 0.01,
+      "maximum": 0.025
+    },
+    {
+      "name": "SW1",
+      "unit": "m",
+      "initial": 0.004,
+      "minimum": 0.002,
+      "maximum": 0.006
+    },
+    {
+      "name": "SW2",
+      "unit": "m",
+      "initial": 0.0023,
+      "minimum": 0.001,
+      "maximum": 0.004
+    },
+    {
+      "name": "SW3",
+      "unit": "m",
+      "initial": 0.001,
+      "minimum": 0.0005,
+      "maximum": 0.0015
+    },
+    {
+      "name": "SW4",
+      "unit": "m",
+      "initial": 0.00825,
+      "minimum": 0.002,
+      "maximum": 0.02
+    },
+    {
+      "name": "Sr1",
+      "unit": "m",
+      "initial": 0.001,
+      "minimum": 0.0005,
+      "maximum": 0.002
+    }
+  ],
+  "control_point_groups": [
+    {
+      "name": "CPR1",
+      "unit": "m",
+      "initial": 0.0,
+      "minimum": -0.0015,
+      "maximum": 0.0,
+      "control_points": 2
+    },
+    {
+      "name": "CPR2",
+      "unit": "m",
+      "initial": 0.0,
+      "minimum": -0.0015,
+      "maximum": 0.0,
+      "control_points": 2
+    },
+    {
+      "name": "CPR3",
+      "unit": "m",
+      "initial": 0.0,
+      "minimum": -0.001,
+      "maximum": 0.0,
+      "control_points": 6
+    },
+    {
+      "name": "CPR4",
+      "unit": "m",
+      "initial": 0.0,
+      "minimum": -0.0015,
+      "maximum": 0.0,
+      "control_points": 2
+    },
+    {
+      "name": "CPR5",
+      "unit": "m",
+      "initial": 0.0,
+      "minimum": -0.0015,
+      "maximum": 0.0,
+      "control_points": 2
+    },
+    {
+      "name": "CPR6",
+      "unit": "m",
+      "initial": 0.0,
+      "minimum": -0.0015,
+      "maximum": 0.0,
+      "control_points": 2
+    },
+    {
+      "name": "CPR7",
+      "unit": "m",
+      "initial": 0.0,
+      "minimum": -0.0015,
+      "maximum": 0.0,
+      "control_points": 2
+    },
+    {
+      "name": "CPS1",
+      "unit": "m",
+      "initial": 0.0,
+      "minimum": 0.0,
+      "maximum": 0.0005,
+      "control_points": 18
+    },
+    {
+      "name": "CPS2",
+      "unit": "m",
+      "initial": 0.0,
+      "minimum": 0.0,
+      "maximum": 0.0005,
+      "control_points": 12
+    },
+    {
+      "name": "CPS3",
+      "unit": "m",
+      "initial": 0.0,
+      "minimum": 0.0,
+      "maximum": 0.0005,
+      "control_points": 7
+    }
+  ],
+  "frozen": {
+    "LENGTH_m": 0.1,
+    "SD1_m": 0.135,
+    "ScaleR": 1,
+    "OPERATING_ANGLE_deg": 0
+  },
+  "registered_settings": {
+    "primary_peak_current_A": 9.6777,
+    "training_current_fractions": [
+      0,
+      0.5,
+      1
+    ],
+    "held_out_current_fractions": [
+      0.25,
+      0.75
+    ],
+    "training_hmax": 45,
+    "training_angles": 20,
+    "validation_level": "L2",
+    "validation_hmax": 93,
+    "validation_angles": 20,
+    "budget_common_wall_units": 120,
+    "checkpoint_common_wall_units": 60,
+    "SLSQP_ftol": 1e-15,
+    "COBYQA_scipy": "1.18.1",
+    "COBYQA_initial_radius": 0.1,
+    "COBYQA_final_radius": 1e-06,
+    "C": {
+      "delta0": 0.1,
+      "delta_max": 0.5,
+      "delta_min": 1e-06,
+      "eta_good": 0.75,
+      "expand_at": 0.9,
+      "duplicate_tol": 0.001
+    }
+  },
+  "observed_provisional_options": {
+    "SLSQP_maxiter": 100000,
+    "COBYQA_maxiter": 1000000000,
+    "COBYQA_maxfev": 1000000000,
+    "COBYQA_scale": false,
+    "C_subproblem_maxiter": 200,
+    "C_subproblem_ftol": 1e-14
+  },
+  "pending": [
+    "reviewed implementation and exact options",
+    "guard/scales inventory",
+    "main starts and meshes",
+    "host/calibration/environment",
+    "derivative and smoke evidence",
+    "main and final-check results"
+  ],
+  "accepted_clarification": {
+    "url": "https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248418735",
+    "squad_message": 724,
+    "scope": "Disclose space-motion confound; accept listed finite caps and report cap hits; reviewed merge still pending"
+  }
+}

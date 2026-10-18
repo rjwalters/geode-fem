@@ -1,0 +1,221 @@
+% Prospective support fragment. Not a completed study or reviewed implementation.
+% Sources: main-study-settings-supplement.json and protocol source snapshot.
+% Render with amsmath, amssymb, booktabs, array and hyperref.
+\section{Prospective settings supplement}
+\label{sec:prospective-settings}
+
+This supplement records the adopted experiment definitions and their source
+provenance before main results. Geometry tables use merged source
+\texttt{43db1c62}; additional implementation observations use provisional,
+unmerged source \texttt{116d08c7}. Those observations require reconciliation
+with the reviewed merge before execution. The accompanying JSON records full
+commit identifiers and file SHA-256 hashes. No main-run manifest or outcome
+is supplied here.
+
+\subsection{Design coordinates and bounds}
+
+Both spaces use the eight scalar coordinates in
+Table~\ref{tab:prospective-scalars}. Space B adds the ten group offsets in
+Table~\ref{tab:prospective-groups}; its 55 control points are not independently
+optimized. The numerical unit in the tables is millimetres; the executable
+coordinate vectors use metres. Every group starts at zero. The unit-box
+coordinate is $u_i=(x_i-l_i)/(r_i-l_i)$, with $l_i,r_i$ the stated bounds.
+
+\begin{table}[ht]
+\centering\small
+\begin{tabular}{lp{0.49\linewidth}rrr}
+\toprule
+Parameter & Meaning & Lower & Initial & Upper \\
+\midrule
+MAG & Magnet outer-face recession from the pole-axis rotor surface & 6 & 7 & 15 \\
+MH & Magnet radial height & 2 & 7 & 12 \\
+MW & Magnet tangential width & 10 & 19 & 25 \\
+SW1 & Tooth width & 2 & 4 & 6 \\
+SW2 & Slot-opening width & 1 & 2.3 & 4 \\
+SW3 & Opening-channel depth from bore-corner chord & 0.5 & 1 & 1.5 \\
+SW4 & Slot-axis back-iron depth & 2 & 8.25 & 20 \\
+Sr1 & Slot-bottom fillet radius & 0.5 & 1 & 2 \\
+\bottomrule
+\end{tabular}
+\caption{Free scalar coordinates in millimetres, shared by spaces A and B.
+The initial values are the optimization reference, not the geometry
+functions' defaults (which differ for SW3 and Sr1).}
+\label{tab:prospective-scalars}
+\end{table}
+
+The frozen coordinates are axial length $100\,\mathrm{mm}$, outer stator
+diameter $135\,\mathrm{mm}$, radial scale $1$, and operating angle $0^\circ$.
+The upstream optimization's wider bounds on those four coordinates are not
+part of this study. At zero offsets, the reference rotor and bore radii are
+$44$ and $45\,\mathrm{mm}$, with the coupling circle at $44.5\,\mathrm{mm}$.
+For the rectangular magnet in the rotor frame,
+$x\in[44-\mathrm{MAG}-\mathrm{MH},44-\mathrm{MAG}]$ and
+$|y|\leq\mathrm{MW}/2$, in millimetres.
+
+\begin{table}[ht]
+\centering\small
+\begin{tabular}{lrp{0.43\linewidth}rr}
+\toprule
+Group & Points & Controlled feature & Lower & Upper \\
+\midrule
+CPR1 & 2 & Sector-edge surface endpoints & -1.5 & 0 \\
+CPR2 & 2 & Edge-arc middle controls & -1.5 & 0 \\
+CPR3 & 6 & Bridge-arc controls & -1 & 0 \\
+CPR4 & 2 & Pole interior pair 1 & -1.5 & 0 \\
+CPR5 & 2 & Pole interior pair 2 & -1.5 & 0 \\
+CPR6 & 2 & Pole interior pair 3 & -1.5 & 0 \\
+CPR7 & 2 & Pole interior pair 4 & -1.5 & 0 \\
+CPS1 & 18 & Opening corners and opening-arc middles & 0 & 0.5 \\
+CPS2 & 12 & Tooth-arc middle controls & 0 & 0.5 \\
+CPS3 & 7 & Tooth-centre bore controls & 0 & 0.5 \\
+\bottomrule
+\end{tabular}
+\caption{Additional grouped offsets in space B, in millimetres. Rotor groups
+contain 18 distinct controls and stator groups 37. All initial offsets are zero.}
+\label{tab:prospective-groups}
+\end{table}
+
+A group's offset moves each of its controls along that control's frozen
+setup direction. These directions do not track later scalar changes; stator
+setup uses SW2=$2.3\,\mathrm{mm}$. Weights retain the generator's value at the
+current scalars. Rotor controls are ordered by polar angle: CPR1 is
+$\{0,17\}$, CPR2 is $\{1,16\}$, CPR3 is $\{2,3,4,13,14,15\}$, and CPR4--7
+are the mirror pairs $\{5,12\}$ through $\{8,9\}$.
+Stator groups repeat over the six slots, sharing interface controls.
+These groups are GEODE's reconstruction from the pinned exported geometry,
+group sizes, symmetry and displacement data; they do not claim reproduction
+of the unavailable upstream multipatch numbering.
+
+The existing scalar and control-point maps have different discrete motion
+conventions. The scalar extension uses base-area weights $A_e^{-1}$;
+the control-point extension uses the plain harmonic weights ($\chi=0$).
+They also preserve different boundary parameters, so even zero group offsets
+do not imply identical moved node coordinates at changed scalars.
+Both use their documented sector-edge constraints. Thus a space comparison
+includes these discrete motion choices as well as additional shape freedom;
+final refinement checks are necessary, and the comparison is not a pure
+measurement of intrinsic dimension. The main implementation must record the
+actual motion options rather than infer them from the space label.
+
+\subsection{Models, normalization and solver settings}
+
+A/B/C train on L1 and D/E on L0, with coupling torque, $h=45$, twenty rotor
+angles, the same nonlinear material law and current fractions $0,0.5,1$ of
+$9.6777\,\mathrm{A}$. Each resolution supplies its own $F_r(\theta_0)$ and
+$\mu_{r,1}(\theta_0)$. The normalized objective is
+$f_r=F_r/F_r(\theta_0)$ and mean residual
+$g_r=\mu_{r,1}/\mu_{r,1}(\theta_0)-1.0025$.
+The common validator is L2/$h93$/g20, using the same exact anchor for all
+methods. The main study must retain the numerical material/solver options,
+mesh hashes and model constants in its frozen manifest; this model label
+alone is not a reproducible configuration.
+
+\begin{table}[ht]
+\centering\small
+\begin{tabular}{lll}
+\toprule
+Setting & SLSQP (A/E) & COBYQA (B/D) \\
+\midrule
+Field derivatives & Adjoint objective and mean & None \\
+Coordinate bounds & Unit box & Unit box \\
+Mean and geometry constraints & Explicit & Explicit with NaN refusal barrier \\
+\texttt{ftol} option & $10^{-15}$ & Not used \\
+Initial/final trust radius & Not applicable & $0.1/10^{-6}$ \\
+Initial interpolation set & Not applicable & $2n+1$ evaluations \\
+Refused point & Abort, restore, fresh restart & NaN extreme barrier \\
+\bottomrule
+\end{tabular}
+\caption{Registered optimizer choices, with $n=8$ or $18$. Within each
+optimizer, settings are identical across spatial resolutions. SciPy 1.18.1
+is pinned; success flags never determine target attainment.}
+\label{tab:prospective-optimizer-settings}
+\end{table}
+
+The provisional driver additionally sets SLSQP \texttt{maxiter=100000},
+COBYQA \texttt{maxiter=maxfev=$10^9$} and \texttt{scale=False}; the explicit
+unit-box transform already scales its variables. These are finite
+implementation caps, not literally unlimited iterations. These settings were accepted before main outcomes; the reviewed
+merge must be checked against them. Every main-run record must state whether
+any cap was reached. This does not assert that a cap has been reached.
+
+SLSQP's refusal mechanism permits at most twenty restarts and twenty
+restoration bisections, from the last admissible evaluated anchor toward
+the rejected point. Geometry-only restoration tests the actual restored
+point; mesh-infeasible restoration also tests mesh policy. No admissible
+probe ends the run as restoration failure. Fresh repair tries default,
+Optimize+OptimizeNetgen, size factor $0.9$, then $0.8$, each from defaults
+and with every cost charged. All-four failure is mesh infeasibility, not
+an infrastructure error. Complete strict/discrete guard formulas, scales,
+safe downstream derivatives and their regression evidence remain to be
+bound to the reviewed implementation.
+
+\subsection{Empirical surrogate algorithm}
+
+Method C fits four cubic RBFs with affine polynomial tails: the three
+training torque standard deviations divided by $\sqrt{F_r(\theta_0)}$, and
+the full-current mean divided by $\mu_{r,1}(\theta_0)$. For each scalar output,
+\begin{equation}
+ s(u)=\sum_{j=1}^{m}\lambda_j\lVert u-u_j\rVert_2^3+a_0+a^Tu,
+ \qquad \sum_j\lambda_j=0,\quad \sum_j\lambda_j u_j=0.
+\end{equation}
+All evaluated training points enter the model. Its objective is the sum of
+squared predicted normalized standard deviations, and its mean constraint
+is $\widehat\mu\geq1.0025$.
+
+The initial set is the start plus one buildable coordinate step per free
+variable, at radius $\Delta_0=0.1$. A refused step tries the opposite sign,
+then up to three halvings in each direction, skipping out-of-box points.
+Failure to obtain a full-rank set ends the run as restoration failure;
+refused points are never fitted. After the initial fit, the best feasible-first
+incumbent is selected and validated if it differs from the start.
+
+The adopted iteration is:
+\begin{enumerate}
+\item Minimize the surrogate objective with SLSQP from the incumbent in
+$[0,1]^n\cap\{u:\lVert u-u_k\rVert_\infty\leq\Delta\}$, subject to the predicted
+mean constraint and real geometry constraints.
+\item If the proposed point is within $10^{-3}\Delta$ of an evaluated point,
+substitute a coordinate geometry point, cycling over coordinates.
+\item Evaluate a buildable candidate on the training FEM; save the old
+model's prediction before refitting. Refused candidates are skipped, never
+fitted, and count as rejections.
+\item Accept a candidate that improves feasible-first ordering. Let
+$\rho$ be actual normalized objective reduction divided by predicted
+reduction. If $\rho\geq0.75$ (or the old incumbent was infeasible) and the
+step is at least $0.9\Delta$, increase the radius to
+$\min(2\Delta,0.5)$. Validate accepted incumbents under the common policy.
+\item Otherwise halve the radius. The registered geometry-point rule adds
+one coordinate point after every second consecutive rejection. A
+non-improving geometry substitute is itself a rejection; all refusal and
+geometry-point edge cases must agree with the reviewed implementation.
+\end{enumerate}
+
+Stop at the common wall-time budget, validated T99, restoration failure,
+a real evaluator failure, or $\Delta<10^{-6}$. A distinct final non-start
+incumbent is validated if it has not already been validated. Training
+forwards are charged as forwards, the initial fit as setup/calibration,
+and subsequent subproblems/refits as surrogate updates. Nothing is removed
+from the charged wall time as overhead.
+
+For reproducibility, the provisional implementation orders points using
+\begin{equation}
+ v(u)=\max(0,-g_r(u))+\sum_i\max(0,-h_i(u)),
+\end{equation}
+with failed discrete guards assigned infinite violation. Smaller violation
+wins; between feasible points, smaller training $F$ wins. It solves the RBF
+saddle system directly, falls back to a flagged least-squares solution if
+singular, uses $\rho=-\infty$ for nonpositive predicted reduction, and
+solves its surrogate subproblem with
+\texttt{maxiter=200}, $\mathrm{ftol}=10^{-14}$. The finite subproblem caps were accepted before main outcomes. The other
+observed details still require reviewed freezing; they are not new permissions to alter the
+registered comparison after outcomes.
+
+\subsection{Outstanding verification}
+
+The independent source inventory and prospective protocol do not replace
+an executable study. Before this supplement becomes publication evidence,
+bind the reviewed implementation, full guard/scale and numerical model
+tables, exact main starts, host/environment/calibration, gradient sweeps,
+mixed-resolution smoke and recovery checks. All main runs and final
+candidate checks remain pending. [PENDING reviewed implementation/settings
+freeze, complete executable manifests and measured results]
