@@ -1,0 +1,171 @@
+{
+  "scope": "Local two-design, eight-coordinate screen; no new solve or optimizer experiment",
+  "coordinates": [
+    "MAG",
+    "MH",
+    "MW",
+    "SW1",
+    "SW2",
+    "SW3",
+    "SW4",
+    "Sr1"
+  ],
+  "widths_m": [
+    0.009,
+    0.01,
+    0.015000000000000001,
+    0.004,
+    0.003,
+    0.001,
+    0.018000000000000002,
+    0.0015
+  ],
+  "rows": [
+    {
+      "design": "initial",
+      "L0": {
+        "F": 0.008583429071327921,
+        "scaled_gradient_F": [
+          0.0024654253548373937,
+          0.0029383399594461916,
+          0.019449143411383985,
+          -0.00019302954617224306,
+          0.04017814321359005,
+          0.00013998110914533208,
+          0.0002448279221894885,
+          4.981925822041765e-06
+        ],
+        "scaled_gradient_mean": [
+          -0.613864112560463,
+          0.2140266529847117,
+          1.416739564268375,
+          0.006921434481739847,
+          -0.14934344169397995,
+          -0.0007839739680371304,
+          0.019225337599390834,
+          0.0004859617900941351
+        ]
+      },
+      "L1": {
+        "F": 0.008513391132411015,
+        "scaled_gradient_F": [
+          0.001423140199240474,
+          0.0029232779832154506,
+          0.01853307129688285,
+          -0.000162826274652253,
+          0.04011167962311927,
+          -5.5508169876836845e-05,
+          0.00026253975204731256,
+          5.878490286685044e-06
+        ],
+        "scaled_gradient_mean": [
+          -0.624829067527395,
+          0.21085440748532702,
+          1.4206219481891489,
+          0.006734924315503583,
+          -0.14417033469648327,
+          -9.888725970206995e-05,
+          0.01926810500605636,
+          0.00043591115457908535
+        ]
+      },
+      "F_relative_difference_percent": 0.8226796799017944,
+      "F_gradient": {
+        "cosine": 0.9995661208497976,
+        "relative_vector_difference_percent": 3.1675428513412873
+      },
+      "mean_gradient": {
+        "cosine": 0.9999746862276395,
+        "relative_vector_difference_percent": 0.8353039526222231
+      }
+    },
+    {
+      "design": "perturbed",
+      "L0": {
+        "F": 0.002136794625664339,
+        "scaled_gradient_F": [
+          0.0007674437675475844,
+          0.001730019585664439,
+          0.005836460483264689,
+          -0.000124855449199922,
+          0.015024380125601594,
+          4.470183103120538e-05,
+          0.0012424486517754797,
+          1.4794184746459182e-05
+        ],
+        "scaled_gradient_mean": [
+          -0.6392971950328921,
+          0.40204917670462437,
+          1.345886265125059,
+          0.009961385506924695,
+          -0.09200162956256296,
+          -0.0008994074202443239,
+          0.11230851526095655,
+          0.0017744817340133359
+        ]
+      },
+      "L1": {
+        "F": 0.0021428072656972633,
+        "scaled_gradient_F": [
+          0.0004948521554821769,
+          0.0017394056080041044,
+          0.005714472031350235,
+          -0.00013655345703772424,
+          0.014932647101511548,
+          -2.3183122628392075e-05,
+          0.0012142090171601762,
+          1.4825176609419054e-05
+        ],
+        "scaled_gradient_mean": [
+          -0.6525781008972478,
+          0.3993526715987607,
+          1.3476330596407038,
+          0.009959520319009284,
+          -0.08784490276951726,
+          -0.0004960767618776263,
+          0.11364621914696349,
+          0.0015791591614056268
+        ]
+      },
+      "F_relative_difference_percent": -0.2805963993671612,
+      "F_gradient": {
+        "cosine": 0.999840771847635,
+        "relative_vector_difference_percent": 1.991068874689811
+      },
+      "mean_gradient": {
+        "cosine": 0.9999652741568947,
+        "relative_vector_difference_percent": 0.9221501678942721
+      }
+    }
+  ],
+  "recorded_cost_seconds": {
+    "L0": {
+      "fd24": 6.333033958,
+      "forward": 0.664370375,
+      "gradient": 0.74778575
+    },
+    "L1": {
+      "fd24": 29.636592166,
+      "forward": 3.174388042,
+      "gradient": 3.6583259999999997
+    }
+  },
+  "cost_scope": "Prior loaded-host full-current ten-angle scalar-gradient workload; not the three-current main workload and not an optimization speedup",
+  "limitations": [
+    "L2 scalar-study records contain only full current and are excluded from aggregate F comparisons.",
+    "No grouped-control directions or optimizer paths are tested.",
+    "The old interior design differs from the prospective fixed-size/control main problem.",
+    "High vector cosine can conceal inaccurate small components and does not prove feasible descent under constraints.",
+    "A coarse FEM baseline is a low-fidelity physical model, not a magnetic-equivalent circuit or a reduced-basis model."
+  ],
+  "input_sha256": {
+    "reference_data.json": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3",
+    "gradient/runs/study_L0_h45_initial.json": "fb130d3cd639db5e4435e011777d46b2c86651472175c2a5658a78b83bac3559",
+    "gradient/runs/study_L1_h45_initial.json": "c9044b77b558ec5f7acfa01d6cb4d9bca4316771fa88051f05d57fdd3135b58e",
+    "gradient/runs/study_L0_h45_perturbed.json": "17d8f9483dda859cc43d269f6d7a0dab389bce2e7b5f5363132ce78e6cce025c",
+    "gradient/runs/study_L1_h45_perturbed.json": "36613e511f5d59d04616c278f86b015a7e56d1624a66a00a1e80220badd84db0",
+    "gradient/runs/cost_L0_h45_tol1e-14.json": "8f4c1f2fccce9d1701a5e621fd029acfcac598799c998c0294fa745191884642",
+    "gradient/runs/cost_L1_h45_tol1e-14.json": "e29706c7245f37b3efa7b721457e6266aba91a93a28bad38b8e09ab8aefe4738"
+  },
+  "source_sha256": "9b1f92ab4380acd174b7a9d27f768252efb10d7f51faea8c1aa1319572bbd96a"
+}
