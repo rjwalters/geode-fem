@@ -46,6 +46,7 @@ class PreflightTests(unittest.TestCase):
                  patch("build_provenance.verify", return_value={"verified": True}), \
                  patch.object(session, "sha256", return_value="fixture-hash"), \
                  patch.object(preflight, "verify", return_value={"status": "failed"}), \
+                 patch("anchor_preflight.verify", side_effect=AssertionError("anchor FEM must not begin")) as anchor, \
                  patch.object(session, "gated_calibration", side_effect=AssertionError("calibration must not begin")) as gate, \
                  patch.object(session, "calibrate") as calibrate, \
                  patch.object(session, "schedule") as schedule:
@@ -53,6 +54,7 @@ class PreflightTests(unittest.TestCase):
                     session.main(["--main", "--procs", "1", "--binary", str(binary),
                                   "--out", str(Path(td) / "session")])
                 gate.assert_not_called()
+                anchor.assert_not_called()
                 calibrate.assert_not_called()
                 schedule.assert_not_called()
 
