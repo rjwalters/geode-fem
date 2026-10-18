@@ -76,7 +76,8 @@ offsets, build fresh meshes and verify supported rotations before choosing
 the estimator. Unknown or nonzero offsets cannot imply conforming eligibility.
 Nonzero rotor offsets alone do not exclude an otherwise supported check.
 
-Pending dependencies: #1201 safeguards and #1202 five-method integration. Raw
+Dependency #1201 has merged at `5c998bda`; #1202 five-method integration
+remains under review in PR #1206. Raw
 trace adaptation, the L3/g40/tight/shifted/conforming runner, resource accounting, result
 summaries and a real wiring smoke remain to be implemented after those merge.
 This module alone does not complete #1203 or validate any scientific claim.
@@ -131,3 +132,9 @@ python3 -I benchmarks/motor_optimization/final_refinement/comparison_mutations.p
 The raw-trace adapter, actual evaluator/refinement execution, conforming-interface
 gate, actual cost collection and native wiring smoke remain pending dependency
 integration. These synthetic checks supply no optimization or refinement result.
+
+The read-only [adapter contract](adapter-contract.md) maps the current trace
+and recovery fields to this API, bound to the source hashes in
+`adapter-source-contract.json`. It identifies the credit-margin distinction
+and the need to obtain fresh primary waveforms for refinement. It does not
+implement the adapter or replace the required merged-source reconciliation.

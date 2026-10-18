@@ -1,0 +1,18 @@
+{
+  "status": "Read-only source inspection; implementation integration awaits reviewed #1202 merge",
+  "commit": "d5634324fc976ef75bb8de5c7954dd6515641622",
+  "source_sha256": {
+    "benchmarks/motor_optimization/harness/driver.py": "fc1487ecd3f1c8d67256fadb7356a625d014336d4ba50bb2c3c5af731ec1f773",
+    "benchmarks/motor_optimization/harness/run.py": "69ac305198af599dfac7740d5d1e6bacb51ae415532fa5bb270d967f8387c396",
+    "benchmarks/motor_optimization/harness/acceptance.py": "846f7f9817606de2d3542fb73774f6d0464deb268927d4d9124bc5d28236434e",
+    "benchmarks/motor_optimization/harness/main_schedule.py": "68d3e421bd1405bc6238134f6de24bf3fbef39961b024232f2f5785ce9cd5443",
+    "benchmarks/motor_optimization/harness/recovery_inventory.py": "f432e326868ccf52196275b1526025a236f27939335540df2e2068d3db7ec32d",
+    "benchmarks/motor_optimization/harness/recovery_policy.py": "78688b65fc4221501eb7a676183ce949be31270abb75daada3b6b4d8b5b8b7db",
+    "benchmarks/motor_optimization/harness/recovery_history.py": "05e6d7a8f1986d70b44d86ee062709b8888a05f4c9ff84be44568406681918be",
+    "benchmarks/motor_optimization/harness/recovery_registry.py": "da3c3ef58a3cc08d36c066883e74a91d3161bb6e2a523cd4d8c4917a82295752",
+    "benchmarks/motor_optimization/harness/session_journal.py": "dd2fa15a7b9bd764e61e2a6d55d68e83e814ae47a77f359d9796b11bbfa630f7",
+    "crates/geode-core/tests/common/icem_harness.rs": "8ffc2cffb1aef2ac6812256ae2a00641f0549f9126a43ed99d2735f1df4eb45e",
+    "crates/geode-core/tests/common/icem_experiment2.rs": "62d71adc8a243e4f78b1f52e31049481a30f0994b08d282725dfab5330796aae"
+  },
+  "scope": "Field map only; no runtime validation or main result"
+}
