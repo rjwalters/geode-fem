@@ -6,10 +6,12 @@ tested native command recipe.** Bind the commands to the reviewed merges of
 [#1202](https://github.com/rjwalters/geode-fem/issues/1202) before use.
 The private interface observations below are bound to `d1bae200`, with the
 queue exporter added at `d9a72442`. Dependency #1201 merged through reviewed
-PR #1204 at `5c998bda`; #1202 is rebased locally at `bc1527e8` and is undergoing
-post-rebase verification before its PR. A recorded native build succeeded
-at `2c273781`; the final candidate still needs a fresh build receipt and
-numerical checks. Claude reports operator approval for the cloud run with
+PR #1204 at `5c998bda`. At `bc1527e8`, post-rebase verification passed the
+222-test Python suite, 98 safeguard mutations, native starts/gradient checks
+and both-space L0/L2 smokes. The subsequently adopted cross-platform anchor
+gate is implemented at `d54c66b2`, with a test-only follow-up at `728b38b2`;
+its native verification is in progress before the #1202 PR. Claude reports
+operator approval for the cloud run with
 a $50 total cap (Squad message 862, 2026-10-18). Main execution remains
 conditional on reviewed #1202 integration and host checks below. This file
 is outside the audited v6 manuscript and contains no main-study results.
@@ -73,22 +75,37 @@ These thresholds do not replace checking for competing work.
 
 Squad message 862 (Claude, 2026-10-18) reports operator approval of up to
 $50 total and initiation of a probe on the on-demand x86 `c7a.4xlarge`
-named `exp2main`. N = 15 is provisional until the probe is evaluated.
+named `exp2main`. Claude selected N = 15 after the probe (message 872).
 The reported setup uses main `5c998bda`, rustc 1.98.1 and the gmsh 4.15.2
 SDK. Verify the actual machine and pinned dependency installation in the
 probe records. Earlier price and duration estimates in message 842 remain
 planning estimates, not measured benchmark costs.
 
-The probe runs no optimizer jobs. It checks the copied-mesh theta0 anchor,
-then measures the unit with one process and N = 15. Message 862 specifies
-a stop threshold of a difference >= 1e-6; retain the probe's exact
-observable/error definition and outputs for review before accepting the
-host. Do not treat an unspecified absolute/relative comparison as a pass.
-The proposed probe archive is
+The probe ran no optimizer jobs. Retained records are in
 `/Volumes/Stripe/scratch-codex-review/exp2-cloud-probe/`.
-Probe completion and numerical agreement are not yet verified in this
-runbook. Stop the instance after the probe, preserving its build and meshes;
-main jobs await reviewed #1202 merge and the host smoke.
+`probe_record.json` has SHA-256
+`fce47740166679af4f651e712b1ccdd242530b8f124cc9d2a4226433b220a9bf`.
+[Independent arithmetic checks](cloud-probe-arithmetic-audit-20261018.json) of its raw anchor/calibration records reproduce
+relative F0 error `2.4043e-13`, relative full-current mean error `7.3972e-15`,
+and worst per-angle torque difference `1.0925e-13 N m` in both spaces.
+Newton iteration counts match. The probe serialized an additional
+`mesh_repair: false` field absent from the historical anchor; shared physical
+settings and the validation mesh hash match. Bitwise and four-ulp
+cross-platform agreement flags are both false and remain in the records.
+
+The raw medians are 49.4937 s from three single-process timings, 69.4025 s
+from 45 timings at N = 15, and 64.6915 s from 36 timings at N = 12. These
+are probe observations, not the final main calibration or optimizer results.
+Claude reports the instance stopped with its build and meshes retained.
+Main jobs await reviewed #1202 merge, a fresh recorded build and host checks.
+
+The [adopted main acceptance rule](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6252347196)
+requires relative F0 and mean differences <= `1e-9`, and absolute torque
+differences <= `1e-9 N m` at every current and angle, before calibration.
+The earlier `1e-6` was only the probe's stop threshold. Keep four-ulp
+anchor-file parsing, exact input/physics hashes and same-host determinism;
+Newton counts are recorded without an equality requirement. Targets, delta-F
+and the mean floor always come from the committed anchor, never the recomputation.
 
 Complete these steps before main calibration:
 
@@ -103,8 +120,12 @@ Complete these steps before main calibration:
   payloads, OS and library overrides. Treat the Mac's Accelerate smoke as
   separate evidence; redo the required host-specific checks.
 - Use `AWS_PROFILE=geode-fem-bench` and resource tag `project=geode-fem`;
-  configure idle auto-stop so it cannot stop an active study, and record
-  its policy. Archive any stop as an interruption, with recovery eligibility
+  disable automatic stop actions throughout active setup, calibration,
+  optimization and diagnostics, or establish an explicit workload-aware
+  policy that cannot stop those phases. The probe's below-5%-CPU-for-30-minutes
+  alarm can mistake serial work for idleness; raising that threshold makes
+  the risk worse. Re-enable idle stop only after confirming work is finished
+  and records are preserved. Record the policy and archive any stop as an interruption, with recovery eligibility
   determined by the adopted policy.
 - Copy raw records and hash inventories back to the Mac the same day and
   verify the copy before terminating storage or compute resources.
@@ -136,6 +157,9 @@ Do not run these templates literally or before the required reviewed merges.
    process tests and a successful native invocation at `2c273781`. That
    receipt does not bind subsequent source commits: record a new build on
    the final reviewed checkout before use.
+   `pyrun.sh` requests CPython 3.12, not the exact 3.12.13 patch. The cloud
+   probe used 3.12.3 and uv 0.13.1; record the actual interpreter and package
+   contents and hold them fixed within the main session and recovery.
 2. Reproduce the start preflight into a separate file; do not overwrite
    the committed starts:
 
@@ -149,6 +173,16 @@ Do not run these templates literally or before the required reviewed merges.
    in both spaces at L0 and L1. Record preflight cost outside run budgets.
    A mismatch needs investigation before launch; never silently replace
    starts based on optimizer outcomes.
+   The launcher then runs the full-waveform anchor preflight automatically,
+   before calibration. A standalone check on the final host is:
+
+   ```text
+   benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/anchor_preflight.py --binary <evaluator> --out <preflight-dir>/anchor-recheck.json
+   ```
+
+   Retain its raw A/B replies, per-sample comparisons, hashes and resource
+   costs. Its recomputed values verify host suitability and are not a new
+   anchor or calibration unit. Apply the adopted `1e-9` limits above.
 3. Export and inspect the #1202 queue. The private exporter is implemented
    at `d9a72442`; it uses the same method registry and queue constructor as
    the launcher, and runs no FEM or calibration:

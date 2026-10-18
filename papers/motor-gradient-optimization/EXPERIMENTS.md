@@ -55,7 +55,7 @@ A [pilot-only figure preview](refs/pilot-figure-preview/README.md) separates des
 
 A [prospective methods fragment](refs/main-study-methods-draft.tex) prepares the next manuscript from the adopted protocol. A [clause-by-clause coverage audit](refs/main-study-methods-protocol-audit.md) records missing or implicit details against the adopted amendments and preserves the exact source snapshot. The [author response](refs/main-study-methods-coverage-followup.md) records the subsequent prospective-text revision and the evidence still pending. A [prospective settings supplement](refs/main-study-settings-supplement.tex), with [source provenance](refs/main-study-settings-supplement.json), supplies parameter/group tables and the adopted algorithm while distinguishing unreviewed implementation observations. The [space-motion and finite-cap clarification](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248418735) is recorded before main outcomes: cross-space differences do not isolate added offsets, and finite cap hits must be reported. It explicitly contains no main-study result and retains a pending execution-metadata marker. It must be reconciled with the merged implementation and actual manifests, then reviewed with the new manuscript; it is not part of the audited v6 text.
 
-The [prospective main-run runbook](refs/main-run-runbook.md) covers host preflight, calibration and scheduling, contamination handling, interruption recovery, evidence archiving and the #1203 handoff. Its command templates must be bound to the reviewed #1201/#1202 merges. The current draft has no demonstrated session resume; recovery and clean-calibration sequencing are explicit pre-launch checks, not claimed capabilities.
+The [prospective main-run runbook](refs/main-run-runbook.md) covers host preflight, calibration and scheduling, contamination handling, interruption recovery, evidence archiving and the #1203 handoff. Its command templates must be bound to the reviewed #1201/#1202 merges. Durable session recovery and clean-calibration sequencing are implemented in the private #1202 candidate and require independent review before main launch. Recovery replaces eligible whole attempts; it is not optimizer-state resume.
 
 ## Publication-readiness goal (operator, 2026-10-18)
 
@@ -66,7 +66,7 @@ Completion requires the following evidence, checked at the final manuscript's ac
 | Requirement | Evidence needed | Current state / owner |
 |---|---|---|
 | Reproduced nonlinear motor and verified derivatives | Pinned raw arrays, independent verification and accurate scoped claims | V6 audit PASS at `1dd8cdef`; archived verbatim in `.6.audit/` |
-| Valid optimization domain and trustworthy solver callbacks | Adopted amendment, complete guard inventory, unit-consistent margins, solver-visible rejection/restoration, charged mesh repair, independent implementation review | Amendment 7 adopted with admissible-anchor and target-credit corrections; implementation #1201 in progress |
+| Valid optimization domain and trustworthy solver callbacks | Adopted amendment, complete guard inventory, unit-consistent margins, solver-visible rejection/restoration, charged mesh repair, independent implementation review | Amendment 7 implementation reviewed and merged through #1204 at `5c998bda`; #1202 integration under verification |
 | Matched useful-design-space comparison and cost | Frozen starts/targets/cost rules; complete idle-host main records, paired results, failed/censored outcomes, 60-FE checkpoint if budget expands | Pilot complete in #1200; no main-run results |
 | Inexpensive physical competitor | Named physical model, calibration and adaptation protocol frozen before its outcomes, all training/setup costs charged, same final target | L0 nonlinear FEM screened locally; amendment 8 adopted for COBYQA and SLSQP on L0; Codex implementation #1202 follows #1201; no optimizer results |
 | Candidate reliability | Common validation plus L3/g40/shifted-grid/tight-Newton/interface and withheld-condition checks at the reported new candidates; limits on numerical error | Original Opt120 checks exist; amendment-8 addendum freezes representative/crossing selection; #1203 implements the new checks after #1202 |
@@ -141,7 +141,7 @@ Required protocol clarifications before main runs:
 
 Revision 1 ([comment 6247097203](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247097203)) was accepted for implementation in Squad review #16, with an explicit correction: restoration anchors must be admissible, not merely buildable; mesh restoration also needs an anchor that passed the mesh policy. The implementation must freeze the remaining guard scales and repair settings and pass independent review. Target credit must separately require geometric admissibility, since optimizer callbacks can expose constraint-infeasible iterates. Protocol acceptance does not approve an implementation or a performance claim.
 
-The amendment was subsequently [adopted with both corrections](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247152017). Implementation is tracked by [#1201](https://github.com/rjwalters/geode-fem/issues/1201). Main runs await the reviewed implementation, method integration, frozen starts and host selection.
+The amendment was subsequently [adopted with both corrections](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247152017). Implementation is tracked by [#1201](https://github.com/rjwalters/geode-fem/issues/1201). Its reviewed implementation merged through #1204 at `5c998bda`. Main runs await reviewed #1202 method integration and final host checks; the selected cloud concurrency is N = 15.
 
 ## Inexpensive physics screen and amendment 8 proposal
 
@@ -158,7 +158,7 @@ This motivates a coarse nonlinear FEM competitor: it retains the nonlinear mater
 
 Claude independently accepted that exact proposal at `ca25a11bda465add9240ac794ed787a081d50772` in Squad review #17 and [adopted it on #1185](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247152174). Keep the linked proposal unchanged as the reviewed text. The comparison has 100 runs: five methods, two spaces, five starts and two timing repeats. A/B/D/E are the optimizer-by-resolution factorial comparison; C is the empirical RBF competitor. Codex owns the additional L0 method integration in [#1202](https://github.com/rjwalters/geode-fem/issues/1202), after #1201 merges. Its acceptance criteria bind a single validation-cost denominator, actual mixed-resolution wiring, complete diagnostics and the five-method scheduling rules.
 
-For planning only, 100 runs spending their full 120-unit budgets at approximately 35 seconds per unit require about 117 aggregate process-hours, or 19.4 hours at six continuously occupied workers, excluding setup and post-run checks. That unit is a proxy from the pilot's single-process diagnostic on a loaded host, not an idle-host measurement. Early stops may shorten the runs; setup, diagnostics and contamination reruns may lengthen the session. The actual main-run unit must be measured on the selected host. Host preference has been requested while implementation proceeds.
+For planning only, 100 runs spending their full 120-unit budgets at approximately 35 seconds per unit require about 117 aggregate process-hours, or 19.4 hours at six continuously occupied workers, excluding setup and post-run checks. That unit is a proxy from the pilot's single-process diagnostic on a loaded host, not an idle-host measurement. Early stops may shorten the runs; setup, diagnostics and contamination reruns may lengthen the session. The actual main-run unit must be measured on the selected host. This historical planning proxy is superseded by the cloud probe described in the runbook; its timings still do not replace the final main calibration.
 
 ## Pre-main repair, admissibility and interruption rulings (2026-10-18)
 
@@ -182,7 +182,31 @@ queue in original relative order; source/environment/inputs/host/N and the
 original recorded unit must match. No recalibration or reset of contamination
 allowances is permitted. Report every replacement, reason, evidence and original
 partial cost, and count affected jobs. Unverified interruptions remain unresolved.
-The runbook describes the adopted policy; its execution still needs implementation
-and independent review before main launch. Existing setup smoke/FD artifacts
-predate the repair/admissibility ruling and require affected re-verification after
-the reviewed dependency merge.
+The runbook describes the adopted policy; its implementation in #1202 still
+needs independent review before main launch. After the reviewed dependency merge,
+verification at `bc1527e8` passed 98 safeguard mutations, 20 frozen-start checks,
+six admissible central and two inward-boundary gradient checks, and both-space
+L0-training/L2-validation smokes. Earlier records remain historical. These checks
+establish setup/numerical wiring, not optimizer performance.
+
+
+## Cross-platform anchor recomputation (adopted 2026-10-18)
+
+[Comment 6252347196](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6252347196)
+separates strict anchor-file parsing from numerical recomputation on another host.
+Before calibration, the host must reproduce F0 and full-current mean within
+`1e-9` relative, and every torque sample at every current within `1e-9 N m`
+absolute. Mesh, physics and reference-data hashes stay exact; same-host
+determinism and space-A/space-B bitwise checks remain. Newton counts are
+recorded without requiring equality. The committed anchor always supplies
+targets, delta-F and the mean floor. The probe's earlier `1e-6` stop threshold
+is not the adopted main acceptance rule.
+
+The cloud probe has no optimizer runs. Its retained data reproduce the Mac
+anchor to about `2.4e-13` relative in F0 and `7.4e-15` in mean, with maximum
+torque difference `1.1e-13 N m`. The runbook records the raw archive, arithmetic
+audit scope, actual interpreter/backend and N = 15 selection. The private
+implementation adds an automatically recorded pre-calibration waveform gate;
+reviewed integration and a fresh main calibration remain required. No CPython
+patch version is pinned across platforms; the actual interpreter and numerical
+packages are frozen within the session and its recovery generations.
