@@ -738,7 +738,8 @@ benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/har
 It verifies bound metadata and completed traces, preserves the earliest eligible
 completion (including ordinary scientific failure/censoring), and lists never-started,
 deferred, contaminated and interrupted work. It does not resume or relaunch anything.
-`recovery-policy-proposal.md` states the proposed disposition for external interruption;
-that rule still needs independent review before main execution. Owned-process cleanup,
+`recovery-policy-proposal.md` records the adopted disposition for external interruption
+(Squad review 28; #1185 comment 6249073475);
+its implementation still needs independent review before main execution. Owned-process cleanup,
 launcher lifetime receipts, orphan verification and linked recovery execution remain
 required. The current code is not a completed recovery workflow or main-run approval.
