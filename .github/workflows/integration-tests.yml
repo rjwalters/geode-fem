@@ -918,3 +918,25 @@ jobs:
         run: |
           /tmp/harness-venv/bin/python -I -m unittest discover \
               -s benchmarks/motor_optimization/harness -p 'test_*.py' -v
+
+  motor-final-refinement:
+    # Stdlib-only selection, archived native evidence, and controlled child
+    # processes. Historical Git objects are required for source/receipt replay;
+    # this job does not compile or execute an archived native binary.
+    name: motor final refinement tests (python, linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Complete final-refinement regression suite
+        run: |
+          python -I -m unittest discover \
+              -s benchmarks/motor_optimization/final_refinement -p 'test_*.py' -v
