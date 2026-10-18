@@ -108,3 +108,15 @@ Its local read lock and second hash pass do not prove that a copied remote
 experiment is inactive. Recovery-chain reconciliation and all scientific
 validation checks above must precede selection. See `trace-archive-checks.json`
 for the scoped tests and real writer/synthetic evaluator schema probe.
+
+The recorded scientific-decision layer is now `validation_evidence.py`.
+`verify_validation` checks margin normalization, registered strictness/scales,
+mesh policy and repair order, aggregate arithmetic, charged completion time and
+the target/mean rules. `adapt_validation` converts that evidence to selector
+records using caller-supplied reconciled context and full bound design identity.
+It does not itself authenticate that context, reconstruct geometry, read mesh
+bytes, or resolve the recovery registry. The original `attained` flag is a
+numerical decision independent of `credited`; post-budget rows must retain that
+flag while receiving no target credit. Eight-ulp arithmetic checks do not soften
+any eligibility inequality. See `validation-evidence-checks.json` for exact
+source and test/probe scope.

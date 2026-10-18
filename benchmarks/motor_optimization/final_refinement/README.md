@@ -189,3 +189,49 @@ files remain byte-identical. It is neither a FEM smoke nor main-study evidence.
 python3 -I benchmarks/motor_optimization/final_refinement/test_trace_archive.py
 python3 -I benchmarks/motor_optimization/final_refinement/archive_mutations.py
 ```
+
+`validation_evidence.verify_validation` checks the next layer: recorded geometry
+margin normalization and strictness against frozen guard definitions, the common
+current set, objective/mean aggregates, accepted mesh quality and repair history,
+charged wall-FE/seconds, the mean floor, and all three target flags. The inclusive
+5-degree mesh threshold and `h >= -1e-12` credit boundary are preserved. A fresh
+primary mesh must follow a failed moved-mesh policy and end in a passing attempt
+with the same recorded digest. A mesh-infeasible observation retains all four
+failed attempts and earns no target credit. Unknown or contradictory evidence
+raises an error rather than silently becoming an eligible record.
+
+`adapt_validation` feeds those checked values into `selection.Validation`, using
+an independently reconciled run context and a complete, bound `Design` supplied
+by the caller. It retains earlier valid observations of a later-failed run,
+post-budget observations, and contaminated/unknown-host observations with their
+selector rejection reasons. Numerical attainment and within-budget target credit
+are separate: the original numerical flag can remain true after the budget.
+Neither this adapter nor its tests resolve whole-study eligibility.
+
+Arithmetic consistency permits eight binary64 ulps for JSON round trips and
+recomputed aggregates; guard subtraction propagates the rounding of its inputs.
+The actual budget, guard, mean and target inequalities are exact, without those
+tolerances. A disagreement between the recorded FE-budget inequality and its
+seconds equivalent is refused for explicit reconciliation. The caller supplies
+the cohort's verified effective anchor, after the registered canonical-file
+parser check, rather than silently substituting a new platform's recomputation.
+
+Twenty tests and twelve assertion-detected mutations exercise these rules and
+their path into selection. A separate probe replays retained native L2 theta0
+validation values with eleven guard definitions from a fresh geometry-only
+query; no new FEM solve runs. It correctly excludes theta0 for its mean floor.
+Its charged stamp and reconciled context/design are synthetic, so this is a
+schema/arithmetic check, not an optimization or refinement result. The raw
+records and source hashes are retained with `validation-evidence-checks.json`.
+
+Remaining caller obligations include complete recovery-chain reconciliation,
+raw file/source/runtime/anchor bindings, actual geometry reconstruction from
+coordinates, full design/settings identity, and verification of referenced mesh
+bytes. Recorded quality and matching mesh digests alone do not discharge those
+obligations. The native refinement runner and its independent review remain
+pending.
+
+```sh
+python3 -I benchmarks/motor_optimization/final_refinement/test_validation_evidence.py
+python3 -I benchmarks/motor_optimization/final_refinement/validation_mutations.py
+```
