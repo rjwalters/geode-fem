@@ -782,3 +782,41 @@ regressions in persistence, interruption, selection and inventory. This is setup
 verification, not main-run or FEM-performance data. Session-level cancellation,
 per-job launcher lifetime receipts, orphan identity verification, and linked
 recovery/diagnostic-only execution remain to be implemented and reviewed.
+
+### Session cancellation and child-specific launcher receipts (#1202)
+
+The session CLI now handles SIGINT/SIGTERM as a shared stop request. It propagates
+to setup, frozen-start preflight, calibration, host gates and scheduled runs. Each
+calibration evaluator checks cancellation while waiting for a response; all
+concurrent workers finish cleanup before the pool exits. Space B's setup request
+now has its own durable raw reply/failure/resource record, including constructor
+failure. No interrupted calibration can become an accepted session unit.
+
+The scheduler stops taking queued jobs after cancellation and waits for every
+started worker to finish before its caller closes the journal. A worker-thread
+startup failure also cancels and joins workers already started. Job and queue
+records survive; this does not resume an optimizer trajectory or grant a retry.
+Host-gate waits remain interruptible even with a long sampling interval.
+
+`owned_child.wait_run` launches each run in its own process group, writes stdout
+and stderr to its attempt log, and is that child's sole `wait4` reaper. The session
+journals process creation, signals and the exit receipt. No `Popen.poll` or `wait`
+consumes a supported `wait4` receipt first, and concurrent jobs never receive the
+shared launcher's `RUSAGE_CHILDREN` total. The raw per-child lifetime receipt is
+retained in the final trace and attempt record as a cross-check, not an extra
+summand for run/request CPU. Completeness additionally requires a normal exit and
+complete retained optimizer/diagnostic phase receipts; unknown metrics stay
+unavailable. A missing or pending diagnostic cannot establish complete accounting.
+
+Cancellation sends SIGTERM to the run group and permits 35 seconds for the run's
+own evaluator cleanup, then uses SIGKILL if necessary. Forced termination leaves
+CPU completeness and descendant cleanup explicitly unverified. In particular,
+a killed run can leave an evaluator in a separate process group: process identity
+and orphan verification remain required before any replacement. There is still no
+linked recovery launcher or diagnostic-only execution command.
+
+`test_session_cancellation.py` verifies real launcher/run/evaluator/child shutdown,
+concurrent calibration cancellation, preservation of queued jobs and setup failure
+evidence, exclusive per-child receipts, the bounded forced-exit path, and cleanup
+after journal or thread-start failure. Ten tests and five private-copy mutations
+pass; this is controlled process-lifecycle evidence, not main/FEM timing data.

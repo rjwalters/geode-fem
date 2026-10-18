@@ -77,3 +77,10 @@ def close_evaluator(ev, error=None):
     if isinstance(error, (Interrupted, KeyboardInterrupt)) and hasattr(ev, "kill"):
         ev.kill()
     ev.close()
+
+
+def check(stop):
+    """Raise a fresh exception per worker; never share mutable tracebacks."""
+    error = stop() if stop is not None else None
+    if error is not None:
+        raise Interrupted(error.signum)

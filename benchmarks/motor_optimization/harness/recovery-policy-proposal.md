@@ -38,9 +38,11 @@ The paper and summary must list every replacement, its reason and evidence, and
 the original partial costs, and count the affected logical jobs. Unverified
 interruptions remain unresolved with no automatic rerun.
 
-Pending implementation: owned-process termination and sole-reaper launcher
-receipts, orphan verification, linked recovery execution, diagnostic-only recovery,
-and execution tests of this adopted policy. `recovery_inventory.py` currently
+Pending implementation: process-identity/orphan verification (especially after a
+forced exit), linked recovery execution, diagnostic-only recovery, and execution
+tests of this adopted policy. Cooperative run/session cancellation, stopped-result
+snapshots and sole-reaper launcher receipts now have controlled process tests;
+these do not by themselves authorize a replacement. `recovery_inventory.py` currently
 separates completed, never-started/deferred, contaminated and interrupted cases,
 checks bound inputs/traces, reports active ownership/torn journal tails, and refuses
 to treat an interrupted attempt as an automatically launchable job.

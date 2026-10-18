@@ -97,7 +97,7 @@ class JournalTests(unittest.TestCase):
                 (meshes / f"icem_initial_sector_L{level}.msh").write_bytes(f"fixture{level}".encode())
             (root / "anchor.json").write_text("{}")
             (root / "starts.json").write_text("{}")
-            def preflight(binary, starts, meshes, path):
+            def preflight(binary, starts, meshes, path, **kwargs):
                 record = {"status": "PASS"}; freeze(path, record); return record
             def schedule(jobs, *a, **k):
                 rows = [dict(job, job_name=job["name"], status="ran", exit=0, host_contaminated=False)

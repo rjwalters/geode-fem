@@ -17,6 +17,7 @@ import subprocess
 import time
 
 import resource_usage
+import interruption
 
 
 def to_bits(x):
@@ -42,7 +43,9 @@ class EvaluatorFailure(Exception):
 
 
 class Evaluator:
-    def __init__(self, argv, env=None, stderr_path=None, timeout=None):
+    def __init__(self, argv, env=None, stderr_path=None, timeout=None, stop=None):
+        self.stop = stop
+        interruption.check(stop)
         self.argv = list(argv)
         self.proc = None
         self._err = None
@@ -112,6 +115,7 @@ class Evaluator:
             self._err.close()
 
     def request(self, op, timeout=None, **fields):
+        interruption.check(self.stop)
         self._id += 1
         msg = dict(fields, op=op, id=self._id)
         try:
@@ -136,10 +140,17 @@ class Evaluator:
         deadline = None if timeout is None else time.monotonic() + max(timeout, 0.0)
         fd = self.proc.stdout.fileno()
         while b"\n" not in self._buf:
+            try:
+                interruption.check(self.stop)
+            except interruption.Interrupted:
+                self.kill()
+                raise
             wait = None if deadline is None else deadline - time.monotonic()
             if wait is not None and wait <= 0:
                 self.kill()
                 raise Aborted()
+            if self.stop is not None:
+                wait = min(wait, .1) if wait is not None else .1
             ready, _, _ = select.select([fd], [], [], wait)
             if not ready:
                 continue
@@ -171,7 +182,13 @@ class Evaluator:
         self._reap(block=True)
 
     def close(self):
+        # A requested stop kills a busy evaluator immediately. Disable callback
+        # checks during cleanup so they cannot interrupt our sole reaper.
+        stopping = self.stop is not None and self.stop() is not None
+        self.stop = None
         try:
+            if stopping:
+                self.kill()
             if self.proc is not None and self._reap()["state"] != "reaped":
                 try:
                     reply = self.request("shutdown", timeout=30)

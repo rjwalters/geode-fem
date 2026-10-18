@@ -62,6 +62,8 @@ from run import thread_env  # noqa: E402
 import resource_usage  # noqa: E402
 import main_schedule  # noqa: E402
 import session_journal  # noqa: E402
+import interruption  # noqa: E402
+import owned_child  # noqa: E402
 
 ROOT = HERE.parents[2]
 OPT = ROOT / "benchmarks/motor_optimization"
@@ -197,7 +199,7 @@ def combine_calibrations(cals, common_unit=None):
             "per_process": cals}
 
 
-def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out, procs, common_unit=None):
+def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out, procs, common_unit=None, stop=None):
     """Amendment 3 §1 with amendment 4 addition 6: first one process alone
     (the single-process median, a diagnostic only), then `procs`
     simultaneous calibration processes, 3 cold θ0 validations each (and the
@@ -206,13 +208,15 @@ def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out, procs, common_u
     the bit."""
     resources_before = resource_usage.snapshot()
 
-    def one(k, tag):
+    def one(k, tag, space="a", op="calibrate_unit"):
         ev = result = failure = None
         try:
-            ev = Evaluator(evaluator_args(binary, "a", train_mesh, val_mesh, tl, vl, anchor,
+            ev = Evaluator(evaluator_args(binary, space, train_mesh, val_mesh, tl, vl, anchor,
                                           out / f"calibration.meshes/{tag}{k}"),
-                           env=thread_env(), stderr_path=out / "calibration.stderr.log")
-            result = ev.request("calibrate_unit", repeats=3)
+                           env=thread_env(), stderr_path=out / "calibration.stderr.log", stop=stop)
+            from evaluator import to_bits
+            result = (ev.request(op, repeats=3) if op == "calibrate_unit" else
+                      ev.request(op, x_bits=to_bits(ev.ready["space"]["x0"])))
             return result
         except BaseException as error:
             failure = error
@@ -239,15 +243,8 @@ def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out, procs, common_u
                              "weights": single["weights"],
                              "process_resources": single["process_resources"],
                              "note": "diagnostic only; not the unit"}
-    evb = Evaluator(evaluator_args(binary, "b", train_mesh, val_mesh, tl, vl, anchor,
-                                   out / "calibration.meshes/b"),
-                    env=thread_env(), stderr_path=out / "calibration.stderr.log")
-    try:
-        from evaluator import to_bits
-        tb = evb.request("train", x_bits=to_bits(evb.ready["space"]["x0"]))
-    finally:
-        evb.close()
-    cal["space_b_setup_resources"] = evb.resources()
+    tb = one(0, "b", space="b", op="train")
+    cal["space_b_setup_resources"] = tb["process_resources"]
     same = tb.get("F") == cal["theta0_train"]["F"] \
         and tb.get("mean_full") == cal["theta0_train"]["mean_full"]
     if not same:
@@ -328,17 +325,26 @@ def load_summary(samples, t0, t1):
 
 
 def wait_for_idle(procs, max_wait, interval=5.0, clock=time.monotonic, load=os.getloadavg,
-                  sleep=time.sleep):
+                  sleep=time.sleep, stop=None):
     """Amendment 7 §6: wait until the 1-minute load is at most N + 1.
     Returns (ok, waited seconds, the load seen last)."""
     t0 = clock()
     while True:
+        interruption.check(stop)
         v = load()[0]
         if v <= procs + 1:
             return True, clock() - t0, v
         if clock() - t0 >= max_wait:
             return False, clock() - t0, v
-        sleep(interval)
+        # Keep host-gate cancellation responsive without changing sampled-load
+        # eligibility. Normal tests/callers retain their supplied sleep function.
+        if stop is None:
+            sleep(interval)
+        else:
+            end = clock() + interval
+            while clock() < end:
+                interruption.check(stop)
+                sleep(max(0., min(.1, end - clock())))
 
 
 def session_host_idle(results):
@@ -361,12 +367,14 @@ def gate(ctx, wait=wait_for_idle):
     """The pre-run idle gate (amendment 7 §6): (passed, waited s, load).
     With the gate off (a smoke on a shared host, `--host-gate off`) it
     always passes and records the load."""
+    interruption.check(ctx.get("stop"))
     if not ctx["gate"]:
         return True, 0.0, os.getloadavg()[0]
-    return wait(ctx["procs"], ctx["max_wait"], interval=ctx["interval"])
+    kwargs = {"stop": ctx["stop"]} if ctx.get("stop") is not None else {}
+    return wait(ctx["procs"], ctx["max_wait"], interval=ctx["interval"], **kwargs)
 
 
-def run_job(job, ctx, suffix="", wait=wait_for_idle, spawn=subprocess.run):
+def run_job(job, ctx, suffix="", wait=wait_for_idle, spawn=None):
     """Journal each attempt before its gate, and each terminal disposition."""
     journal = ctx.get("journal")
     attempt = (journal.emit("attempt_created", job=job, suffix=suffix)
@@ -381,11 +389,12 @@ def run_job(job, ctx, suffix="", wait=wait_for_idle, spawn=subprocess.run):
     except BaseException as error:
         if attempt is not None:
             journal.emit("attempt_failed", attempt_id=attempt,
-                         error=f"{type(error).__name__}: {error}")
+                         error=f"{type(error).__name__}: {error}",
+                         launcher_receipt=getattr(error, "launcher_receipt", None))
         raise
 
 
-def _run_job(job, ctx, suffix="", wait=wait_for_idle, spawn=subprocess.run):
+def _run_job(job, ctx, suffix="", wait=wait_for_idle, spawn=None):
     """One job under the host rule. If the idle gate times out the run is
     **not started**: the record is `status: deferred` and the caller
     requeues it. Otherwise the run is started; contamination is judged on
@@ -417,9 +426,17 @@ def _run_job(job, ctx, suffix="", wait=wait_for_idle, spawn=subprocess.run):
         ctx["journal"].emit("attempt_dispatched", attempt_id=ctx["attempt_id"],
                             command=cmd, trace=trace.name, log=str(log_path.relative_to(out)))
     with open(log_path, "x") as log:
-        rc = spawn(cmd, stdout=log, stderr=subprocess.STDOUT, env=thread_env()).returncode
+        if spawn is None:
+            receipt = owned_child.wait_run(cmd, log=log, env=thread_env(), stop=ctx.get("stop"),
+                journal=ctx.get("journal"), attempt_id=ctx.get("attempt_id"))
+            rc = receipt["returncode"]
+        else:  # Explicit fixture adapter, never used by the real session launcher.
+            rc = spawn(cmd, stdout=log, stderr=subprocess.STDOUT, env=thread_env()).returncode
+            receipt = {"available": False, "cpu_complete": False,
+                       "reason": "injected synchronous spawn supplied no lifetime receipt"}
     t1 = time.time()
     res = json.loads(trace.read_text()) if trace.exists() else {}
+    receipt = owned_child.bind_completeness(receipt, res)
     r0 = res.get("in_run_start_time", t)
     r1 = res.get("in_run_end_time", t1)
     samples = list(ctx["monitor"].samples)
@@ -429,12 +446,14 @@ def _run_job(job, ctx, suffix="", wait=wait_for_idle, spawn=subprocess.run):
         bad = None  # Unknown load coverage cannot establish uncontaminated work.
     diag = load_summary(samples, r1, res.get("post_run_end_time", t1))
     if trace.exists():
-        res.update(host_contaminated=bad, pre_run_load=load0, pre_run_wait_s=waited,
+        res.update(launcher_receipt=receipt, host_contaminated=bad, pre_run_load=load0, pre_run_wait_s=waited,
                    host_gate=ctx["gate"], longest_overload_s=longest,
                    monitor_error=str(monitor_error) if monitor_error else None,
                    in_run_load=load_summary(samples, r0, r1), diagnostic_load=diag)
         write(trace, res)
     return dict(base, status="ran", exit=rc, wall_s=t1 - t, trace=trace.name,
+                launcher_receipt=receipt, optimizer_completed=res.get("optimizer_completed"),
+                optimizer_snapshot=res.get("optimizer_snapshot"), diagnostic_status=res.get("diagnostic_status"),
                 trace_sha256=sha256(trace) if trace.exists() else None,
                 stop_reason=res.get("stop_reason"),
                 total_fe=(res.get("ledger") or {}).get("total_fe"),
@@ -455,29 +474,57 @@ def schedule(jobs, ctx, max_deferrals, suffix="", run=run_job):
     for j in jobs:
         q.put((j, 0))
     out, lock = [], threading.Lock()
+    cancelled = threading.Event()
+    upstream_stop = ctx.get("stop")
+    def stop():
+        upstream = upstream_stop() if upstream_stop is not None else None
+        return upstream or (interruption.Interrupted(2) if cancelled.is_set() else None)
+    ctx = dict(ctx, stop=stop)
+    finished = [threading.Event() for _ in range(ctx["procs"])]
 
-    def worker():
-        while True:
+    def worker_body():
+        while stop() is None:
             try:
                 j, n = q.get_nowait()
             except queue.Empty:
                 return
             try:
                 r = run(j, ctx, suffix)
-            except Exception as error:
+            except interruption.Interrupted as error:
+                cancelled.set()
+                r = dict(j, job_name=j["name"], status="cancelled", exit=None,
+                         host_contaminated=None, interruption=interruption.evidence(error))
+            except BaseException as error:
                 r = dict(j, job_name=j["name"], status="error", exit=None,
                          host_contaminated=None, error=f"{type(error).__name__}: {error}")
             r["deferrals"] = n
             with lock:
                 out.append(r)
-            if r["status"] == "deferred" and n + 1 < max_deferrals:
+            if stop() is None and r["status"] == "deferred" and n + 1 < max_deferrals:
                 q.put((j, n + 1))
 
-    ts = [threading.Thread(target=worker) for _ in range(ctx["procs"])]
-    for t in ts:
-        t.start()
-    for t in ts:
-        t.join()
+    def worker(index):
+        try:
+            worker_body()
+        finally:
+            finished[index].set()
+
+    ts = [threading.Thread(target=worker, args=(k,)) for k in range(ctx["procs"])]
+    started = []
+    try:
+        for index, t in enumerate(ts):
+            t.start()
+            started.append((t, finished[index]))
+        while not all(event.is_set() for _, event in started):
+            time.sleep(.05)
+    except BaseException:
+        cancelled.set()
+        while not all(event.is_set() for _, event in started):
+            time.sleep(.05)
+        raise
+    finally:
+        for t, _ in started:
+            t.join()
     return sorted(out, key=lambda r: (r["position"], r["deferrals"]))
 
 
@@ -493,7 +540,9 @@ def gated_calibration(ctx, fn, max_deferrals, wait=wait_for_idle, clock=time.tim
         raise SystemExit(f"calibration deferred {max_deferrals} times: the host is not idle "
                          f"(load {load0:.2f} > N + 1 = {ctx['procs'] + 1})")
     t0 = clock()
+    interruption.check(ctx.get("stop"))
     cal = fn()
+    interruption.check(ctx.get("stop"))
     t1 = clock()
     bad, longest = contaminated(list(ctx["monitor"].samples), t0, t1, ctx["procs"])
     cal["host"] = {"gate": ctx["gate"], "pre_run_load": load0, "pre_run_wait_s": waited,
@@ -520,7 +569,7 @@ def accept_calibration(cal, out, name, main, journal=None):
     return evidence
 
 
-def drill_start(binary, out, starts_path, bisections=30):
+def drill_start(binary, out, starts_path, bisections=30, stop=None):
     """The smoke's boundary start: on the path from lhs1 (space A) toward
     the pilot's slsqp_a_lhs1 slot-flank failure, the point nearest the
     failure that is admissible and whose training mesh passes the policy
@@ -540,7 +589,7 @@ def drill_start(binary, out, starts_path, bisections=30):
 
     def ok(t, k):
         ev = Evaluator(evaluator_args(binary, "a", l0, l0, 0, 0, None,
-                                      out / f"drill.meshes/probe{k:02d}"), env=thread_env())
+                                      out / f"drill.meshes/probe{k:02d}"), env=thread_env(), stop=stop)
         try:
             x = to_bits(point(t))
             g = ev.request("geometry", x_bits=x)["geometry"]
@@ -568,7 +617,7 @@ def drill_start(binary, out, starts_path, bisections=30):
                     "a smoke drill, not a registered start"}
 
 
-def main(argv=None):
+def _main(argv=None, stop=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--procs", type=int, required=True)
@@ -600,6 +649,7 @@ def main(argv=None):
                                          "label": "smoke" if a.smoke else "main", "procs": a.procs})
     monitor = None
     try:
+        interruption.check(stop)
         before = host_record()
         prov = provenance(a.binary)
         journal.emit("setup_started", host=before, provenance=prov)
@@ -611,7 +661,7 @@ def main(argv=None):
             budget = a.budget_fe or 20.0
             starts, repeats = ("theta0", "lhs1"), 1
             ev = Evaluator(evaluator_args(a.binary, "a", train_mesh, val_mesh, 0, 0, None,
-                                          out / "anchor.meshes"), env=thread_env())
+                                          out / "anchor.meshes"), env=thread_env(), stop=stop)
             try:
                 r = ev.request("anchor")
             finally:
@@ -626,7 +676,7 @@ def main(argv=None):
                            "process_resources": ev.resources()})
             # The smoke's starts: the committed ones and the boundary drill.
             st = json.loads(starts_path.read_text())
-            st["starts"]["drill"] = drill_start(a.binary, out, starts_path)
+            st["starts"]["drill"] = drill_start(a.binary, out, starts_path, stop=stop)
             st["label"] = "smoke"
             starts_path = out / "starts_smoke.json"
             write(starts_path, st)
@@ -644,7 +694,7 @@ def main(argv=None):
             from start_preflight import verify
             preflight = verify(a.binary, starts_path,
                                {level: MESHES / f"icem_initial_sector_L{level}.msh" for level in (0, 1)},
-                               out / "start_preflight.json")
+                               out / "start_preflight.json", stop=stop)
             if preflight["status"] != "PASS":
                 raise SystemExit("frozen-start preflight failed; no calibration or main jobs launched")
         meshes = {"train": {"file": str(train_mesh), "level": tl, "sha256": sha256(train_mesh)},
@@ -654,9 +704,9 @@ def main(argv=None):
         (out / "logs").mkdir(exist_ok=True)
         monitor = LoadMonitor(interval=a.load_interval, journal=journal).start()
         ctx = {"out": out, "procs": a.procs, "max_wait": a.max_wait, "interval": a.load_interval,
-               "monitor": monitor, "gate": a.host_gate == "on", "journal": journal}
+               "monitor": monitor, "gate": a.host_gate == "on", "journal": journal, "stop": stop}
         cal = gated_calibration(ctx, lambda: calibrate(a.binary, train_mesh, val_mesh, tl, vl,
-                                                       anchor, out, a.procs), a.max_deferrals)
+                                                       anchor, out, a.procs, stop=stop), a.max_deferrals)
         accept_calibration(cal, out, "calibration_primary.json", not a.smoke, journal)
         session_id = f"{label}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
         primary = f"L{tl}"
@@ -670,7 +720,7 @@ def main(argv=None):
             secondary_out.mkdir()
             secondary_cal = gated_calibration(ctx, lambda: calibrate(
                 a.binary, l0_mesh, val_mesh, 0, vl, anchor, secondary_out, a.procs,
-                common_unit=cal["unit_seconds"]), a.max_deferrals)
+                common_unit=cal["unit_seconds"], stop=stop), a.max_deferrals)
             accept_calibration(secondary_cal, out, "calibration_secondary.json", True, journal)
             models["L0"] = {"train_mesh": str(l0_mesh), "train_level": 0,
                             "train_mesh_sha256": sha256(l0_mesh),
@@ -685,6 +735,7 @@ def main(argv=None):
                                  "train_level": tl, "val_level": vl},
                    "starts": str(starts_path), "procs": a.procs,
                    "linear_algebra": prov["linear_algebra"]}
+        interruption.check(stop)
         session_journal.freeze(out / "session.json", session)
         jobs = (build_jobs(starts, SPACES, repeats) if a.smoke else
                 main_schedule.build_jobs({s["letter"]: m for m, s in METHOD_SPECS.items()}))
@@ -720,6 +771,7 @@ def main(argv=None):
         journal.emit("session_ready", bindings_sha256=sha256(out / "bindings.json"))
         try:
             results = schedule(jobs, ctx, a.max_deferrals)
+            interruption.check(stop)
             # Contaminated runs are re-run at the end of the session (amendment
             # 7 §6); both records are kept. With the gate off (smoke) nothing is
             # re-run: contamination is only recorded.
@@ -740,6 +792,7 @@ def main(argv=None):
                 gate_drill = []
         finally:
             monitor.stop()
+        interruption.check(stop)
         after = host_record()
         host_idle = session_host_idle(results) and ctx["gate"] and monitor.error is None \
             and not cal["host"]["host_contaminated"] \
@@ -772,13 +825,24 @@ def main(argv=None):
                   f"{r.get('total_fe')} FE {r.get('attained')} contaminated {r['host_contaminated']}")
         return 0 if complete else 1
     except BaseException as error:
-        journal.emit("session_failed", error=f"{type(error).__name__}: {error}")
+        journal.emit("session_failed", error=f"{type(error).__name__}: {error}",
+                     interruption=(interruption.evidence(error) if isinstance(error, interruption.Interrupted) else None))
         raise
     finally:
         if monitor is not None:
             monitor.stop()
         journal.close()
 
+
+
+def main(argv=None):
+    # The launcher never raises asynchronously while holding locks or writing
+    # evidence. Every compute/gate/worker path polls this shared stop request.
+    with interruption.StopSignals() as signals:
+        try:
+            return _main(argv, stop=lambda: signals.requested)
+        except interruption.Interrupted as error:
+            return 128 + error.signum
 
 
 if __name__ == "__main__":

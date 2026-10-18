@@ -14,6 +14,7 @@ from evaluator import Evaluator, to_bits
 from main_schedule import STARTS
 from make_starts import verdict
 from run import thread_env
+import interruption
 
 
 def sha(path):
@@ -39,7 +40,7 @@ def check_reply(reply, x):
     return None
 
 
-def verify(binary, starts_path, meshes, out, evaluator_factory=Evaluator):
+def verify(binary, starts_path, meshes, out, evaluator_factory=Evaluator, stop=None):
     """Return durable evidence. Failures do not select replacement starts."""
     out = Path(out)
     starts_path = Path(starts_path)
@@ -71,12 +72,13 @@ def verify(binary, starts_path, meshes, out, evaluator_factory=Evaluator):
                 ev = None
                 t0 = time.monotonic()
                 try:
+                    interruption.check(stop)
                     mesh = str(Path(meshes[level]).resolve())
                     command = [str(binary), "--space", space, "--train-mesh", mesh,
                                "--val-mesh", mesh, "--train-level", str(level), "--val-level", str(level)]
                     entry["command"] = command
                     ev = evaluator_factory(command, env=thread_env(), timeout=120,
-                                           stderr_path=out.with_suffix(".stderr.log"))
+                                           stderr_path=out.with_suffix(".stderr.log"), stop=stop)
                     entry["ready"] = ev.ready
                     if ev.ready.get("train_msh_sha256") != record["mesh_sha256"][str(level)]:
                         raise ValueError("preflight evaluator loaded a different training mesh")
@@ -101,6 +103,11 @@ def verify(binary, starts_path, meshes, out, evaluator_factory=Evaluator):
                         result.update(reply=reply, reason=reason, status="PASS" if reason is None else "failed")
                         save()
                     entry["status"] = "PASS" if all(c["status"] == "PASS" for c in entry["checks"]) else "failed"
+                except interruption.Interrupted as error:
+                    entry.update(status="interrupted", error=str(error))
+                    if getattr(error, "evaluator_resources", None):
+                        entry["startup_failure_resources"] = error.evaluator_resources
+                    raise
                 except Exception as error:
                     entry.update(status="failed", error=f"{type(error).__name__}: {error}")
                     if getattr(error, "evaluator_resources", None):
