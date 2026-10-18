@@ -34,8 +34,11 @@ def main(argv=None):
         f"- Processes: {m['procs']} single-threaded; commit {p['commit'][:10]} "
         f"(tree clean: {p['tree_clean']}); {p['rustc']}; scipy {p['packages']['scipy']}, "
         f"numpy {p['packages']['numpy']}; lock {p['requirements_lock_sha256'][:12]}.",
-        f"- Unit: {cal['unit_seconds']:.4f} s (median of "
-        f"{', '.join(f'{x:.4f}' for x in cal['validation_seconds'])} s, cold θ0 validations); "
+        f"- Unit: {cal['unit_seconds']:.4f} s, the median of {len(cal['validation_seconds'])} "
+        f"cold θ0 validations in {cal.get('processes', 1)} simultaneous processes "
+        f"(range {min(cal['validation_seconds']):.4f}–{max(cal['validation_seconds']):.4f} s); "
+        f"single-process median {cal.get('single_process', {}).get('unit_seconds', float('nan')):.4f} s "
+        f"(diagnostic); "
         f"training forward {cal['weights']['train_forward_eval']:.4f} FE, adjoint "
         f"{cal['weights']['adjoint_eval']:.4f} FE per evaluation; budget {m['budget_fe']:g} FE.",
         "",
@@ -60,7 +63,31 @@ def main(argv=None):
                      f"{len(t.get('validations', []))} | "
                      f"{fmt(best and best['F_val'], '.4e')} | {' | '.join(att)} |")
     lines += ["", "Attainment cells are wall-time FE / solve-count FE at the first validation "
-              "that attained the target, within the budget."]
+              "that attained the target, within the budget. Method C is an empirical RBF "
+              "surrogate, not a reduced physical or waveform model (#1185 amendment 6)."]
+    diag = []
+    for job in m["jobs"]:
+        t = json.loads((d / job["trace"]).read_text())
+        pd = t.get("post_run_diagnostic")
+        if t.get("aborted_request"):
+            lines.append(f"- {job['name']}: budget abort during a "
+                         f"{t['aborted_request']['op']} request "
+                         f"({t['aborted_request']['category']}).")
+        if pd and pd.get("rows"):
+            for r in pd["rows"]:
+                diag.append(f"| {job['name']} | {r['fraction']} | {r['std_pred']:.4e} | "
+                            f"{r['std_train']:.4e} | {r['std_val']:.4e} | "
+                            f"{r['mean_pred']:.6f} | {r['mean_train']:.6f} | "
+                            f"{r['mean_val']:.6f} |")
+        elif pd:
+            diag.append(f"| {job['name']} | — | {pd.get('status')} {pd.get('error') or ''} "
+                        "| | | | | |")
+    if diag:
+        lines += ["", "Method C post-run held-out-current diagnostic (amendment 6 §3; not "
+                  "counted in the run's budget or attainment): C's prediction at the final "
+                  "incumbent against the training and validation models.", "",
+                  "| run | fraction | std pred | std train | std val | mean pred | "
+                  "mean train | mean val |", "|---|---|---|---|---|---|---|---|", *diag]
     (d / "SUMMARY.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
 

@@ -26,6 +26,7 @@ DRV = HERE / "driver.py"
 ACC = HERE / "acceptance.py"
 LED = HERE / "ledger.py"
 RUN = HERE / "run.py"
+SES = HERE / "session.py"
 
 MUTATIONS = [
     # ── [#1195] wrong target ────────────────────────────────────────────
@@ -111,6 +112,26 @@ MUTATIONS = [
     ("dmean_full_is_half_current", RS,
      '"dmean_full": ev.d_means.as_ref().map(|d| d[k].clone()),',
      '"dmean_full": ev.d_means.as_ref().map(|d| d[1].clone()),'),
+    # ── Judge round 1 (J3, J6) and amendments 4-6 ───────────────────────
+    ("J3_driver_x_bits_echo_check_removed", DRV,
+     'if "x_bits" in fields and reply.get("x_bits") != fields["x_bits"]:', "if False:"),
+    ("J6_attained_cross_check_removed", ACC,
+     '        if got[name]["attained"] != flags[name]:', "        if False:"),
+    ("start_validated", DRV,
+     "        if key == self.start_key or key in self._val:",
+     "        if key in self._val:"),
+    ("cobyqa_validates_inside_its_initial_set", DRV,
+     "        if len(run._train) < COBYQA_INITIAL(P.n):", "        if False:"),
+    ("c1_geometry_substitute_not_a_rejection", DRV,
+     "        else:\n            # A rejection, including a non-improving geometry point",
+     "        elif not geometry:\n            # A rejection, including a non-improving geometry point"),
+    ("unit_is_median_of_process_medians", SES,
+     "    unit = median(val)\n",
+     '    unit = median([median(c["validation_seconds"]) for c in cals])\n'),
+    ("diagnose_leaves_training_currents_changed", RS,
+     "        self.train.cfg.fractions = saved;\n", "\n"),
+    ("diagnose_leaves_validation_currents_changed", RS,
+     "        self.validator.cfg.eval.fractions = saved;\n", "\n"),
     ("method_order_not_alternating", DRV,
      'letters = "ABC" if repeat % 2 == 1 else "CBA"', 'letters = "ABC"'),
 ]

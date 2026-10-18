@@ -264,7 +264,7 @@ solve counts, so any rule #1185 freezes can be applied afterwards.
 `harness/` holds the experiment-2 optimizer harness: the JSON-lines
 evaluator process (`examples/icem_harness_eval.rs`, library
 `tests/common/icem_harness.rs`), the Python driver (SLSQP, COBYQA and the
-calibrated RBF trust-region surrogate of the proposed amendment 4), the
+empirical RBF trust-region surrogate of amendments 4-6), the
 validation policy, the driver-owned ledger with the exact budget stop, the
 committed LHS starts and the run manifest. `harness/README.md` describes it.
 Its records are:

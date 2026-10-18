@@ -32,6 +32,12 @@
 //! - `anchor`: θ0's primary validation on its own mesh as an [`Anchor`]
 //!   (only for a labelled smoke session at another level; the registered
 //!   anchor is `benchmarks/motor_optimization/anchor.json`).
+//! - `diagnose`: `x_bits` and `fractions` (current fractions of the peak
+//!   current). The training model and the validation model (no acceptance:
+//!   another current set is not the primary model) at those currents only,
+//!   both cold. The post-run held-out-current diagnostic of method C
+//!   (#1185 amendment 6 §3); a dedicated process runs it after the run has
+//!   stopped, so it changes nothing in the run.
 //! - `check`: whether `x` is in the box and has a geometry, and the moved
 //!   training mesh's quality and trigger (no solve).
 //!
@@ -247,6 +253,7 @@ impl<Sp: Space> Session<Sp> {
             "calibrate_unit" => self.op_calibrate(req, &mut ledger),
             "anchor" => self.op_anchor(&mut ledger),
             "check" => self.op_check(req, &mut ledger),
+            "diagnose" => self.op_diagnose(req, &mut ledger),
             o => Err(format!("unknown op {o:?}")),
         };
         let seconds = t0.elapsed().as_secs_f64();
@@ -449,6 +456,45 @@ impl<Sp: Space> Session<Sp> {
         )
     }
 
+    fn op_diagnose(&mut self, req: &Value, ledger: &mut CostLedger) -> OpResult {
+        let x = self.x_of(req)?;
+        let fractions: Vec<f64> = req["fractions"]
+            .as_array()
+            .ok_or("missing fractions")?
+            .iter()
+            .map(|v| v.as_f64().ok_or("fractions must be numbers"))
+            .collect::<Result<_, _>>()?;
+        if fractions.is_empty() || fractions.iter().any(|f| !(0.0..=1.0).contains(f)) {
+            return Err("fractions must be a non-empty subset of [0, 1]".into());
+        }
+        let p = self.space.point(&x).map_err(|e| e.to_string())?;
+        // Training model at these currents (the session's evaluator, its
+        // current reference and remesh policy), forward only.
+        let saved = std::mem::replace(&mut self.train.cfg.fractions, fractions.clone());
+        let tr = self.space.evaluate(&mut self.train, &x, false);
+        self.train.cfg.fractions = saved;
+        let tr = tr.map_err(|e| e.to_string())?;
+        ledger.charge_evaluation(&tr.full, Purpose::Iterate, "diagnostic training");
+        // Validation model at these currents: the same validator, cold, on
+        // its own mesh policy; not the acceptance path.
+        let saved = std::mem::replace(&mut self.validator.cfg.eval.fractions, fractions.clone());
+        let va = self.validator.validate(&p);
+        self.validator.cfg.eval.fractions = saved;
+        let va = va.map_err(|e| e.to_string())?;
+        ledger.charge_validation(&va, "diagnostic validation");
+        Ok(json!({
+            "x": x, "x_bits": x_bits(&x), "fractions": fractions,
+            "training": {"means": tr.means,
+                "stds": tr.full.currents.iter().map(|c| c.std).collect::<Vec<_>>(),
+                "fractions": tr.full.currents.iter().map(|c| c.fraction).collect::<Vec<_>>(),
+                "generation": tr.full.generation},
+            "validation": {"means": va.currents.iter().map(|c| c.mean).collect::<Vec<_>>(),
+                "stds": va.currents.iter().map(|c| c.std).collect::<Vec<_>>(),
+                "fractions": va.currents.iter().map(|c| c.fraction).collect::<Vec<_>>(),
+                "mesh": va.mesh.to_json(), "msh_sha256": va.mesh_sha256},
+        }))
+    }
+
     fn op_check(&mut self, req: &Value, ledger: &mut CostLedger) -> OpResult {
         let t = Instant::now();
         let x = self.x_of(req)?;
@@ -520,7 +566,7 @@ pub fn failure_category(op: &str, req: &Value) -> Option<CostCategory> {
             _ => CostCategory::Forward,
         }),
         "validate" => Some(CostCategory::Validation),
-        "calibrate_unit" | "anchor" => Some(CostCategory::SetupCalibration),
+        "calibrate_unit" | "anchor" | "diagnose" => Some(CostCategory::SetupCalibration),
         "check" => Some(CostCategory::MeshMotion),
         _ => None,
     }

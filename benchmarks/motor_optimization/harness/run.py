@@ -22,8 +22,9 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from acceptance import Anchor  # noqa: E402
-from driver import METHODS, Problem, Run, execute  # noqa: E402
-from evaluator import Aborted, Evaluator  # noqa: E402
+from driver import (DIAGNOSTIC_FRACTIONS, METHOD_LABELS, METHODS, Problem, Run,  # noqa: E402
+                    c_current_predictions, execute)
+from evaluator import Aborted, Evaluator, EvaluatorFailure, to_bits  # noqa: E402
 from ledger import Ledger  # noqa: E402
 
 
@@ -47,8 +48,55 @@ def load_start(session, start, space):
     return starts["starts"][start][space]
 
 
+def rel(p, a):
+    return abs(p - a) / abs(a) if a else None
+
+
+def post_run_diagnostic(run, make_evaluator, unit, clock=time.monotonic):
+    """Method C's held-out-current diagnostic (#1185 amendment 6 §3): after
+    the run has stopped, a fresh evaluator process evaluates the final
+    incumbent at current fractions 0.25 and 0.75 on the training and the
+    validation model, against C's predictions there
+    (`driver.c_current_predictions`). Its cost is recorded here only: it is
+    never charged to the run's ledger and cannot change the run's budget,
+    path or attainment times."""
+    pred = c_current_predictions(run)
+    out = {"counted_in_run_budget": False, "fractions": list(DIAGNOSTIC_FRACTIONS),
+           "prediction": pred}
+    if pred is None:
+        return dict(out, status="no incumbent")
+    t0 = clock()
+    ev = None
+    try:
+        ev = make_evaluator()
+        r = ev.request("diagnose", timeout=max(10 * unit, 60.0), x_bits=to_bits(pred["x"]),
+                       fractions=list(DIAGNOSTIC_FRACTIONS))
+    except (Aborted, EvaluatorFailure) as e:
+        return dict(out, status="failed", error=str(e) or "timeout",
+                    seconds=clock() - t0)
+    finally:
+        if ev is not None:
+            ev.close()
+    out.update(status="ok" if r.get("ok") else "failed", error=r.get("error"),
+               charges=r.get("charges", []), seconds=clock() - t0)
+    if not r.get("ok"):
+        return out
+    rows = []
+    for k, p in enumerate(pred["predictions"]):
+        t_s, t_m = r["training"]["stds"][k], r["training"]["means"][k]
+        v_s, v_m = r["validation"]["stds"][k], r["validation"]["means"][k]
+        rows.append(dict(p, std_train=t_s, mean_train=t_m, std_val=v_s, mean_val=v_m,
+                         rel_std_train=rel(p["std_pred"], t_s),
+                         rel_mean_train=rel(p["mean_pred"], t_m),
+                         rel_std_val=rel(p["std_pred"], v_s),
+                         rel_mean_val=rel(p["mean_pred"], v_m)))
+    out["rows"] = rows
+    out["validation_mesh"] = r["validation"]["mesh"]
+    return out
+
+
 def run_one(session, method, space, start, repeat, out, position=None, clock=time.monotonic,
-            evaluator_factory=None):
+            evaluator_factory=None, diagnostic=True):
     """Run and write the trace; return it."""
     if method not in METHODS:
         raise ValueError(method)
@@ -59,14 +107,16 @@ def run_one(session, method, space, start, repeat, out, position=None, clock=tim
     ledger = Ledger(session["unit_seconds"], budget_fe, weights=session["weights"], clock=clock)
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     load_before = os.getloadavg()
-    trace = {"issue": 1195, "label": session["label"], "method": method, "space": space,
+    trace = {"issue": 1195, "label": session["label"], "method": method,
+             "method_label": METHOD_LABELS[method], "space": space,
              "start": start, "repeat": repeat, "order_position": position,
              "session": session.get("session_id"), "budget_fe": budget_fe,
              "unit_seconds": session["unit_seconds"], "started_utc": started,
              "load_before": load_before}
     ev = None
+    run = None
+    mesh_out = out.with_name(out.stem + ".meshes")
     try:
-        mesh_out = out.with_name(out.stem + ".meshes")
         if evaluator_factory is None:
             argv = evaluator_argv(session, space, mesh_out)
             ev = Evaluator(argv, env=thread_env(), stderr_path=out.with_suffix(".stderr.log"),
@@ -94,6 +144,19 @@ def run_one(session, method, space, start, repeat, out, position=None, clock=tim
     finally:
         if ev is not None:
             ev.close()
+    # After the stop and the ledger snapshot above: C's post-run diagnostic,
+    # in its own process and its own ledger section.
+    if diagnostic and method == "surrogate" and run is not None:
+        if evaluator_factory is None:
+            def make():
+                return Evaluator(evaluator_argv(session, space, mesh_out / "diagnostic"),
+                                 env=thread_env(), stderr_path=out.with_suffix(".stderr.log"),
+                                 timeout=max(10 * session["unit_seconds"], 60.0))
+        else:
+            def make():
+                return evaluator_factory(space, None)
+        trace["post_run_diagnostic"] = post_run_diagnostic(run, make, session["unit_seconds"],
+                                                           clock=clock)
     trace["load_after"] = os.getloadavg()
     trace["finished_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     out.write_text(json.dumps(trace, indent=1, default=float) + "\n")

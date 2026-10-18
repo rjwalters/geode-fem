@@ -39,6 +39,13 @@ from ledger import BudgetExhausted
 from surrogate import Models
 
 METHODS = ("slsqp", "cobyqa", "surrogate")
+#: How each method is described in every record (#1185 amendment 6 §1:
+#: C is an empirical surrogate, not a reduced physical or waveform model).
+METHOD_LABELS = {"slsqp": "exact-gradient SLSQP (adjoint)",
+                 "cobyqa": "derivative-free trust region (COBYQA)",
+                 "surrogate": "empirical RBF surrogate (trust region)"}
+#: Held-out currents of C's post-run diagnostic (amendment 6 §3).
+DIAGNOSTIC_FRACTIONS = (0.25, 0.75)
 #: Method letters of the ordering rule (amendment 3 §4: ABC, then CBA).
 LETTERS = {"A": "slsqp", "B": "cobyqa", "C": "surrogate"}
 
@@ -99,9 +106,23 @@ class Run:
         self.events = []
         self.validations = []
         self.attained = {}
-        self.assessment = {"held_out_training": [], "validation": []}
+        # Method C only. "new_design_validation_model_checks" compare C at
+        # its own training currents on new designs and the finer model;
+        # they are not held-out-current tests (amendment 6 §2).
+        self.assessment = {"held_out_training": [], "new_design_validation_model_checks": []}
+        #: Method C's training records and final incumbent (for the
+        #: post-run diagnostic).
+        self.c_points = []
+        self.c_incumbent = None
+        #: Method C's trust-region steps: Δ before the step, whether the
+        #: point was a geometry point, whether it was accepted.
+        self.c_steps = []
         self._train = {}
         self._val = {}
+        #: x bytes of the start (set by `execute`): never validated.
+        self.start_key = None
+        #: Category and op of the request in flight at a budget abort.
+        self.aborted_request = None
         self.check_ready(evaluator.ready)
 
     def check_ready(self, ready):
@@ -137,6 +158,7 @@ class Run:
             reply = self.ev.request(op, timeout=led.remaining_seconds(), **fields)
         except Aborted:
             led.charge_to_budget(category, note=f"{op} aborted at the budget")
+            self.aborted_request = {"category": category, "op": op}
             raise BudgetExhausted() from None
         for c in reply.get("charges", []):
             led.charge(c["category"], c["seconds"], c["forward_solves"], c["adjoint_solves"],
@@ -202,7 +224,7 @@ class Run:
         if prediction is not None:
             k = r["fractions"].index(0.5)
             s_pred, m_pred, f_pred = prediction
-            self.assessment["validation"].append({
+            self.assessment["new_design_validation_model_checks"].append({
                 "validation": rec["index"], "std_half_pred": s_pred[k],
                 "std_half_val": r["stds"][k],
                 "rel_std_half": rel(s_pred[k], r["stds"][k]),
@@ -221,7 +243,12 @@ class Run:
         return rec
 
     def accept_iterate(self, u, note, prediction=None):
-        """The validation policy: validate a newly accepted iterate."""
+        """The validation policy (amendment 5 §1): validate a new incumbent,
+        never the start, never a point twice. Returns the validation record,
+        or None when the point is not validated."""
+        key = self.problem.x_of(u).tobytes()
+        if key == self.start_key or key in self._val:
+            return None
         return self.validate(u, note=note, prediction=prediction)
 
     # ── record ──────────────────────────────────────────────────────────
@@ -240,7 +267,10 @@ class Run:
             "feasible_validated": bool(feasible),
             "infeasible": not feasible,
             "events": self.events,
+            "method_label": METHOD_LABELS[self.method],
+            "surrogate_steps": self.c_steps if self.method == "surrogate" else None,
             "assessment": self.assessment if self.method == "surrogate" else None,
+            "aborted_request": self.aborted_request,
             "ledger": self.ledger.to_json(),
             "anchor": dict(self.anchor.to_json(), file_values=self.anchor_file_values),
         }
@@ -312,6 +342,11 @@ def run_slsqp(run, u0):
 COBYQA_RADIUS0 = 0.1
 
 
+def COBYQA_INITIAL(n):  # noqa: N802 - a constant of the method
+    """COBYQA's default initial interpolation set: 2n + 1 points."""
+    return 2 * n + 1
+
+
 def run_cobyqa(run, u0):
     """COBYQA (scipy >= 1.14), forward values only. Its default
     interpolation set has 2n + 1 points."""
@@ -324,6 +359,12 @@ def run_cobyqa(run, u0):
         return P.constraint(run.train(u, gradient=False, note="cobyqa"))
 
     def callback(intermediate_result):
+        # COBYQA calls this after every evaluation with its best point so
+        # far (scipy 1.18.1, cobyqa 1.1.3). Amendment 5 §1: nothing during
+        # the 2n + 1 initial interpolation set; then each change of the best
+        # point (accept_iterate skips the start and repeats).
+        if len(run._train) < COBYQA_INITIAL(P.n):
+            return
         run.accept_iterate(intermediate_result.x, note="cobyqa iterate")
 
     res = minimize(fun, u0, method="COBYQA", bounds=Bounds(0.0, 1.0),
@@ -365,6 +406,7 @@ def run_surrogate(run, u0, opts=SURROGATE):
         if k not in seen:
             seen.add(k)
             pts.append(r)
+            run.c_points = pts
         return r
 
     def fit():
@@ -407,6 +449,7 @@ def run_surrogate(run, u0, opts=SURROGATE):
     # Calibration: the start and n coordinate steps of Δ0, then the fit.
     d0 = opts["delta0"]
     inc = add(np.asarray(u0, dtype=float), "doe start")
+    run.c_incumbent = inc
     for i in range(n):
         u = inc["u"].copy()
         u[i] = u[i] + d0 if u[i] + d0 <= 1.0 else u[i] - d0
@@ -415,6 +458,7 @@ def run_surrogate(run, u0, opts=SURROGATE):
     for p in pts:
         if better(P, p, inc):
             inc = p
+    run.c_incumbent = inc
     if inc is not pts[0]:
         run.accept_iterate(inc["u"], note="surrogate doe incumbent",
                            prediction=physical(models, inc["u"]))
@@ -423,6 +467,9 @@ def run_surrogate(run, u0, opts=SURROGATE):
     gj = 0
     while True:
         if delta < opts["delta_min"]:
+            # Amendment 5 §2 C2: the final incumbent under §1.
+            run.accept_iterate(inc["u"], note="surrogate final",
+                               prediction=physical(models, inc["u"]))
             return "surrogate: trust radius below delta_min"
         uk = inc["u"]
         cand = run.ledger.time("surrogate_update", "trust-region subproblem",
@@ -439,6 +486,8 @@ def run_surrogate(run, u0, opts=SURROGATE):
         r = add(cand, "surrogate geometry" if geometry else "surrogate candidate")
         held_out(models, cand, r, "geometry" if geometry else "candidate")
         models = run.ledger.time("surrogate_update", "surrogate refit", fit)
+        run.c_steps.append({"delta": delta, "geometry": geometry,
+                            "accepted": bool(better(P, r, inc))})
         if better(P, r, inc):
             step = float(np.max(np.abs(cand - uk)))
             pred = f_hat_k - f_hat_c
@@ -447,10 +496,13 @@ def run_surrogate(run, u0, opts=SURROGATE):
                     and step >= opts["expand_at"] * delta:
                 delta = min(2.0 * delta, opts["delta_max"])
             inc = r
+            run.c_incumbent = inc
             rejections = 0
             run.accept_iterate(inc["u"], note="surrogate acceptance",
                                prediction=physical(models, inc["u"]))
-        elif not geometry:
+        else:
+            # A rejection, including a non-improving geometry point that
+            # replaced a near-duplicate (amendment 5 §2 C1).
             delta *= 0.5
             rejections += 1
             if rejections % 2 == 0:
@@ -461,15 +513,52 @@ def run_surrogate(run, u0, opts=SURROGATE):
                     models = run.ledger.time("surrogate_update", "surrogate refit", fit)
                     if better(P, rg, inc):
                         inc = rg
+                        run.c_incumbent = inc
                         run.accept_iterate(inc["u"], note="surrogate acceptance",
                                            prediction=physical(models, inc["u"]))
+
+
+def c_current_predictions(run, fractions=DIAGNOSTIC_FRACTIONS):
+    """Method C's prediction at currents it was not trained on, at its final
+    incumbent (amendment 6 §3). C interpolates per training current only
+    (fractions 0, 0.5, 1), so its prediction at an intermediate fraction is
+    the linear interpolation, in the fraction, of its per-current RBF
+    predictions at the two neighbouring training fractions. The stds use
+    the method's own std interpolants. The means at 0 and 0.5, which C
+    does not model, are RBFs fitted post-run to the same training records;
+    they never enter the optimization. Returns None without an incumbent."""
+    from surrogate import CubicRBF
+    inc, pts = run.c_incumbent, run.c_points
+    if inc is None or not pts:
+        return None
+    U = np.array([p["u"] for p in pts])
+    fr = list(pts[0]["fractions"])
+    std_m = [CubicRBF(U, np.array([p["stds"][c] for p in pts])) for c in range(len(fr))]
+    mean_m = [CubicRBF(U, np.array([p["means"][c] for p in pts])) for c in range(len(fr))]
+    u = inc["u"]
+    out = []
+    for f in fractions:
+        hi = next(i for i, g in enumerate(fr) if g >= f)
+        lo = max(hi - 1, 0)
+        w = 0.0 if fr[hi] == fr[lo] else (f - fr[lo]) / (fr[hi] - fr[lo])
+        out.append({"fraction": f, "neighbours": [fr[lo], fr[hi]],
+                    "std_pred": (1 - w) * std_m[lo](u) + w * std_m[hi](u),
+                    "mean_pred": (1 - w) * mean_m[lo](u) + w * mean_m[hi](u)})
+    return {"x": inc["x"].tolist(), "points": len(pts),
+            "exact_fit": all(m.exact for m in std_m + mean_m), "predictions": out,
+            "rule": "linear in the current fraction between C's per-current RBF "
+                    "predictions at the neighbouring training fractions (0, 0.5, 1); "
+                    "the means at 0 and 0.5 are post-run fits"}
 
 
 RUNNERS = {"slsqp": run_slsqp, "cobyqa": run_cobyqa, "surrogate": run_surrogate}
 
 
 def execute(run, u0):
-    """Run the method; return (stop_reason, message, error)."""
+    """Run the method; return (stop_reason, message, error). A budget
+    abort is `budget` (with `run.aborted_request`); `failed` is only an
+    error reply (amendment 5 §3)."""
+    run.start_key = run.problem.x_of(u0).tobytes()
     try:
         msg = RUNNERS[run.method](run, np.asarray(u0, dtype=float))
         return "converged", msg, None

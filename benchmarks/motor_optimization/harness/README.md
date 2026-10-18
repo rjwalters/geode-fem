@@ -1,12 +1,19 @@
 # Motor experiment 2: the optimizer harness (issue #1195)
 
 This directory compares three optimizers on the frozen spaces A and B of
-experiment 2 (#1185). The comparison follows the pre-registration,
-amendments 1–3 and the **proposed amendment 4**, which is posted to #1185
-and copied in §2–§6 below.
+experiment 2 (#1185). The comparison follows the pre-registration and
+amendments 1–3, **amendment 4** (adopted with additions 6 and 7, comment
+6244746246), **amendment 5** (validation trigger, method C edge cases,
+recording a hang; comment 6245006308) and **amendment 6** (method C's label
+and held-out currents; comment 6245012709). §2–§6 below follow them.
 
-Every cost is charged. Every accepted iterate is validated on the
-validation model and scored against the anchor.
+Every cost is charged. Every new incumbent is validated on the validation
+model and scored against the anchor; no start is ever validated.
+
+**Method C is an empirical RBF surrogate**: cubic RBF interpolants of
+training-model outputs, used in a trust region. It is not a reduced
+physical or waveform model (amendment 6 §1). A comparison against a
+physics-based inexpensive model remains open (amendment 6 §4).
 
 This directory holds the harness and its checks. **It holds no pilot
 results.** The pilot (36 runs) runs separately, on a run host to be chosen.
@@ -57,7 +64,7 @@ and carries `ok` and `charges`.
 - **Refusals.** The evaluator refuses to start on a validation mesh, or at a
   level, that is not the anchor's.
 
-## 2. Method C, the calibrated reduced model (proposed amendment 4 §2)
+## 2. Method C, the empirical RBF surrogate (amendment 4 §2, amendments 5 §2 and 6)
 
 - **Model.** Cubic RBFs, φ(r) = r³, each with a linear tail, fitted to every
   training evaluation of the run (`surrogate.py`). There are four:
@@ -83,20 +90,39 @@ and carries `ok` and `charges`.
   5. On rejection, halve Δ. After every second rejection, add a geometry
      point u_k ± Δ e_j, with j cycling.
   6. If the subproblem returns a point within 10⁻³ Δ of an evaluated
-     point, evaluate a geometry point instead.
+     point, evaluate a geometry point instead. A geometry point that does
+     not improve counts as a rejection (step 5; amendment 5 §2 C1).
 
   The subproblem and the refits are charged as `surrogate_update`.
-- **Stop.** At T99, when the budget is spent, or when Δ < 10⁻⁶.
-- **Assessment on unseen designs and currents.** This costs nothing extra.
+- **Stop.** At T99, when the budget is spent, or when Δ < 10⁻⁶. On a
+  Δ < 10⁻⁶ stop the final incumbent is validated under §4 (amendment 5 §2
+  C2). The trust-region steps (Δ, geometry, accepted) are in each trace
+  under `surrogate_steps`.
+- **New-design checks.** These cost nothing extra. They test new designs
+  and a finer model, **not** currents C never saw (0.5 is one of its
+  training currents; amendment 6 §2).
   - Before each refit, the new training point is held out: the model's
     predictions of F, the three stds and the mean are recorded against the
-    training values.
+    training values (`assessment.held_out_training`).
   - At each validation, the predicted std at fraction 0.5, F and the mean
-    are recorded against the validation model's values.
-
-  The results are in each trace under `assessment`. At an accepted point
-  the model interpolates its own training value, so the validation-side
-  error is the gap between the training and validation models.
+    are recorded against the validation model's values
+    (`assessment.new_design_validation_model_checks`). At an accepted point
+    the model interpolates its own training value, so this error is the
+    gap between the training and validation models.
+- **Held-out currents: the post-run diagnostic (amendment 6 §3).** After a
+  C run stops, a fresh evaluator process evaluates the final incumbent at
+  current fractions 0.25 and 0.75 on the training and validation models
+  (`diagnose` request), against C's prediction there. C models only its
+  training currents, so its prediction at an intermediate current is the
+  linear interpolation, in the current fraction, of its per-current RBF
+  predictions at the two neighbouring training currents (0 and 0.5, or 0.5
+  and 1). C's std interpolants are its own; the means at 0 and 0.5, which
+  C does not model, are RBFs fitted post-run to the same training records
+  (`driver.c_current_predictions`). The record is the trace's
+  `post_run_diagnostic`, with its own charges and seconds. It runs after
+  the run's ledger is closed, so it cannot change the run's budget, path or
+  attainment times; a test checks that the trace is otherwise identical
+  with and without it.
 
 ## 3. Methods A and B, and the common problem (§1 and §3)
 
@@ -112,23 +138,33 @@ and carries `ok` and `charges`.
 - **B (COBYQA).** scipy 1.18.1; the default 2n + 1 interpolation points;
   initial trust radius 0.1 (the same as C's Δ₀); final radius 1e-6.
 
-## 4. Validation policy (§4)
+## 4. Validation policy (amendment 5 §1)
 
-- Every new accepted iterate is validated and charged to the method:
-  - A and B: the iterate each iteration's callback reports;
-  - C: each trust-region acceptance;
-  - all three: the final point.
-- The start is not validated.
-- A point validated once in a run is not validated again: the value
-  depends only on the candidate.
+Every validation is charged to the method.
+
+- **Never the start.** No method validates its start point.
+- **Initial sets.** COBYQA's callback runs after every evaluation (scipy
+  1.18.1, cobyqa 1.1.3) with the best point so far; it validates nothing
+  during the first 2n + 1 evaluations. C validates nothing during its n + 1
+  initial design. When the set is complete, the incumbent is validated once
+  if it is not the start.
+- **After that.** Each new incumbent: A, the iterate the SLSQP callback
+  reports (once per major iteration); B, the callback's best point when it
+  changes; C, each trust-region acceptance.
+- **Final point.** Validated unless it is the start or already validated.
+- **No repeats.** A point validated once in a run is not validated again:
+  the value depends only on the candidate.
 - Every validation's acceptance is decided twice: by the evaluator (Rust)
   and by the driver (`acceptance.py`, from the reply's F_val and mean). A
   disagreement stops the run.
 
 ## 5. Cost, budget, attainment (§5; amendment 3 §1)
 
-- **Unit.** The median wall time of three cold θ0 validations, measured
-  single-process at the start of each session.
+- **Unit (amendment 4 addition 6).** Measured under the session's
+  concurrency: N simultaneous calibration processes (N = the session's
+  process count), 3 cold θ0 validations each; the unit is the median of
+  the 3N timings. The single-process median, measured first, is recorded
+  as a diagnostic only.
 - **Solve-count weights.** One training forward evaluation and one adjoint
   evaluation, each at its median ÷ unit; one validation evaluation = 1.
 - **No exclusions.** The driver charges the remaining wall time as
@@ -137,7 +173,10 @@ and carries `ok` and `charges`.
 - **Budget stop.** A request still running at 60 × unit is aborted, and the
   evaluator's whole process group (gmsh included) is killed. The exact
   remainder is charged to the request's category, so an exhausted run is
-  charged the budget exactly. Nothing after the stop is charged.
+  charged the budget exactly. Nothing after the stop is charged. The run is
+  recorded as `stop_reason: budget` with `aborted_request` naming the
+  request in flight (its category and op), for a gmsh hang as for a slow
+  request (amendment 5 §3). `failed` is reserved for error replies.
 - **Attainment.** A target counts only from a validation that completed
   within the budget. It is stamped with the cumulative wall-time FE and
   solve-count FE after that validation's charges.

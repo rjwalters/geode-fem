@@ -124,6 +124,9 @@ class FakeEvaluator:
             charges.append((cat, 1.0, 60, 0))
             if f.get("gradient"):
                 charges.append(("adjoint", 0.375, 0, 60))
+        elif op == "diagnose":
+            charges = [("mesh_motion", MOTION, 0, 0), ("forward", 1.0, 40, 0),
+                       ("validation", 2.0, 40, 0)]
         elif op == "validate":
             charges = [("mesh_motion", MOTION, 0, 0)]
             if u[0] > 0.95:
@@ -138,10 +141,22 @@ class FakeEvaluator:
         self.clock.advance(cost + self.post)
         for c in charges:
             self.emitted[c[0]] += c[1]
-        reply = {"ok": True, "op": op, "x_bits": list(f["x_bits"]),
+        echo = list(f["x_bits"])
+        if "echo_bits" in self.tamper:
+            echo = to_bits([v + 1e-9 for v in from_bits(echo)])
+        reply = {"ok": True, "op": op, "x_bits": echo,
                  "charges": [{"category": c, "seconds": s, "forward_solves": nf,
                               "adjoint_solves": na, "note": ""} for c, s, nf, na in charges]}
         fval, mval = F0 * self.q(u), self.mean(u)
+        if op == "diagnose":
+            fr = f["fractions"]
+            reply.update(fractions=fr,
+                         training={"fractions": fr, "means": [0.99 * g * mval for g in fr],
+                                   "stds": [g * math.sqrt(0.9 * fval) for g in fr]},
+                         validation={"fractions": fr, "means": [g * mval for g in fr],
+                                     "stds": [g * math.sqrt(fval) for g in fr],
+                                     "mesh": {"kind": "moved"}})
+            return reply
         if op == "train":
             g = f.get("gradient")
             dmean = np.zeros(N)
@@ -157,10 +172,12 @@ class FakeEvaluator:
             # The evaluator's rule, written out here independently of
             # acceptance.py (as the Rust side is).
             fr = dict(FAKE_FRACTIONS, **self.tamper.get("target_fractions", {}))
+            mval *= self.tamper.get("val_mean_scale", 1.0)
             d = max(0.10 * fval, 2.5e-7)
             mean_ok = mval >= MEAN0 * (1.0 + 0.0025)
+            flip = self.tamper.get("flip_attained", ())
             targets = [{"name": n, "T": fr[n] * F0,
-                        "attained": (fval + d <= fr[n] * F0) and mean_ok,
+                        "attained": ((fval + d <= fr[n] * F0) and mean_ok) != (n in flip),
                         "F_ok": True, "slack": 0.0}
                        for n in ("T50", "T90", "T99")]
             reply.update(F_val=fval, mean_full=mval, fractions=[0.0, 0.5, 1.0],
@@ -190,6 +207,10 @@ def make_run(budget_fe=1000.0, method="slsqp", io=IO, **kw):
     anchor = Anchor(F0, MEAN0, 0, SHA)
     prob = Problem(fake.ready["space"], theta0_train(fake))
     return Run(fake, led, anchor, prob, method, clock=clock), fake, led, clock
+
+
+def to_x(u):
+    return (np.array(LOWER) + np.asarray(u) * (np.array(UPPER) - np.array(LOWER))).tolist()
 
 
 def near_centre(run):
@@ -426,6 +447,17 @@ class AcceptanceWiringTests(unittest.TestCase):
             with self.assertRaises(WiringError, msg=str(bad)):
                 Run(fake, led, Anchor(F0, MEAN0, 0, SHA), prob, "slsqp", clock=clock)
 
+    def test_an_evaluator_that_evaluated_other_bits_is_refused(self):
+        run, fake, led, clock = make_run(tamper={"echo_bits": True})
+        with self.assertRaises(WiringError):
+            run.train(run.problem.u_of(X0), gradient=False)
+
+    def test_a_flipped_attained_flag_stops_the_run(self):
+        for name in ("T50", "T90", "T99"):
+            run, fake, led, clock = make_run(tamper={"flip_attained": (name,)})
+            with self.assertRaises(AcceptanceMismatch, msg=name):
+                run.validate(near_centre(run))
+
     def test_validation_on_another_mesh_is_refused(self):
         with self.assertRaises(WiringError):
             make_run(validator_sha="b" * 64)
@@ -510,14 +542,69 @@ class MethodTests(unittest.TestCase):
                                        back["ledger"]["elapsed_seconds"], places=9)
                 if method == "surrogate":
                     self.assertGreater(len(back["assessment"]["held_out_training"]), 0)
-                    self.assertGreater(len(back["assessment"]["validation"]), 0)
+                    self.assertGreater(
+                        len(back["assessment"]["new_design_validation_model_checks"]), 0)
+                    diag = back["post_run_diagnostic"]
+                    self.assertEqual(diag["status"], "ok")
+                    self.assertFalse(diag["counted_in_run_budget"])
+                    self.assertEqual([r["fraction"] for r in diag["rows"]], [0.25, 0.75])
+                    self.assertEqual(back["method_label"], "empirical RBF surrogate (trust region)")
                     self.assertGreater(back["ledger"]["totals"]["setup_calibration"]["entries"],
                                        0)
                     self.assertGreater(back["ledger"]["totals"]["surrogate_update"]["entries"],
                                        0)
+                else:
+                    self.assertNotIn("post_run_diagnostic", back)
+                # Amendment 5 §1: the start is never validated.
+                self.assertNotIn(X0, [v["x"] for v in back["validations"]], method)
                 print(f"{method}: {t['stop_reason']} at {t['ledger']['total_fe']:.2f} FE, "
                       f"{len(back['validations'])} validations, "
                       f"attained {[k for k, v in back['attainment'].items() if v['attained']]}")
+
+    def test_no_method_validates_its_start_or_inside_its_initial_set(self):
+        # θ0 (infeasible on the mean floor) and a start next to the optimum,
+        # whose start may well be the best point of the initial set.
+        for method in driver.METHODS:
+            for start in (X0, to_x(0.9 * CENTRE_U + 0.1 * np.full(N, 0.5))):
+                run, fake, led, clock = make_run(budget_fe=300.0, method=method)
+                u0 = run.problem.u_of(start)
+                reason, msg, err = driver.execute(run, u0)
+                self.assertIsNone(err, method)
+                xs = run.problem.x_of(u0).tolist()
+                self.assertNotIn(xs, [v["x"] for v in run.validations], method)
+                keys = [tuple(v["x"]) for v in run.validations]
+                self.assertEqual(len(keys), len(set(keys)), f"{method}: a repeat")
+                if not run.validations:
+                    continue
+                # Nothing is validated before the initial set is complete.
+                n_init = {"slsqp": 1, "cobyqa": 2 * N + 1, "surrogate": N + 1}[method]
+                first_val = next(i for i, e in enumerate(run.events) if e["kind"] == "validate")
+                n_train = sum(1 for e in run.events[:first_val] if e["kind"] == "train")
+                self.assertGreaterEqual(n_train, n_init, method)
+
+    def test_surrogate_counts_a_nonimproving_geometry_substitute_as_a_rejection(self):
+        # Every subproblem solution counts as a near-duplicate: only geometry
+        # points are evaluated. Non-improving ones must halve Δ, so the run
+        # ends on Δ < 1e-6 long before the budget (C1), and its final
+        # incumbent is validated under amendment 5 §1 (C2).
+        # The validation mean is held below the floor: no target stops it.
+        run, fake, led, clock = make_run(budget_fe=1e6, method="surrogate",
+                                         tamper={"val_mean_scale": 0.9})
+        opts = dict(driver.SURROGATE, duplicate_tol=1e12)
+        u0 = run.problem.u_of(X0)
+        run.start_key = run.problem.x_of(u0).tobytes()
+        msg = driver.run_surrogate(run, u0, opts)
+        self.assertIn("trust radius", msg)
+        self.assertLess(led.total_fe(), 1000.0)
+        steps = run.c_steps
+        rejected = [k for k, st in enumerate(steps[:-1]) if st["geometry"]
+                    and not st["accepted"]]
+        self.assertGreater(len(rejected), 0)
+        for k in rejected:
+            self.assertEqual(steps[k + 1]["delta"], steps[k]["delta"] / 2, k)
+        final = run.c_incumbent["x"].tobytes()
+        if final != run.start_key:
+            self.assertIn(final, run._val)
 
     def test_rbf_interpolates_and_its_gradient_is_right(self):
         rng = np.random.default_rng(0)
@@ -534,6 +621,57 @@ class MethodTests(unittest.TestCase):
         # n + 1 points: the linear interpolant.
         L = CubicRBF(np.vstack([np.zeros(3), np.eye(3)]), np.array([1.0, 2.0, 3.0, 4.0]))
         self.assertAlmostEqual(L(np.array([0.5, 0.5, 0.5])), 1.0 + 0.5 * (1 + 2 + 3), places=10)
+
+
+class DiagnosticTests(unittest.TestCase):
+    def test_post_run_diagnostic_changes_no_budget_or_attainment(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "anchor.json").write_text(json.dumps({"anchor": anchor_json()}))
+            (d / "starts.json").write_text(json.dumps({"starts": {"theta0": {"a": X0}}}))
+            probe = FakeEvaluator(FakeClock())
+            for budget in (400.0, 9.5):
+                session = {"label": "test", "session_id": "t", "budget_fe": budget,
+                           "unit_seconds": 1.0, "weights": WEIGHTS,
+                           "theta0_train": theta0_train(probe),
+                           "evaluator": {"anchor": str(d / "anchor.json")},
+                           "starts": str(d / "starts.json")}
+                traces = []
+                for diag in (False, True):
+                    clock = FakeClock()
+                    t = run_one(session, "surrogate", "a", "theta0", 1, d / f"c{diag}.json",
+                                clock=clock, diagnostic=diag,
+                                evaluator_factory=lambda sp, led, c=clock: FakeEvaluator(c))
+                    traces.append(json.loads((d / f"c{diag}.json").read_text()))
+                off, on = traces
+                for k in ("ledger", "attainment", "validations", "stop_reason", "events"):
+                    self.assertEqual(off[k], on[k], (budget, k))
+                pd = on["post_run_diagnostic"]
+                self.assertEqual(pd["status"], "ok", pd)
+                self.assertGreater(sum(c["seconds"] for c in pd["charges"]), 0)
+                self.assertGreater(pd["seconds"], 0)
+                for r in pd["rows"]:
+                    self.assertIn(r["neighbours"], ([0.0, 0.5], [0.5, 1.0]))
+                    self.assertIsNotNone(r["rel_std_val"])
+
+    def test_unit_is_the_median_of_all_3n_concurrent_timings(self):
+        def cal(vals):
+            return {"ok": True, "validation_seconds": vals, "train_forward_seconds": [1.0] * 3,
+                    "train_adjoint_seconds": [0.5] * 3,
+                    "weights": {"validation_solves_per_eval": 60, "train_solves_per_eval": 60},
+                    "theta0_train": {"F": 1.0, "mean_full": 2.0},
+                    "theta0_validation": {}, "anchor_agrees_bitwise": True,
+                    "anchor_agrees_4ulp": True, "deterministic": True}
+        # Per-process medians 1, 2, 9 (median 2); all nine timings: median 3.
+        c = session_mod.combine_calibrations([cal([1.0, 1.0, 3.0]), cal([2.0, 2.0, 4.0]),
+                                              cal([9.0, 9.0, 3.0])])
+        self.assertEqual(c["unit_seconds"], 3.0)
+        self.assertEqual(len(c["validation_seconds"]), 9)
+        self.assertEqual(c["weights"]["train_forward_eval"], 1.0 / 3.0)
+        bad = cal([1.0, 1.0, 1.0])
+        bad["theta0_train"] = {"F": 1.5, "mean_full": 2.0}
+        with self.assertRaises(SystemExit):
+            session_mod.combine_calibrations([cal([1.0] * 3), bad])
 
 
 class ProtocolTests(unittest.TestCase):

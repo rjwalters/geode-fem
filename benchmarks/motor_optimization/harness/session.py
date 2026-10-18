@@ -22,8 +22,10 @@ The session records the host, CPU model, core count and the load averages
 before and after; the commit and whether the tree is clean; rustc; the
 Python version, the lock's SHA-256 and the installed scipy and numpy; the
 evaluator binary's SHA-256; the meshes' SHA-256; and the measured unit
-(the median of three cold theta0 validations, measured single-process
-before any run). A session on a host that is not idle (1-minute load
+(amendment 4 addition 6: N simultaneous calibration processes, N the
+session's process count, 3 cold theta0 validations each; the unit is the
+median of the 3N timings, with the single-process median recorded as a
+diagnostic). A session on a host that is not idle (1-minute load
 average at start above 1) is labelled `host_idle: false` (amendment 3 §4).
 """
 import argparse
@@ -42,7 +44,7 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from driver import method_order  # noqa: E402
+from driver import METHOD_LABELS, method_order  # noqa: E402
 from evaluator import Evaluator  # noqa: E402
 from run import thread_env  # noqa: E402
 
@@ -128,22 +130,74 @@ def evaluator_args(binary, space, train_mesh, val_mesh, train_level, val_level, 
     return argv
 
 
-def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out):
-    """Amendment 3 §1 on this host: the median of three cold theta0
-    validations (space A), the solve-count weights, and the theta0
-    training constants; space B must give theta0's training values to the
-    bit."""
-    ev = Evaluator(evaluator_args(binary, "a", train_mesh, val_mesh, tl, vl, anchor,
-                                  out / "calibration.meshes"),
-                   env=thread_env(), stderr_path=out / "calibration.stderr.log")
-    try:
-        cal = ev.request("calibrate_unit", repeats=3)
-    finally:
-        ev.close()
-    if not cal.get("ok"):
-        raise SystemExit(f"calibration failed: {cal.get('error')}")
+def median(v):
+    s = sorted(v)
+    m = len(s) // 2
+    return s[m] if len(s) % 2 else 0.5 * (s[m - 1] + s[m])
+
+
+def combine_calibrations(cals):
+    """The unit under concurrency (#1185 amendment 4 addition 6): the
+    median of all 3N cold θ0 validation timings of N simultaneous
+    calibration processes, and the solve-count weights from the medians of
+    all their training timings. Every process must give the same θ0
+    values to the bit."""
+    if not cals or not all(c.get("ok") for c in cals):
+        raise SystemExit(f"calibration failed: {[c.get('error') for c in cals]}")
+    t0 = cals[0]["theta0_train"]
+    for c in cals:
+        if (c["theta0_train"]["F"], c["theta0_train"]["mean_full"]) != (t0["F"], t0["mean_full"]):
+            raise SystemExit("calibration processes disagree on θ0's training values")
+    val = [t for c in cals for t in c["validation_seconds"]]
+    fwd = [t for c in cals for t in c["train_forward_seconds"]]
+    adj = [t for c in cals for t in c["train_adjoint_seconds"]]
+    unit = median(val)
+    w0 = cals[0]["weights"]
+    nv, nt = w0["validation_solves_per_eval"], w0["train_solves_per_eval"]
+    wf, wa = median(fwd) / unit, median(adj) / unit
+    weights = {"validation_eval": 1.0, "train_forward_eval": wf, "adjoint_eval": wa,
+               "validation_solve": 1.0 / nv, "train_forward_solve": wf / nt,
+               "adjoint_solve": wa / nt, "validation_solves_per_eval": nv,
+               "train_solves_per_eval": nt}
+    return {"unit_seconds": unit, "unit_rule": "median of the 3N cold θ0 validation timings "
+            "of N simultaneous calibration processes (#1185 amendment 4 addition 6)",
+            "processes": len(cals), "validation_seconds": val, "train_forward_seconds": fwd,
+            "train_adjoint_seconds": adj, "weights": weights, "theta0_train": t0,
+            "theta0_validation": cals[0]["theta0_validation"],
+            "anchor_agrees_bitwise": all(c["anchor_agrees_bitwise"] for c in cals),
+            "anchor_agrees_4ulp": all(c["anchor_agrees_4ulp"] for c in cals),
+            "deterministic": all(c["deterministic"] for c in cals),
+            "per_process": cals}
+
+
+def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out, procs):
+    """Amendment 3 §1 with amendment 4 addition 6: first one process alone
+    (the single-process median, a diagnostic only), then `procs`
+    simultaneous calibration processes, 3 cold θ0 validations each (and the
+    training forwards and gradients of the weights); the unit is the median
+    of the 3N validation timings. Space B must give θ0's training values to
+    the bit."""
+    def one(k, tag):
+        ev = Evaluator(evaluator_args(binary, "a", train_mesh, val_mesh, tl, vl, anchor,
+                                      out / f"calibration.meshes/{tag}{k}"),
+                       env=thread_env(), stderr_path=out / "calibration.stderr.log")
+        try:
+            return ev.request("calibrate_unit", repeats=3)
+        finally:
+            ev.close()
+
+    single = one(0, "single")
+    if not single.get("ok"):
+        raise SystemExit(f"calibration failed: {single.get('error')}")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=procs) as pool:
+        cals = list(pool.map(lambda k: one(k, "concurrent"), range(procs)))
+    cal = combine_calibrations(cals)
+    cal["single_process"] = {"unit_seconds": single["unit_seconds"],
+                             "validation_seconds": single["validation_seconds"],
+                             "weights": single["weights"],
+                             "note": "diagnostic only; not the unit"}
     evb = Evaluator(evaluator_args(binary, "b", train_mesh, val_mesh, tl, vl, anchor,
-                                   out / "calibration.meshes"),
+                                   out / "calibration.meshes/b"),
                     env=thread_env(), stderr_path=out / "calibration.stderr.log")
     try:
         from evaluator import to_bits
@@ -208,7 +262,7 @@ def main(argv=None):
     meshes = {"train": {"file": str(train_mesh), "level": tl, "sha256": sha256(train_mesh)},
               "validation": {"file": str(val_mesh), "level": vl, "sha256": sha256(val_mesh)},
               "anchor": {"file": str(anchor), "sha256": sha256(anchor)}}
-    cal = calibrate(a.binary, train_mesh, val_mesh, tl, vl, anchor, out)
+    cal = calibrate(a.binary, train_mesh, val_mesh, tl, vl, anchor, out, a.procs)
     session_id = f"{label}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
     session = {"issue": 1195, "label": label, "session_id": session_id,
                "budget_fe": budget, "unit_seconds": cal["unit_seconds"],
@@ -241,7 +295,9 @@ def main(argv=None):
         results = list(pool.map(launch, jobs))
     after = host_record()
     manifest = {"issue": 1195, "label": label, "session_id": session_id,
-                "preregistration": "#1185 with amendments 1-3 and the proposed amendment 4",
+                "preregistration": "#1185 with amendments 1-3, amendment 4 (adopted, with "
+                                   "additions 6 and 7), amendment 5 and amendment 6",
+                "method_labels": METHOD_LABELS,
                 "host_before": before, "host_after": after, "host_idle": session["host_idle"],
                 "procs": a.procs, "provenance": prov, "meshes": meshes, "calibration": cal,
                 "unit_seconds": cal["unit_seconds"], "budget_fe": budget, "jobs": results}

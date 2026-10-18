@@ -577,3 +577,52 @@ fn committed_lhs_starts_are_rederived_bit_for_bit_and_valid() {
     assert_eq!(nums(&st["starts"]["theta0"]["a"]), a.x0());
     assert_eq!(nums(&st["starts"]["theta0"]["b"]), b.x0());
 }
+
+// ── Method C's post-run diagnostic ──────────────────────────────────────
+
+#[test]
+fn diagnose_runs_both_models_at_the_requested_currents_and_restores_the_session() {
+    let r = icem::load_reference();
+    let sp = space_a(&r);
+    let anchor = anchor_on(&sp, &l0());
+    let mut x = sp.x0();
+    x[0] += 1e-9;
+    let mut s = session(
+        space_a(&r),
+        fd_cfg(),
+        &l0(),
+        &l0(),
+        Some(anchor),
+        MeshSource::Fixed(String::new()),
+    )
+    .unwrap();
+    let d = s.handle(&json!({"op": "diagnose", "x_bits": x_bits(&x), "fractions": [0.25, 0.75]}));
+    assert_eq!(d["ok"], true, "{d}");
+    assert_eq!(d["x_bits"], json!(x_bits(&x)));
+    for m in ["training", "validation"] {
+        assert_eq!(nums(&d[m]["fractions"]), [0.25, 0.75], "{m}");
+        let (st, me) = (nums(&d[m]["stds"]), nums(&d[m]["means"]));
+        assert_eq!(st.len(), 2);
+        // More current, more torque.
+        assert!(me[1] > me[0] && me[0] > 0.0, "{m}: {me:?}");
+    }
+    // The validation model differs from the training model.
+    assert_ne!(d["training"]["means"], d["validation"]["means"]);
+    // Charged (to the diagnostic's own record), with 2 x 4 training and
+    // 2 x 20 validation solves.
+    let c = charges(&d);
+    assert_eq!(c["forward"].1, 2 * DEGREES.len() as u64);
+    assert_eq!(c["validation"].1, 40);
+    // The session is restored: three training currents, and the primary
+    // validation model for acceptance.
+    let t = train(&mut s, &x, false, "iterate");
+    assert_eq!(nums(&t["fractions"]), [0.0, 0.5, 1.0]);
+    let v = s.handle(&json!({"op": "validate", "x_bits": x_bits(&x)}));
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(nums(&v["fractions"]), [0.0, 0.5, 1.0]);
+    // Bad fractions are refused.
+    for bad in [json!([]), json!([1.5]), json!("x")] {
+        let e = s.handle(&json!({"op": "diagnose", "x_bits": x_bits(&x), "fractions": bad}));
+        assert_eq!(e["ok"], false);
+    }
+}
