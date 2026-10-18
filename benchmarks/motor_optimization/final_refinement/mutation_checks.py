@@ -13,6 +13,8 @@ HERE = Path(__file__).resolve().parent
 SOURCE = HERE / "selection.py"
 TESTS = HERE / "test_selection.py"
 MUTATIONS = [
+    ("mix_disjoint_rerun_ordinals", "slot = (r.method, r.space, r.start_index, r.repeat)",
+     "slot = (r.method, r.space, r.start_index, r.repeat, r.ordinal)"),
     ("omit_mean_floor", "mean_floor = mean0 * 1.0025", "mean_floor = mean0"),
     ("omit_geometry", 'r.geometry_admissible is True, "geometry_not_admissible"',
      'True, "geometry_not_admissible"'),

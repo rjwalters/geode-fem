@@ -13,10 +13,12 @@ python3 -I benchmarks/motor_optimization/final_refinement/test_selection.py
 python3 -I benchmarks/motor_optimization/final_refinement/mutation_checks.py
 ```
 
-`mutation-results.json` records the baseline and sixteen semantic mutations,
+The suite has eighteen tests. `mutation-results.json` records the baseline and
+seventeen semantic mutations,
 including exact source/test hashes and unedited subprocess output. These checks
 target omitted eligibility rules, timing/selection swaps, repeat substitution,
-and coordinate rounding. They do not test the pending raw-trace adapter or FEM
+coordinate rounding, and mixing reruns with disjoint validation ordinals.
+They do not test the pending raw-trace adapter or FEM
 runner.
 
 The selector returns ten representative cells and thirty earliest-crossing
@@ -35,7 +37,11 @@ success or historical pilot flags. It must preserve all records, including
 eligible records that were not selected. `Design.from_values` needs **all**
 geometry and physical/numerical check settings; the selector cannot infer omitted
 parameters. The adapter must also reconcile one eligible run per registered
-method/space/start/repeat slot after contamination reruns.
+method/space/start/repeat slot after contamination reruns. The selector rejects
+otherwise eligible validations from two distinct run IDs in the same logical
+slot, even when their validation ordinals differ. Multiple validations within
+the chosen attempt remain eligible; representative and crossing selection can
+choose different validations from that attempt.
 
 Pending dependencies: #1201 safeguards and #1202 five-method integration. Raw
 trace adaptation, the L3/g40/conforming runner, resource accounting, result

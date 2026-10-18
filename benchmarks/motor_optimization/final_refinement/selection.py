@@ -139,7 +139,7 @@ def select(records, *, f0, mean0, theta0):
     mean_floor = mean0 * 1.0025
     records = list(records)
     seen = set()
-    eligible_slots = set()
+    eligible_runs = {}
     audit, eligible = {}, []
     for r in records:
         _metadata(r)
@@ -148,10 +148,10 @@ def select(records, *, f0, mean0, theta0):
         seen.add(r.record_id)
         reasons = _reasons(r, mean_floor)
         if not reasons:
-            slot = (r.method, r.space, *r.tie)
-            if slot in eligible_slots:
+            slot = (r.method, r.space, r.start_index, r.repeat)
+            if slot in eligible_runs and eligible_runs[slot] != r.run_id:
                 raise ValueError("ambiguous eligible reruns: resolve run eligibility first")
-            eligible_slots.add(slot)
+            eligible_runs[slot] = r.run_id
             eligible.append(r)
         upper = (r.f_val + max(0.1 * r.f_val, 2.5e-7)
                  if _finite(r.f_val) and r.f_val >= 0 else None)

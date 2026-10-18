@@ -101,7 +101,7 @@ class SelectionTests(unittest.TestCase):
     def test_exact_ties_use_start_then_repeat_then_ordinal_not_input_order(self):
         rows = [record(run_id="start1", start_index=1, ordinal=0),
                 record(run_id="repeat2", repeat=2, ordinal=0),
-                record(run_id="later", ordinal=2), record(run_id="winner", ordinal=1)]
+                record(run_id="winner", ordinal=2), record(run_id="winner", ordinal=1)]
         expected = selection(rows)
         for seed in range(5):
             shuffled = list(rows)
@@ -158,8 +158,27 @@ class SelectionTests(unittest.TestCase):
         out = selection([record(host_contaminated=True), record(run_id="rerun")])
         self.assertEqual(cell(out)["record_id"], "rerun:0")
 
+    def test_disjoint_validation_ordinals_cannot_mix_two_eligible_attempts(self):
+        original = record(ordinal=3, f_val=0.005, elapsed_seconds=70.0)
+        rerun = record(run_id="rerun", ordinal=7, f_val=0.001, elapsed_seconds=90.0)
+        for rows in ([original, rerun], [rerun, original]):
+            with self.assertRaisesRegex(ValueError, "ambiguous eligible reruns"):
+                selection(rows)
+        # Provenance chooses the attempt; objective/time do not choose it.
+        out = selection([original, replace(rerun, eligible_run=False)])
+        self.assertEqual(cell(out)["record_id"], "run-0:3")
+        out = selection([replace(original, host_contaminated=True), rerun])
+        self.assertEqual(cell(out)["record_id"], "rerun:7")
+
+    def test_multiple_validations_from_one_attempt_remain_eligible(self):
+        fast = record(ordinal=3, f_val=0.005, elapsed_seconds=20.0)
+        best = record(ordinal=7, f_val=0.001, elapsed_seconds=90.0)
+        out = selection([fast, best])
+        self.assertEqual(cell(out)["record_id"], "run-0:7")
+        self.assertEqual(cell(out, "A/a/T99")["record_id"], "run-0:3")
+
     def test_source_records_and_output_cannot_change_each_other(self):
-        rows = [record(), record(run_id="runnerup", ordinal=1, f_val=0.2)]
+        rows = [record(), record(ordinal=1, f_val=0.2)]
         saved = copy.deepcopy(rows)
         out = selection(rows)
         out["records"][0]["record"]["f_val"] = -9
