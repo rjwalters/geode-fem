@@ -109,8 +109,9 @@ class JournalTests(unittest.TestCase):
                         for job in jobs]
                 rows[0].update(exit=1, stop_reason="error")
                 return [dict(rows[0], status="deferred", exit=None, host_contaminated=None), *rows]
+            linear_algebra = session.linalg_fingerprint()
             with patch.object(session, "host_record", return_value={}), \
-                 patch.object(session, "provenance", return_value={}), \
+                 patch.object(session, "provenance", return_value={"linear_algebra": linear_algebra}), \
                  patch("build_provenance.verify", return_value={"verified": True}), \
                  patch.object(session, "MESHES", meshes), patch.object(session, "OPT", root), \
                  patch.object(session, "HERE", root), \
@@ -135,6 +136,8 @@ class JournalTests(unittest.TestCase):
             jobs = json.loads((out / "queue.json").read_text())["jobs"]
             self.assertEqual(len(jobs), 100)
             self.assertEqual(jobs, planned_jobs)
+            self.assertEqual(json.loads((out / "session.json").read_text())["linear_algebra"],
+                             linear_algebra)
             bindings = json.loads((out / "bindings.json").read_text())
             from session_journal import digest
             for name, sha in bindings["files"].items():
