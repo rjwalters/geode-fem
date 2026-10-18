@@ -427,3 +427,33 @@ design, not optimizer gains. Withheld-current sums remain separate from that
 objective. The archive includes raw waveforms, fresh meshes, generation logs,
 source bindings and exact reference comparisons. Main-capture authentication,
 frozen-cohort execution/reporting and independent review remain pending.
+
+`native_results.py` now joins exact request preparation, retained native files and
+comparison reporting for the six harmonic checks. `requests(...)` verifies the
+cohort's complete designs/settings and the supplied L2/L3 mesh bytes, then emits
+requests identical to the native format. `report(...)` binds each result and its
+retained request, checks actual coordinates/configuration, independently checks
+geometry margins, mesh quality/history and retained mesh bytes, and recomputes
+waveform statistics. CPU counters and post-run cost scope remain per observation.
+Failed/unavailable results and missing checks are retained without replacement.
+Conforming reporting remains a separate pending integration step.
+
+The nine tests in `test_native_results.py` replay nine unchanged native harmonic
+outputs (580 torque samples) from the two existing smoke archives. The additional
+compressed L2 fixture supplies the exact original input mesh, making the replay
+independent of external worktrees. **Selection context is synthetic:** both lhs1
+points are deliberately included with invented prior feasible selection values;
+the report correctly rejects their actual final means and retains 15 unperformed
+checks. This exercises reporting, not optimizer performance or a main cohort.
+Mutation cases cover identities/settings, files, geometry, complete waveforms,
+aggregates, mesh history, resource totals, failure retention and out-of-plan data.
+All 126 final-refinement Python tests pass.
+
+The caller must still authenticate complete closed-study capture, source/build/
+runtime receipts, expected geometry definitions and base-mesh construction. File
+hashes and declared provenance alone do not establish those facts. This API does
+not select main candidates or launch processes; both capability flags are false.
+
+```sh
+python3 -I benchmarks/motor_optimization/final_refinement/test_native_results.py
+```
