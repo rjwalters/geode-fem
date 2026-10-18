@@ -743,3 +743,42 @@ deferred, contaminated and interrupted work. It does not resume or relaunch anyt
 its implementation still needs independent review before main execution. Owned-process cleanup,
 launcher lifetime receipts, orphan verification and linked recovery execution remain
 required. The current code is not a completed recovery workflow or main-run approval.
+
+### Stopped optimizer evidence and cooperative signals (#1202)
+
+`run.py` now writes `NAME.optimizer-stopped.json` before post-run computation,
+then a hash-linked `NAME.json` with `diagnostic_status: pending`. The stopped
+artifact is immutable. The final trace is replaced atomically, and existing run
+outputs are refused. NumPy scalar booleans are serialized as JSON booleans.
+
+The stopped artifact contains the completed optimizer result, including the
+ledger, validation records, target attainment and 60-unit checkpoint. It also
+freezes C's current-interpolation input points/incumbent or D/E's selected design.
+`reconstruct_diagnostic_run` rebuilds only those diagnostic inputs, with no
+optimizer or ledger continuation. The tests reproduce all three methods'
+diagnostic rows from the frozen inputs without invoking optimization.
+
+The isolated run CLI handles SIGINT/SIGTERM. Computation can be interrupted;
+evidence writes and cleanup retain a pending signal without tearing the snapshot.
+An interrupted optimizer preserves completed validations and measured partial
+costs, marks `optimizer_completed: false`, and does not start a diagnostic. A
+post-run interruption preserves the completed optimizer and marks the diagnostic
+unfinished. The runner kills its busy evaluator's process group and reaps it;
+killed-child resource accounting remains explicitly incomplete. Observing a
+signal does **not** by itself verify an external cause or authorize a replacement.
+Scientific errors remain distinct terminal outcomes and retain their earlier
+validations too. The original interrupted/failed records are not overwritten.
+
+The read-only recovery inventory verifies the stopped snapshot hash and its
+agreement with the trace before classifying a clean completed optimizer with an
+unfinished diagnostic as `completed_optimizer_diagnostic_pending`. It is never
+an optimizer-launch candidate. Unknown sessions or incomplete journal transitions
+still remain unresolved; this does not infer completion from an unbound file.
+
+`test_run_interruption.py` includes real subprocess SIGTERM/SIGINT cases during
+startup, optimization and diagnostics, checking evaluator/child termination and
+retained receipts. `run_interruption_mutations.py` checks five deliberate
+regressions in persistence, interruption, selection and inventory. This is setup
+verification, not main-run or FEM-performance data. Session-level cancellation,
+per-job launcher lifetime receipts, orphan identity verification, and linked
+recovery/diagnostic-only execution remain to be implemented and reviewed.

@@ -726,10 +726,10 @@ class DiagnosticTests(unittest.TestCase):
                 traces = []
                 for diag in (False, True):
                     clock = FakeClock()
-                    t = run_one(session, "surrogate", "a", "theta0", 1, d / f"c{diag}.json",
+                    t = run_one(session, "surrogate", "a", "theta0", 1, d / f"c{budget}-{diag}.json",
                                 clock=clock, diagnostic=diag,
                                 evaluator_factory=lambda sp, led, c=clock: FakeEvaluator(c))
-                    traces.append(json.loads((d / f"c{diag}.json").read_text()))
+                    traces.append(json.loads((d / f"c{budget}-{diag}.json").read_text()))
                 off, on = traces
                 for k in ("ledger", "attainment", "validations", "stop_reason", "events"):
                     self.assertEqual(off[k], on[k], (budget, k))

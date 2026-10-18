@@ -77,6 +77,35 @@ class RecoveryInventoryTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "calibration or changed validation unit"):
                     inventory(root)
 
+    def test_completed_optimizer_with_interrupted_diagnostic_is_never_a_rerun_candidate(self):
+        for tamper in (False, True):
+            with self.subTest(tamper=tamper), tempfile.TemporaryDirectory() as td:
+                root = Path(td) / "session"; j, jobs = self.prepare(root)
+                job = jobs[0]
+                attempt = j.emit("attempt_created", job=job, suffix="")
+                j.emit("attempt_dispatched", attempt_id=attempt, trace="done.json")
+                stopped = dict(job, unit_seconds=3., budget_fe=120., optimizer_completed=True,
+                               stop_reason="budget", diagnostic_status="pending",
+                               diagnostic_state={"kind": "fixture"}, ledger={"total_fe": 120.},
+                               attainment={"T50": {"attained": True}})
+                binding = freeze(root / "done.optimizer-stopped.json", stopped)
+                raw = dict(stopped, optimizer_snapshot=binding, diagnostic_status="interrupted")
+                if tamper:
+                    raw["ledger"] = {"total_fe": 60.}
+                freeze(root / "done.json", raw)
+                j.emit("attempt_finished", attempt_id=attempt, result={"status": "ran", "exit": 143,
+                       "trace": "done.json", "trace_sha256": digest(root / "done.json"),
+                       "host_contaminated": False})
+                j.close()
+                if tamper:
+                    with self.assertRaisesRegex(ValueError, "stopped optimizer result changed"):
+                        inventory(root)
+                else:
+                    row = inventory(root)["jobs"][0]
+                    self.assertEqual(row["disposition"], "completed_optimizer_diagnostic_pending")
+                    self.assertFalse(row["never_started_launch_candidate"])
+                    self.assertEqual(row["eligible_completion"]["optimizer_snapshot"], binding)
+
     def test_torn_finished_event_leaves_interrupted_attempt_unresolved(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "session"; j, jobs = self.prepare(root)

@@ -35,6 +35,9 @@ from evaluator import Aborted, Evaluator, EvaluatorFailure, to_bits  # noqa: E40
 from ledger import Ledger  # noqa: E402
 from linalg_info import fingerprint as linalg_fingerprint  # noqa: E402
 import resource_usage  # noqa: E402
+import session_journal  # noqa: E402
+import interruption  # noqa: E402
+from interruption import Interrupted, StopSignals  # noqa: E402
 
 
 def phase_resources(before, ev, error, label):
@@ -94,7 +97,7 @@ def rel(p, a):
     return abs(p - a) / abs(a) if a else None
 
 
-def post_run_diagnostic(run, make_evaluator, unit, clock=time.monotonic):
+def post_run_diagnostic(run, make_evaluator, unit, clock=time.monotonic, signals=None):
     """Method C's held-out-current diagnostic (#1185 amendment 6 §3): after
     the run has stopped, a fresh evaluator process evaluates the final
     incumbent at current fractions 0.25 and 0.75 on the training and the
@@ -102,13 +105,13 @@ def post_run_diagnostic(run, make_evaluator, unit, clock=time.monotonic):
     (`driver.c_current_predictions`). Its cost is recorded here only: it is
     never charged to the run's ledger and cannot change the run's budget,
     path or attainment times."""
+    t0 = clock()
+    resources_before = resource_usage.snapshot()
     pred = c_current_predictions(run)
     out = {"counted_in_run_budget": False, "fractions": list(DIAGNOSTIC_FRACTIONS),
            "prediction": pred}
     if pred is None:
         return dict(out, status="no incumbent")
-    t0 = clock()
-    resources_before = resource_usage.snapshot()
     ev = None
     failure = None
     r = None
@@ -116,12 +119,15 @@ def post_run_diagnostic(run, make_evaluator, unit, clock=time.monotonic):
         ev = make_evaluator()
         r = ev.request("diagnose", timeout=max(10 * unit, 60.0), x_bits=to_bits(pred["x"]),
                        fractions=list(DIAGNOSTIC_FRACTIONS))
+    except (Interrupted, KeyboardInterrupt) as e:
+        failure = e
+        out.update(status="interrupted", interruption=interruption.evidence(e))
     except Exception as e:  # a diagnostic failure cannot discard the stopped run
         failure = e
         out.update(status="failed", error=str(e) or "timeout")
     finally:
-        if ev is not None:
-            ev.close()
+        with interruption.suspend(signals):
+            interruption.close_evaluator(ev, failure)
         out["resources"] = phase_resources(resources_before, ev, failure, "post_run_diagnostic")
         out["seconds"] = clock() - t0
     if r is None:
@@ -144,7 +150,7 @@ def post_run_diagnostic(run, make_evaluator, unit, clock=time.monotonic):
     return out
 
 
-def physical_post_run_diagnostic(run, make_evaluator, unit, clock=time.monotonic):
+def physical_post_run_diagnostic(run, make_evaluator, unit, clock=time.monotonic, signals=None):
     """D/E nonlinear solves, isolated from the stopped optimizer and its ledger."""
     import physical_diagnostic
     selected = physical_diagnostic.select(run)
@@ -170,25 +176,81 @@ def physical_post_run_diagnostic(run, make_evaluator, unit, clock=time.monotonic
             raise ValueError("diagnostic returned a different design point")
         out["rows"] = physical_diagnostic.rows(reply)
         out["status"] = "ok"
+    except (Interrupted, KeyboardInterrupt) as e:
+        failure = e
+        out.update(status="interrupted", interruption=interruption.evidence(e))
     except Exception as e:
         failure = e
         out.update(status="failed", error=str(e) or type(e).__name__)
     finally:
-        if ev is not None:
-            ev.close()
+        with interruption.suspend(signals):
+            interruption.close_evaluator(ev, failure)
         out["resources"] = phase_resources(resources_before, ev, failure, "post_run_diagnostic")
         out["seconds"] = clock() - t0
     return out
 
 
+def json_value(value):
+    """Normalize NumPy scalar leaves without converting booleans to numbers."""
+    return json.loads(json.dumps(value, allow_nan=False,
+                                 default=lambda x: x.item() if hasattr(x, "item") else float(x)))
+
+
+def diagnostic_state(run, method):
+    """Frozen inputs for post-run work only, not an optimizer checkpoint."""
+    if method == "surrogate":
+        def point(p):
+            return {key: (value.tolist() if hasattr(value, "tolist") else value)
+                    for key, value in p.items()
+                    if key in ("u", "x", "fractions", "stds", "means")}
+        return {"kind": "surrogate", "points": [point(p) for p in run.c_points],
+                "incumbent": point(run.c_incumbent) if run.c_incumbent is not None else None}
+    import physical_diagnostic
+    return {"kind": "nonlinear_physical_model", "selection": physical_diagnostic.select(run)}
+
+
+def reconstruct_diagnostic_run(snapshot):
+    """Recreate only the frozen inputs consumed by the diagnostic functions.
+
+    This neither restores optimizer state nor authorizes a launch. The recovery
+    caller must verify snapshot/session hashes, host and old process cleanup.
+    """
+    from types import SimpleNamespace
+    state = snapshot.get("diagnostic_state")
+    if snapshot.get("optimizer_completed") is not True or not state:
+        raise ValueError("no completed optimizer with frozen diagnostic inputs")
+    if state["kind"] == "surrogate":
+        if snapshot["method"] != "surrogate":
+            raise ValueError("diagnostic kind does not match the method")
+        import numpy as np
+        def point(p):
+            return {k: np.asarray(v) if k in ("u", "x") else v for k, v in p.items()}
+        return SimpleNamespace(c_points=[point(p) for p in state["points"]],
+            c_incumbent=point(state["incumbent"]) if state["incumbent"] is not None else None)
+    if state["kind"] != "nonlinear_physical_model" or snapshot["method"] not in ("cobyqa_l0", "slsqp_l0"):
+        raise ValueError("diagnostic kind does not match the method")
+    selected = state["selection"]
+    inc = ({"x": selected["x"]} if selected is not None and
+           selected["source"] == "last_buildable_training_incumbent" else None)
+    run = SimpleNamespace(validations=snapshot["validations"], training_incumbent=inc,
+                         anchor=SimpleNamespace(mesh_sha256=snapshot["anchor"]["msh_sha256"]))
+    import physical_diagnostic
+    if physical_diagnostic.select(run) != selected:
+        raise ValueError("frozen diagnostic selection differs from stopped validations")
+    return run
+
+
 def run_one(session, method, space, start, repeat, out, position=None, clock=time.monotonic,
-            evaluator_factory=None, diagnostic=True):
+            evaluator_factory=None, diagnostic=True, signals=None):
     """Run and write the trace; return it."""
     if method not in METHODS:
         raise ValueError(method)
     resources_before = resource_usage.snapshot()
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
+    stopped_path = out.with_name(out.stem + ".optimizer-stopped.json")
+    if any(p.exists() for p in (out, stopped_path, out.with_name(out.name + ".tmp"))):
+        raise FileExistsError(f"refusing to overwrite run evidence: {out}")
     anchor = Anchor.from_file(session["evaluator"]["anchor"])
     budget_fe = session["budget_fe"]
     model = model_of(session, method)
@@ -208,44 +270,74 @@ def run_one(session, method, space, start, repeat, out, position=None, clock=tim
     run = None
     failure = None
     mesh_out = out.with_name(out.stem + ".meshes")
+    optimizer_completed = False
     try:
-        if evaluator_factory is None:
-            argv = evaluator_argv(session, space, mesh_out, method)
-            ev = Evaluator(argv, env=thread_env(), stderr_path=out.with_suffix(".stderr.log"),
-                           timeout=ledger.remaining_seconds())
-        else:
-            ev = evaluator_factory(space, ledger)
-        ledger.sync("process start-up")
-        problem = Problem(ev.ready["space"], model["theta0_train"])
-        x_start = load_start(session, start, space)
-        trace["x_start"] = x_start
-        run = Run(ev, ledger, anchor, problem, method, clock=clock)
-        reason, message, error = execute(run, problem.u_of(x_start))
-        if not ledger.exhausted():
-            # Up to the stop; a run stopped by the budget is charged the
-            # budget exactly, and nothing after it.
-            ledger.sync("driver end")
-        trace.update(stop_reason=reason, message=message, error=error, **run.result())
+        with interruption.phase(signals):
+            if evaluator_factory is None:
+                argv = evaluator_argv(session, space, mesh_out, method)
+                ev = Evaluator(argv, env=thread_env(), stderr_path=out.with_suffix(".stderr.log"),
+                               timeout=ledger.remaining_seconds())
+            else:
+                ev = evaluator_factory(space, ledger)
+            ledger.sync("process start-up")
+            problem = Problem(ev.ready["space"], model["theta0_train"])
+            x_start = load_start(session, start, space)
+            trace["x_start"] = x_start
+            run = Run(ev, ledger, anchor, problem, method, clock=clock)
+            reason, message, error = execute(run, problem.u_of(x_start))
+            if not ledger.exhausted():
+                # Up to the stop; a run stopped by the budget is charged the
+                # budget exactly, and nothing after it.
+                ledger.sync("driver end")
+            trace.update(stop_reason=reason, message=message, error=error, **run.result())
+        optimizer_completed = True
     except Aborted as e:
         failure = e
+        optimizer_completed = True
         ledger.charge_to_budget("overhead", "start-up aborted at the budget")
         trace.update(stop_reason="budget", message="budget spent during start-up",
                      error=None, ledger=ledger.to_json())
+    except (Interrupted, KeyboardInterrupt) as e:
+        failure = e
+        # Retain completed validations and the measured partial work, never grant
+        # target credit to an unfinished request or charge a new full budget.
+        if not ledger.exhausted():
+            ledger.sync("external stop observed; partial work")
+        if run is not None:
+            trace.update(**run.result())
+        trace.update(stop_reason="interrupted", message=type(e).__name__, error=None,
+                     interruption=interruption.evidence(e), ledger=ledger.to_json())
     except Exception as e:  # noqa: BLE001 - every outcome is recorded
         failure = e
+        optimizer_completed = True  # A recorded scientific/error outcome is terminal.
+        if run is not None:
+            trace.update(**run.result())
         trace.update(stop_reason="error", message=type(e).__name__, error=str(e),
                      traceback=traceback.format_exc(), ledger=ledger.to_json())
     finally:
-        if ev is not None:
-            ev.close()
+        with interruption.suspend(signals):
+            pending = failure or (signals.requested if signals is not None else None)
+            interruption.close_evaluator(ev, pending)
         trace["resources"] = phase_resources(resources_before, ev, failure, "optimizer_run")
     # The in-run phase ends here (wall clock, for the session's host monitor,
     # amendment 7 §6): the post-run diagnostic below is outside it.
     trace["in_run_start_time"] = in_run_start
     trace["in_run_end_time"] = time.time()
+    trace["optimizer_completed"] = optimizer_completed
+    trace["in_run_wall_seconds"] = trace["ledger"]["total_seconds"]
+    wants_diagnostic = (diagnostic and method in ("surrogate", "cobyqa_l0", "slsqp_l0")
+                        and run is not None and optimizer_completed)
+    trace["diagnostic_status"] = "pending" if wants_diagnostic else "not_requested"
+    trace["diagnostic_state"] = diagnostic_state(run, method) if wants_diagnostic else None
+    # Durable before any post-run computation. This immutable artifact survives
+    # a diagnostic crash and contains enough state for diagnostic-only repair.
+    trace = json_value(trace)
+    stopped_binding = session_journal.freeze(stopped_path, trace)
+    trace["optimizer_snapshot"] = stopped_binding
+    session_journal.write_atomic(out, trace)
     # After the stop and the ledger snapshot above: C's post-run diagnostic,
     # in its own process and its own ledger section.
-    if diagnostic and method in ("surrogate", "cobyqa_l0", "slsqp_l0") and run is not None:
+    if wants_diagnostic:
         if evaluator_factory is None:
             def make():
                 return Evaluator(evaluator_argv(session, space, mesh_out / "diagnostic", method),
@@ -256,14 +348,33 @@ def run_one(session, method, space, start, repeat, out, position=None, clock=tim
                 return evaluator_factory(space, None)
         diagnostic_fn = (post_run_diagnostic if method == "surrogate"
                          else physical_post_run_diagnostic)
-        trace["post_run_diagnostic"] = diagnostic_fn(run, make, session["unit_seconds"],
-                                                     clock=clock)
+        diagnostic_start, diagnostic_resources = clock(), resource_usage.snapshot()
+        try:
+            with interruption.phase(signals):
+                trace["post_run_diagnostic"] = diagnostic_fn(
+                    run, make, session["unit_seconds"], clock=clock, signals=signals)
+        except (Interrupted, KeyboardInterrupt) as e:
+            # Covers interruption during prediction/preparation, before the
+            # diagnostic helper has constructed any evaluator.
+            trace["post_run_diagnostic"] = {
+                "status": "interrupted", "interruption": interruption.evidence(e),
+                "counted_in_run_budget": False, "seconds": clock() - diagnostic_start,
+                "resources": phase_resources(diagnostic_resources, None, e, "post_run_diagnostic")}
+        except Exception as e:
+            trace["post_run_diagnostic"] = {
+                "status": "failed", "error": f"{type(e).__name__}: {e}",
+                "counted_in_run_budget": False, "seconds": clock() - diagnostic_start,
+                "resources": phase_resources(diagnostic_resources, None, e, "post_run_diagnostic")}
+        trace["diagnostic_status"] = trace["post_run_diagnostic"]["status"]
     trace["post_run_end_time"] = time.time()
     trace["in_run_wall_seconds"] = trace["ledger"]["total_seconds"]
     trace["post_run_wall_seconds"] = (trace.get("post_run_diagnostic") or {}).get("seconds", 0.0)
     trace["load_after"] = os.getloadavg()
     trace["finished_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    out.write_text(json.dumps(trace, indent=1, default=float) + "\n")
+    if signals is not None and signals.requested is not None:
+        trace["process_interruption"] = interruption.evidence(signals.requested)
+    trace = json_value(trace)
+    session_journal.write_atomic(out, trace)
     return trace
 
 
@@ -281,10 +392,14 @@ def main(argv=None):
     ap.add_argument("--out", required=True, type=Path)
     a = ap.parse_args(argv)
     session = json.loads(a.session.read_text())
-    t = run_one(session, a.method, a.space, a.start, a.repeat, a.out, a.position)
+    with StopSignals() as signals:
+        t = run_one(session, a.method, a.space, a.start, a.repeat, a.out, a.position, signals=signals)
     att = {k: v["attained"] for k, v in t.get("attainment", {}).items()}
     print(f"{a.out.name}: {t['stop_reason']} total {t['ledger']['total_fe']:.3f} FE "
           f"attained {att} {t.get('error') or ''}")
+    stopped = t.get("process_interruption") or t.get("interruption")
+    if stopped is not None:
+        return 128 + stopped["signal"]
     return 0 if t["stop_reason"] != "error" else 1
 
 

@@ -21,6 +21,31 @@ def owner_active(root):
         return False
 
 
+def diagnostic_pending_snapshot(root, raw):
+    """Verify a bound stopped result before allowing diagnostic-only disposition."""
+    if raw.get("diagnostic_status") not in ("pending", "interrupted"):
+        return None
+    binding = raw.get("optimizer_snapshot") or {}
+    name = binding.get("file")
+    if not name or Path(name).name != name or not binding.get("sha256"):
+        raise ValueError("unfinished diagnostic lacks a bound optimizer snapshot")
+    path = root / name
+    if digest(path) != binding["sha256"]:
+        raise ValueError("optimizer snapshot changed")
+    stopped = json.loads(path.read_text())
+    if (stopped.get("optimizer_completed") is not True
+            or stopped.get("stop_reason") == "interrupted"
+            or stopped.get("diagnostic_status") != "pending"
+            or not stopped.get("diagnostic_state")):
+        raise ValueError("diagnostic repair has no completed optimizer")
+    for key in ("method", "space", "start", "repeat", "unit_seconds", "budget_fe", "session",
+                "optimizer_completed", "stop_reason", "ledger", "validations", "attainment",
+                "checkpoint_60", "diagnostic_state", "anchor", "training_model"):
+        if raw.get(key) != stopped.get(key):
+            raise ValueError(f"stopped optimizer result changed: {key}")
+    return binding
+
+
 def inventory(root):
     root = Path(root).resolve()
     active = owner_active(root)
@@ -87,14 +112,23 @@ def inventory(root):
             raw = json.loads(trace.read_text())
             if any(raw.get(k) != job[k] for k in ("method", "space", "start", "repeat")):
                 raise ValueError("trace identity differs from its logical job")
-            if result.get("host_contaminated") is False and result.get("exit") == 0:
-                completed.append((a, result))
+            pending_snapshot = diagnostic_pending_snapshot(root, raw)
+            if result.get("host_contaminated") is False:
+                if pending_snapshot is not None:
+                    a["diagnostic_pending_snapshot"] = pending_snapshot
+                    completed.append((a, result))
+                elif result.get("exit") == 0:
+                    completed.append((a, result))
         if completed:
             # First eligible completion, never lowest objective or fastest time.
             selected, result = completed[0]
-            disposition, launch = "completed_preserve", False
+            disposition, launch = ("completed_optimizer_diagnostic_pending"
+                                   if selected.get("diagnostic_pending_snapshot") else
+                                   "completed_preserve"), False
             eligible = {"attempt_id": selected["attempt_id"], "trace": result["trace"],
                         "trace_sha256": result["trace_sha256"]}
+            if selected.get("diagnostic_pending_snapshot"):
+                eligible["optimizer_snapshot"] = selected["diagnostic_pending_snapshot"]
         elif not any("dispatched" in a for a in prior):
             disposition, launch, eligible = "never_started_or_deferred", True, None
         elif any("dispatched" in a and "finished" not in a for a in prior):
@@ -111,7 +145,7 @@ def inventory(root):
             "bindings_sha256": digest(root / "bindings.json"),
             "incomplete_tail_bytes": journal["incomplete_tail_bytes"], "jobs": rows,
             "can_launch": False,
-            "reason": "inventory only; requires verified process cleanup, frozen retry policy and recovery launcher"}
+            "reason": "inventory only; requires verified process cleanup, adopted retry-policy execution and recovery launcher"}
 
 
 def main():
