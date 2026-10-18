@@ -375,7 +375,7 @@ error of the reply against central differences.
   - A refused request charges its handling time.
   - `diagnose` runs both models at the requested currents only, and leaves
     the session's currents (and so the primary validation model) intact.
-- **Python (`test_harness.py`, 31 tests, and `test_safeguards.py`, 34 tests; CI job
+- **Python (`test_harness.py`, 31 tests, and `test_safeguards.py`, 38 tests; CI job
   `motor-harness-driver`).**
   - Every request category, plus the driver's `setup_calibration`,
     `surrogate_update` and `overhead`, reaches the ledger in full, and the
@@ -397,13 +397,14 @@ error of the reply against central differences.
 
 ### Mutation checks
 
-`mutation_checks.py` makes 79 single-snippet mutations, all killed
-(`../logs/harness_mutation_checks.log`, one unedited run): 57 of the
+`mutation_checks.py` makes 82 single-snippet mutations, all killed
+(`../logs/harness_mutation_checks.log`, one unedited run): 59 of the
 driver, session and acceptance (the Python tests), 16 of the evaluator (the
-`motor_experiment2_harness` and `motor_experiment2_domain` targets), 4 of
+`motor_experiment2_harness` and `motor_experiment2_domain` targets), 5 of
 the domain (that target and the `icem_domain` library tests), 1 of the
 remesh loop (the `design_remesh` library tests) and 1 of the repair
-sequence. 40 bind the amendment-7 rules of #1201 (strictness, τ, the
+sequence. 43 bind the amendment-7 rules of #1201 (strictness, τ, the
+credit tolerance on both sides (zero, and too wide), the
 derivative domain, safe evaluation, the evaluator's refusals and credit,
 the driver's credit and best feasible, C's total violation, the start
 check, the refusal before any FEM, the restoration anchor, the restart at
