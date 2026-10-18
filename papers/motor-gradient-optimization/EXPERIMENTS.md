@@ -72,6 +72,24 @@ Completion requires the following evidence, checked at the final manuscript's ac
 
 There is no requirement to manufacture a favorable speedup: a null or negative result must be retained. Publication claims must match whichever comparison the data support, including the limits of five design starts and repeated timing trials.
 
+### Original-plan reconciliation (open, 2026-10-18)
+
+The initial brief and October 16 screen contain broader proposed deliverables than the adopted main-run protocol. They must not silently disappear in a status update. The current implementation can proceed, but a scientific scope decision is needed before declaring the paper's research requirements complete.
+
+| Original proposed deliverable | Adopted main-run evidence | Remaining distinction |
+|---|---|---|
+| CMA-ES as well as trust-region derivative-free search | COBYQA, empirical RBF, and both COBYQA/SLSQP on coarse nonlinear FEM | CMA-ES is not in the 100-run matrix; no superiority claim over it or over all credible alternatives is supported |
+| Mean-torque floors at each loaded current | A full-current mean floor; ripple at 0, 0.5 and 1; post-run .25/.75 checks | A full-current floor is not a half-current mean constraint |
+| Minimum gap/bridge thickness, bounded magnet area and fixed envelope/length | Fixed envelope/length/control policy, published variable bounds, construction and mesh guards, prospective 5% normalized construction margins | Construction feasibility is not a manufacturing constraint; equal parameter boxes do not hold magnet volume constant; any claimed resource or feature limits need explicit numerical definitions and checks |
+| Elapsed time, CPU-hours and peak memory | Measured wall-time ledger, solve counts, fixed process/thread limits; separate setup and diagnostic costs | Aggregate process-wall hours are not measured CPU-hours; peak memory is not yet specified |
+| Cheap-model response changes and scaled torque-residual Jacobian singular values across perturbed designs | Two local scalar L0/L1 gradient comparisons; prospective paired low/high-fidelity outputs | Gradient-vector cosine is not an effective-dimension analysis; no claim of intrinsic high-dimensional necessity follows |
+
+The original screen labels these as a proposed model and execution plan. A revised paper may make a narrower empirical claim if that change is explicitly justified and reviewed, but it must retain the user's central test: useful, refinement-validated optimization and honest end-to-end cost against a credible inexpensive physical competitor. Scope reconciliation must not be used to turn unmeasured performance into a completed result.
+
+### Main-result figure guidance
+
+Claude reviewed the pilot preview in Squad message 604. For the five-method main plot, color should identify optimizer and line style should identify spatial resolution (L1 solid, L0 dashed). Show timing repeat 2 as a thinner line with the same encoding, or in a supplement; it is not an independent design replicate. Extend the axis to 120 FE with a vertical 60-FE checkpoint. Include a per-start target-attainment table showing first T50/T90/T99 cost and explicit censored cells. Generate that table from the same verified traces as the curves. The pilot preview stays unchanged as a pilot-only artifact.
+
 ## Amendment 7 review evidence (2026-10-18)
 
 Proposed text: [issue comment 6247054252](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247054252). Codex returned **changes required** in Squad review #15. The decisive issue is that an optimizer requesting f(x) must receive the value and derivative at x, never at a silently shortened point y. The same coordinate must identify the objective, constraints, gradients, cache and validation record. See SciPy's [objective/Jacobian contract](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html).

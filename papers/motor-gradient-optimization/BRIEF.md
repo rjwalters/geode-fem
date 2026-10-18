@@ -5,7 +5,7 @@ skill: paper
 paper_number: 3
 documentclass: anvil-paper
 anonymous: false
-status_of_inputs: "Revision 6: independent audit PASS; loaded-host pilot complete; paper optimization comparison unmeasured"
+status_of_inputs: "Revision 6 audit PASS; pilot merged; main protocols adopted; safeguards and coarse-model integration pending"
 claim: "Test whether exact field gradients reduce time to a validated motor-design target beyond calibrated simple models, and how that advantage depends on useful shape freedom."
 audience: "Computational electromagnetics, electric-machine optimization, and differentiable scientific computing researchers"
 venue_target: "Select after the pilot establishes the contribution; use the generic paper class initially"
@@ -110,9 +110,12 @@ production-ready motor.
 
 ## Experiments and milestones
 
-The detailed execution contract is
-[pilot_protocol.json](../../benchmarks/motor_optimization_screen/pilot_protocol.json).
-Keep it and this brief consistent when scope changes.
+The original research plan is
+[pilot_protocol.json](../../benchmarks/motor_optimization_screen/pilot_protocol.json),
+an October 16 feasibility-screen artifact. The current execution contract is
+[#1185](https://github.com/rjwalters/geode-fem/issues/1185), including its adopted
+amendments. Keep this mutable brief aligned with that contract; preserve the
+historical screen and report differences in scope explicitly.
 
 | Milestone | Deliverable and acceptance condition | Status |
 |---|---|---|
@@ -124,11 +127,22 @@ Keep it and this brief consistent when scope changes.
 | M5: measured optimization cost | Same-host, same-target comparisons against calibrated simple/reduced models, trust-region derivative-free search and CMA-ES, with all setup and calibration charged. | Depends on M4 |
 | M6: manuscript and artifacts | Freeze evidence, draft the paper, independently review claims and rendered figures, then complete the Anvil audit. | V6 independent audit passed at 1dd8cdef; full optimization experiment and subsequent manuscript revision remain open |
 
-M2 includes independent reference refinement and M3 includes verified scalar gradients. Opt120 candidate validation is merged. The fixed 8/18-variable optimization protocol is preregistered on #1185 (amendments 1–6 and the amendment-6 addendum); #1196 merged at `89e6c4e127a5fbef7e4b2e0f10b90e70bd1193b4`; the 36-run development-host pilot is complete in PR #1200 at `66de22d4be1563a90e0dbe9a7a74caeab406dab8` (under review). It recorded 13 failures: 11 construction failures and two fresh-mesh minimum-angle failures. These loaded-host observations are feasibility/budget evidence only and do not enter the audited manuscript. Smoke runs are not benchmark evidence. Matched idle-host M4/M5 results remain unperformed. The prioritized experimental requests and required handoff data are in `EXPERIMENTS.md`.
+M2 includes independent reference refinement and M3 includes verified scalar gradients. Opt120 candidate validation is merged. The fixed 8/18-variable optimization protocol is preregistered on #1185; amendments 1–6 and the amendment-6 addendum governed the pilot, and adopted amendments 7/8 govern the prospective main study. The harness #1196 merged at `89e6c4e127a5fbef7e4b2e0f10b90e70bd1193b4`; the 36-run development-host pilot merged in PR #1200 at `43db1c626bdc2367f896905d7807979789ee22b3`. It recorded 13 failures: 11 construction failures and two fresh-mesh minimum-angle failures. These loaded-host observations are feasibility/budget evidence only and do not enter the audited manuscript. Smoke runs are not benchmark evidence. Matched idle-host M4/M5 results remain unperformed. Safeguards are being implemented in #1201; coarse-model methods follow in #1202. The prioritized experimental requests and required handoff data are in `EXPERIMENTS.md`.
 
 Before M5, freeze numerical tolerances, target/error margins, design bounds,
-starts/seeds and compute budgets. The current preregistration uses three starts, two repeats and 60 validation-forward wall-time units per run. Targets are fixed reductions of 50/90/99% from the refined initial objective, with candidate-based error allowance and a 0.25% mean floor. The empirical RBF baseline does not discharge the separate inexpensive-physics comparison. Do not infer a finite speedup when a
+starts/seeds and compute budgets. The main preregistration uses five starts, two timing repeats and 120 validation-forward wall-time units per run, with a completed-validation checkpoint at 60. The five methods are SLSQP and COBYQA at both L1 and L0, plus an empirical RBF trained on L1: 100 runs across the two spaces. Targets are fixed reductions of 50/90/99% from the refined initial objective, with candidate-based error allowance and a 0.25% full-current mean floor. The empirical RBF baseline does not discharge the separate inexpensive-physics comparison; the adopted L0 physical comparison still needs actual results. Do not infer a finite speedup when a
 competitor fails to reach the target; report the censoring and its budget.
+
+**Scope reconciliation remains open.** The original M5 plan also named CMA-ES,
+and the initial model proposed mean floors at every loaded current, explicit
+minimum gap/bridge and magnet-area limits, CPU-hours and peak memory. The adopted
+run plan does not yet provide all of those deliverables: it uses COBYQA as its
+derivative-free optimizer, a full-current mean floor, reference parameter bounds
+and construction/mesh admissibility, and measured wall-time accounting. Those
+choices support a bounded same-domain comparison; they do not establish a
+fixed-resource manufacturable design comparison or superiority to untested
+optimizers. The differences need an explicit scientific scope decision before
+declaring M4/M5 complete; see the reconciliation table in `EXPERIMENTS.md`.
 
 Count mesh updates, assembly, nonlinear iterations, factorizations, RHS
 solves, derivative assembly, constraints, line searches and calibration.
