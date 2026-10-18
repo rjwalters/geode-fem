@@ -3284,6 +3284,7 @@ dependencies = [
  "geode-core",
  "geode-util",
  "mshio",
+ "nix",
  "pkg-config",
  "rayon",
  "regex",

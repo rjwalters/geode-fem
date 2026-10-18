@@ -1,4 +1,10 @@
-# Motor experiment 2: the optimizer harness (issues #1195, #1201)
+# Motor experiment 2: the optimizer harness (issues #1195, #1201, #1202)
+
+**Current private #1202 status:** five-method dispatch, shared validation,
+resource accounting, recovery and build/runtime bindings are implemented.
+Reviewed dependency integration, affected native checks and independent review
+remain required before a main run. The historical implementation sections below
+retain their original staged scope; they are not current launch approval.
 
 This directory compares three optimizers on the frozen spaces A and B of
 experiment 2 (#1185). The comparison follows the pre-registration and
@@ -9,10 +15,10 @@ and held-out currents; comment 6245012709) and **amendment 7** (the
 geometry domain, the method safeguards, mesh repair, the 120-FE budget,
 the starts and the host rule; revision 1, comment 6247097203, with the
 adoption corrections, comment 6247152017, which govern). §2–§7 below follow
-them. Amendment 8 (methods D and E on L0; comment 6247152174) is not wired
-here: its extension points are the method specs (`driver.METHOD_SPECS`,
-(optimizer, resolution)) and the session's per-resolution model records
-(`session.json` `models`); its start rule (eligible at L0 and L1) is.
+them. This private branch wires amendment 8 (methods D and E on L0;
+comment 6247152174) through `driver.METHOD_SPECS` (optimizer, resolution)
+and the session's per-resolution `models` records. Its start rule requires
+eligibility at L0 and L1.
 
 Every cost is charged. Every new incumbent is validated on the validation
 model and scored against the anchor; no start is ever validated.
@@ -36,7 +42,8 @@ only) is in `../runs/pilot/`, with its `SUMMARY.md`.
 | `driver.py` | The problem scaling, the charged `Run` (the validation policy and attainment), and methods A, B and C. |
 | `ledger.py`, `acceptance.py`, `evaluator.py`, `surrogate.py` | The driver's ledger, its independent copy of the acceptance rule, the process client, and the RBF model. |
 | `run.py` | One run: a fresh process, a fresh ledger, one trace. |
-| `session.py` | The run manifest: calibrates the unit, then launches every job (`--procs N --out DIR`; the pilot by default, `--smoke` for the smoke). |
+| `session.py` | The run manifest: gated calibration, then scheduling; requires explicit `--main` or `--smoke`. Main uses five methods and requires a witnessed build receipt. |
+| `export_queue.py` | Export the same 100-job main queue for prelaunch inspection, without FEM/calibration. |
 | `summarize_session.py` | Writes `SUMMARY.md` for a session directory. |
 | `summarize_pilot.py` | The pilot analysis (#1198): attainment, budget profile, feasibility, failures, host load, quality-versus-cost curves (`curves.csv`, `quality_vs_cost.svg`) and method C's held-out-current diagnostic, into the session's `SUMMARY.md`. |
 | `lhs.py`, `make_starts.py`, `starts.json` | The deterministic LHS starts (committed; seeds 1–4, amendment 7 §5). |
@@ -487,6 +494,108 @@ unedited run.
 
 ## Reproduce
 
+### Amendment-8 integration in progress (#1202)
+
+`main_schedule.py` defines the prospective 100-job queue from an explicit
+A–E method registry: rotate ABCDE by start index for repeat 1, then reverse
+that rotation for repeat 2. It launches nothing. `resource_usage.py` supplies
+process-local self/reaped-child CPU deltas and separate RSS high-water
+observations. Its child totals remain explicitly incomplete unless the caller
+establishes that all owned descendants were reaped. Request CPU must not be
+added again to inclusive run totals, and RSS observations are not memory deltas
+or a sum of simultaneous process peaks.
+
+Squad review 26 permits private integration against `8bbc516d`; PR and main
+execution still require #1201's reviewed merge, rebasing and affected checks.
+The resource adapter is now connected to evaluator startup/requests, optimizer
+runs, post-run diagnostics and calibration. The five-method registry, queue
+connection, recovery and remaining main-study requirements are still pending.
+Do not launch the main study from this intermediate implementation.
+The queue/resource helper checks are:
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/test_main_preparation.py
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/main_preparation_mutations.py
+```
+
+Twelve tests cover queue completeness/order, CPU attribution across child
+lifetimes, RSS units and incomplete accounting; thirteen semantic mutations must
+be detected. `main-preparation-checks.json` retains raw output and exact source
+hashes. These are synthetic/process-accounting fixtures, not motor outcomes.
+
+`resource_usage.reap_usage` supplies a child-specific `wait4` receipt
+for the driver cross-check. Its caller must own the PID and be its sole reaper:
+capture this receipt before `Popen.poll`, `wait` or `communicate` can consume
+the child's status, retain it, and synchronize the process handle's return
+code. Nonblocking observations stay pending while the child lives; already
+reaped children and unsupported systems explicitly report unavailable.
+Signal termination retains observed usage but never claims complete
+descendant accounting. The helper does not drain pipes or kill processes.
+Tests use two concurrent children reaped in reverse order to check attribution.
+See the [Python wait4 contract](https://docs.python.org/3.12/library/os.html#os.wait4).
+
+The Rust counterpart is
+`crates/geode-core/tests/common/motor_resources.rs`. It uses the already-locked
+`nix = 0.29.0` safe wrapper as a Unix-only dev-dependency with only its
+`resource` feature. It is used by benchmark evaluator code only, not the core library. Other
+platforms explicitly report unavailable counters. macOS and Linux RSS units
+are normalized separately; other platforms retain an unknown unit.
+
+```sh
+CARGO_TARGET_DIR="$PWD/target" cargo test -p geode-core --test motor_resource_accounting
+CARGO_TARGET_DIR="$PWD/target" cargo clippy -p geode-core --test motor_resource_accounting -- -D warnings
+```
+
+Four checks on the macOS preparation host cover unit conversion, CPU deltas,
+separate lifetime RSS observations, incomplete/invalid intervals, and real
+self/child CPU. The conditional non-Unix unavailable-path test requires a
+non-Unix host and has not been executed here. Driver-side
+`wait4` CPU totals cross-check the evaluator's request observations;
+startup and between-request work can make the inclusive total larger than
+their sum. Do not add request observations again to inclusive run totals.
+
+#### Evaluator lifecycle and resource wiring
+
+The Python evaluator client is its child's sole reaper. It retains a `wait4`
+receipt before any ordinary `Popen` wait, closes pipes/logs on every startup
+failure, and attaches failure evidence to the exception for `run_one` to save.
+After an acknowledged shutdown it allows up to 0.25 seconds for normal exit;
+otherwise it kills the owned process group and reports incomplete descendant
+accounting. Repeated cleanup retains the original receipt. Request interruption
+retains an explicit unavailable request measurement.
+
+`resources` on a run covers its measured Python phase through evaluator cleanup;
+Python import and final trace-serialization costs are outside that interval.
+The wall-time budget and original attainment records are unchanged. Diagnostics
+have their own resource interval outside the stopped run. Calibration retains
+each evaluator's receipts and one whole-batch parent/self-plus-reaped-children
+interval; concurrent child costs are never attributed using overlapping parent
+deltas. Request measurements, child lifetime receipts and inclusive phase CPU
+are overlapping views, not summands. Session launcher lifetime receipts and
+complete setup/recovery accounting remain pending with the scheduler work.
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/test_evaluator_resources.py
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/resource_lifecycle_mutations.py
+CARGO_TARGET_DIR="$PWD/target" cargo test -p geode-core --release --test motor_experiment2_harness request_resources_cover_success_and_failure_without_summing_rss
+CARGO_TARGET_DIR="$PWD/target" cargo build -p geode-core --release --example icem_harness_eval
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/resource_wiring_smoke.py \
+  --binary "$PWD/target/release/examples/icem_harness_eval" --out /path/to/new-resource-smoke.json
+```
+
+Seven lifecycle/calibration tests cover actual child exits, malformed/EOF/timeout
+startup failures, launch failure, interrupted requests, run/diagnostic failure
+recording and distinct calibration receipts. Three deliberate lifecycle
+regressions must fail with assertions; raw output and source hashes are in
+`resource-lifecycle-checks.json`. The labelled `smoke/resource_wiring_1202.json`
+checks a compiled evaluator's startup, nonlinear L0 training, expected validation
+failure without an anchor, normal shutdown and startup failure. Its child CPU
+receipt covers the sum of request measurements. It is all-L0 with four training
+angles; it does not establish L0/L2 separation, optimizer performance or main-run
+readiness.
+
+### Existing harness commands
+
 ```bash
 export CARGO_TARGET_DIR=/path/to/private/target
 cargo build -p geode-core --release --example icem_harness_eval
@@ -508,5 +617,605 @@ $H/pyrun.sh $H/session.py --smoke --procs 6 --budget-fe 20 [--host-gate off] \
 $H/pyrun.sh $H/summarize_session.py benchmarks/motor_optimization/smoke/amendment7
 $H/pyrun.sh $H/mutation_checks.py
 # Main runs (not run here; they need the operator's host):
-# $H/pyrun.sh $H/session.py --main --procs N --out benchmarks/motor_optimization/runs/main
+# $H/pyrun.sh $H/session.py --main --procs N --out benchmarks/motor_optimization/runs/main \
+#   --binary BUILD_RECORD/icem_harness_eval --build-receipt BUILD_RECORD/build-receipt.json
 ```
+
+### Amendment-8 integration in progress (#1202)
+
+The registry now includes D (`cobyqa_l0`) and E (`slsqp_l0`), reusing B/A's
+optimizer implementations. They require an explicit L0 model record; a legacy
+single-model session cannot silently supply L1. Main scheduling uses the
+100-job rotation/reversal queue in `main_schedule.py`; historical pilot and
+all-L0 safeguard-smoke ordering remains ABC/CBA. Main setup calibrates L0
+training constants/weights separately, reusing the primary calibration's cold
+validation unit. Its own validation timing median is retained as a diagnostic.
+Every trace retains the selected training-model record and evaluator ready reply.
+Before any optimizer request, the observed `train_msh_sha256` must match that
+model's frozen `train_mesh_sha256`; a missing or mismatched hash refuses the run.
+The same check precedes C/D/E diagnostic requests, including diagnostic repair
+from a stopped snapshot, and retains the diagnostic evaluator's ready reply.
+
+D/E diagnostics now retain raw nonlinear waveforms at .25/.75, common-validator
+provenance and separate costs. Selection uses the lowest-F credited common-feasible
+validation (earliest tie), otherwise the last successfully trained optimizer
+incumbent, explicitly without a feasibility claim. Paired training values are
+retained on failed acceptance, mesh-infeasible validation and interrupted requests.
+Waveform arrays are checked against their means/stds. Training mesh hashes identify
+the reference before design motion and must be interpreted with the selected point.
+
+This is partial implementation, not launch readiness. Durable session/recovery
+and contaminated-calibration refusal are implemented with controlled tests;
+independent review and a recorded native build on the reviewed source remain required. Frozen-start and L0 gradient evidence is described below. The retained scalar-theta0
+mixed L0/L2 smoke verifies model separation, not an optimization outcome. Do not
+launch a main study from this intermediate branch. `test_baseline_wiring.py`
+checks model/validator separation, calibration denominator, shared optimizer
+selection, E restart serialization and the actual five-method registry's queue.
+
+The bounded mixed-model smoke runs theta0 L0/h45/g20 training (with adjoints),
+registered L2/h93/g20 validation, and a fresh-process .25/.75 diagnostic. It
+verifies exact input mesh hashes against the registered anchor, retains raw
+replies and resource receipts, and refuses to overwrite its output. L2 is
+regenerated from the pinned geometry or copied only after its hash matches the
+anchor. Example (after building the evaluator in this worktree's target):
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/mixed_model_smoke.py --binary target/release/examples/icem_harness_eval --out benchmarks/motor_optimization/smoke/mixed_l0_l2_new.json --space a
+```
+
+`test_physical_diagnostic.py` covers selection, failed acceptance, interrupted
+validation, unavailable/failed diagnostics and unchanged stopped-run results.
+`physical_diagnostic_mutations.py` checks six deliberate regressions in private
+copies. These checks and the smoke do not establish optimization performance.
+
+### L0 gradient and frozen-start checks (#1202)
+
+`l0_gradient_check.py` records directional central differences on the frozen L0
+reference, with h45/g20 and all three currents. The points and direction are fixed
+before solving: theta0 and x0 + 0.25 (centre - x0), the existing box-scaled direction,
+and steps 1e-3, 1e-4, 1e-5. The reported criterion uses h=1e-4 and the existing
+CI relative-error threshold 1e-5 for both F and full-current mean. Every stencil
+must be admissible and pass the moved-mesh policy, and every solve must remain
+on generation0 without remeshing. Default and tight Newton records are separate.
+
+| Space / point | Newton | Relative dF error at h=1e-4 | Relative full-current mean error |
+|---|---|---|---|
+| A / theta0 | default | 2.45e-8 | 8.33e-9 |
+| A / interior | default | 7.74e-8 | 1.14e-8 |
+| B / interior | default | 1.77e-7 | 2.22e-8 |
+| A / theta0 | tight | 1.67e-8 | 4.77e-9 |
+| A / interior | tight | 1.98e-8 | 5.46e-9 |
+| B / interior | tight | 2.09e-7 | 1.42e-8 |
+
+The planned B/theta0 central stencil is **inapplicable**: theta0 is on the CPR1
+upper bound0, and the +h perturbation crosses that bound. Both raw records retain
+that pre-solve rejection and the script exits nonzero; neither is presented as an
+all-points pass. No point or step was selected after seeing gradient outcomes.
+All replies, failures, source/binary hashes and child resource receipts are in
+`../smoke/l0_gradient_{a,b}_{default,tight}_1202.json`. These are setup checks, not
+optimization timing or a speedup result.
+
+`start_preflight.py` rechecks the committed five starts on L0 and L1 in both
+spaces, using `check` only (no FEM or remesh). It preserves raw replies and costs,
+refuses output reuse, never changes start identities and rejects wrong design or
+mesh identities, domain/quality failures and unexpected solve counts. All20 checks
+passed in `../smoke/start_preflight_1202_final.json`, with zero reported FEM solves.
+The main launcher runs this gate before calibration or optimizer dispatch; the
+test suite verifies that a failure prevents both. `setup_validation_mutations.py`
+detects four deliberate point/quality/gate/FD-step regressions.
+
+An additive **boundary start, one-sided** check covers B/theta0, where all
+control-point offsets lie on bounds. Its plan was recorded before execution in
+[#1202 comment 6248960725](https://github.com/rjwalters/geode-fem/issues/1202#issuecomment-6248960725),
+following Claude's review. `l0_gradient_check.py --boundary-start --space b`
+flips only the bound-active offset signs inward, keeps the scalar components,
+and uses (-3 f(0) + 4 f(h) - f(2h))/(2h) at the same three steps. Both default
+and tight Newton cases pass the fixed h=1e-4 criterion:
+
+| Newton | Relative dF | Relative full-current mean | Observed order F / mean, 1e-3 to 1e-4 |
+|---|---|---|---|
+| default | 1.84e-7 | 2.69e-9 | 2.10 / 2.97 |
+| tight | 1.66e-7 | 1.62e-8 | 2.15 / 2.19 |
+
+The smaller-step orders decline (the default mean error increases), consistent
+with a numerical/cancellation floor; no best-step selection is made. Raw values,
+orders and process receipts are retained in
+`../smoke/l0_gradient_b_boundary_{default,tight}_1202.json`. The central-stencil
+rejections and all earlier central records are unchanged from commit653f029f.
+The original setup runtime receipt binds that earlier source; the additive
+`boundary-gradient-runtime-checks.json` binds the new boundary-check source.
+
+### Durable session preparation and inventory (#1202)
+
+The launcher refuses an existing output directory. `events.jsonl` is appended and
+fsynced as setup, load samples and attempts happen; each event has a sequence and
+timestamps. An advisory OS lock identifies the live session owner. Session/queue
+and calibration artifacts are created once and bound by hashes before dispatch.
+A completed but contaminated or inconsistent main calibration is archived and
+rejected before optimizer dispatch. Per-process calibration replies and resource
+receipts are saved even when another calibration process fails.
+
+Attempt creation precedes its idle gate, dispatch precedes process launch, and the
+terminal event binds the saved trace hash. Existing trace/log paths are refused.
+Worker exceptions remain in scheduler results. A torn last journal line is retained
+as an incomplete tail, never interpreted as a finished attempt. Monitoring errors
+cannot establish uncontaminated work. Atomic writes protect owned JSON snapshots.
+
+A read-only inventory can be exported with:
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/recovery_inventory.py --source SESSION_DIR --out NEW_INVENTORY.json
+```
+
+It verifies bound metadata and completed traces, preserves the earliest eligible
+completion (including ordinary scientific failure/censoring), and lists never-started,
+deferred, contaminated and interrupted work. It does not resume or relaunch anything.
+`recovery-policy-proposal.md` records the adopted disposition for external interruption
+(Squad review 28; #1185 comment 6249073475);
+its implementation still needs independent review before main execution. Owned-process
+cleanup, launcher lifetime receipts, orphan verification and linked recovery
+execution now have controlled tests, described below. This is not main-run approval.
+
+### Stopped optimizer evidence and cooperative signals (#1202)
+
+`run.py` now writes `NAME.optimizer-stopped.json` before post-run computation,
+then a hash-linked `NAME.json` with `diagnostic_status: pending`. The stopped
+artifact is immutable. The final trace is replaced atomically, and existing run
+outputs are refused. NumPy scalar booleans are serialized as JSON booleans.
+
+The stopped artifact contains the completed optimizer result, including the
+ledger, validation records, target attainment and 60-unit checkpoint. It also
+freezes C's current-interpolation input points/incumbent or D/E's selected design.
+`reconstruct_diagnostic_run` rebuilds only those diagnostic inputs, with no
+optimizer or ledger continuation. The tests reproduce all three methods'
+diagnostic rows from the frozen inputs without invoking optimization.
+
+The isolated run CLI handles SIGINT/SIGTERM. Computation can be interrupted;
+evidence writes and cleanup retain a pending signal without tearing the snapshot.
+An interrupted optimizer preserves completed validations and measured partial
+costs, marks `optimizer_completed: false`, and does not start a diagnostic. A
+post-run interruption preserves the completed optimizer and marks the diagnostic
+unfinished. The runner kills its busy evaluator's process group and reaps it;
+killed-child resource accounting remains explicitly incomplete. Observing a
+signal does **not** by itself verify an external cause or authorize a replacement.
+Scientific errors remain distinct terminal outcomes and retain their earlier
+validations too. The original interrupted/failed records are not overwritten.
+
+The read-only recovery inventory verifies the stopped snapshot hash and its
+agreement with the trace before classifying a clean completed optimizer with an
+unfinished diagnostic as `completed_optimizer_diagnostic_pending`. It is never
+an optimizer-launch candidate. Unknown sessions or incomplete journal transitions
+still remain unresolved; this does not infer completion from an unbound file.
+
+`test_run_interruption.py` includes real subprocess SIGTERM/SIGINT cases during
+startup, optimization and diagnostics, checking evaluator/child termination and
+retained receipts. `run_interruption_mutations.py` checks five deliberate
+regressions in persistence, interruption, selection and inventory. This is setup
+verification, not main-run or FEM-performance data. Session-level cancellation,
+per-job launcher lifetime receipts, orphan identity verification, and linked
+recovery/diagnostic-only execution remain to be implemented and reviewed.
+
+### Session cancellation and child-specific launcher receipts (#1202)
+
+The session CLI now handles SIGINT/SIGTERM as a shared stop request. It propagates
+to setup, frozen-start preflight, calibration, host gates and scheduled runs. Each
+calibration evaluator checks cancellation while waiting for a response; all
+concurrent workers finish cleanup before the pool exits. Space B's setup request
+now has its own durable raw reply/failure/resource record, including constructor
+failure. No interrupted calibration can become an accepted session unit.
+
+The scheduler stops taking queued jobs after cancellation and waits for every
+started worker to finish before its caller closes the journal. A worker-thread
+startup failure also cancels and joins workers already started. Job and queue
+records survive; this does not resume an optimizer trajectory or grant a retry.
+Host-gate waits remain interruptible even with a long sampling interval.
+
+`owned_child.wait_run` launches each run in its own process group, writes stdout
+and stderr to its attempt log, and is that child's sole `wait4` reaper. The session
+journals process creation, signals and the exit receipt. No `Popen.poll` or `wait`
+consumes a supported `wait4` receipt first, and concurrent jobs never receive the
+shared launcher's `RUSAGE_CHILDREN` total. The raw per-child lifetime receipt is
+retained in the final trace and attempt record as a cross-check, not an extra
+summand for run/request CPU. Completeness additionally requires a normal exit and
+complete retained optimizer/diagnostic phase receipts; unknown metrics stay
+unavailable. A missing or pending diagnostic cannot establish complete accounting.
+
+Cancellation sends SIGTERM to the run group and permits 35 seconds for the run's
+own evaluator cleanup, then uses SIGKILL if necessary. Forced termination leaves
+CPU completeness and descendant cleanup explicitly unverified. In particular,
+a killed run can leave an evaluator in a separate process group: process identity
+and fresh orphan verification are required before any replacement. The linked
+recovery launcher below performs these checks before dispatch.
+
+`test_session_cancellation.py` verifies real launcher/run/evaluator/child shutdown,
+concurrent calibration cancellation, preservation of queued jobs and setup failure
+evidence, exclusive per-child receipts, the bounded forced-exit path, and cleanup
+after journal or thread-start failure. Ten tests and five private-copy mutations
+pass; this is controlled process-lifecycle evidence, not main/FEM timing data.
+
+### Process identity and read-only orphan verification (#1202)
+
+New session journals record their owner's local PID/group/start identity and host
+boot identity. Every tracked launch records an intent **before** `Popen`, the
+child identity after launch, and its eventual child-specific exit receipt. Ordinary
+`Popen` failures retain a no-child failure event. An unpublished spawn intent is
+unresolved; a missing PID record is never interpreted as an unlaunched process.
+The run launcher links each attempt to `NAME.processes/`, where the isolated run
+records its optimizer and diagnostic evaluator launches. Setup/calibration and
+preflight evaluators use the session journal. This makes separately sessioned
+evaluators visible even after a forced launcher/run exit.
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/process_verification.py --source SESSION_DIR --out NEW_PROCESS_REPORT.json
+```
+
+The command is read-only with respect to process state: it never signals a PID or
+launches a replacement. It checks owner locks, process identities, process-group
+members and all linked evaluator journals against a fresh local process table.
+Live groups block verification even when their original leader is gone. PID reuse,
+a changed host/boot, missing or torn tracking records, malformed identities, an
+unavailable process observation, or a missing child journal all leave the result
+unresolved. Terminated zombies are reported distinctly from running processes.
+The observer collects PID/PPID/group/start/state, not command lines or environments.
+
+`processes_stopped: true` is a time-bound absence observation, with journal hashes;
+`can_launch` remains false. A recovery launcher must recheck it immediately before
+dispatch and separately establish frozen-input/calibration/host bindings and retry
+eligibility. Older sessions without the tracking schema cannot silently receive
+this verdict. The verifier neither repairs unknown spawn gaps nor makes an
+unverified interruption eligible for replacement.
+
+`test_process_verification.py` includes a real forced-exit experiment: kill the
+launcher, then its run, observe the remaining evaluator/child group, refuse
+verification, terminate only those test-owned processes, and then verify absence.
+It also covers normal exit, a very short child, failed launch, live owner locks,
+PID reuse, changed boot, malformed records, torn tails and missing journals. Nine
+tests and six private-copy mutations pass. A lifecycle test additionally confirms
+that a failing process journal cannot prevent constructor cleanup or discard the
+child receipt. The linked recovery launcher below consumes fresh verification.
+
+### Diagnostic-only repair worker (#1202)
+
+`diagnostic_repair.execute` runs only the post-run calculation from a hash-bound
+optimizer-stopped snapshot. It verifies completion, the pending diagnostic state,
+session identity, original calibration unit, budget, training model and anchor.
+It reconstructs the inputs used by C's prediction diagnostic or D/E's nonlinear
+diagnostic without creating an optimizer or ledger. Each call requires a new
+attempt directory; inputs, pending result, process journal and terminal result
+are retained separately from the original trace and snapshot. Diagnostic failure
+or interruption retains its own cost and never alters target attainment or the
+original outcome. Production evaluator launches have the same intent, process
+identity and exit-receipt tracking as ordinary runs.
+
+This worker has an internal CLI used by `recovery.py`. Use the linked launcher,
+which establishes job eligibility, frozen source/environment/host bindings,
+fresh process absence, exclusive attempt ownership and queue/retry policy before
+dispatch. A stopped snapshot alone is not permission to repeat a diagnostic, and
+the worker's input checks are not a substitute for those launcher checks.
+
+`test_diagnostic_repair.py` checks all three methods against their original
+diagnostic rows, refuses changed inputs, preserves an earlier failed repair,
+records preparation failures, prevents launch after a pending stop, and exercises
+SIGTERM against a real tracked evaluator and child. Six tests and five private-copy
+mutations pass, including a deliberate optimizer reentry. This is controlled
+recovery-component evidence, not main-run performance data.
+
+### Frozen inputs for recovery (#1202)
+
+Before dispatch, `session.py` freezes `recovery-inputs.json` and includes its hash
+in the session bindings. This records the exact session settings, original unit,
+worker count, stable host fields, evaluator and mesh/anchor/start hashes, tracked
+experiment-source contents and commit, and the numerical runtimes. Source and
+runtime observations are taken before setup and checked again after calibration;
+the binary and primary input hashes must also match their setup observations.
+Main dispatch requires clean experiment sources. Alternate smoke session files
+are also included in the frozen file bindings.
+
+The runtime fingerprint includes each Python executable, the installed NumPy/SciPy
+or NumPy/Gmsh distribution files, Gmsh's loaded native library, `uv`, the numerical
+thread environment and the working directory. UV environment values are retained
+only as a digest. The mesher probe follows the evaluator's existing package and
+interpreter request: its Python version can differ from the locked harness's,
+so both are recorded independently. The probe runs offline; prepare the existing
+pinned mesher environment before launching the session if it is not cached:
+
+```sh
+uv run -q --with numpy==2.5.4 --with gmsh==4.15.2 python -I benchmarks/motor_optimization/harness/runtime_fingerprint.py numpy gmsh > /tmp/motor-remesher-runtime.json
+```
+
+`recovery_bindings.verify` compares fresh observations with the original frozen
+record. It rejects changed source/runtime/input/settings/host state and never
+recalibrates. The registered unit is reused verbatim. Its result keeps
+`can_launch: false`: the recovery launcher must additionally verify process
+absence, exclusive ownership, queue order and retry eligibility. These bindings
+do not themselves establish that a binary was built from a particular source
+revision; the reviewed rebuild and its provenance remain required.
+
+Seven binding tests cover real Git content changes, missing inputs, changed
+installed package contents with unchanged version labels, host/settings/unit
+changes, failed probes and changes during calibration. Six private-copy mutations
+are detected. The journal integration test also verifies that a dirty-source
+refusal cannot dispatch or emit `session_ready`.
+
+### Recovery policy and durable chain (#1202)
+
+`recovery_policy.plan` consumes the original inventory followed by every recovery
+generation in registry order. It preserves the first clean completed optimizer
+outcome, including scientific errors with nonzero process exits. The normal
+session summary uses the same completion rule; a pending/interrupted diagnostic
+keeps the session incomplete while preserving its optimizer outcome. Unknown
+load coverage does not establish an idle host, and incomplete optimization cannot
+earn a contamination rerun just because its observed load was high.
+
+Jobs with no attempt ever created remain in the registered queue. Created but
+never-dispatched/deferred jobs, allowed external replacements and contamination
+reruns form the following phase, in original relative order. Dispatched recovery
+attempts record their policy reason; the original `_rerun1` suffix also counts
+against the single contamination allowance. Neither allowance resets when a new
+generation is opened. A deferred replacement consumes no allowance until dispatch.
+The plan retains every attempt and its partial cost evidence and reports both
+replacement-job and unresolved-job counts.
+
+Whole-run replacement requires an explicitly supplied, separately reviewed,
+attempt-bound external-event attestation with reviewer/reference/reason and hashed
+evidence files. The planner verifies its structure and file hashes; the named
+reviewer remains responsible for verifying the cause. Observing a signal alone is
+insufficient. A trace showing completed optimization without a finalized parent
+record remains unresolved and cannot become a whole-run replacement. Diagnostic
+repairs preserve the optimizer and the first terminal diagnostic result, including
+failure; later better-looking results do not replace it.
+
+The original session now freezes its own location and a sibling `NAME.recoveries`
+registry path. `recovery_registry.Registry` uses an OS file lock to serialize the
+whole chain, saves an immutable plan before each generation reservation, binds
+the previous journal, and seals completed generation hashes. It never changes the
+original session. A renamed source, redirected registry, missing generation,
+changed plan/history, unregistered branch, torn append or live generation is a
+refusal, not permission to start a fresh chain. The process-absence and runtime
+checks remain separate requirements. An unresolved partial reservation requires
+inspection; it is never deleted automatically to reset the history.
+
+Ten policy tests, seven inventory tests and six registry tests pass. The registry
+test uses two real processes to verify exclusion and lock release after a forced
+exit. Nine private-copy regressions are caught. The linked dispatcher below
+connects these components to isolated workers and fresh verification.
+
+
+### Linked recovery execution (#1202)
+
+`recovery.py` uses the original session's fixed recovery registry and holds its OS
+lock for the entire invocation. It reads every retained generation before selecting
+work, preserves the first eligible outcome, and keeps both replacement allowances
+across the full chain. It never changes the original session or remeasures its unit.
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/recovery.py --source ORIGINAL_SESSION --main
+# For a smoke session, use --smoke. Supply --external-events REVIEWED.json only
+# when a reviewed external-interruption attestation is needed.
+```
+
+There are no CLI overrides for output, workers, budget, unit or numerical settings.
+The original session also freezes its host-gate settings and deferral limit.
+Before reserving a generation and again before each worker dispatch, the launcher
+verifies source/runtime/input/host bindings, prior journals and process absence.
+It checks copied inputs, its own bindings, load-monitor health and retained external
+evidence at dispatch. A failed dispatch verification cancels active workers and
+leaves a recorded failure requiring disposition; a later invocation cannot silently
+use that generation. Missing or partial bootstrap records likewise require inspection.
+
+Remaining registered jobs run before the recovery tail, with a barrier between
+phases. Each phase uses the original worker count and relative queue order.
+Deferred and eligible replacement jobs retain their reasons and attempt identities.
+Diagnostic repairs use separate isolated processes and unique attempt directories,
+even after a gate deferral. They reconstruct the stopped optimizer's diagnostic
+only; the optimizer trajectory and target credit remain unchanged. A worker's bound
+terminal result can survive a killed parent, but its journal, inputs, snapshot and
+job/session identity must verify before it is used. The first terminal diagnostic,
+including failure, is retained.
+
+`--external-events` accepts a JSON object keyed by the full attempt key from the
+inventory. Each value needs `attempt`, `verified_external_interruption: true`, `event_kind` (operator_stop,
+host_shutdown or external_resource_loss), `reason`, `verified_by`, `verification_reference`,
+`event_id`, and a nonempty `evidence` list of `{path, sha256}` records. The planner
+validates structure and hashes; the named reviewer remains responsible for the
+external-cause determination. A signal or exit code alone is insufficient.
+Evidence bytes and reviewed records are retained in the registry; a later invocation
+cannot replace an earlier review or reset an exhausted replacement allowance.
+
+Each generation has an immutable plan, a process/event journal and a sealed
+`manifest.json` binding the aggregate policy and all retained attempt costs.
+`complete` is false while any registered job, allowed replacement, diagnostic repair
+or unresolved case remains. New contamination or interruption is considered by the
+next invocation against the full history. Launcher preparation, serialized dispatch
+verification and total recovery elapsed times are separately reported outside
+optimizer budgets. They can overlap worker time and must not be added together.
+
+Nine controlled execution tests pass: complete queue/history preservation, deferred
+diagnostic repair, two-worker receipts, changed-binding and live-orphan refusal,
+replacement exhaustion across generations, diagnostic input tampering, negative
+verification verdicts, and real launcher/run/evaluator/child SIGTERM cleanup with
+concurrent-launch exclusion. Six private-copy mutations are detected. Test adapters
+replace numerical evaluation and expensive source/runtime probes; these are process
+and policy checks, not native FEM or performance evidence. The CLI and internal
+worker still require independent review and the reviewed dependency rebase before
+main use. The recorded native build on reviewed sources and main-host selection remain open.
+
+
+### Solver termination and cap reporting (#1202)
+
+Every SciPy call now retains its solver, options, scope, status, success, message
+and available iteration/evaluation counters in `solver_calls`. Aborted calls retain
+the exception type and leave unknown status/counters/cap state null. A returned
+whole-run iteration or evaluation cap gives `stop_reason: optimizer_cap`; another
+unsuccessful return gives `solver_stopped`. Completed scientific outcomes remain
+eligible for first-completion reporting and are never rerun just because a solver
+reported failure. Target credit still comes only from the unchanged common validator.
+A target reached in final validation can supersede the stop reason while the
+previously recorded cap remains visible.
+
+`optimizer_cap_hit` reports observed whole-run caps. Method C's local SLSQP limits
+are counted separately in `surrogate_subproblem_cap_count`, since the outer search
+can continue after a local cap. These records appear in traces, stopped snapshots,
+session results and recovered outcomes. Limits and tolerances are unchanged:
+A/E maxiter=100000, B/D maxiter=maxfev=1e9, and C subproblem maxiter=200.
+
+Mappings are checked against the installed pinned SciPy 1.18.1: SLSQP status9,
+COBYQA status5 (evaluations) and6 (iterations). `cap_kind` follows the solver's
+reported status. A pinned COBYQA quirk is retained and tested: exhausting maxfev
+inside its initial interpolation set returns status6 with nit=0. Raw options and
+counters expose this discrepancy; the harness does not rewrite upstream evidence.
+The registered production limits exceed the interpolation-set size.
+
+Eight focused tests pass, including real pinned-solver iteration/evaluation caps,
+ordinary convergence, all four A/B/D/E methods, target-stop preservation, aborted
+calls and C's separate local limits. Four mutations are detected; 88 related
+harness/safeguard/inventory/journal/interruption tests pass. These checks use scalar
+test objectives or controlled evaluator fixtures, not native performance data.
+
+
+### Witnessed evaluator build (#1202)
+
+A binary hash alone does not establish which source produced it. Before main
+execution, run the build recorder from the clean worktree root:
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/build_provenance.py --out target/build-record-UNIQUE
+```
+
+The recorder uses the Loom-owned target named by the environment/marker when
+present, otherwise this worktree's `target/`. An advisory OS lock excludes another
+recorder on that target. It invokes `cargo build --locked --release -p geode-core
+--example icem_harness_eval`, records the exact command, verbose Cargo JSON/log,
+compiler/Cargo versions and executable hashes, Cargo configuration hashes and
+build-environment digest. The clean experiment source inventory, commit and build
+environment must match before and after compilation. Failed or interrupted builds
+keep their journal/log and never publish a successful receipt. After interruption,
+verify process cleanup before starting another build against that target.
+
+Cargo must report a successful build and exactly one evaluator artifact at the
+selected private target. Its `fresh` field is retained: a cached artifact is not
+misrepresented as recompilation. A separate read-only evaluator copy, receipt,
+inputs and log are hash-bound by the completed journal. The immutable copy remains
+usable if later work replaces Cargo's mutable output. This is witnessed local
+build provenance, not a signature, independent review or proof against a dishonest
+local producer.
+
+Main sessions require both `--binary BUILD_RECORD/icem_harness_eval` and
+`--build-receipt BUILD_RECORD/build-receipt.json`. The verifier checks the current
+clean source inventory/commit, receipt journal and evidence hashes, Cargo artifact
+record and selected evaluator hash before preflight or calibration. The receipt is
+also bound into frozen recovery inputs and checked for changes during setup and
+recovery. A source commit change requires a new build record. Keep the record
+outside tracked experiment sources (for example in the private target as above).
+Smoke mode may optionally supply a receipt; historical smokes remain identifiable.
+
+Six controlled-build tests and four mutations pass, plus 37 journal, preflight,
+binding, cancellation and recovery-execution regressions. The tests launch actual
+controlled child processes that emit fixture Cargo records; they do not compile
+Rust. The native recorder invocation, reviewed dependency rebase, affected native
+verification, independent review and main-host selection are still pending.
+
+
+### BLAS/LAPACK identity in recovery (#1204 review follow-up)
+
+Frozen runtime payloads now include an explicit linear-algebra fingerprint for
+NumPy/SciPy in the optimizer and NumPy in the mesher. The optimizer's flat keys
+match `linalg_info.py` at #1204 head `1a3a94ea`; full BLAS/LAPACK build dependency
+dictionaries additionally retain ABI/configuration details. Missing or failing
+configuration probes refuse verification. Accelerate reports version `unknown`,
+so its named backend, macOS version, host platform, package contents and numerical
+environment are all retained; this is not a claim to have hashed Apple's loaded
+system framework.
+
+Backend name/version, ABI fields, OS version and selected library/backend override
+environment variables are part of exact frozen equality. A change during setup or
+before recovery dispatch is refused. Installed package hashes remain required;
+matching NumPy/SciPy version strings alone is insufficient. This explicitly records
+the backend difference implicated in the macOS/Linux pilot replay divergence.
+
+Six focused checks and three mutations pass, plus thirty binding, recovery,
+build-provenance and journal regressions. `recovery-blas-runtime-probe.json` retains
+the actual optimizer/mesher observations and exact equality with the peer helper's
+thirteen flat keys. The local environments both report Accelerate. The initial
+offline mesher probe refused because its package-resolution cache was absent; the
+unchanged pinned uv command populated it, after which offline verification passed.
+No source/package versions were changed and no FEM/main job ran for this check.
+
+
+### Export and inspect the main queue (#1202)
+
+From the pinned checkout, run the following with a new file in an existing
+archive directory. It does not require an evaluator binary or launch any FEM:
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/export_queue.py --out NEW_PLANNED_QUEUE.json
+```
+
+The export contains all 100 logical jobs and their intended dispatch order,
+the actual method registry, source commit and per-file hashes, and canonical
+JSON hashes for the job list and registry. Its printed receipt hashes the
+complete export file. The export refuses an existing file and source changes
+during collection. Dirty development sources are explicitly recorded, not
+accepted as main readiness. Re-export after reviewed integration and inspect
+the clean source binding before launch. Both export and session use
+`main_schedule.registered_jobs`; duplicate letters or extra registry entries
+are refused rather than silently discarded.
+
+Compare the complete `jobs` array with the session's frozen `queue.json`.
+Archive actual dispatch/start order separately: concurrent starts and deferred
+jobs can differ from planned order. The export supplies neither a time unit
+nor permission to bypass build, calibration, host, or review prerequisites.
+
+### Cross-platform anchor preflight (#1185 ruling, 2026-10-18)
+
+The [adopted rule](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6252347196)
+separates anchor-file parsing from recomputing the same model on another host.
+Main setup runs `anchor_preflight.py` after frozen-start checks and before any
+calibration. It recomputes the full theta0 validation waveform in both spaces,
+using the fixed L1/L2 meshes and the canonical anchor file. It requires relative
+F0 and full-current-mean differences at most `1e-9`, and absolute torque
+differences at most `1e-9 N m` at every angle and current. Mesh/reference-data
+hashes, physical settings and theta0 design must match. Newton counts are
+recorded without requiring equality. Both spaces must agree bitwise on this host.
+
+The strict four-ulp anchor-file parse check remains. Recomputed values never
+replace the canonical targets, delta-F or mean floor. The older
+`anchor_agrees_bitwise` and `anchor_agrees_4ulp` recomputation flags remain in
+calibration evidence, including `false` on the cloud probe; they are not the
+cross-platform acceptance rule. Every calibration process and the single-process
+diagnostic must match this host's preflight F and mean exactly. Same-host
+determinism and the space-B training check remain required.
+
+`anchor_preflight.json` retains requests/replies, comparisons, source/input/binary
+hashes, process resource receipts and setup wall time. Its cost is outside run
+budgets and the calibration unit. A failed comparison stops before calibration
+or optimizer dispatch. The report is included in the frozen recovery bindings.
+The standalone command is:
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/anchor_preflight.py --binary RECORDED_EVALUATOR --out NEW_ANCHOR_PREFLIGHT.json
+```
+
+`test_anchor_preflight.py` covers observed platform noise, independent `2e-9`
+violations of each observable/current/angle, malformed or mismatched inputs,
+exact same-host values and the pre-calibration stop. The disposable mutation
+runner is `anchor_preflight_mutations.py`. Python is pinned to the 3.12 minor
+series by `pyrun.sh`; the actual patch version and package/backend contents are
+recorded and fixed within the session and its recovery generations.
+
+Verification at `728b38b2` passed the native A/B anchor gate and both mixed
+L0/L2 smokes, using a witnessed build with the same numerical binary as the
+post-rebase gradient checks. The 230-test suite passed at `d54c66b2`; the only
+following source change was a test assertion preventing anchor FEM after a
+failed start preflight. That three-test suite and 31 affected mutation probes
+passed. See `cross-platform-anchor-runtime-checks.json` for scope and hashes.
+The final cloud host must still run the new preflight after reviewed integration.
+
+Raw verification bundles are retained as gzip-compressed tar archives under
+`../smoke/`: `reviewed_rebase_bc1527e8.tar.gz` and
+`cross_platform_anchor_728b38b2.tar.gz`. Each contains a `SHA256.json` inventory,
+raw JSON/logs, build receipts and initial failed probe evidence. Executable
+binaries are not included; their hashes and recorded build inputs are retained.
+The matching `*-runtime-checks.json` summaries identify exact source snapshots
+and distinguish changed test fixtures from unchanged numerical code. Extract
+into a new directory and verify every member against its manifest before use.

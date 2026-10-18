@@ -1,0 +1,527 @@
+{
+  "label": "smoke",
+  "issue": 1202,
+  "scope": "All-L0, four training angles, resource wiring only; no main-performance evidence.",
+  "command": [
+    "/Volumes/Stripe/geode-fem/codex-issue-1202/target/release/examples/icem_harness_eval",
+    "--space",
+    "a",
+    "--train-mesh",
+    "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh",
+    "--val-mesh",
+    "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh",
+    "--train-level",
+    "0",
+    "--val-level",
+    "0",
+    "--degrees",
+    "0:4",
+    "--mesh-out",
+    "benchmarks/motor_optimization/smoke/resource_wiring_1202.meshes"
+  ],
+  "python": "3.12.13 (main, May 10 2026, 19:20:41) [Clang 22.1.3 ]",
+  "platform": "darwin",
+  "base_commit": "54b38770e30d661be7bb55fa8d286869bf0d367d",
+  "tree_clean": false,
+  "binary_sha256": "a4ca237e678f0ddfe7160adb1b0616131bd92bf8a85143b4198478411c7da98f",
+  "mesh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+  "source_sha256": {
+    "benchmarks/motor_optimization/harness/evaluator.py": "089d605677fd6bd7c02342feb983fd995dad186582cca3dfd22b399222b4e83f",
+    "benchmarks/motor_optimization/harness/resource_usage.py": "38d7c3ef6522766d15a08defe9668d5b6298b2ac52c86f82578a54d0fa6cb368",
+    "benchmarks/motor_optimization/harness/resource_wiring_smoke.py": "e5009b861ab65b11b560e9efbd86ac21764d107b1e948a2bfd354f53076c9a7c",
+    "crates/geode-core/examples/icem_harness_eval.rs": "c109381f7099a650bfc3e906cd0437dd99047e392ef24566d7a8d3139aa0eee9",
+    "crates/geode-core/tests/common/icem_harness.rs": "b8a33cced91a2bef77ee013c5e3aedc48fb9cb4b31a60453726cc9e9c2adabf2",
+    "crates/geode-core/tests/common/motor_resources.rs": "0c2e4a5e2132e0913ec3c1560e9998c152f502431f59663d386364556e84c64a"
+  },
+  "resources": {
+    "requests": [
+      {
+        "op": "startup",
+        "id": null,
+        "measurement": {
+          "after": {
+            "pid": 11718,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 19218432,
+              "maxrss_raw": 19218432,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.004646,
+              "user_seconds": 0.031231
+            }
+          },
+          "aggregation": "self plus reaped children once; do not add nested request totals",
+          "before": {
+            "pid": 11718,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 2359296,
+              "maxrss_raw": 2359296,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.002182,
+              "user_seconds": 0.001195
+            }
+          },
+          "children_complete": true,
+          "cpu": {
+            "reaped_children": {
+              "system_seconds": 0.0,
+              "total_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "system_seconds": 0.002464,
+              "total_seconds": 0.032499999999999994,
+              "user_seconds": 0.030035999999999997
+            }
+          },
+          "cpu_complete": true,
+          "error": null,
+          "incomplete_reason": null,
+          "label": "startup",
+          "observed_cpu_seconds": 0.032499999999999994,
+          "platform": "macos",
+          "rss": {
+            "reaped_children": 0,
+            "self": 19218432,
+            "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+          },
+          "source": "nix::getrusage"
+        }
+      },
+      {
+        "op": "train",
+        "id": 1,
+        "measurement": {
+          "after": {
+            "pid": 11718,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 57081856,
+              "maxrss_raw": 57081856,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.009306,
+              "user_seconds": 0.762376
+            }
+          },
+          "aggregation": "self plus reaped children once; do not add nested request totals",
+          "before": {
+            "pid": 11718,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 19283968,
+              "maxrss_raw": 19283968,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.004842,
+              "user_seconds": 0.031268
+            }
+          },
+          "children_complete": true,
+          "cpu": {
+            "reaped_children": {
+              "system_seconds": 0.0,
+              "total_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "system_seconds": 0.004464,
+              "total_seconds": 0.7355720000000001,
+              "user_seconds": 0.7311080000000001
+            }
+          },
+          "cpu_complete": true,
+          "error": null,
+          "incomplete_reason": null,
+          "label": "train",
+          "observed_cpu_seconds": 0.7355720000000001,
+          "platform": "macos",
+          "rss": {
+            "reaped_children": 0,
+            "self": 57081856,
+            "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+          },
+          "source": "nix::getrusage"
+        }
+      },
+      {
+        "op": "validate",
+        "id": 2,
+        "measurement": {
+          "after": {
+            "pid": 11718,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 57098240,
+              "maxrss_raw": 57098240,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.009322,
+              "user_seconds": 0.762409
+            }
+          },
+          "aggregation": "self plus reaped children once; do not add nested request totals",
+          "before": {
+            "pid": 11718,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 57098240,
+              "maxrss_raw": 57098240,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.009321,
+              "user_seconds": 0.762405
+            }
+          },
+          "children_complete": true,
+          "cpu": {
+            "reaped_children": {
+              "system_seconds": 0.0,
+              "total_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "system_seconds": 1.000000000001e-06,
+              "total_seconds": 5.0000000000050004e-06,
+              "user_seconds": 4.000000000004e-06
+            }
+          },
+          "cpu_complete": true,
+          "error": null,
+          "incomplete_reason": null,
+          "label": "validate",
+          "observed_cpu_seconds": 5.0000000000050004e-06,
+          "platform": "macos",
+          "rss": {
+            "reaped_children": 0,
+            "self": 57098240,
+            "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+          },
+          "source": "nix::getrusage"
+        }
+      },
+      {
+        "op": "shutdown",
+        "id": 3,
+        "measurement": {
+          "after": {
+            "pid": 11718,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 57098240,
+              "maxrss_raw": 57098240,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.009327,
+              "user_seconds": 0.762422
+            }
+          },
+          "aggregation": "self plus reaped children once; do not add nested request totals",
+          "before": {
+            "pid": 11718,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 57098240,
+              "maxrss_raw": 57098240,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.009327,
+              "user_seconds": 0.762422
+            }
+          },
+          "children_complete": true,
+          "cpu": {
+            "reaped_children": {
+              "system_seconds": 0.0,
+              "total_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "system_seconds": 0.0,
+              "total_seconds": 0.0,
+              "user_seconds": 0.0
+            }
+          },
+          "cpu_complete": true,
+          "error": null,
+          "incomplete_reason": null,
+          "label": "shutdown",
+          "observed_cpu_seconds": 0.0,
+          "platform": "macos",
+          "rss": {
+            "reaped_children": 0,
+            "self": 57098240,
+            "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+          },
+          "source": "nix::getrusage"
+        }
+      }
+    ],
+    "child_receipt": {
+      "pid": 11718,
+      "source": "wait4",
+      "platform": "darwin",
+      "state": "reaped",
+      "available": true,
+      "returncode": 0,
+      "cpu_complete": true,
+      "error": null,
+      "wait_status": 0,
+      "cpu": {
+        "user_seconds": 0.762493,
+        "system_seconds": 0.009339,
+        "total_seconds": 0.771832
+      },
+      "rss": {
+        "raw": 57098240,
+        "raw_unit": "bytes",
+        "bytes": 57098240,
+        "semantics": "OS wait4 statistic for this child; not a summed process-tree peak"
+      },
+      "aggregation": "cross-check only; already included in reaped-child run CPU"
+    },
+    "aggregation": "request totals and child lifetime receipt overlap; do not sum"
+  },
+  "phase": {
+    "label": "resource_wiring_smoke",
+    "before": {
+      "pid": 11656,
+      "platform": "darwin",
+      "monotonic_seconds": 749958.797796416,
+      "source": "getrusage",
+      "self": {
+        "available": true,
+        "user_seconds": 0.020784999999999998,
+        "system_seconds": 0.010171,
+        "maxrss_raw": 22839296,
+        "maxrss_raw_unit": "bytes",
+        "maxrss_bytes": 22839296
+      },
+      "reaped_children": {
+        "available": true,
+        "user_seconds": 0.0,
+        "system_seconds": 0.0,
+        "maxrss_raw": 0,
+        "maxrss_raw_unit": "bytes",
+        "maxrss_bytes": 0
+      }
+    },
+    "after": {
+      "pid": 11656,
+      "platform": "darwin",
+      "monotonic_seconds": 749959.580148458,
+      "source": "getrusage",
+      "self": {
+        "available": true,
+        "user_seconds": 0.021381999999999998,
+        "system_seconds": 0.011517999999999999,
+        "maxrss_raw": 23019520,
+        "maxrss_raw_unit": "bytes",
+        "maxrss_bytes": 23019520
+      },
+      "reaped_children": {
+        "available": true,
+        "user_seconds": 0.762493,
+        "system_seconds": 0.009339,
+        "maxrss_raw": 57098240,
+        "maxrss_raw_unit": "bytes",
+        "maxrss_bytes": 57098240
+      }
+    },
+    "children_complete": true,
+    "incomplete_reason": null,
+    "cpu": {
+      "self": {
+        "user_seconds": 0.0005970000000000003,
+        "system_seconds": 0.0013469999999999992,
+        "total_seconds": 0.0019439999999999995
+      },
+      "reaped_children": {
+        "user_seconds": 0.762493,
+        "system_seconds": 0.009339,
+        "total_seconds": 0.771832
+      }
+    },
+    "rss": {
+      "self": {
+        "available": true,
+        "bytes": 23019520,
+        "raw": 23019520,
+        "raw_unit": "bytes",
+        "semantics": "self lifetime high-water mark observed at phase end"
+      },
+      "reaped_children": {
+        "available": true,
+        "bytes": 57098240,
+        "raw": 57098240,
+        "raw_unit": "bytes",
+        "semantics": "OS statistic for reaped children at phase end; not a process-tree peak"
+      }
+    },
+    "errors": [],
+    "observed_cpu_seconds": 0.7737759999999999,
+    "cpu_complete": true,
+    "aggregation": "self plus reaped children once; do not add nested request totals"
+  },
+  "observed_wall_seconds": 0.7823619999689981,
+  "request_cpu_sum_for_crosscheck": 0.7680770000000001,
+  "startup_failure": {
+    "requests": [
+      {
+        "op": "startup",
+        "id": null,
+        "measurement": {
+          "after": {
+            "pid": 11978,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 2523136,
+              "maxrss_raw": 2523136,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.001485,
+              "user_seconds": 0.001228
+            }
+          },
+          "aggregation": "self plus reaped children once; do not add nested request totals",
+          "before": {
+            "pid": 11978,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 2359296,
+              "maxrss_raw": 2359296,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.001475,
+              "user_seconds": 0.001222
+            }
+          },
+          "children_complete": true,
+          "cpu": {
+            "reaped_children": {
+              "system_seconds": 0.0,
+              "total_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "system_seconds": 1.0000000000000026e-05,
+              "total_seconds": 1.5999999999999955e-05,
+              "user_seconds": 5.999999999999929e-06
+            }
+          },
+          "cpu_complete": true,
+          "error": null,
+          "incomplete_reason": null,
+          "label": "startup_failure",
+          "observed_cpu_seconds": 1.5999999999999955e-05,
+          "platform": "macos",
+          "rss": {
+            "reaped_children": 0,
+            "self": 2523136,
+            "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+          },
+          "source": "nix::getrusage"
+        }
+      }
+    ],
+    "child_receipt": {
+      "pid": 11978,
+      "source": "wait4",
+      "platform": "darwin",
+      "state": "reaped",
+      "available": true,
+      "returncode": 2,
+      "cpu_complete": false,
+      "error": null,
+      "wait_status": 512,
+      "cpu": {
+        "user_seconds": 0.0012599999999999998,
+        "system_seconds": 0.0015,
+        "total_seconds": 0.00276
+      },
+      "rss": {
+        "raw": 2703360,
+        "raw_unit": "bytes",
+        "bytes": 2703360,
+        "semantics": "OS wait4 statistic for this child; not a summed process-tree peak"
+      },
+      "aggregation": "cross-check only; already included in reaped-child run CPU"
+    },
+    "aggregation": "request totals and child lifetime receipt overlap; do not sum"
+  },
+  "train_ok": true,
+  "expected_validation_failure": "validate needs an anchor (--anchor)"
+}

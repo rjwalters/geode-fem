@@ -1,7 +1,7 @@
 """The experiment-2 optimizer driver (issues #1195 and #1201; #1185 with
 amendments 1-7).
 
-Three methods on one frozen space from one start, with matched budgets:
+Five methods on one frozen space from one start, with matched budgets:
 
 - A `slsqp`: safeguarded SLSQP with restarts (scipy SLSQP with the
   adjoint gradients of F_train and of the full-current training mean, and
@@ -9,6 +9,8 @@ Three methods on one frozen space from one start, with matched budgets:
 - B `cobyqa`: COBYQA (scipy 1.18.1), derivative-free, the same
   constraints, with the pinned NaN extreme barrier at a refused point;
 - C `surrogate`: the calibrated RBF trust-region method of amendment 4.
+- D `cobyqa_l0`: B on the separately calibrated L0 nonlinear model.
+- E `slsqp_l0`: A on that L0 model, including the same safeguards.
 
 Common to all three:
 
@@ -61,10 +63,8 @@ from surrogate import Models
 
 #: The (optimizer, resolution) method specs. `resolution` names the
 #: training model a method's evaluator runs (`None`: the session's primary
-#: training model, `session["primary_model"]`). Amendment 8 adds D
-#: (COBYQA on L0) and E (safeguarded SLSQP on L0) here, as
-#: {"letter": "D", "optimizer": "cobyqa", "resolution": "L0"}, with an
-#: "L0" record in the session's `models`.
+#: training model, `session["primary_model"]`). D/E select the explicit
+#: L0 model while sharing B/A's optimizer implementations respectively.
 METHOD_SPECS = {
     "slsqp": {"letter": "A", "optimizer": "slsqp", "resolution": None,
               "label": "safeguarded SLSQP with restarts (adjoint)"},
@@ -73,6 +73,12 @@ METHOD_SPECS = {
     "surrogate": {"letter": "C", "optimizer": "surrogate", "resolution": None,
                   "label": "empirical RBF surrogate (trust region)"},
 }
+METHOD_SPECS.update({
+    "cobyqa_l0": {"letter": "D", "optimizer": "cobyqa", "resolution": "L0",
+                   "label": "coarse nonlinear FEM (COBYQA, L0)"},
+    "slsqp_l0": {"letter": "E", "optimizer": "slsqp", "resolution": "L0",
+                  "label": "coarse nonlinear FEM (safeguarded SLSQP, L0)"},
+})
 METHODS = tuple(METHOD_SPECS)
 #: How each method is described in every record (#1185 amendment 6 §1:
 #: C is an empirical surrogate, not a reduced physical or waveform model).
@@ -161,6 +167,7 @@ class Run:
         self.method = method
         self.clock = clock
         self.events = []
+        self.solver_calls = []
         self.validations = []
         self.attained = {}
         # Method C only. "new_design_validation_model_checks" compare C at
@@ -171,6 +178,7 @@ class Run:
         #: post-run diagnostic).
         self.c_points = []
         self.c_incumbent = None
+        self.training_incumbent = None
         #: Method C's trust-region steps: Δ before the step, whether the
         #: point was a geometry point, whether it was accepted.
         self.c_steps = []
@@ -348,6 +356,8 @@ class Run:
                "admissible": g["admissible"], "min_h": g["min_h"], "h": g["h"],
                "discrete_pass": all(d["pass"] for d in g["detail"]["discrete"])}
         self._train[key] = rec
+        if self.training_incumbent is None:
+            self.training_incumbent = rec
         if g["admissible"]:
             # The restoration anchor: the last admissible evaluated point
             # (adoption correction 1). Its training mesh passed the policy.
@@ -423,7 +433,17 @@ class Run:
         g = self.geometry(u)
         if not g["buildable"]:
             raise WiringError("validation of a point that is not buildable")
-        r = self._request("validate", "validation", x_bits=to_bits(x), note=note)
+        train = self._train.get(key)
+        paired_training = ({"F": train["F"], "mean_full": train["mean_full"],
+                            "stds": train["stds"], "means": train["means"],
+                            "fractions": train["fractions"]} if train is not None else None)
+        try:
+            r = self._request("validate", "validation", x_bits=to_bits(x), note=note)
+        except (BudgetExhausted, EvaluatorFailure, WiringError) as error:
+            self.events.append(dict(self._stamp(), kind="validation_unavailable", x=x.tolist(),
+                                    paired_training=paired_training, error=str(error),
+                                    error_type=type(error).__name__))
+            raise
         if r["validator_msh_sha256"] != self.anchor.mesh_sha256 \
                 or r["anchor_msh_sha256"] != self.anchor.mesh_sha256:
             raise WiringError("validation was not on the anchor's θ0 mesh")
@@ -436,7 +456,7 @@ class Run:
                        status="mesh_infeasible", F_val=None, mean_full=None,
                        attained={n: False for n in TARGET_NAMES}, credited=credited,
                        admissible=False, mean_ok=False, attempts=r.get("attempts"),
-                       geometry=g["detail"])
+                       geometry=g["detail"], paired_training=paired_training)
             self.validations.append(rec)
             self._val[key] = rec
             self.events.append(dict(stamp, kind="validate", x=x.tolist(),
@@ -451,7 +471,8 @@ class Run:
                                          r["acceptance"], g["credit_admissible"])
         rec = dict(stamp, index=len(self.validations), x=x.tolist(), note=note, status="ok",
                    F_val=r["F_val"], mean_full=r["mean_full"], stds=r["stds"],
-                   fractions=r["fractions"], attained=flags, credited=credited,
+                   fractions=r["fractions"], means=r["means"],
+                   paired_training=paired_training, attained=flags, credited=credited,
                    mesh=r["mesh"], msh_sha256=r["msh_sha256"], min_h=g["min_h"],
                    h_nonnegative=g["admissible"], geometry=g["detail"], **values)
         train = self._train.get(key)
@@ -490,6 +511,8 @@ class Run:
         evaluated (a refused point has no value). Returns the validation
         record, or None when the point is not validated."""
         key = self.problem.x_of(u).tobytes()
+        if key in self._train:
+            self.training_incumbent = self._train[key]
         if key == self.start_key or key in self._val or key not in self._train:
             return None
         return self.validate(u, note=note, prediction=prediction)
@@ -526,9 +549,12 @@ class Run:
             "feasible_validated": bool(feasible),
             "infeasible": not feasible,
             "events": self.events,
+            "solver_calls": self.solver_calls,
+            "optimizer_cap_hit": any(c.get("cap_hit") for c in self.solver_calls if c["scope"] == "optimizer"),
+            "surrogate_subproblem_cap_count": sum(bool(c.get("cap_hit")) for c in self.solver_calls if c["scope"] == "surrogate_subproblem"),
             "refusals": self.refusals,
             "restorations": self.restorations,
-            "restarts": self.restarts if self.method == "slsqp" else None,
+            "restarts": self.restarts if METHOD_SPECS[self.method]["optimizer"] == "slsqp" else None,
             "surrogate_initial_set": self.c_initial if self.method == "surrogate" else None,
             "method_label": METHOD_LABELS[self.method],
             "method_spec": METHOD_SPECS[self.method],
@@ -613,6 +639,37 @@ def slsqp_callables(run):
     return fun, jac, con, con_jac, geo, geo_jac, callback
 
 
+def recorded_minimize(run, scope, *args, **kwargs):
+    """Retain every SciPy call, including aborted calls, without changing it.
+
+    Status mappings are from the pinned SciPy 1.18.1 SLSQP exit_modes and
+    scipy._external.cobyqa.settings.ExitStatus. A missing result does not
+    establish either convergence or a cap hit.
+    """
+    record = {"index": len(run.solver_calls), "scope": scope,
+              "solver": kwargs["method"], "options": dict(kwargs.get("options", {})),
+              "state": "started", "status": None, "success": None,
+              "message": None, "nit": None, "nfev": None, "njev": None,
+              "cap_hit": None, "cap_kind": None}
+    run.solver_calls.append(record)
+    try:
+        result = minimize(*args, **kwargs)
+    except BaseException as error:
+        record.update(state="aborted", exception_type=type(error).__name__)
+        raise
+    status = result.get("status")
+    status = int(status) if status is not None else None
+    cap = ({9: "maxiter"} if kwargs["method"] == "SLSQP" else
+           {5: "maxfev", 6: "maxiter"}).get(status)
+    record.update(state="returned", status=status,
+                  success=bool(result.success) if result.get("success") is not None else None,
+                  message=str(result.message) if result.get("message") is not None else None,
+                  cap_hit=cap is not None if status is not None else None, cap_kind=cap)
+    for name in ("nit", "nfev", "njev"):
+        record[name] = int(result[name]) if result.get(name) is not None else None
+    return result
+
+
 def run_slsqp(run, u0):
     """Safeguarded SLSQP with restarts (amendment 7 §2 A): a refused x
     aborts the `minimize` call; restoration finds y; SLSQP restarts at the
@@ -621,7 +678,7 @@ def run_slsqp(run, u0):
     while True:
         fun, jac, con, con_jac, geo, geo_jac, callback = slsqp_callables(run)
         try:
-            res = minimize(fun, u, jac=jac, method="SLSQP", bounds=Bounds(0.0, 1.0),
+            res = recorded_minimize(run, "optimizer", fun, u, jac=jac, method="SLSQP", bounds=Bounds(0.0, 1.0),
                            constraints=[{"type": "ineq", "fun": con, "jac": con_jac},
                                         {"type": "ineq", "fun": geo, "jac": geo_jac}],
                            callback=callback, options={"ftol": 1e-15, "maxiter": 100000})
@@ -681,6 +738,9 @@ def cobyqa_callables(run):
         # far (scipy 1.18.1). Amendment 5 §1: nothing during the 2n + 1
         # initial interpolation set (refused points included); then each
         # change of the best point.
+        key = P.x_of(intermediate_result.x).tobytes()
+        if key in run._train:
+            run.training_incumbent = run._train[key]
         if len(seen) < COBYQA_INITIAL(P.n):
             return
         run.accept_iterate(intermediate_result.x, note="cobyqa iterate")
@@ -701,7 +761,7 @@ def run_cobyqa(run, u0):
     refused one counts as an evaluation of the set, gets the barrier, and
     COBYQA proceeds with the rest."""
     fun, cons, callback, _ = cobyqa_callables(run)
-    res = minimize(fun, u0, method="COBYQA", bounds=Bounds(0.0, 1.0),
+    res = recorded_minimize(run, "optimizer", fun, u0, method="COBYQA", bounds=Bounds(0.0, 1.0),
                    constraints=NonlinearConstraint(cons, 0.0, np.inf), callback=callback,
                    options={"initial_tr_radius": COBYQA_RADIUS0, "final_tr_radius": 1e-6,
                             "maxfev": 10 ** 9, "maxiter": 10 ** 9, "scale": False})
@@ -802,7 +862,7 @@ def run_surrogate(run, u0, opts=SURROGATE):
             return d
 
         try:
-            res = minimize(models.f, uk, jac=models.f_grad, method="SLSQP",
+            res = recorded_minimize(run, "surrogate_subproblem", models.f, uk, jac=models.f_grad, method="SLSQP",
                            bounds=Bounds(lb, ub),
                            constraints=[{"type": "ineq",
                                          "fun": lambda u: models.mean(u) - P.floor_ratio,
@@ -978,6 +1038,13 @@ def execute(run, u0):
         if not g["admissible"]:
             raise RestorationFailed("the start is not admissible")
         msg = RUNNERS[METHOD_SPECS[run.method]["optimizer"]](run, np.asarray(u0, dtype=float))
+        outer = [c for c in run.solver_calls if c["scope"] == "optimizer"]
+        if outer:
+            last = outer[-1]
+            if last.get("cap_hit"):
+                return "optimizer_cap", msg, None
+            if last.get("success") is not True:
+                return "solver_stopped", msg, None
         return "converged", msg, None
     except TargetReached:
         return "T99", "T99 attained", None

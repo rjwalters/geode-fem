@@ -405,6 +405,62 @@ fn failed_and_refused_requests_are_charged_and_leave_the_session_alive() {
 // ── Validation against the anchor ───────────────────────────────────────
 
 #[test]
+fn request_resources_cover_success_and_failure_without_summing_rss() {
+    let r = icem::load_reference();
+    let sp = space_a(&r);
+    let x0 = sp.x0();
+    let mut s = session(
+        sp,
+        fd_cfg(),
+        &l0(),
+        &l0(),
+        None,
+        MeshSource::Fixed(String::new()),
+    )
+    .unwrap();
+    for req in [
+        json!({"op": "train", "x": x0, "purpose": "iterate"}),
+        json!({"op": "validate", "x": x0}), // no anchor: failed request
+        json!({"op": "info"}),
+    ] {
+        let reply = s.handle(&req);
+        let usage = &reply["resources"];
+        assert_eq!(usage["label"], req["op"]);
+        assert_eq!(usage["before"]["pid"], std::process::id());
+        assert_eq!(usage["after"]["pid"], std::process::id());
+        assert!(usage["rss"].get("total").is_none());
+        assert!(
+            usage["aggregation"]
+                .as_str()
+                .unwrap()
+                .contains("do not add")
+        );
+        #[cfg(unix)]
+        {
+            assert_eq!(usage["cpu_complete"], true, "{usage}");
+            let own = usage["cpu"]["self"]["total_seconds"].as_f64().unwrap();
+            let children = usage["cpu"]["reaped_children"]["total_seconds"]
+                .as_f64()
+                .unwrap();
+            assert_eq!(
+                usage["observed_cpu_seconds"].as_f64().unwrap(),
+                own + children
+            );
+            assert!(own >= 0.0 && children >= 0.0);
+            if req["op"] == "train" {
+                assert_eq!(reply["ok"], true);
+                assert!(own > 0.0, "the actual nonlinear solve used CPU");
+            }
+            if req["op"] == "validate" {
+                assert_eq!(reply["ok"], false);
+            }
+        }
+        #[cfg(not(unix))]
+        assert_eq!(usage["cpu_complete"], false);
+    }
+}
+
+#[test]
 fn validate_reply_is_the_anchor_acceptance_on_the_anchor_mesh() {
     let r = icem::load_reference();
     let sp = space_b(&r);
@@ -720,6 +776,23 @@ fn diagnose_runs_both_models_at_the_requested_currents_and_restores_the_session(
         assert_eq!(nums(&d[m]["fractions"]), [0.25, 0.75], "{m}");
         let (st, me) = (nums(&d[m]["stds"]), nums(&d[m]["means"]));
         assert_eq!(st.len(), 2);
+        let angles = nums(&d[m]["angles_deg"]);
+        let waves = d[m]["torques"].as_array().unwrap();
+        assert_eq!(waves.len(), 2);
+        for (k, wave) in waves.iter().enumerate() {
+            let ts = nums(wave);
+            assert_eq!(ts.len(), angles.len());
+            let mean = ts.iter().sum::<f64>() / ts.len() as f64;
+            let std = (ts.iter().map(|t| (t - mean).powi(2)).sum::<f64>() / ts.len() as f64).sqrt();
+            assert!((mean - me[k]).abs() < 1e-12);
+            assert!((std - st[k]).abs() < 1e-12);
+        }
+        let hash_key = if m == "training" {
+            "reference_msh_sha256"
+        } else {
+            "msh_sha256"
+        };
+        assert_eq!(d[m][hash_key].as_str().unwrap().len(), 64);
         // More current, more torque.
         assert!(me[1] > me[0] && me[0] > 0.0, "{m}: {me:?}");
     }

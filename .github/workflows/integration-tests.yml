@@ -298,6 +298,7 @@ jobs:
               --test motor_icem_harmonic \
               --test motor_icem_parametric \
               --test motor_reference_mesh \
+              --test motor_resource_accounting \
               --test motor_shape_gradient \
               --test motor_torque_benchmark \
               --test nedelec \
@@ -393,6 +394,7 @@ jobs:
               --test motor_icem_harmonic \
               --test motor_icem_parametric \
               --test motor_reference_mesh \
+              --test motor_resource_accounting \
               --test motor_shape_gradient \
               --test motor_torque_benchmark \
               --test nedelec \
@@ -886,7 +888,8 @@ jobs:
     # a fake evaluator, the ordering rule and the committed starts. The
     # evaluator side is the Rust target motor_experiment2_harness
     # (core-tests-b). The environment is exactly the hash-pinned lock
-    # (scipy 1.18.1, numpy 2.5.4) on CPython 3.12; the tests take about 1 s.
+    # (scipy 1.18.1, numpy 2.5.4) on CPython 3.12. Discover the complete
+    # harness suite, including setup, recovery and process-accounting checks.
     name: motor harness driver tests (python, linux)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -904,17 +907,12 @@ jobs:
           /tmp/harness-venv/bin/python -m pip install --require-hashes --no-deps \
               -r benchmarks/motor_optimization/harness/requirements.lock
 
-      - name: Driver tests
-        run: |
-          /tmp/harness-venv/bin/python -I \
-              benchmarks/motor_optimization/harness/test_harness.py
-
       - name: Fetch the pilot commit (issue #1201 replay of the pilot failures)
         # recover_pilot_failures.py --check re-drives the pilot's own harness
         # (git archive at the pilot commit of runs/pilot/manifest.json).
         run: git fetch --no-tags --depth=1 origin 89e6c4e127a5fbef7e4b2e0f10b90e70bd1193b4
 
-      - name: Safeguard tests (issue #1201, amendment 7; #1197)
+      - name: Full motor harness suite (driver, safeguards, setup and recovery)
         run: |
-          /tmp/harness-venv/bin/python -I \
-              benchmarks/motor_optimization/harness/test_safeguards.py
+          /tmp/harness-venv/bin/python -I -m unittest discover \
+              -s benchmarks/motor_optimization/harness -p 'test_*.py' -v

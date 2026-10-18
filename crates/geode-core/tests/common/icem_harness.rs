@@ -35,9 +35,10 @@
 //! - `diagnose`: `x_bits` and `fractions` (current fractions of the peak
 //!   current). The training model and the validation model (no acceptance:
 //!   another current set is not the primary model) at those currents only,
-//!   both cold. The post-run held-out-current diagnostic of method C
-//!   (#1185 amendment 6 §3); a dedicated process runs it after the run has
-//!   stopped, so it changes nothing in the run.
+//!   both cold in a dedicated fresh process. Returns per-angle torques,
+//!   means/stds, angle/current arrays and mesh provenance for C and the
+//!   nonlinear D/E baselines (#1185 amendments 6 and 8). It runs after the
+//!   optimizer stops, so it changes nothing in the run.
 //! - `check`: whether `x` is in the box and has a geometry, and the moved
 //!   training mesh's quality and trigger (no solve).
 //!
@@ -56,6 +57,9 @@
 //! `mod icem_design;`, `mod icem_cp_design;`, `mod icem_remesh;` and
 //! `mod icem_experiment2;` next to this module.
 #![allow(dead_code)] // each binary uses a subset
+
+#[path = "motor_resources.rs"]
+pub mod resources;
 
 use std::time::Instant;
 
@@ -263,6 +267,7 @@ impl<Sp: Space> Session<Sp> {
     /// Answer one request (module docs). Never panics on a bad request.
     pub fn handle(&mut self, req: &Value) -> Value {
         let t0 = Instant::now();
+        let resources_before = resources::snapshot();
         let op = req["op"].as_str().unwrap_or("").to_string();
         let mut ledger = CostLedger::new(FeRule::WallTime { unit_seconds: 1.0 }, f64::INFINITY);
         let note = req["note"].as_str().unwrap_or("").to_string();
@@ -302,6 +307,11 @@ impl<Sp: Space> Session<Sp> {
         body["op"] = json!(op);
         body["charges"] = charges_json(&ledger);
         body["handler_s"] = json!(seconds);
+        // Every child launched by a completed handler is synchronously
+        // waited for. A killed request supplies no reply; the caller must
+        // retain that interruption as incomplete accounting.
+        body["resources"] =
+            resources::interval(&resources_before, &resources::snapshot(), &op, true, None);
         body
     }
 
@@ -710,13 +720,25 @@ impl<Sp: Space> Session<Sp> {
         self.validator.cfg.eval.fractions = saved;
         let va = va.map_err(|e| e.to_string())?;
         ledger.charge_validation(&va, "diagnostic validation");
+        let meshes = self.train_meshes_since(0);
+        let train_reference_sha = meshes
+            .last()
+            .and_then(|m| m["msh_sha256"].as_str())
+            .unwrap_or(&self.train_mesh_sha256);
         Ok(json!({
             "x": x, "x_bits": x_bits(&x), "fractions": fractions,
             "training": {"means": tr.means,
+                "angles_deg": self.train.cfg.degrees,
+                "torques": tr.full.currents.iter().map(|c| &c.torques).collect::<Vec<_>>(),
+                "reference_msh_sha256": train_reference_sha,
+                "mesh_hash_scope": "reference mesh before design motion; bind with x_bits",
+                "remesh_meshes": meshes,
                 "stds": tr.full.currents.iter().map(|c| c.std).collect::<Vec<_>>(),
                 "fractions": tr.full.currents.iter().map(|c| c.fraction).collect::<Vec<_>>(),
                 "generation": tr.full.generation},
             "validation": {"means": va.currents.iter().map(|c| c.mean).collect::<Vec<_>>(),
+                "angles_deg": self.validator.cfg.angles_deg,
+                "torques": va.currents.iter().map(|c| &c.torques).collect::<Vec<_>>(),
                 "stds": va.currents.iter().map(|c| c.std).collect::<Vec<_>>(),
                 "fractions": va.currents.iter().map(|c| c.fraction).collect::<Vec<_>>(),
                 "mesh": va.mesh.to_json(), "msh_sha256": va.mesh_sha256},

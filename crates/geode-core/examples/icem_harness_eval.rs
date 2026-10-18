@@ -51,6 +51,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use icem_experiment2::{Anchor, space_a, space_b};
+use icem_harness::resources;
 use icem_harness::{Session, SessionConfig};
 use icem_remesh::{CpSpace, MeshSource, ScalarSpace, Space};
 use serde_json::{Value, json};
@@ -135,10 +136,11 @@ fn anchor_of(path: &Option<PathBuf>) -> Result<Option<Anchor>, String> {
     Anchor::from_json(&v["anchor"]).map(Some)
 }
 
-fn serve<Sp: Space>(mut s: Session<Sp>, startup: f64) {
+fn serve<Sp: Space>(mut s: Session<Sp>, startup: f64, before: &resources::Snapshot) {
     let mut ready = s.handle(&json!({"op": "info"}));
     ready["op"] = json!("ready");
     ready["startup_s"] = json!(startup);
+    ready["resources"] = resources::interval(before, &resources::snapshot(), "startup", true, None);
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
     writeln!(out, "{ready}").unwrap();
@@ -150,10 +152,13 @@ fn serve<Sp: Space>(mut s: Session<Sp>, startup: f64) {
         }
         let reply = match serde_json::from_str::<Value>(&line) {
             Ok(req) if req["op"] == "shutdown" => {
+                let before = resources::snapshot();
                 writeln!(
                     out,
                     "{}",
-                    json!({"op": "shutdown", "ok": true, "id": req["id"]})
+                    json!({"op": "shutdown", "ok": true, "id": req["id"],
+                        "resources": resources::interval(&before, &resources::snapshot(),
+                            "shutdown", true, None)})
                 )
                 .unwrap();
                 out.flush().unwrap();
@@ -167,7 +172,7 @@ fn serve<Sp: Space>(mut s: Session<Sp>, startup: f64) {
     }
 }
 
-fn start() -> Result<(), String> {
+fn start(before: &resources::Snapshot) -> Result<(), String> {
     let t0 = Instant::now();
     faer::set_global_parallelism(faer::Par::Seq);
     let a = parse_args()?;
@@ -200,7 +205,7 @@ fn start() -> Result<(), String> {
                 tsrc,
                 vsrc,
             )?;
-            serve(s, t0.elapsed().as_secs_f64());
+            serve(s, t0.elapsed().as_secs_f64(), before);
         }
         "b" => {
             let s = Session::<CpSpace>::new(
@@ -213,7 +218,7 @@ fn start() -> Result<(), String> {
                 tsrc,
                 vsrc,
             )?;
-            serve(s, t0.elapsed().as_secs_f64());
+            serve(s, t0.elapsed().as_secs_f64(), before);
         }
         o => return Err(format!("--space {o:?} (a | b)")),
     }
@@ -221,8 +226,14 @@ fn start() -> Result<(), String> {
 }
 
 fn main() {
-    if let Err(e) = start() {
-        println!("{}", json!({"op": "ready", "ok": false, "error": e}));
+    let before = resources::snapshot();
+    if let Err(e) = start(&before) {
+        println!(
+            "{}",
+            json!({"op": "ready", "ok": false, "error": e,
+            "resources": resources::interval(&before, &resources::snapshot(),
+                "startup_failure", true, None)})
+        );
         std::process::exit(2);
     }
 }

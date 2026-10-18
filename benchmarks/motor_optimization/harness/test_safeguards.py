@@ -447,10 +447,15 @@ class Issue1197Tests(unittest.TestCase):
             session = {"label": "test", "session_id": "t", "budget_fe": 9.5,
                        "unit_seconds": 1.0, "weights": th.WEIGHTS,
                        "theta0_train": th.theta0_train(probe),
-                       "evaluator": {"anchor": str(d / "anchor.json")},
+                       "evaluator": {"anchor": str(d / "anchor.json"), "train_mesh_sha256": "b" * 64},
                        "starts": str(d / "starts.json")}
             ops = {"train": ("forward", "line_search"), "validate": ("validation",),
                    "geometry": ("geometry_check",), "mesh_check": ("remesh",)}
+            session["primary_model"] = "L1"
+            session["models"] = {f"L{level}": {"train_mesh": f"fixture_L{level}.msh",
+                "train_level": level, "train_mesh_sha256": "b" * 64,
+                "theta0_train": session["theta0_train"],
+                "weights": session["weights"]} for level in (0, 1)}
             for method in driver.METHODS:
                 clock = th.TickingClock()
                 t = run_one(session, method, "a", "theta0", 1, d / f"{method}.json",
@@ -503,7 +508,7 @@ class ProvenanceTests(unittest.TestCase):
             session = {"label": "test", "session_id": "t", "budget_fe": 9.5,
                        "unit_seconds": 1.0, "weights": th.WEIGHTS,
                        "theta0_train": th.theta0_train(probe),
-                       "evaluator": {"anchor": str(d / "anchor.json")},
+                       "evaluator": {"anchor": str(d / "anchor.json"), "train_mesh_sha256": "b" * 64},
                        "starts": str(d / "starts.json")}
             clock = th.FakeClock()
             t = run_one(session, "surrogate", "a", "theta0", 1, d / "c.json", clock=clock,
@@ -649,7 +654,7 @@ class SessionGateTests(unittest.TestCase):
             self.assertEqual(t["in_run_load"]["max"], 3.0)
             # The same overload inside the in-run phase contaminates.
             samples2 = [(1000.0 + t, 50.0) for t in range(0, 100, 5)]
-            r2 = session_mod.run_job(self.JOB, self.ctx(d, samples2),
+            r2 = session_mod.run_job(self.JOB, self.ctx(d, samples2), suffix="_second",
                                      wait=lambda *a, **k: (True, 0.0, 1.0), spawn=spawn)
             self.assertTrue(r2["host_contaminated"])
 
