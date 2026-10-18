@@ -56,6 +56,7 @@ if str(HERE) not in sys.path:
 
 from driver import METHOD_LABELS, METHOD_SPECS, method_order  # noqa: E402
 from evaluator import Evaluator  # noqa: E402
+from linalg_info import fingerprint as linalg_fingerprint  # noqa: E402
 from run import thread_env  # noqa: E402
 
 ROOT = HERE.parents[2]
@@ -126,6 +127,8 @@ def provenance(binary):
             "python_isolated": bool(sys.flags.isolated),
             "requirements_lock_sha256": sha256(lock),
             "packages": {p: importlib.metadata.version(p) for p in ("scipy", "numpy")},
+            # The optimizers' paths depend on BLAS/LAPACK at the bit level.
+            "linear_algebra": linalg_fingerprint(),
             "evaluator": {"binary": str(binary), "sha256": sha256(binary)},
             "threads": {"RAYON_NUM_THREADS": "1", "GEODE_NUM_THREADS": "1",
                         "faer": "Par::Seq (set by the evaluator)"}}
@@ -551,7 +554,8 @@ def main(argv=None):
                "evaluator": {"binary": str(a.binary), "train_mesh": str(train_mesh),
                              "val_mesh": str(val_mesh), "anchor": str(anchor),
                              "train_level": tl, "val_level": vl},
-               "starts": str(starts_path), "procs": a.procs}
+               "starts": str(starts_path), "procs": a.procs,
+               "linear_algebra": prov["linear_algebra"]}
     write(out / "session.json", session)
     jobs = build_jobs(starts, SPACES, repeats)
     if a.smoke:

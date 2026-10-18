@@ -1,0 +1,28 @@
+{
+ "issue": 1201,
+ "checked": 7,
+ "mismatches": "none",
+ "linear_algebra": {
+  "system": "Darwin",
+  "machine": "arm64",
+  "numpy": "2.5.4",
+  "scipy": "1.18.1",
+  "numpy_blas": "accelerate",
+  "numpy_blas_version": "unknown",
+  "numpy_lapack": "accelerate",
+  "numpy_lapack_version": "unknown",
+  "scipy_blas": "Accelerate",
+  "scipy_blas_version": "unknown",
+  "scipy_lapack": "Accelerate",
+  "scipy_lapack_version": "unknown"
+ },
+ "pilot_host": {
+  "platform": "macOS-27.0.1-arm64-arm-64bit",
+  "cpu_model": "Apple M3 Ultra",
+  "packages": {
+   "scipy": "1.18.1",
+   "numpy": "2.5.4"
+  }
+ },
+ "note": "the replay-mode recoveries re-derive bit for bit under this linear-algebra stack (the pilot host's: the same platform and lock); the bit-for-bit test runs only where the stack matches"
+}

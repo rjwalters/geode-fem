@@ -2301,7 +2301,7 @@
       }
     }
   ],
-  "rule": "buildable: the construction succeeds and every discrete guard passes (every smooth guard as the construction tests it); admissible: buildable and every h_i = m_i / s_i - tau >= 0; s_i = |m_i(theta0)|; credit and the best feasible point: buildable and every h_i >= -credit_h_tolerance",
+  "rule": "buildable: the construction succeeds and every discrete guard passes (every smooth guard as the construction tests it); admissible: buildable and every h_i = m_i / s_i - tau >= 0; s_i = |m_i(theta0)|; credit and the best feasible point: buildable and every h_i >= -credit_h_tolerance. The scales and margins pass through the platform's libm (sin, cos, asin, hypot): they are exact on one platform and agree across platforms to the last bits (compared to 1e-12 relative); a run records its platform",
   "sw2_generator_default_m": 0.0023,
   "tau": 0.05,
   "theta0_x": {

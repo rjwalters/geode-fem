@@ -19,7 +19,12 @@
 //!   invented, and a gradient request there is a recorded rejection.
 //! - The guard inventory, the τ floors and the designs they exclude are
 //!   the committed `harness/domain_inventory.json` (regenerate with
-//!   `GEODE_WRITE_DOMAIN_INVENTORY=1`).
+//!   `GEODE_WRITE_DOMAIN_INVENTORY=1`), compared field by field: exactly
+//!   for structure, names, units, strictness, flags and counts, to 1e-12
+//!   relative for the floats, which pass through the platform's libm.
+//! - The mesher's exit status: only gmsh's own meshing failure is a
+//!   design-dependent attempt failure; anything else is an infrastructure
+//!   error.
 
 #[path = "common/icem_forward.rs"]
 mod icem;
@@ -637,7 +642,10 @@ fn inventory() -> Value {
         "rule": "buildable: the construction succeeds and every discrete guard passes (every \
                  smooth guard as the construction tests it); admissible: buildable and every \
                  h_i = m_i / s_i - tau >= 0; s_i = |m_i(theta0)|; credit and the best \
-                 feasible point: buildable and every h_i >= -credit_h_tolerance",
+                 feasible point: buildable and every h_i >= -credit_h_tolerance. The scales \
+                 and margins pass through the platform's libm (sin, cos, asin, hypot): they \
+                 are exact on one platform and agree across platforms to the last bits \
+                 (compared to 1e-12 relative); a run records its platform",
         "credit_h_tolerance": geode_core::mesh::icem_domain::CREDIT_H_TOLERANCE,
         "zero_reference_scales": ZERO_REFERENCE_SCALES.iter()
             .map(|(n, v, w)| json!({"name": n, "scale": v, "why": w})).collect::<Vec<_>>(),
@@ -665,19 +673,107 @@ fn inventory() -> Value {
     })
 }
 
+/// Compare two JSON records field by field: the structure, every string,
+/// boolean, null and integer exactly; every other number to a relative
+/// tolerance of 1e-12 with an absolute floor of 1e-15. The floats pass
+/// through the platform's libm (`sin`, `cos`, `asin` of the slot geometry,
+/// `hypot` of the control points) and so agree only to the last bits
+/// across platforms (Apple's libm and glibc differ); 1e-12 is far below any
+/// threshold the record encodes (τ = 0.05, the credit tolerance 1e-12 on
+/// h, margins of 1e-5 m and more), and the floor covers values that are
+/// differences of order-one numbers (h, c) near zero.
+fn same_record(got: &Value, want: &Value, path: &str, diffs: &mut Vec<String>) {
+    match (got, want) {
+        (Value::Object(a), Value::Object(b)) => {
+            let ka: Vec<_> = a.keys().collect();
+            let kb: Vec<_> = b.keys().collect();
+            if ka != kb {
+                diffs.push(format!("{path}: keys {ka:?} != {kb:?}"));
+                return;
+            }
+            for (k, v) in a {
+                same_record(v, &b[k], &format!("{path}.{k}"), diffs);
+            }
+        }
+        (Value::Array(a), Value::Array(b)) => {
+            if a.len() != b.len() {
+                diffs.push(format!("{path}: length {} != {}", a.len(), b.len()));
+                return;
+            }
+            for (i, (x, y)) in a.iter().zip(b).enumerate() {
+                same_record(x, y, &format!("{path}[{i}]"), diffs);
+            }
+        }
+        (Value::Number(x), Value::Number(y)) => {
+            if (x.is_u64() || x.is_i64()) && (y.is_u64() || y.is_i64()) {
+                if x != y {
+                    diffs.push(format!("{path}: {x} != {y}"));
+                }
+                return;
+            }
+            let (x, y) = (x.as_f64().unwrap(), y.as_f64().unwrap());
+            let tol = 1e-12 * x.abs().max(y.abs()) + 1e-15;
+            if (x - y).abs() > tol {
+                diffs.push(format!("{path}: {x:e} != {y:e}"));
+            }
+        }
+        (a, b) => {
+            if a != b {
+                diffs.push(format!("{path}: {a} != {b}"));
+            }
+        }
+    }
+}
+
 #[test]
 fn the_domain_inventory_is_the_committed_record() {
     let got = inventory();
     let path = harness_dir().join("domain_inventory.json");
-    let text = serde_json::to_string_pretty(&got).unwrap() + "\n";
     if std::env::var_os("GEODE_WRITE_DOMAIN_INVENTORY").is_some() {
+        let text = serde_json::to_string_pretty(&got).unwrap() + "\n";
         std::fs::write(&path, &text).unwrap();
     }
-    // Compared as text: serde_json's decimal parse is not always correctly
-    // rounded, its shortest-round-trip print is.
-    let want = std::fs::read_to_string(&path).expect("domain_inventory.json");
+    let want: Value =
+        serde_json::from_slice(&std::fs::read(&path).expect("domain_inventory.json")).unwrap();
+    let mut diffs = Vec::new();
+    same_record(&got, &want, "inventory", &mut diffs);
     assert!(
-        text == want,
-        "the inventory differs from the record; regenerate with GEODE_WRITE_DOMAIN_INVENTORY=1"
+        diffs.is_empty(),
+        "the inventory differs from the record (regenerate with \
+         GEODE_WRITE_DOMAIN_INVENTORY=1):\n{}",
+        diffs.join("\n")
     );
+}
+
+#[test]
+fn only_gmsh_meshing_failures_are_design_dependent() {
+    use geode_core::mesh::design_remesh::AttemptError;
+    use icem_remesh::{MESH_FAILURE_EXIT, classify_mesher_exit};
+    let f = |code, log: &str| classify_mesher_exit(code, log, "m".into());
+    // gmsh's own failure: exit 3 with the marker.
+    assert_eq!(
+        f(
+            Some(MESH_FAILURE_EXIT),
+            "MESH_FAILURE: remesh000 L0: Cannot find periodic counterpart"
+        ),
+        AttemptError::Failed("m".into())
+    );
+    // Anything else is infrastructure: an import error (exit 1), a FAIL:
+    // check, uv, a crash by signal, or exit 3 without the marker.
+    for (code, log) in [
+        (Some(1), "ModuleNotFoundError: No module named 'gmsh'"),
+        (
+            Some(1),
+            "FAIL: winding groups do not cover the 12 coil sides",
+        ),
+        (Some(2), "error: Failed to download"),
+        (None, ""),
+        (Some(MESH_FAILURE_EXIT), "Traceback"),
+    ] {
+        assert_eq!(
+            f(code, log),
+            AttemptError::Fatal("m".into()),
+            "{code:?} {log}"
+        );
+    }
 }

@@ -9,8 +9,15 @@ pilot manifest) on the committed traces:
 - COBYQA and C (`replay` mode): every training and validation reply is
   replayed from the trace, and the run is driven until it asks for the
   first request beyond the trace. Every replayed x must match the trace
-  bit for bit, in order. Needs nothing but git and the locked environment,
-  so CI re-derives these points bit for bit (`--check`).
+  bit for bit, in order. Needs nothing but git and the locked environment
+  **on the pilot's linear-algebra stack**: COBYQA's and C's paths depend on
+  BLAS/LAPACK at the bit level, and the pilot ran on macOS arm64 with the
+  lock's wheels (Accelerate). On that stack `--check` re-derives these
+  points bit for bit (`pilot_replay_host.json` records the stack it was
+  checked on); on another (the Linux wheels' OpenBLAS) the replays diverge
+  after a few steps, and only the stack-independent checks apply (the
+  recovered designs' construction verdicts and the error strings,
+  `test_safeguards.PilotReplayTests`).
 - SLSQP (`real` mode): its path needs the gradients, which the trace does
   not record, so training goes to the pilot's evaluator binary (the
   manifest's SHA-256 is checked) on the L1 and L2 θ0 meshes; validations
@@ -18,7 +25,9 @@ pilot manifest) on the committed traces:
   fresh evaluator probed at the recovered x must return it again.
 
     pyrun.sh recover_pilot_failures.py [--binary PILOT_EVALUATOR] [--out F]
-    pyrun.sh recover_pilot_failures.py --check   # replay mode vs the record
+    pyrun.sh recover_pilot_failures.py --check [--record-host]
+        # replay mode vs the record; --record-host writes the stack it
+        # passed on (pilot_replay_host.json)
 
 The record (`pilot_failures.json`) has, per failed run, the recovered x and
 its bit patterns, the mode, the match counts and the trace's error. Repeats
@@ -38,6 +47,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 PILOT = HERE.parent / "runs/pilot"
 OUT = HERE / "pilot_failures.json"
+HOST = HERE / "pilot_replay_host.json"
 MESHES = ROOT / "benchmarks/motor_reference/geometry/meshes"
 
 
@@ -218,6 +228,8 @@ def main(argv=None):
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--check", action="store_true",
                     help="re-derive the replay-mode points and compare with --out")
+    ap.add_argument("--record-host", action="store_true",
+                    help="with --check: write the linear-algebra stack it passed on")
     a = ap.parse_args(argv)
     commit = pilot_commit()
     want = json.loads((PILOT / "manifest.json").read_text())["provenance"]["evaluator"]["sha256"]
@@ -235,7 +247,26 @@ def main(argv=None):
                 if diff:
                     bad[rec["name"]] = diff
             print(f"replay-mode recoveries checked: {n}, mismatches: {bad or 'none'}")
-            return 1 if bad or n == 0 else 0
+            ok = not bad and n > 0
+            if ok and a.record_host:
+                import importlib.util
+                spec = importlib.util.spec_from_file_location("linalg_info",
+                                                              HERE / "linalg_info.py")
+                li = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(li)
+                fingerprint = li.fingerprint
+                manifest = json.loads((PILOT / "manifest.json").read_text())
+                HOST.write_text(json.dumps({
+                    "issue": 1201, "checked": n, "mismatches": "none",
+                    "linear_algebra": fingerprint(),
+                    "pilot_host": {"platform": manifest["host_before"]["platform"],
+                                   "cpu_model": manifest["host_before"]["cpu_model"],
+                                   "packages": manifest["provenance"]["packages"]},
+                    "note": "the replay-mode recoveries re-derive bit for bit under this "
+                            "linear-algebra stack (the pilot host's: the same platform and "
+                            "lock); the bit-for-bit test runs only where the stack matches"},
+                    indent=1) + "\n")
+            return 0 if ok else 1
         if a.binary is not None and sha256(a.binary) != want:
             raise SystemExit(f"{a.binary}: SHA-256 is not the pilot evaluator's {want}")
         runs = []

@@ -624,15 +624,34 @@ pub fn gmsh_fresh_mesh<Sp: Space>(
     })
 }
 
+/// Exit status of `build_design_mesh.py` for gmsh's own meshing failure,
+/// with [`MESH_FAILURE_MARKER`] on its stderr.
+pub const MESH_FAILURE_EXIT: i32 = 3;
+/// The stderr marker of a gmsh meshing failure.
+pub const MESH_FAILURE_MARKER: &str = "MESH_FAILURE";
+
+/// How a failed mesher process is classified (#1201): a design-dependent
+/// attempt failure only when gmsh itself failed to mesh this design (exit
+/// status [`MESH_FAILURE_EXIT`] and the [`MESH_FAILURE_MARKER`]); any other
+/// non-zero exit (a Python import or environment error, `uv`, a `FAIL:`
+/// check, a crash by signal) is an infrastructure failure, recorded with
+/// its output, and ends the request as `failed`.
+pub fn classify_mesher_exit(code: Option<i32>, log: &str, msg: String) -> AttemptError {
+    if code == Some(MESH_FAILURE_EXIT) && log.contains(MESH_FAILURE_MARKER) {
+        AttemptError::Failed(msg)
+    } else {
+        AttemptError::Fatal(msg)
+    }
+}
+
 /// [`gmsh_fresh_mesh`] with gmsh `options` on top of the defaults.
 ///
 /// # Errors
 ///
-/// [`AttemptError::Failed`] when the meshing process ran and failed (exit
-/// status 1, a Python exception or `FAIL:`, or a signal: a gmsh crash),
-/// which depends on the design; [`AttemptError::Fatal`] when it could not
-/// be started, the plan could not be written, or `uv` itself failed (any
-/// other exit status).
+/// [`AttemptError::Failed`] when gmsh failed to mesh this design
+/// ([`classify_mesher_exit`]); [`AttemptError::Fatal`] when the process
+/// could not be started, the plan could not be written, or it failed in
+/// any other way.
 pub fn gmsh_fresh_mesh_with<Sp: Space>(
     geo: &Sp::Geo,
     theta0: &Sp::Geo,
@@ -677,10 +696,7 @@ pub fn gmsh_fresh_mesh_with<Sp: Space>(
     );
     if !out.status.success() {
         let msg = format!("build_design_mesh.py failed ({}): {log}", out.status);
-        return Err(match out.status.code() {
-            Some(1) | None => AttemptError::Failed(msg),
-            Some(_) => AttemptError::Fatal(msg),
-        });
+        return Err(classify_mesher_exit(out.status.code(), &log, msg));
     }
     Ok((
         out_dir.join(format!("icem_remesh_{name}_L{level}.msh")),

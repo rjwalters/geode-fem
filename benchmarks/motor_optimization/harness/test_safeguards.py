@@ -70,12 +70,27 @@ class TrapEvaluator(th.FakeEvaluator):
         return super().request(op, timeout=timeout, **f)
 
 
+class GuardedRun(Run):
+    """A Run whose method fails fast if it loops: no test asks for more
+    than a few hundred points, so a method that keeps asking for the same
+    (refused, cached) point forever is an assertion, not a hang."""
+
+    MAX_TRAIN_CALLS = 20000
+
+    def train(self, *a, **kw):
+        self._calls = getattr(self, "_calls", 0) + 1
+        if self._calls > self.MAX_TRAIN_CALLS:
+            raise AssertionError(f"runaway: {self.MAX_TRAIN_CALLS} training calls")
+        return super().train(*a, **kw)
+
+
 def make_run(method="slsqp", budget_fe=1000.0, **kw):
     clock = th.FakeClock()
     led = Ledger(1.0, budget_fe, weights=th.WEIGHTS, clock=clock)
     fake = TrapEvaluator(clock, **kw)
     prob = Problem(fake.ready["space"], th.theta0_train(fake))
-    run = Run(fake, led, th.Anchor(th.F0, th.MEAN0, 0, th.SHA), prob, method, clock=clock)
+    run = GuardedRun(fake, led, th.Anchor(th.F0, th.MEAN0, 0, th.SHA), prob, method,
+                     clock=clock)
     return run, fake, led, clock
 
 
@@ -144,6 +159,21 @@ class ConstraintOrderingTests(unittest.TestCase):
         self.assertFalse(driver.better(P, bad, cand))
 
 
+class MeanFloorOrderingTests(unittest.TestCase):
+    def test_c_feasible_first_uses_the_mean_floor_violation_too(self):
+        # Equal geometry; only the mean differs: the candidate, below the
+        # floor with a lower F, must not beat the feasible incumbent.
+        P = Problem({"free": ["p"], "lower": [0.0], "upper": [1.0], "x0": [0.0]},
+                    {"F": 1.0, "mean_full": 1.0})
+        floor = 1.0 + 0.0025
+        cand = {"F": 0.01, "mean_full": floor - 0.01, "h": [0.2], "discrete_pass": True}
+        inc = {"F": 0.1, "mean_full": floor + 0.01, "h": [0.2], "discrete_pass": True}
+        self.assertAlmostEqual(driver.violation(P, cand), 0.01)
+        self.assertEqual(driver.violation(P, inc), 0.0)
+        self.assertFalse(driver.better(P, cand, inc))
+        self.assertTrue(driver.better(P, inc, cand))
+
+
 class RestorationTests(unittest.TestCase):
     def test_slsqp_refusal_aborts_restores_and_restarts_at_the_actual_y(self):
         trap = lambda u: u[0] > U0[0] + 0.25  # noqa: E731
@@ -191,6 +221,27 @@ class RestorationTests(unittest.TestCase):
         res = run.restorations[-1]
         self.assertEqual(res["anchor_x"], run.problem.x_of(u_adm).tolist())
         np.testing.assert_allclose(y, u_adm + 0.5 * (u_bad - u_adm), rtol=0, atol=1e-15)
+
+    def test_restoration_passes_a_buildable_but_inadmissible_probe(self):
+        # wall 1.0: buildable while u_0 + u_3 < 1, admissible to 0.965. From
+        # the anchor (sum 0.3) toward x (sum 1.66, not buildable): y_1 has
+        # sum 0.98, buildable but inadmissible, so the bisection goes on;
+        # y_2 (sum 0.64) is admissible and is the restored point.
+        run, fake, led, clock = make_run(wall=1.0)
+        run.train(U0, gradient=False)
+        bad = U0.copy()
+        bad[0], bad[3] = 0.9, 0.76
+        with self.assertRaises(Refused) as cm:
+            run.train(bad, gradient=False)
+        y = run.restore(cm.exception)
+        res = run.restorations[-1]
+        self.assertEqual(res["bisections"], 2)
+        y1 = U0 + 0.5 * (bad - U0)
+        g1 = run.geometry(y1)
+        self.assertTrue(g1["buildable"] and not g1["admissible"])
+        self.assertFalse(res["probes"][0]["admissible"])
+        np.testing.assert_allclose(y, U0 + 0.25 * (bad - U0), rtol=0, atol=1e-15)
+        self.assertTrue(res["restored_geometry"]["admissible"])
 
     def test_a_restoration_with_no_admissible_probe_fails(self):
         trap = lambda u: u[0] > U0[0] + 1e-12  # noqa: E731
@@ -458,6 +509,9 @@ class ProvenanceTests(unittest.TestCase):
             t = run_one(session, "surrogate", "a", "theta0", 1, d / "c.json", clock=clock,
                         evaluator_factory=lambda sp, led, c=clock: th.FakeEvaluator(c))
             self.assertEqual(t["in_run_wall_seconds"], t["ledger"]["total_seconds"])
+            # The run's linear-algebra stack is in its record.
+            self.assertIn("numpy_blas", t["linear_algebra"])
+            self.assertEqual(t["linear_algebra"]["numpy"], np.__version__)
             self.assertAlmostEqual(t["in_run_wall_seconds"], 9.5, places=9)
             self.assertGreater(t["post_run_wall_seconds"], 0.0)
             self.assertEqual(t["post_run_wall_seconds"], t["post_run_diagnostic"]["seconds"])
@@ -622,30 +676,62 @@ class SessionGateTests(unittest.TestCase):
 
 
 class PilotReplayTests(unittest.TestCase):
-    def test_the_replayed_pilot_failures_rederive_bit_for_bit(self):
-        # COBYQA and C (replay mode) re-derive from the committed traces and
-        # the pilot's own harness; SLSQP's recovery needs the pilot
-        # evaluator (logs/recover_pilot_failures.log).
+    """The pilot's failed requests (`pilot_failures.json`). Two layers:
+    what holds on any linear-algebra stack, and the bit-for-bit replay,
+    which holds only on the stack the pilot ran on (COBYQA's and C's paths
+    depend on BLAS/LAPACK at the bit level; Accelerate on macOS, OpenBLAS
+    on Linux)."""
+
+    def record(self):
+        return json.loads((HERE / "pilot_failures.json").read_text())
+
+    def test_the_recovered_designs_on_any_platform(self):
+        rec = self.record()
+        self.assertEqual(len(rec["runs"]), 13)
+        self.assertEqual(len(rec["designs"]), 7)
+        flank = [d for d in rec["designs"] if d["kind"] == "slot_flank"]
+        self.assertEqual(sum(len(d["runs"]) for d in flank), 11)
+        pilot = HERE.parent / "runs/pilot"
+        for r in rec["runs"]:
+            # The error string is the committed trace's.
+            t = json.loads((pilot / f"{r['name']}.json").read_text())
+            self.assertEqual(r["trace_error"], t["error"], r["name"])
+            self.assertEqual(t["stop_reason"], "failed")
+            self.assertIsNone(r["divergence"], r["name"])
+            self.assertEqual(to_bits(r["x"]), r["x_bits"])
+            if r["mode"] == "real":
+                self.assertEqual("train: " + r["error"], r["trace_error"])
+                # A fresh evaluator fails the same way. For the fresh-mesh
+                # failure only the fresh mesh is a function of the design:
+                # the moved-mesh trigger depends on the remesh history.
+                cut = lambda e: e.split(" (moved mesh:")[0]  # noqa: E731
+                self.assertEqual(cut(r["probe_error"]), cut(r["trace_error"]))
+        # The construction's verdicts (Rust, motor_experiment2_domain, in
+        # domain_inventory.json): the slot-flank designs are not buildable,
+        # the fresh-mesh one is buildable but inadmissible.
+        inv = json.loads((HERE / "domain_inventory.json").read_text())
+        verdict = {tuple(p["runs"]): p for p in inv["pilot_failures"]}
+        for d in rec["designs"]:
+            v = verdict[tuple(d["runs"])]["summary"]
+            if d["kind"] == "slot_flank":
+                self.assertFalse(v["buildable"], d["runs"])
+            else:
+                self.assertEqual(d["kind"], "fresh_mesh_policy")
+                self.assertTrue(v["buildable"] and not v["admissible"], d["runs"])
+
+    def test_the_replay_is_bit_for_bit_on_the_pilot_stack(self):
         import subprocess
+        import linalg_info
+        host = json.loads((HERE / "pilot_replay_host.json").read_text())
+        here = linalg_info.fingerprint()
+        if not linalg_info.same_stack(here, host["linear_algebra"]):
+            self.skipTest("bit-for-bit replay holds only on the pilot's linear-algebra "
+                          f"stack {host['linear_algebra']}; this one is {here}")
         p = subprocess.run([sys.executable, "-I", str(HERE / "recover_pilot_failures.py"),
                             "--check"], capture_output=True, text=True, timeout=600)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("mismatches: none", p.stdout)
-        rec = json.loads((HERE / "pilot_failures.json").read_text())
-        self.assertEqual(sum(1 for r in rec["runs"] if r["mode"] == "replay"), 7)
-        flank = [d for d in rec["designs"] if d["kind"] == "slot_flank"]
-        self.assertEqual(sum(len(d["runs"]) for d in flank), 11)
-        for r in rec["runs"]:
-            self.assertIsNone(r["divergence"], r["name"])
-            self.assertEqual("train: " + r["error"] if r["mode"] == "real"
-                             else r["trace_error"], r["trace_error"])
-            if r["mode"] == "real":
-                # A fresh evaluator at the recovered x fails the same way.
-                # For the fresh-mesh failure only the fresh mesh is a
-                # function of the design: the moved-mesh trigger depends on
-                # the training reference's remesh history.
-                cut = lambda e: e.split(" (moved mesh:")[0]  # noqa: E731
-                self.assertEqual(cut(r["probe_error"]), cut(r["trace_error"]))
+        self.assertEqual(sum(1 for r in self.record()["runs"] if r["mode"] == "replay"), 7)
 
 
 class PinnedHEvaluator(TrapEvaluator):
@@ -690,6 +776,13 @@ class CreditToleranceTests(unittest.TestCase):
             run.validate(th.CENTRE_U)
         self.assertEqual(set(run.attained), {"T50", "T90", "T99"})
         self.assertIsNotNone(run.result()["best_validated_feasible"])
+
+    def test_an_iterate_at_exactly_minus_1e_12_earns_credit(self):
+        run = self.run_at(-1e-12)
+        g = run.geometry(th.CENTRE_U)
+        self.assertTrue(g["credit_admissible"])
+        with self.assertRaises(driver.TargetReached):
+            run.validate(th.CENTRE_U)
 
     def test_an_iterate_at_h_minus_1e_9_earns_nothing(self):
         run = self.run_at(-1e-9)

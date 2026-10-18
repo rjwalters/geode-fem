@@ -33,6 +33,7 @@ from driver import (DIAGNOSTIC_FRACTIONS, METHOD_LABELS, METHOD_SPECS, METHODS, 
                     Problem, Run, c_current_predictions, execute)
 from evaluator import Aborted, Evaluator, EvaluatorFailure, to_bits  # noqa: E402
 from ledger import Ledger  # noqa: E402
+from linalg_info import fingerprint as linalg_fingerprint  # noqa: E402
 
 
 def model_of(session, method=None):
@@ -137,7 +138,7 @@ def run_one(session, method, space, start, repeat, out, position=None, clock=tim
              "start": start, "repeat": repeat, "order_position": position,
              "session": session.get("session_id"), "budget_fe": budget_fe,
              "unit_seconds": session["unit_seconds"], "started_utc": started,
-             "load_before": load_before}
+             "load_before": load_before, "linear_algebra": linalg_fingerprint()}
     ev = None
     run = None
     mesh_out = out.with_name(out.stem + ".meshes")

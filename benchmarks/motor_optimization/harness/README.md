@@ -43,7 +43,8 @@ only) is in `../runs/pilot/`, with its `SUMMARY.md`.
 | `crates/geode-core/src/mesh/icem_domain.rs` | The geometry domain (amendment 7 §1): the guard inventory, raw margins, scales, `h`, `∂h/∂x`, buildable and admissible. |
 | `crates/geode-core/tests/motor_experiment2_domain.rs` | CI target of the domain (no FEM): guard/construction agreement, Jacobian against FD, the pilot designs, θ0 and Opt120, the zero discriminant, the gmsh attempts, the inventory record. |
 | `domain_inventory.json` | The guard inventory, every scale and τ floor, and the designs each excludes (written by that target). |
-| `recover_pilot_failures.py`, `pilot_failures.json` | The design points of the pilot's 13 failed requests, recovered by re-driving the pilot's own harness on its traces. |
+| `recover_pilot_failures.py`, `pilot_failures.json`, `pilot_replay_host.json` | The design points of the pilot's 13 failed requests, recovered by re-driving the pilot's own harness on its traces. COBYQA's and C's replays are bit for bit only on the pilot's linear-algebra stack (BLAS/LAPACK: Accelerate on macOS, OpenBLAS on Linux diverges after a few steps); the CI test checks the platform-independent part everywhere (construction verdicts, error strings) and the replay only where the stack matches (`pilot_replay_host.json`). |
+| `linalg_info.py` | The interpreter's platform, numpy/scipy versions and BLAS/LAPACK, recorded in every session and run record. |
 | `test_safeguards.py` | The amendment-7 safeguard tests, the host rule, and #1197 (K2, K4). |
 | `fd_check.py` | FD check of the gradient replies through the process. |
 | `mutation_checks.py` | Mutations of the harness wiring. |
@@ -335,6 +336,16 @@ Every validation is charged to the method.
   serves one space, so every moved-mesh decision (the start rule's `check`,
   the restoration's `mesh_check`, the training remesh trigger, the
   validator) uses its own space's motion; a CI test pins it.
+- **Platform dependence.** The optimizers' paths depend on BLAS/LAPACK at
+  the bit level, and the domain's scales on libm at the last bits: every
+  session and run record carries its linear-algebra stack (`linalg_info`)
+  and platform; the inventory is compared to 1e-12 relative across
+  platforms; a main run is exactly reproducible on its own host and stack.
+- **Mesher failures.** `build_design_mesh.py` exits 3 with `MESH_FAILURE` on
+  gmsh's own meshing failure; only that is a design-dependent attempt
+  failure. Any other non-zero exit (an import or environment error, `uv`,
+  a `FAIL:` check, a crash) is an infrastructure error (`failed`, with its
+  output).
 - **#1200 Judge's gaps.** Every training remesh `.msh` SHA-256 is in the
   trace (`remesh_meshes`, per attempt); every failed, refused or aborted
   request records its x; in-run and post-run wall time are separate.
@@ -375,7 +386,7 @@ error of the reply against central differences.
   - A refused request charges its handling time.
   - `diagnose` runs both models at the requested currents only, and leaves
     the session's currents (and so the primary validation model) intact.
-- **Python (`test_harness.py`, 31 tests, and `test_safeguards.py`, 38 tests; CI job
+- **Python (`test_harness.py`, 31 tests, and `test_safeguards.py`, 42 tests; CI job
   `motor-harness-driver`).**
   - Every request category, plus the driver's `setup_calibration`,
     `surrogate_update` and `overhead`, reaches the ledger in full, and the
@@ -486,7 +497,8 @@ cargo test -p geode-core --release --test motor_experiment2_domain -- --ignored 
 # The L1/L2 θ0 meshes (gitignored): run_all.sh meshes, or build_sector_mesh.py --levels 1 2
 $H/pyrun.sh $H/make_starts.py --binary $CARGO_TARGET_DIR/release/examples/icem_harness_eval
 # The pilot failures: the pilot's evaluator (SHA-256 in runs/pilot/manifest.json) and its
-# compile-time reference path; --check re-derives the replay-mode ones (CI).
+# compile-time reference path; --check re-derives the replay-mode ones bit for bit only on
+# the pilot's linear-algebra stack (macOS arm64, Accelerate; pilot_replay_host.json).
 $H/pyrun.sh $H/recover_pilot_failures.py --binary PILOT_EVALUATOR
 $H/pyrun.sh $H/session.py --smoke --procs 6 --budget-fe 20 [--host-gate off] \
     --out benchmarks/motor_optimization/smoke/amendment7
