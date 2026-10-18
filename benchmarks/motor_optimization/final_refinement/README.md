@@ -784,3 +784,67 @@ record/verify pass using a synthetic selection and the real paired build. The
 nine-file `smoke/environment_318c23ad.tar.gz` retains those observations and
 reproduction scripts. It contains historical runtime evidence, not installed
 packages or a portable execution environment. No main cohort was selected.
+
+
+`refinement_run.py run` executes every prepared geometry query, then every native
+check in the frozen bundle order. It requires the input/build identities and an
+independently retained environment receipt. Run isolated Python from the pinned
+executor checkout. Keep the reviewed tool checkout fixed during execution and
+finalization: the full production Python source census is recorded and rechecked.
+
+```sh
+python3 -I -B /path/to/reviewed-tools/refinement_run.py run \
+  --environment-path /path/to/environment.json --environment-sha256 "$ENV_SHA256" \
+  --bundle-root /path/to/bundle --bundle-sha256 "$BUNDLE_SHA256" \
+  --build-root /path/to/executors --build-sha256 "$BUILD_SHA256" \
+  --repo "$PWD" --executor-commit "$EXECUTOR_COMMIT" --out /path/to/new-execution
+```
+
+Each request gets a new directory containing its exact command, stdin, separate
+stdout/stderr, launcher log, child resource receipt and explicit outcome. Native
+outputs include their retained request, result and any generated mesh/repair
+files. `refinement_exec.py` checks the executable hash, redirects the streams and
+replaces itself with the native executable, preserving the owned PID/group.
+Geometry uses the bound L2 mesh for session initialization and submits only the
+prepared geometry query. Its raw ready and geometry replies remain available.
+
+The original process tracker and sole child reaper record every spawn/exit.
+Cooperative interruption cleans up the owned child and retains an execution
+failure marker. There is no retry, candidate replacement or pruning of failed
+checks. Native refusals and missing outputs remain distinct recorded outcomes;
+completing dispatch is not scientific success. The original study's budget and
+target credit are never updated.
+
+The successful run returns the SHA-256 of `execution.json`, with `can_report`
+false. After that process exits, run the same command with action `finalize`, a
+new external `--out /path/to/finalized.json`, and the additional arguments
+`--execution /path/to/execution --execution-sha256 "$EXECUTION_SHA256"`.
+Finalization rechecks current bindings/runtime, the complete output census,
+ordered schedule, terminal journal and per-request process receipts, then observes
+the stopped runner and tracked child groups. `can_report: true` means execution
+evidence is ready for the separate scientific result adapter; it does not mean
+that every check passed or that the paper's claim is supported.
+
+All 229 Python tests pass with isolated discovery, including ten new runner tests
+and the relocated native archive replay.
+Controlled real child processes exercise successful transport, scientific refusal,
+missing result files, modified evidence, a stopped-process finalization, and
+SIGTERM cleanup. Their numerical outputs are explicitly synthetic. Actual native
+wiring evidence and its narrower scope are recorded separately.
+
+The retained native runner smoke at `1885192d` executes one existing reference
+geometry query and one primary request through the owned execution primitive.
+Both exit successfully; the scientific result adapter accepts all 60 torque
+samples in an explicitly synthetic selection context. A separate post-exit check
+verifies the stopped owner/child groups and exact schedule/journal/output census.
+This exercises real native wiring, not the complete prepared-cohort public run.
+The public run/finalize tests use controlled real processes and synthetic outputs.
+
+`smoke/runner_native_1885192d.tar.gz` (SHA-256
+`664c9a2facce6e2b41c0e37970a967805096baf86f0cd82e2fa8d4dfceb5afbd`)
+retains raw IO/results, process and environment observations, scripts and the
+initial pre-launch environment refusal. Its `replay.py /path/to/geode-fem` checks
+the retained process observations and scientific adapter without executing native
+code or claiming current process absence. L2 bytes reuse the existing hash-pinned
+`native_binding_L2.msh.gz`; the archive does not duplicate that mesh. See
+`refinement-run-checks.json` for scope, hashes and test results.
