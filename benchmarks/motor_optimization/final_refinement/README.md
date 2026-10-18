@@ -4,7 +4,8 @@
 [#1185's addendum](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247383821)
 and its [clarification](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247421487).
 It is not yet connected to the experiment harness and cannot run FEM checks.
-All tests use synthetic records; they provide no motor-performance evidence.
+The Python selection tests use synthetic records. The native executor described
+below can run FEM checks, but is not yet connected to a closed main-study cohort.
 
 Run the stdlib checks from the repository root:
 
@@ -14,7 +15,8 @@ python3 -I benchmarks/motor_optimization/final_refinement/mutation_checks.py
 python3 -I benchmarks/motor_optimization/final_refinement/test_check_plan.py
 ```
 
-The suite has eighteen tests. `mutation-results.json` records the baseline and
+The original selection evidence below covered eighteen tests; later increments
+add matched-reference tests. `mutation-results.json` records the baseline and
 seventeen semantic mutations,
 including exact source/test hashes and unedited subprocess output. These checks
 target omitted eligibility rules, timing/selection swaps, repeat substitution,
@@ -82,8 +84,9 @@ all 22 adapter source bindings matched the previously tested candidate byte for 
 at reconciliation. The native post-run executor subsequently adds observation-only
 repair-history retention to its copy of the validator; it does not change the
 source pin of the main-study producer.
-The complete archive adapter, L3/g40/tight/shifted/conforming runner, resource
-accounting, and a real wiring smoke remain pending.
+The complete archive adapter and final-cohort execution remain pending. The
+native executor below implements the refinement configurations and resource
+accounting; its bounded wiring smoke is separate from full matrix validation.
 This module alone does not complete #1203 or validate any scientific claim.
 
 
@@ -133,9 +136,9 @@ python3 -I benchmarks/motor_optimization/final_refinement/test_comparison.py
 python3 -I benchmarks/motor_optimization/final_refinement/comparison_mutations.py
 ```
 
-The complete raw-trace adapter, actual evaluator/refinement execution,
-conforming-interface gate, actual cost collection and native wiring smoke remain
-pending dependency integration. These synthetic checks supply no optimization or refinement result.
+The complete raw-trace adapter and full-cohort execution remain pending.
+The native executor below supplies the execution and conforming gate; these
+synthetic comparison checks supply no optimization or refinement result.
 
 The read-only [adapter contract](adapter-contract.md) maps the current trace
 and recovery fields to this API, bound to the source hashes in
@@ -397,3 +400,13 @@ The validator also retains the completed repair history before a failed solve,
 so the preceding mesh costs and quality checks remain inspectable. Native coverage
 of the matrix, both maps, fresh-mesh branches and failures remains required
 before interpreting main-study refinement outcomes.
+
+`native-execution-checks.json` records the initial native wiring evidence at
+`63b3e3d8`: six Rust tests, private recorded build, and real theta0 primary checks
+in both spaces (all torques bit-identical to the committed reference). A separate
+shifted-angle solve and a successful newly generated conforming mesh add 120
+samples, for 240 raw torque samples in total. Wrong point bits, wrong mesh hash
+and undefined nonzero-stator conforming inputs retain refusal/unavailable records.
+The hashed archive includes the fresh mesh and build receipt. These are bounded
+wiring checks; L3/g40/tight/withheld, moved candidates and the complete closed-study
+driver still need execution coverage and independent review.
