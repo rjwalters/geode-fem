@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "code_commit": "b5a31b0a86dc6a9dc0ffdf97c370cb4dfef68d34",
+  "source_sha256": {
+    "refinement_report.py": "a9564c74ab99a986407f650938c4188d5c4738ac449fc93812b674aae99891c5",
+    "test_refinement_report.py": "63a45f8e43522b1c7d70ad4210edd687ee25b0349646fa6522caf58f07986e20"
+  },
+  "tests": {
+    "command": "python3 -I -m unittest discover -s benchmarks/motor_optimization/final_refinement -p 'test_*.py'",
+    "passed": 241,
+    "new_tests": 12,
+    "seconds": 28.349,
+    "exit_code": 0
+  },
+  "coverage_guard": {
+    "command": "python3 scripts/ci-test-coverage.py",
+    "exit_code": 0,
+    "targets": 226,
+    "covered": 225,
+    "uncovered_allowlisted": 1,
+    "ignored_tests": 169,
+    "ignored_covered": 153,
+    "ignored_allowlisted": 16
+  },
+  "report_fixture": {
+    "scope": "Real archived native outputs under explicit synthetic selection and execution-receipt fixtures, not a real finalized main cohort.",
+    "planned_checks": 28,
+    "valid_native_observations": 9,
+    "torque_samples": 580,
+    "explicit_unavailable": 19,
+    "geometry_cost_entries": 4,
+    "selection_unchanged": true
+  },
+  "checks": [
+    "Public entry refuses an unfinalized execution and wrong independently retained digest before scientific reading.",
+    "Actual retained environment/source/build/input observations match; changed runtime control, binary receipt and bundle identity fail.",
+    "Actual historical process/schedule/journal observations replay; a forged stopped-process verdict fails.",
+    "Native and geometry resource PIDs must equal the owned child PID; contradictory exit/success flags fail.",
+    "Changed exact request, waveform aggregate, or missing scheduled outcome fails.",
+    "Abnormal exit or failed geometry query retains raw native-result identity but makes scientific comparison unavailable.",
+    "Complete selection/rejection provenance, per-request scoped costs and unavailable comparisons remain explicit; no cohort/credit/budget mutation."
+  ],
+  "scope": "Finalized-execution reporting and trust-boundary tests using retained native evidence and synthetic selection/receipt layouts. Public main-cohort execution/reporting has not occurred; independent review and a closed main capture remain required.",
+  "remaining": [
+    "One independent Judge review of the consolidated PR head.",
+    "Actual closed main capture, selected-cohort execution/finalization/reporting.",
+    "Full-study performance analysis and manuscript figures/review/publication audit."
+  ],
+  "can_select": false,
+  "can_launch": false
+}
