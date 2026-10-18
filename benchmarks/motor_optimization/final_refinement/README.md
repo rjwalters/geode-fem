@@ -542,3 +542,35 @@ source/runtime equality, process absence or study closure.
 The offline capture verifier and archive-to-selection driver remain to be joined
 to this exporter and the existing scientific/design checks. Both selection and
 launch capability flags stay false until the full workflow is verified.
+
+`capture_archive.load` now verifies the copied export before scientific adaptation.
+Its required inputs are the manifest SHA-256 retained from the capture execution,
+the independently reviewed producer commit and the reviewed capture-tool commit.
+The archive cannot choose those identities itself. The reader checks its complete
+file/directory census, portable path mapping, source map against Git, captured
+input bytes, build inputs/log/artifact/receipt/journal and before/after producer
+observations. It executes no code copied from the archive.
+
+Recorded process tables are replayed through the process verifier loaded from the
+reviewed producer Git revision. Every generation and the build must be covered;
+recorded journal hashes, host/boot, capture times and absence decisions must agree.
+The recovery policy is also recomputed from the copied journals using its reviewed
+source dependencies. All 100 jobs must still resolve, and the canonicalized policy
+must equal the captured policy. The reader checks the complete census again before
+returning. These are time-bound recorded observations, not a claim about the host's
+current process state or a cryptographic execution attestation.
+
+Fourteen new tests round-trip a synthetic 100-job study through export and offline
+verification, using the real reviewed Git map, recovery policy and process verifier.
+Build/runtime and optimizer evidence in this fixture are explicitly synthetic.
+Mutations reject changed manifest identities, files, code/source declarations,
+build bytes, producer observations, process tables/reports/times, policy and path
+mappings, including removal of the hundredth terminal completion. All 162 Python
+tests pass, and the successful reader leaves every archive byte and mtime unchanged.
+
+The result has `capture_verified=true` within the separately witnessed-capture
+trust boundary, but `can_select=false` and `can_launch=false`. Original setup and
+calibration consistency, canonical anchor parsing, per-validation geometry/mesh/
+credit/timing checks, full design adaptation and scientific selection remain the
+next integration layer. A trusted digest must not be manufactured by hashing an
+untrusted archive and then treating that hash as an independent capture receipt.
