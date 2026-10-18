@@ -80,3 +80,54 @@ Pending dependencies: #1201 safeguards and #1202 five-method integration. Raw
 trace adaptation, the L3/g40/tight/shifted/conforming runner, resource accounting, result
 summaries and a real wiring smoke remain to be implemented after those merge.
 This module alone does not complete #1203 or validate any scientific claim.
+
+
+`comparison.py` prepares post-run reporting as a pure function:
+`summarize(selection_manifest, declared_records)`. It reconstructs the frozen plan,
+refuses unknown/duplicate jobs, and checks declared geometry identity, raw-data hash,
+actual requested settings, complete current/angle sweeps, source/binary/common-physics
+identity and separate cost scope. Each successful record supplies raw torque arrays
+and reported means/stds/sum of variances. The reducer independently computes population
+standard deviations and the registered three-current objective `sum(std**2)`.
+Inconsistent aggregates or mismatched settings/provenance are errors, never silently
+accepted comparisons. The future adapter still must establish these declarations
+from actual files and execution evidence; this API does not verify a hash against
+an external raw file or prove that FEM ran.
+
+Every missing planned job remains `not_run`. Failed, mesh-infeasible and unavailable
+observations keep their source records/costs, and dependent comparisons remain
+unavailable. No record can replace a selected design or overwrite an earlier check.
+The complete original cohort and roles remain in the report; input records and
+selection are not mutated. Every output binds the selection, generated plan and
+observation dictionary by SHA-256.
+
+Comparisons report signed candidate-minus-reference changes in means, standard
+deviations, objective and torque samples. Waveforms are subtracted only at identical
+physical angles: g40 has the twenty primary angles in common, while shifted g20 has
+none and therefore no primary-grid waveform difference. Its aggregate changes and
+raw shifted waveforms remain available, as do full waveform differences from theta0
+on the same shifted grid. No interpolation or index-based subtraction is implied.
+The module never substitutes g40 samples for an independently executed shifted sweep.
+
+Target-survival diagnostics use theta0 at identical requested refinement settings,
+the registered `F + max(0.1 F, 2.5e-7)` margin, full-current mean floor and explicit
+geometry/discrete/mesh checks. Their scope is post-run; original common-validator
+credit and attainment times stay unchanged. Per-mode feasible candidate orderings
+expose rank changes without reselection. Withheld-current waveforms receive mean/std
+comparisons, but their sum of variances is not labelled as the registered objective
+and earns no target credit. CPU/RSS and elapsed costs are retained per observation;
+the reducer does not add overlapping measurements.
+
+Ten synthetic comparison tests and five mutation checks pass, alongside eighteen
+selector and eight plan checks. Tests cover changed orderings, matching-setting
+references, shifted-angle alignment, withheld currents, failures/missing jobs,
+source/setting/aggregate mismatches and preserved cohort/credit. Run with:
+
+```sh
+python3 -I benchmarks/motor_optimization/final_refinement/test_comparison.py
+python3 -I benchmarks/motor_optimization/final_refinement/comparison_mutations.py
+```
+
+The raw-trace adapter, actual evaluator/refinement execution, conforming-interface
+gate, actual cost collection and native wiring smoke remain pending dependency
+integration. These synthetic checks supply no optimization or refinement result.
