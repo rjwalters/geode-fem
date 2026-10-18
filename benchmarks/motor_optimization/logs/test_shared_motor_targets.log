@@ -1,10 +1,10 @@
      Running tests/motor_arkkio_band_guard.rs (/Volumes/Stripe/cargo-target-1193/release/deps/motor_arkkio_band_guard-f0b1f26ad183205e)
 test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.42s
      Running tests/motor_cp_design_gradient.rs (/Volumes/Stripe/cargo-target-1193/release/deps/motor_cp_design_gradient-fcf30b228ce948d0)
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.26s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.13s
      Running tests/motor_design_gradient.rs (/Volumes/Stripe/cargo-target-1193/release/deps/motor_design_gradient-e86aa1fef187f0be)
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.26s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.13s
      Running tests/motor_design_remesh.rs (/Volumes/Stripe/cargo-target-1193/release/deps/motor_design_remesh-505053f1480507f9)
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.43s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.37s
      Running tests/motor_experiment2.rs (/Volumes/Stripe/cargo-target-1193/release/deps/motor_experiment2-a6b3a2fc2ad40c1a)
-test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.15s
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.21s

@@ -41,8 +41,8 @@
   "error": "conforming outer-band check is defined only for zero stator offsets on a fresh mesh (#1185 amendment 1)",
   "issue": 1193,
   "provenance": {
-    "commit": "f0549ceadf18af4ccd064228470dce273e50b89a",
-    "host_load": "18.06 15.62 13.69",
+    "commit": "043b9c472501ef500b6551dc49793846ca4f6bb5",
+    "host_load": "16.44 12.60 12.22",
     "mesh": {
       "bytes": 3515287,
       "file": "benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
@@ -50,7 +50,7 @@
     },
     "reference_data_sha256": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3",
     "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
-    "started_utc": "2026-10-17T23:46:35Z",
+    "started_utc": "2026-10-18T00:18:04Z",
     "threads": {
       "GEODE_NUM_THREADS": "1",
       "RAYON_NUM_THREADS": "1",

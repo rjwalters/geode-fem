@@ -168,8 +168,8 @@
   "issue": 1193,
   "mesh_design": "initial",
   "provenance": {
-    "commit": "f0549ceadf18af4ccd064228470dce273e50b89a",
-    "host_load": "17.28 15.01 13.35",
+    "commit": "043b9c472501ef500b6551dc49793846ca4f6bb5",
+    "host_load": "15.48 11.59 11.86",
     "mesh": {
       "bytes": 3515287,
       "file": "benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
@@ -177,7 +177,7 @@
     },
     "reference_data_sha256": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3",
     "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
-    "started_utc": "2026-10-17T23:45:37Z",
+    "started_utc": "2026-10-18T00:17:05Z",
     "threads": {
       "GEODE_NUM_THREADS": "1",
       "RAYON_NUM_THREADS": "1",
@@ -263,7 +263,7 @@
         "i_peak_A": 0.0,
         "mean": -5.354059703905094e-6,
         "newton_iterations": 88,
-        "solve_s": 18.723135416,
+        "solve_s": 18.700158,
         "std": 0.007606593781100259,
         "std2": 0.00005786026895067314,
         "torques": [
@@ -314,7 +314,7 @@
         "i_peak_A": 4.838828687086137,
         "mean": 0.6613635078050459,
         "newton_iterations": 98,
-        "solve_s": 20.365628583,
+        "solve_s": 20.187497791,
         "std": 0.04264816034725979,
         "std2": 0.0018188655810055822,
         "torques": [
@@ -365,7 +365,7 @@
         "i_peak_A": 9.677657374172274,
         "mean": 1.440839443538311,
         "newton_iterations": 124,
-        "solve_s": 24.284817541,
+        "solve_s": 24.076651333,
         "std": 0.08790166093692159,
         "std2": 0.007726701995469527,
         "torques": [
@@ -424,6 +424,7 @@
       }
     },
     "motion_s": 0.0,
+    "msh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
     "nodes": 36083,
     "point": [
       0.007,
@@ -475,9 +476,9 @@
     ],
     "remesh_mesh_s": 0.0,
     "remesh_setup_s": 0.0,
-    "solve_s": 63.376042834,
+    "solve_s": 62.96696175,
     "space": "cp",
-    "total_s": 63.376042834,
+    "total_s": 62.96696175,
     "triangles": 70757
   }
 }

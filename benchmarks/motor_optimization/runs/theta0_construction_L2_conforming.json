@@ -108,8 +108,8 @@
   "issue": 1193,
   "mesh_design": "initial",
   "provenance": {
-    "commit": "f0549ceadf18af4ccd064228470dce273e50b89a",
-    "host_load": "18.35 15.55 13.63",
+    "commit": "043b9c472501ef500b6551dc49793846ca4f6bb5",
+    "host_load": "16.72 12.40 12.15",
     "mesh": {
       "bytes": 3441238,
       "file": "benchmarks/motor_validation/meshes/icem_remesh_theta0_L2.msh",
@@ -117,7 +117,7 @@
     },
     "reference_data_sha256": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3",
     "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
-    "started_utc": "2026-10-17T23:46:19Z",
+    "started_utc": "2026-10-18T00:17:47Z",
     "threads": {
       "GEODE_NUM_THREADS": "1",
       "RAYON_NUM_THREADS": "1",
@@ -175,7 +175,7 @@
         "i_peak_A": 0.0,
         "mean": -0.00028807709459357486,
         "newton_iterations": 60,
-        "solve_s": 12.093057125,
+        "solve_s": 11.953456875,
         "std": 0.007547211007499972,
         "std2": 0.00005696039399172874,
         "torques": [
@@ -206,7 +206,7 @@
         "i_peak_A": 4.838828687086137,
         "mean": 0.6604346770918261,
         "newton_iterations": 69,
-        "solve_s": 13.362924709,
+        "solve_s": 13.262749458,
         "std": 0.04305953639724972,
         "std2": 0.0018541236747460735,
         "torques": [
@@ -237,7 +237,7 @@
         "i_peak_A": 9.677657374172274,
         "mean": 1.4390215645826263,
         "newton_iterations": 69,
-        "solve_s": 13.308045917,
+        "solve_s": 13.251521083,
         "std": 0.0888006758061884,
         "std2": 0.007885560023635774,
         "torques": [
@@ -275,7 +275,8 @@
         "min_area_ratio": 1.0
       }
     },
-    "motion_s": 4.1e-8,
+    "motion_s": 8.3e-8,
+    "msh_sha256": "8fdde6384543a26cdd066fb47b86f3e403aa7d36aeaf8ecca86906dbb070cc82",
     "nodes": 35551,
     "point": [
       0.007,
@@ -327,9 +328,9 @@
     ],
     "remesh_mesh_s": 0.0,
     "remesh_setup_s": 0.0,
-    "solve_s": 38.768227125,
+    "solve_s": 38.471671792,
     "space": "cp",
-    "total_s": 38.771016041,
+    "total_s": 38.474449291,
     "triangles": 69699
   }
 }

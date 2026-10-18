@@ -46,7 +46,9 @@ The primary validation model is the one of amendments 1 and 2:
 - **The CI target checks the committed record against the rule.**
   `motor_experiment2::committed_anchor_is_consistent_with_the_rule`
   checks that the targets and floor follow from F0 and the mean, that F0
-  is Σ std² of the stored stds, and the mesh hash.
+  is Σ std² of the stored stds, that mean0 is the mean of the stored
+  fraction-1 torques (computed in the test, not through
+  `full_current_mean`), and the mesh hash, which the anchor itself carries.
 - **Agreement with the #1182 record.** On the same mesh, the integer-degree
   subset of `initial_nurbs_L2_h93_fixed` gives F = 9.603404853e-3, which is
   7.3e-8 relative away from F0. The full-current mean matches to 5.6e-9
@@ -160,9 +162,24 @@ differences (`runs/fd_L1_space_{a,b}.json`):
 `Validator::accept` guards how the rule may be called:
 
 - it runs the validation;
-- it refuses a non-primary configuration and an anchor of another level;
+- it refuses a configuration that is not the primary model (mode, g20,
+  currents, peak current, Newton `rel_tol` and iteration cap, policy) and
+  an anchor of another level;
+- it refuses an anchor whose θ0 mesh SHA-256 is not the validator's
+  (`ValidationError::AnchorMesh`), so an L2 validator on another θ0 mesh
+  cannot be scored against this anchor;
 - the validator itself refuses a mesh whose coupling circle does not match
-  the level.
+  the level;
+- `Anchor::from_validation` takes the anchor only from θ0 on its own mesh.
+
+CI runs this path end to end on the L0 mesh with the primary model
+(`anchor_and_accept_use_the_full_current_mean_on_the_anchor_mesh`). The
+anchor's mean and the mean the rule sees for a candidate are checked
+against fraction-1 means computed in the test, and against the
+fraction-0.5 mean, which must differ. A triggered validation is checked to
+be bit-identical to a direct solve on the fresh set-up, and different from
+a solve on the moved mesh the policy rejected
+(`triggering_candidate_is_validated_on_a_fresh_mesh`).
 
 CI tests the rule at its edges, using the adjacent floats `next_up` and
 `next_down`:
@@ -174,7 +191,12 @@ CI tests the rule at its edges, using the adjacent floats `next_up` and
 - NaN inputs, which attain nothing.
 
 **Mutation checks** (`mutation_checks.py`, `logs/mutation_checks.log`).
-There are 26 single-line mutations covering:
+There are 35 single-line mutations: the 26 of the first round, the six of
+the #1194 review (J1 δF at F0, J2 half-current mean, J3 fresh-path solve
+on the moved mesh, J4 strict budget edge, J6 validation charged with total
+time, J7 Newton tolerance ignored), and three on the anchor mesh (check
+removed, anchor from a moved mesh, fresh SHA replaced by the base SHA).
+They cover:
 
 - the margin, the targets, the comparison operators and the mean floor;
 - the anchor record check, the frozen check, the box check and the
@@ -182,7 +204,8 @@ There are 26 single-line mutations covering:
 - the conforming fresh-only rule and the stator-offset guard;
 - the policy, the fresh-mesh check, the level check and the primary-model
   check;
-- the ledger categories and the angle-grid check.
+- the ledger categories, the budget edge and the angle-grid check;
+- the full-current mean, the fresh-mesh solve and the anchor mesh.
 
 The log lists which tests killed each mutation.
 
@@ -250,7 +273,7 @@ python3 -I benchmarks/motor_optimization/mutation_checks.py
 its SHA-256 is in the run record. Wall times are load-perturbed. Eight
 single-threaded runs shared a 28-core host whose load average was 10–18
 (recorded per run). Every record in `runs/` and `anchor.json` comes from
-one `run_all.sh all` at commit `f0549cea` with a clean `crates/` tree. An
-earlier run at `93a1bbd3`, before cosmetic and test-only changes, gave the
-same values to the bit. The mutation log comes from commit `33c1617b`, the
-same code apart from the script's regex fix.
+one `run_all.sh all` at commit `043b9c47` with a clean `crates/` tree. Two
+earlier runs of the same numerical code, at `93a1bbd3` and `f0549cea`, gave
+the same values to the bit. `logs/mutation_checks.log` is the unedited
+output of `mutation_checks.py` at the same code.

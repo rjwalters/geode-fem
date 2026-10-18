@@ -1,10 +1,11 @@
    Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1193/crates/geode-core)
-    Finished `release` profile [optimized] target(s) in 10.29s
-     Running tests/motor_experiment2.rs (/Volumes/Stripe/cargo-target-1193/release/deps/motor_experiment2-febbe277e2755300)
+    Finished `release` profile [optimized] target(s) in 10.48s
+     Running tests/motor_experiment2.rs (/Volumes/Stripe/cargo-target-1193/release/deps/motor_experiment2-dc2b85beb845ade0)
 
-running 20 tests
+running 21 tests
 test absolute_margin_edge_with_a_small_anchor ... ok
 test acceptance_requires_the_primary_model_at_the_anchor_level ... ok
+test anchor_and_accept_use_the_full_current_mean_on_the_anchor_mesh ... ok
 test committed_anchor_is_consistent_with_the_rule ... ok
 test conforming_check_is_fresh_only_and_needs_zero_stator_offsets ... theta0 L0 conforming-outer vs h93 full-current mean: rel 3.90e-4
 ok
@@ -15,7 +16,7 @@ test half_degree_angles_are_solved_and_off_grid_angles_refused ... ok
 test ledger_charges_a_remesh_and_a_validation ... ok
 test ledger_charges_every_category_and_tracks_the_budget ... ok
 test ledger_refuses_a_negative_charge - should panic ... 
-thread 'ledger_refuses_a_negative_charge' (835641908) panicked at crates/geode-core/tests/common/icem_experiment2.rs:1241:9:
+thread 'ledger_refuses_a_negative_charge' (837304961) panicked at crates/geode-core/tests/common/icem_experiment2.rs:1284:9:
 invalid charge -1 s, 0 FE to forward
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 ok
@@ -37,5 +38,5 @@ test triggering_candidate_is_validated_on_a_fresh_mesh ... ok
 test validation_config_is_h93_coupling_g20_cold ... ok
 test validator_is_the_evaluator_validation_mode_bit_for_bit ... ok
 
-test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 35.44s
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 46.81s
 

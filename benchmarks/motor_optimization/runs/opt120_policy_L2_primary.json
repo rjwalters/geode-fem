@@ -108,8 +108,8 @@
   "issue": 1193,
   "mesh_design": "initial",
   "provenance": {
-    "commit": "f0549ceadf18af4ccd064228470dce273e50b89a",
-    "host_load": "18.06 15.62 13.69",
+    "commit": "043b9c472501ef500b6551dc49793846ca4f6bb5",
+    "host_load": "16.44 12.60 12.22",
     "mesh": {
       "bytes": 3515287,
       "file": "benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
@@ -117,7 +117,7 @@
     },
     "reference_data_sha256": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3",
     "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
-    "started_utc": "2026-10-17T23:46:36Z",
+    "started_utc": "2026-10-18T00:18:04Z",
     "threads": {
       "GEODE_NUM_THREADS": "1",
       "RAYON_NUM_THREADS": "1",
@@ -175,7 +175,7 @@
         "i_peak_A": 0.0,
         "mean": -1.377043323602881e-6,
         "newton_iterations": 54,
-        "solve_s": 10.966979666,
+        "solve_s": 10.913129,
         "std": 0.00035900437062274,
         "std2": 1.2888413812622967e-7,
         "torques": [
@@ -206,7 +206,7 @@
         "i_peak_A": 4.838828687086137,
         "mean": 0.65512334519484,
         "newton_iterations": 62,
-        "solve_s": 12.156246042,
+        "solve_s": 12.1359485,
         "std": 0.001026757621344823,
         "std2": 1.0542312129896787e-6,
         "torques": [
@@ -237,7 +237,7 @@
         "i_peak_A": 9.677657374172274,
         "mean": 1.3147738518415868,
         "newton_iterations": 65,
-        "solve_s": 12.590821333,
+        "solve_s": 12.576157833,
         "std": 0.0016172164294544146,
         "std2": 2.6153889796972855e-6,
         "torques": [
@@ -268,7 +268,7 @@
     "mesh": {
       "file": "benchmarks/motor_optimization/runs/opt120_policy_L2_primary.meshes/icem_remesh_remesh000_L2.msh",
       "kind": "fresh",
-      "mesh_s": 2.017465667,
+      "mesh_s": 1.99515525,
       "moved_quality": {
         "inverted": 0,
         "max_angle_deg": 173.9195771612366,
@@ -290,7 +290,8 @@
         "threshold_deg": 5.0
       }
     },
-    "motion_s": 0.006955625,
+    "motion_s": 0.00729,
+    "msh_sha256": "d847a836b4db1ddea32d0498c388cf7c41b1d73486c59d491c3cfec666eb4f09",
     "nodes": 34951,
     "point": [
       0.006101140437692928,
@@ -340,11 +341,11 @@
       "OPERATING_ANGLE",
       "ScaleR"
     ],
-    "remesh_mesh_s": 2.017468334,
-    "remesh_setup_s": 0.373284916,
-    "solve_s": 35.717562292,
+    "remesh_mesh_s": 1.99515675,
+    "remesh_setup_s": 0.367014375,
+    "solve_s": 35.628868833,
     "space": "cp",
-    "total_s": 38.125252209,
+    "total_s": 38.00844925,
     "triangles": 68513
   }
 }

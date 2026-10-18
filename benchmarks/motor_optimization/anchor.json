@@ -7,6 +7,7 @@
     "mean0_full_current": 1.4408390361492982,
     "mean_floor": 1.4444411337396714,
     "mean_floor_margin": 0.0025,
+    "msh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
     "target_fractions": {
       "T50": 0.5,
       "T90": 0.1,
@@ -20,14 +21,14 @@
   },
   "fe_unit_seconds": {
     "note": "wall time of one primary validation forward of θ0 (60 Newton solves), single-threaded; a candidate FE unit for FeRule::WallTime",
-    "space_a_solve_s": 35.116103291,
-    "space_b_solve_s": 35.136042125
+    "space_a_solve_s": 33.987655,
+    "space_b_solve_s": 33.435208791
   },
   "issue": 1193,
   "preregistration": "#1185 (original, amendments 1 and 2)",
   "provenance": {
-    "commit": "f0549ceadf18af4ccd064228470dce273e50b89a",
-    "host_load": "10.65 14.03 12.80",
+    "commit": "043b9c472501ef500b6551dc49793846ca4f6bb5",
+    "host_load": "7.74 10.05 11.52",
     "mesh": {
       "bytes": 3515287,
       "file": "benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
@@ -35,7 +36,7 @@
     },
     "reference_data_sha256": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3",
     "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
-    "started_utc": "2026-10-17T23:43:10Z",
+    "started_utc": "2026-10-18T00:14:42Z",
     "threads": {
       "GEODE_NUM_THREADS": "1",
       "RAYON_NUM_THREADS": "1",
@@ -45,8 +46,8 @@
     "worktree_clean": "yes"
   },
   "setup_s": {
-    "space_a": 0.274488458,
-    "space_b": 0.371799541
+    "space_a": 0.277898959,
+    "space_b": 0.351052709
   },
   "spaces": [
     {
@@ -261,7 +262,7 @@
         "i_peak_A": 0.0,
         "mean": -5.329786954416183e-6,
         "newton_iterations": 60,
-        "solve_s": 10.80923075,
+        "solve_s": 10.542232833,
         "std": 0.00760612113876732,
         "std2": 0.000057853078777603076,
         "torques": [
@@ -292,7 +293,7 @@
         "i_peak_A": 4.838828687086137,
         "mean": 0.6613644103999053,
         "newton_iterations": 69,
-        "solve_s": 12.168315416,
+        "solve_s": 11.623555207999999,
         "std": 0.04264911239203962,
         "std2": 0.0018189467878288275,
         "torques": [
@@ -323,7 +324,7 @@
         "i_peak_A": 9.677657374172274,
         "mean": 1.4408390361492982,
         "newton_iterations": 69,
-        "solve_s": 12.135324666,
+        "solve_s": 11.8186185,
         "std": 0.08790110511846237,
         "std2": 0.007726604281046972,
         "torques": [
@@ -361,7 +362,8 @@
         "min_area_ratio": 1.0
       }
     },
-    "motion_s": 4.1e-8,
+    "motion_s": 4.2e-8,
+    "msh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
     "nodes": 36083,
     "point": [
       0.007,
@@ -393,9 +395,9 @@
     ],
     "remesh_mesh_s": 0.0,
     "remesh_setup_s": 0.0,
-    "solve_s": 35.116103291,
+    "solve_s": 33.987655,
     "space": "scalar",
-    "total_s": 35.118753208,
+    "total_s": 33.990407417,
     "triangles": 70757
   },
   "validation_space_b": {
@@ -444,7 +446,7 @@
         "i_peak_A": 0.0,
         "mean": -5.329786954416183e-6,
         "newton_iterations": 60,
-        "solve_s": 10.8857215,
+        "solve_s": 10.381171167,
         "std": 0.00760612113876732,
         "std2": 0.000057853078777603076,
         "torques": [
@@ -475,7 +477,7 @@
         "i_peak_A": 4.838828687086137,
         "mean": 0.6613644103999053,
         "newton_iterations": 69,
-        "solve_s": 12.086172417,
+        "solve_s": 11.541579125,
         "std": 0.04264911239203962,
         "std2": 0.0018189467878288275,
         "torques": [
@@ -506,7 +508,7 @@
         "i_peak_A": 9.677657374172274,
         "mean": 1.4408390361492982,
         "newton_iterations": 69,
-        "solve_s": 12.160528917,
+        "solve_s": 11.509284416,
         "std": 0.08790110511846237,
         "std2": 0.007726604281046972,
         "torques": [
@@ -544,7 +546,8 @@
         "min_area_ratio": 1.0
       }
     },
-    "motion_s": 4.2e-8,
+    "motion_s": 1.67e-7,
+    "msh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
     "nodes": 36083,
     "point": [
       0.007,
@@ -596,9 +599,9 @@
     ],
     "remesh_mesh_s": 0.0,
     "remesh_setup_s": 0.0,
-    "solve_s": 35.136042125,
+    "solve_s": 33.435208791,
     "space": "cp",
-    "total_s": 35.138839,
+    "total_s": 33.437859959,
     "triangles": 70757
   }
 }
