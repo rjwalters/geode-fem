@@ -665,3 +665,37 @@ flag alongside the complete training and common-validation configuration.
 Both D/E acceptance and wrong-flag rejection are regression tested; the real
 trace replay is an additional test. This is partial live-study evidence only:
 no closed capture, final cohort selection, target or speedup claim follows.
+
+
+`refinement_bundle.prepare` is the portable execution-input handoff. It reruns
+closed-capture selection, restores complete typed designs and asks the native
+request adapter for every planned check. It copies the authenticated L2 mesh,
+reference data and starts. The L3 mesh/report are read directly from an
+independently supplied full reviewed Git artifact revision; the construction
+sources must equal the study's sources, and the report must match the initial
+upstream geometry and actual mesh bytes. This reuses retained construction
+evidence; it does not claim to regenerate the mesh or verify a future executor.
+
+```sh
+python3 -I benchmarks/motor_optimization/final_refinement/refinement_bundle.py \
+  --capture /path/to/closed-capture --manifest-sha256 "$CAPTURE_SHA256" \
+  --git-repo /path/to/geode-fem --reviewed-commit "$PRODUCER_COMMIT" \
+  --capture-tool-commit "$CAPTURE_TOOL_COMMIT" \
+  --mesh-evidence-commit "$REVIEWED_MESH_ARTIFACT_COMMIT" --out /path/to/new-bundle
+```
+
+The new directory contains `selection.json`, copied inputs, exact native request
+files, separate geometry-query files and a final `bundle.json`. The returned
+manifest digest is the preparation receipt. `refinement_bundle.verify` requires
+that independently retained digest, checks the complete file/directory census,
+and regenerates every request from the frozen full designs and plan. The bundle
+can move between hosts without changing its requests. Outputs never overwrite an
+existing directory, and a preparation failure leaves a failure marker.
+
+Geometry requests need a source-bound harness evaluator; native checks need a
+source-bound final-refinement executor. No executable is included or launched,
+`can_launch` remains false, and build/runtime/process receipts are still required.
+The synthetic public API/CLI tests prepare three designs, twenty-one native
+requests and three geometry queries, with no `results` directory. All 200 Python
+tests pass, including twelve preparation tests. Source, mesh, request, plan and
+census mismatches are rejected. The main study has not been selected or refined.
