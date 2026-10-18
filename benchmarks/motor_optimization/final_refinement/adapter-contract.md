@@ -1,8 +1,9 @@
 # Raw-trace adapter contract for #1203
 
 This is the implementation handoff from a read-only inspection of #1206 at
-`d5634324`. `adapter-source-contract.json` binds the inspected files. It is
-not an implemented adapter or a main-study result. Reconcile the map against
+`89d0bf9e`. `adapter-source-contract.json` binds the inspected files. It is
+not a complete adapter or a main-study result. The generation reader implements
+the byte-binding and per-attempt identity layer, with the limits below. Reconcile the map against
 the reviewed merge before integrating; do not import or alter the live run.
 
 ## Resolve the study before selecting designs
@@ -98,3 +99,12 @@ The pure helper `geometry_evidence.verify_geometry` now checks the normalized
 margin/declared-verdict portion of this map. Its tests include the explicit
 `h = -5e-16` regression requested in Squad message 911. The file, run, mesh
 and full-geometry provenance layers above remain unimplemented.
+
+
+`trace_archive.load_generation` now verifies and loads one directory's frozen
+inputs, journal, bound terminal traces and optional terminal manifest. It retains
+unfinalized/missing traces explicitly and never establishes whole-study closure.
+Its local read lock and second hash pass do not prove that a copied remote
+experiment is inactive. Recovery-chain reconciliation and all scientific
+validation checks above must precede selection. See `trace-archive-checks.json`
+for the scoped tests and real writer/synthetic evaluator schema probe.

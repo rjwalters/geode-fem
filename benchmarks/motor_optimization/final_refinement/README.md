@@ -77,9 +77,9 @@ the estimator. Unknown or nonzero offsets cannot imply conforming eligibility.
 Nonzero rotor offsets alone do not exclude an otherwise supported check.
 
 Dependency #1201 has merged at `5c998bda`; #1202 five-method integration
-remains under review in PR #1206. Raw
-trace adaptation, the L3/g40/tight/shifted/conforming runner, resource accounting, result
-summaries and a real wiring smoke remain to be implemented after those merge.
+remains under review in PR #1206. Recovery-chain reconciliation, scientific validation adaptation, the
+L3/g40/tight/shifted/conforming runner, resource accounting, and a real wiring
+smoke remain pending integration against the reviewed merge.
 This module alone does not complete #1203 or validate any scientific claim.
 
 
@@ -129,15 +129,15 @@ python3 -I benchmarks/motor_optimization/final_refinement/test_comparison.py
 python3 -I benchmarks/motor_optimization/final_refinement/comparison_mutations.py
 ```
 
-The raw-trace adapter, actual evaluator/refinement execution, conforming-interface
-gate, actual cost collection and native wiring smoke remain pending dependency
-integration. These synthetic checks supply no optimization or refinement result.
+The complete raw-trace adapter, actual evaluator/refinement execution,
+conforming-interface gate, actual cost collection and native wiring smoke remain
+pending dependency integration. These synthetic checks supply no optimization or refinement result.
 
 The read-only [adapter contract](adapter-contract.md) maps the current trace
 and recovery fields to this API, bound to the source hashes in
 `adapter-source-contract.json`. It identifies the credit-margin distinction
-and the need to obtain fresh primary waveforms for refinement. It does not
-implement the adapter or replace the required merged-source reconciliation.
+and the need to obtain fresh primary waveforms for refinement. The generation reader below implements its file-binding layer; the complete
+adapter and merged-source reconciliation remain pending.
 
 `geometry_evidence.py` is a pure preparation helper for the future adapter. It
 checks complete declared guard sets, finite normalized margins, construction
@@ -157,3 +157,35 @@ verdicts. It does not bind files to hashes, reconstruct geometry, verify margin
 normalization/scales, validate a mesh, reconcile attempts or grant whole-run
 eligibility. Those remain full-adapter responsibilities. No FEM ran in these
 tests and no main-study evidence is implied.
+
+
+`trace_archive.load_generation(path)` reads an actual generation directory
+without opening the recovery registry or writing files. It checks the 100-job
+rotation/reversal schedule, readiness/frozen-input/terminal-trace hashes,
+common unit, accepted calibrations, job/session identities, observed training
+and validation meshes, and validation ordinals. Every attempt and its raw trace
+remain available, including contaminated runs, scientific failures, unfinished
+workers and explicit missing traces. Copied archives retain the original source
+directory identity alongside their local location. Duplicate JSON keys, nonfinite
+numbers, torn journals, active local locks and redirected files are refused.
+All bytes consumed are hashed again before returning.
+
+This is the input layer, not final cohort eligibility: it explicitly returns
+`can_select=false` and `can_launch=false`. It does not prove remote process
+absence from a copied lock, resolve recovery generations or external attestations,
+or check canonical anchor/source/runtime provenance, geometry, mesh quality,
+mean floor, target flags or completed validation times. These checks remain
+necessary before feeding records to `selection.py`. An absent final session
+manifest or unfinalized attempt stays visible, without granting completion.
+
+Nineteen on-disk synthetic tests and twelve assertion-detected mutations cover
+these boundaries. A separate schema probe uses the actual #1206 queue builder
+and `run.py` writer with a synthetic evaluator and bounded mock optimizer
+prefix: all five emitted traces load, all 100 queue entries agree, and source
+files remain byte-identical. It is neither a FEM smoke nor main-study evidence.
+`trace-archive-checks.json` binds the scripts and compressed raw evidence.
+
+```sh
+python3 -I benchmarks/motor_optimization/final_refinement/test_trace_archive.py
+python3 -I benchmarks/motor_optimization/final_refinement/archive_mutations.py
+```
