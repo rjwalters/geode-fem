@@ -451,6 +451,10 @@ class Issue1197Tests(unittest.TestCase):
                        "starts": str(d / "starts.json")}
             ops = {"train": ("forward", "line_search"), "validate": ("validation",),
                    "geometry": ("geometry_check",), "mesh_check": ("remesh",)}
+            session["primary_model"] = "L1"
+            session["models"] = {f"L{level}": {"train_mesh": f"fixture_L{level}.msh",
+                "train_level": level, "theta0_train": session["theta0_train"],
+                "weights": session["weights"]} for level in (0, 1)}
             for method in driver.METHODS:
                 clock = th.TickingClock()
                 t = run_one(session, method, "a", "theta0", 1, d / f"{method}.json",

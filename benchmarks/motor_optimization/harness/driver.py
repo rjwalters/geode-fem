@@ -1,7 +1,7 @@
 """The experiment-2 optimizer driver (issues #1195 and #1201; #1185 with
 amendments 1-7).
 
-Three methods on one frozen space from one start, with matched budgets:
+Five methods on one frozen space from one start, with matched budgets:
 
 - A `slsqp`: safeguarded SLSQP with restarts (scipy SLSQP with the
   adjoint gradients of F_train and of the full-current training mean, and
@@ -9,6 +9,8 @@ Three methods on one frozen space from one start, with matched budgets:
 - B `cobyqa`: COBYQA (scipy 1.18.1), derivative-free, the same
   constraints, with the pinned NaN extreme barrier at a refused point;
 - C `surrogate`: the calibrated RBF trust-region method of amendment 4.
+- D `cobyqa_l0`: B on the separately calibrated L0 nonlinear model.
+- E `slsqp_l0`: A on that L0 model, including the same safeguards.
 
 Common to all three:
 
@@ -61,10 +63,8 @@ from surrogate import Models
 
 #: The (optimizer, resolution) method specs. `resolution` names the
 #: training model a method's evaluator runs (`None`: the session's primary
-#: training model, `session["primary_model"]`). Amendment 8 adds D
-#: (COBYQA on L0) and E (safeguarded SLSQP on L0) here, as
-#: {"letter": "D", "optimizer": "cobyqa", "resolution": "L0"}, with an
-#: "L0" record in the session's `models`.
+#: training model, `session["primary_model"]`). D/E select the explicit
+#: L0 model while sharing B/A's optimizer implementations respectively.
 METHOD_SPECS = {
     "slsqp": {"letter": "A", "optimizer": "slsqp", "resolution": None,
               "label": "safeguarded SLSQP with restarts (adjoint)"},
@@ -73,6 +73,12 @@ METHOD_SPECS = {
     "surrogate": {"letter": "C", "optimizer": "surrogate", "resolution": None,
                   "label": "empirical RBF surrogate (trust region)"},
 }
+METHOD_SPECS.update({
+    "cobyqa_l0": {"letter": "D", "optimizer": "cobyqa", "resolution": "L0",
+                   "label": "coarse nonlinear FEM (COBYQA, L0)"},
+    "slsqp_l0": {"letter": "E", "optimizer": "slsqp", "resolution": "L0",
+                  "label": "coarse nonlinear FEM (safeguarded SLSQP, L0)"},
+})
 METHODS = tuple(METHOD_SPECS)
 #: How each method is described in every record (#1185 amendment 6 §1:
 #: C is an empirical surrogate, not a reduced physical or waveform model).
@@ -528,7 +534,7 @@ class Run:
             "events": self.events,
             "refusals": self.refusals,
             "restorations": self.restorations,
-            "restarts": self.restarts if self.method == "slsqp" else None,
+            "restarts": self.restarts if METHOD_SPECS[self.method]["optimizer"] == "slsqp" else None,
             "surrogate_initial_set": self.c_initial if self.method == "surrogate" else None,
             "method_label": METHOD_LABELS[self.method],
             "method_spec": METHOD_SPECS[self.method],

@@ -54,13 +54,18 @@ def model_of(session, method=None):
     """The training-model record of `method` (its spec's resolution, else
     the session's primary model). A session without `models` (older
     records) has one model: its top-level fields."""
+    res = METHOD_SPECS[method]["resolution"] if method else None
     models = session.get("models")
     if not models:
+        if res is not None:
+            raise ValueError(f"{method} requires an explicit {res} training model")
         return {"train_mesh": session["evaluator"].get("train_mesh"),
                 "train_level": session["evaluator"].get("train_level"),
                 "theta0_train": session.get("theta0_train"), "weights": session.get("weights")}
-    res = METHOD_SPECS[method]["resolution"] if method else None
-    return models[res or session["primary_model"]]
+    model = models[res or session["primary_model"]]
+    if res is not None and model["train_level"] != int(res[1:]):
+        raise ValueError(f"{method} requires training level {res}")
+    return model
 
 
 def evaluator_argv(session, space, mesh_out, method=None):
@@ -156,6 +161,7 @@ def run_one(session, method, space, start, repeat, out, position=None, clock=tim
     load_before = os.getloadavg()
     trace = {"issue": 1201, "label": session["label"], "method": method,
              "method_label": METHOD_LABELS[method], "method_spec": METHOD_SPECS[method],
+             "training_model": model,
              "space": space,
              "start": start, "repeat": repeat, "order_position": position,
              "session": session.get("session_id"), "budget_fe": budget_fe,

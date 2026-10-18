@@ -584,6 +584,10 @@ class MethodTests(unittest.TestCase):
                        "theta0_train": theta0_train(probe),
                        "evaluator": {"anchor": str(d / "anchor.json")},
                        "starts": str(d / "starts.json")}
+            session["primary_model"] = "L1"
+            session["models"] = {f"L{level}": {"train_mesh": f"fixture_L{level}.msh",
+                "train_level": level, "theta0_train": session["theta0_train"],
+                "weights": WEIGHTS} for level in (0, 1)}
             for method in driver.METHODS:
                 clock = FakeClock()
                 holder = {}
@@ -647,7 +651,7 @@ class MethodTests(unittest.TestCase):
                 if not run.validations:
                     continue
                 # Nothing is validated before the initial set is complete.
-                n_init = {"slsqp": 1, "cobyqa": 2 * N + 1, "surrogate": N + 1}[method]
+                n_init = {"slsqp": 1, "cobyqa": 2 * N + 1, "surrogate": N + 1}[driver.METHOD_SPECS[method]["optimizer"]]
                 first_val = next(i for i, e in enumerate(run.events) if e["kind"] == "validate")
                 n_train = sum(1 for e in run.events[:first_val] if e["kind"] == "train")
                 self.assertGreaterEqual(n_train, n_init, method)

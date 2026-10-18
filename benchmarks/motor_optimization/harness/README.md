@@ -612,3 +612,22 @@ $H/pyrun.sh $H/mutation_checks.py
 # Main runs (not run here; they need the operator's host):
 # $H/pyrun.sh $H/session.py --main --procs N --out benchmarks/motor_optimization/runs/main
 ```
+
+### Amendment-8 integration in progress (#1202)
+
+The registry now includes D (`cobyqa_l0`) and E (`slsqp_l0`), reusing B/A's
+optimizer implementations. They require an explicit L0 model record; a legacy
+single-model session cannot silently supply L1. Main scheduling uses the
+100-job rotation/reversal queue in `main_schedule.py`; historical pilot and
+all-L0 safeguard-smoke ordering remains ABC/CBA. Main setup calibrates L0
+training constants/weights separately, reusing the primary calibration's cold
+validation unit. Its own validation timing median is retained as a diagnostic.
+Every trace retains the selected training-model record.
+
+This is partial implementation, not launch readiness. D/E post-run diagnostics,
+paired fidelity records, both-resolution moved-mesh start preflight, durable
+session/recovery and contaminated-calibration refusal, full provenance/cap
+reporting, mixed L0/L2 smoke and L0 derivative sweeps remain required. Do not
+launch a main study from this intermediate branch. `test_baseline_wiring.py`
+checks model/validator separation, calibration denominator, shared optimizer
+selection, E restart serialization and the actual five-method registry's queue.

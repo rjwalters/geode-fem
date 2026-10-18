@@ -10,7 +10,8 @@ processes, and record the session.
   7 §5) x 2 spaces x the methods x 2 repeats, budget 120 FE (amendment 7
   §4), training h45 L1 g20 on `icem_initial_sector_L1.msh`, validation h93
   L2 g20 on `icem_initial_sector_L2.msh` against `anchor.json`. Within each
-  start and space the method order is ABC on repeat 1 and CBA on repeat 2.
+  start and space, rotate ABCDE by the start index on repeat 1 and reverse
+  that rotation on repeat 2. D/E train at L0 using the same validation unit.
   Main runs also need the operator's choice of host (amendment 7 §6); this
   mode must be asked for by name.
 * Smoke (`--smoke`, label `smoke`): both models at L0 on the committed L0
@@ -59,6 +60,7 @@ from evaluator import Evaluator  # noqa: E402
 from linalg_info import fingerprint as linalg_fingerprint  # noqa: E402
 from run import thread_env  # noqa: E402
 import resource_usage  # noqa: E402
+import main_schedule  # noqa: E402
 
 ROOT = HERE.parents[2]
 OPT = ROOT / "benchmarks/motor_optimization"
@@ -154,7 +156,7 @@ def median(v):
     return s[m] if len(s) % 2 else 0.5 * (s[m - 1] + s[m])
 
 
-def combine_calibrations(cals):
+def combine_calibrations(cals, common_unit=None):
     """The unit under concurrency (#1185 amendment 4 addition 6): the
     median of all 3N cold θ0 validation timings of N simultaneous
     calibration processes, and the solve-count weights from the medians of
@@ -169,7 +171,10 @@ def combine_calibrations(cals):
     val = [t for c in cals for t in c["validation_seconds"]]
     fwd = [t for c in cals for t in c["train_forward_seconds"]]
     adj = [t for c in cals for t in c["train_adjoint_seconds"]]
-    unit = median(val)
+    measured_unit = median(val)
+    unit = measured_unit if common_unit is None else float(common_unit)
+    if not (0.0 < unit < float("inf")):
+        raise ValueError("the common validation unit must be finite and positive")
     w0 = cals[0]["weights"]
     nv, nt = w0["validation_solves_per_eval"], w0["train_solves_per_eval"]
     wf, wa = median(fwd) / unit, median(adj) / unit
@@ -177,8 +182,11 @@ def combine_calibrations(cals):
                "validation_solve": 1.0 / nv, "train_forward_solve": wf / nt,
                "adjoint_solve": wa / nt, "validation_solves_per_eval": nv,
                "train_solves_per_eval": nt}
-    return {"unit_seconds": unit, "unit_rule": "median of the 3N cold θ0 validation timings "
-            "of N simultaneous calibration processes (#1185 amendment 4 addition 6)",
+    return {"unit_seconds": unit, "measured_validation_median_seconds": measured_unit,
+            "uses_common_unit": common_unit is not None,
+            "unit_rule": ("reuse primary calibration common validation unit"
+                          if common_unit is not None else "median of the 3N cold θ0 validation timings "
+            "of N simultaneous calibration processes (#1185 amendment 4 addition 6)"),
             "processes": len(cals), "validation_seconds": val, "train_forward_seconds": fwd,
             "train_adjoint_seconds": adj, "weights": weights, "theta0_train": t0,
             "theta0_validation": cals[0]["theta0_validation"],
@@ -188,7 +196,7 @@ def combine_calibrations(cals):
             "per_process": cals}
 
 
-def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out, procs):
+def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out, procs, common_unit=None):
     """Amendment 3 §1 with amendment 4 addition 6: first one process alone
     (the single-process median, a diagnostic only), then `procs`
     simultaneous calibration processes, 3 cold θ0 validations each (and the
@@ -218,7 +226,7 @@ def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out, procs):
         raise SystemExit(f"calibration failed: {single.get('error')}")
     with concurrent.futures.ThreadPoolExecutor(max_workers=procs) as pool:
         cals = list(pool.map(lambda k: one(k, "concurrent"), range(procs)))
-    cal = combine_calibrations(cals)
+    cal = combine_calibrations(cals, common_unit=common_unit)
     cal["single_process"] = {"unit_seconds": single["unit_seconds"],
                              "validation_seconds": single["validation_seconds"],
                              "weights": single["weights"],
@@ -568,6 +576,18 @@ def main(argv=None):
     models = {primary: {"train_mesh": str(train_mesh), "train_level": tl,
                         "train_mesh_sha256": sha256(train_mesh),
                         "theta0_train": cal["theta0_train"], "weights": cal["weights"]}}
+    secondary_cal = None
+    if not a.smoke:
+        l0_mesh = MESHES / "icem_initial_sector_L0.msh"
+        secondary_out = out / "calibration_L0"
+        secondary_out.mkdir()
+        secondary_cal = gated_calibration(ctx, lambda: calibrate(
+            a.binary, l0_mesh, val_mesh, 0, vl, anchor, secondary_out, a.procs,
+            common_unit=cal["unit_seconds"]), a.max_deferrals)
+        models["L0"] = {"train_mesh": str(l0_mesh), "train_level": 0,
+                        "train_mesh_sha256": sha256(l0_mesh),
+                        "theta0_train": secondary_cal["theta0_train"],
+                        "weights": secondary_cal["weights"]}
     session = {"issue": 1201, "label": label, "session_id": session_id,
                "budget_fe": budget, "checkpoint_fe": 60.0, "unit_seconds": cal["unit_seconds"],
                "weights": cal["weights"], "theta0_train": cal["theta0_train"],
@@ -578,7 +598,8 @@ def main(argv=None):
                "starts": str(starts_path), "procs": a.procs,
                "linear_algebra": prov["linear_algebra"]}
     write(out / "session.json", session)
-    jobs = build_jobs(starts, SPACES, repeats)
+    jobs = (build_jobs(starts, SPACES, repeats) if a.smoke else
+            main_schedule.build_jobs({s["letter"]: m for m, s in METHOD_SPECS.items()}))
     if a.smoke:
         # The drills (module docs).
         for m in method_order(1):
@@ -620,9 +641,10 @@ def main(argv=None):
         monitor.stop()
     after = host_record()
     host_idle = session_host_idle(results) and ctx["gate"] \
-        and not cal["host"]["host_contaminated"]
+        and not cal["host"]["host_contaminated"] \
+        and not (secondary_cal and secondary_cal["host"]["host_contaminated"])
     manifest = {"issue": 1201, "label": label, "session_id": session_id,
-                "preregistration": "#1185 with amendments 1-7 (amendment 7 revision 1 with "
+                "preregistration": "#1185 with amendments 1-8 (amendment 7 revision 1 with "
                                    "the adoption corrections)",
                 "method_labels": METHOD_LABELS, "method_specs": METHOD_SPECS,
                 "host_before": before, "host_after": after, "host_idle": host_idle,
@@ -633,6 +655,7 @@ def main(argv=None):
                               "contamination_seconds": CONTAMINATION_SECONDS,
                               "load_samples": monitor.samples},
                 "procs": a.procs, "provenance": prov, "meshes": meshes, "calibration": cal,
+                "secondary_calibration": secondary_cal,
                 "unit_seconds": cal["unit_seconds"], "budget_fe": budget, "jobs": results,
                 "gate_drill": gate_drill}
     write(out / "manifest.json", manifest)

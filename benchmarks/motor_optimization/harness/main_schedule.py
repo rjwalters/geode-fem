@@ -1,4 +1,4 @@
-"""Pure amendment-8 main queue; not yet wired into session.py (#1202).
+"""Amendment-8 main queue, used by session.py (#1202).
 
 The historical pilot order stays in driver.py. This queue records intended
 dispatch order; a concurrent launcher must separately record actual starts.
