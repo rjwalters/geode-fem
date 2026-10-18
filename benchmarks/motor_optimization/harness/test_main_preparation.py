@@ -2,10 +2,13 @@
 from collections import Counter
 import copy
 import json
+import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import main_schedule as schedule  # noqa: E402
@@ -141,6 +144,93 @@ sys.stdin.readline()
             if proc.poll() is None:
                 proc.kill()
                 proc.communicate(timeout=10)
+
+
+class WaitReceiptTests(unittest.TestCase):
+    def test_requires_one_owned_pid_and_reports_unsupported(self):
+        for pid in (0, -1, True, 1.5):
+            with self.assertRaises(ValueError):
+                usage.reap_usage(pid)
+        # An absent OS interface must not fabricate resource measurements.
+        with patch.object(usage, "os", object()):
+            r = usage.reap_usage(123)
+        self.assertEqual(r["state"], "unavailable")
+        self.assertFalse(r["available"])
+        self.assertFalse(r["cpu_complete"])
+
+    @unittest.skipUnless(hasattr(os, "wait4"), "wait4 unavailable")
+    def test_receipt_is_child_specific_and_preserves_pending_and_reaped_states(self):
+        code = r'''
+import json,resource,sys,time
+end=time.process_time()+float(sys.argv[1])
+while time.process_time()<end: pass
+r=resource.getrusage(resource.RUSAGE_SELF)
+print(json.dumps(dict(cpu=r.ru_utime+r.ru_stime)),flush=True)
+sys.stdin.readline()
+'''
+        children = [subprocess.Popen([sys.executable, "-I", "-c", code, seconds],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+                    for seconds in (".03", ".10")]
+        try:
+            recorded = [json.loads(p.stdout.readline()) for p in children]
+            for p in children:
+                pending = usage.reap_usage(p.pid)
+                self.assertEqual(pending["state"], "pending")
+                self.assertFalse(pending["available"])
+                self.assertNotIn("cpu", pending)
+            receipts = {}
+            # Reap the larger sibling first: aggregate RUSAGE_CHILDREN would
+            # then incorrectly attribute its CPU to the smaller child.
+            for i in (1, 0):
+                p = children[i]
+                p.stdin.write("finish\n")
+                p.stdin.flush()
+                receipt = usage.reap_usage(p.pid, block=True, descendants_complete=True)
+                p.returncode = receipt["returncode"]
+                receipts[i] = receipt
+                self.assertEqual(receipt["state"], "reaped")
+                self.assertEqual(receipt["returncode"], 0)
+                self.assertTrue(receipt["cpu_complete"])
+                measured = receipt["cpu"]["total_seconds"]
+                self.assertGreaterEqual(measured + 1e-6, recorded[i]["cpu"])
+                # Final serialization/exit costs remain small in this fixture.
+                self.assertLess(measured, recorded[i]["cpu"] + .05)
+                self.assertIsInstance(receipt["rss"]["raw"], int)
+                self.assertGreater(receipt["rss"]["raw"], 0)
+                json.dumps(receipt, allow_nan=False)
+            self.assertLess(receipts[0]["cpu"]["total_seconds"],
+                            receipts[1]["cpu"]["total_seconds"])
+            lost = usage.reap_usage(children[0].pid)
+            self.assertEqual(lost["state"], "unavailable")
+            self.assertIsNone(lost["returncode"])
+            self.assertFalse(lost["cpu_complete"])
+        finally:
+            for p in children:
+                if p.returncode is None:
+                    p.kill()
+                    p.wait(timeout=10)
+                p.stdin.close()
+                p.stdout.close()
+
+    @unittest.skipUnless(hasattr(os, "wait4"), "wait4 unavailable")
+    def test_signaled_child_never_claims_complete_descendant_accounting(self):
+        p = subprocess.Popen([sys.executable, "-I", "-c",
+                              "import sys; print('ready',flush=True); sys.stdin.readline()"],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(p.stdout.readline().strip(), "ready")
+            os.kill(p.pid, signal.SIGKILL)
+            r = usage.reap_usage(p.pid, block=True, descendants_complete=True)
+            p.returncode = r["returncode"]
+            self.assertEqual(r["returncode"], -signal.SIGKILL)
+            self.assertTrue(r["available"])
+            self.assertFalse(r["cpu_complete"])
+        finally:
+            if p.returncode is None:
+                p.kill()
+                p.wait(timeout=10)
+            p.stdin.close()
+            p.stdout.close()
 
 
 if __name__ == "__main__":

@@ -7,11 +7,11 @@
       "exit_code": 0,
       "source_sha256": {
         "main_schedule.py": "5ea6399c7c53489b59e3013c1008964a53391374081adbcab466134eab44719a",
-        "resource_usage.py": "ab249aac81c2daf724e6830ae5d739fbe7ef90989359ca7e0d6846dc3fa5396b",
-        "test_main_preparation.py": "d8cbaeec39004e6d66a6eee956473670770408560c697c741bf423bd02859ef3"
+        "resource_usage.py": "9de3603d02abdc93a9643bc5a1bf88252c54a74b436d7fbba9f6bdde189ae4e3",
+        "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8"
       },
       "stdout": "",
-      "stderr": ".........\n----------------------------------------------------------------------\nRan 9 tests in 0.111s\n\nOK\n"
+      "stderr": "............\n----------------------------------------------------------------------\nRan 12 tests in 0.250s\n\nOK\n"
     },
     {
       "name": "ignore_start_rotation",
@@ -19,11 +19,11 @@
       "exit_code": 1,
       "source_sha256": {
         "main_schedule.py": "c97349ab75a19e1ad5142b48dc91f0a83d29549c56cf0ec38c1f47e4d9d83f1a",
-        "resource_usage.py": "ab249aac81c2daf724e6830ae5d739fbe7ef90989359ca7e0d6846dc3fa5396b",
-        "test_main_preparation.py": "d8cbaeec39004e6d66a6eee956473670770408560c697c741bf423bd02859ef3"
+        "resource_usage.py": "9de3603d02abdc93a9643bc5a1bf88252c54a74b436d7fbba9f6bdde189ae4e3",
+        "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8"
       },
       "stdout": "",
-      "stderr": ".......F.\n======================================================================\nFAIL: test_registered_rotation_and_reverse_for_every_start (__main__.ScheduleTests.test_registered_rotation_and_reverse_for_every_start)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-x0stryup/test_main_preparation.py\", line 21, in test_registered_rotation_and_reverse_for_every_start\n    self.assertEqual(\"\".join(schedule.method_order(start, 1)), order)\nAssertionError: 'ABCDE' != 'BCDEA'\n- ABCDE\n? -\n+ BCDEA\n?     +\n\n\n----------------------------------------------------------------------\nRan 9 tests in 0.111s\n\nFAILED (failures=1)\n"
+      "stderr": ".......F....\n======================================================================\nFAIL: test_registered_rotation_and_reverse_for_every_start (__main__.ScheduleTests.test_registered_rotation_and_reverse_for_every_start)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-m1buz08g/test_main_preparation.py\", line 24, in test_registered_rotation_and_reverse_for_every_start\n    self.assertEqual(\"\".join(schedule.method_order(start, 1)), order)\nAssertionError: 'ABCDE' != 'BCDEA'\n- ABCDE\n? -\n+ BCDEA\n?     +\n\n\n----------------------------------------------------------------------\nRan 12 tests in 0.249s\n\nFAILED (failures=1)\n"
     },
     {
       "name": "repeat2_not_reversed",
@@ -31,11 +31,11 @@
       "exit_code": 1,
       "source_sha256": {
         "main_schedule.py": "d0168481ee8b3a8fd1b8f508c8fff1c7d5b377aa64f4825b11e131a306fface2",
-        "resource_usage.py": "ab249aac81c2daf724e6830ae5d739fbe7ef90989359ca7e0d6846dc3fa5396b",
-        "test_main_preparation.py": "d8cbaeec39004e6d66a6eee956473670770408560c697c741bf423bd02859ef3"
+        "resource_usage.py": "9de3603d02abdc93a9643bc5a1bf88252c54a74b436d7fbba9f6bdde189ae4e3",
+        "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8"
       },
       "stdout": "",
-      "stderr": ".....F.F.\n======================================================================\nFAIL: test_complete_unique_paired_cohort_and_positions (__main__.ScheduleTests.test_complete_unique_paired_cohort_and_positions)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-q9810til/test_main_preparation.py\", line 35, in test_complete_unique_paired_cohort_and_positions\n    self.assertEqual([j[\"method_letter\"] for j in jobs[50:55]], list(\"EDCBA\"))\nAssertionError: Lists differ: ['A', 'B', 'C', 'D', 'E'] != ['E', 'D', 'C', 'B', 'A']\n\nFirst differing element 0:\n'A'\n'E'\n\n- ['A', 'B', 'C', 'D', 'E']\n+ ['E', 'D', 'C', 'B', 'A']\n\n======================================================================\nFAIL: test_registered_rotation_and_reverse_for_every_start (__main__.ScheduleTests.test_registered_rotation_and_reverse_for_every_start)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-q9810til/test_main_preparation.py\", line 22, in test_registered_rotation_and_reverse_for_every_start\n    self.assertEqual(\"\".join(schedule.method_order(start, 2)), order[::-1])\nAssertionError: 'ABCDE' != 'EDCBA'\n- ABCDE\n+ EDCBA\n\n\n----------------------------------------------------------------------\nRan 9 tests in 0.111s\n\nFAILED (failures=2)\n"
+      "stderr": ".....F.F....\n======================================================================\nFAIL: test_complete_unique_paired_cohort_and_positions (__main__.ScheduleTests.test_complete_unique_paired_cohort_and_positions)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-y075kc6_/test_main_preparation.py\", line 38, in test_complete_unique_paired_cohort_and_positions\n    self.assertEqual([j[\"method_letter\"] for j in jobs[50:55]], list(\"EDCBA\"))\nAssertionError: Lists differ: ['A', 'B', 'C', 'D', 'E'] != ['E', 'D', 'C', 'B', 'A']\n\nFirst differing element 0:\n'A'\n'E'\n\n- ['A', 'B', 'C', 'D', 'E']\n+ ['E', 'D', 'C', 'B', 'A']\n\n======================================================================\nFAIL: test_registered_rotation_and_reverse_for_every_start (__main__.ScheduleTests.test_registered_rotation_and_reverse_for_every_start)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-y075kc6_/test_main_preparation.py\", line 25, in test_registered_rotation_and_reverse_for_every_start\n    self.assertEqual(\"\".join(schedule.method_order(start, 2)), order[::-1])\nAssertionError: 'ABCDE' != 'EDCBA'\n- ABCDE\n+ EDCBA\n\n\n----------------------------------------------------------------------\nRan 12 tests in 0.250s\n\nFAILED (failures=2)\n"
     },
     {
       "name": "omit_fifth_start",
@@ -43,11 +43,11 @@
       "exit_code": 1,
       "source_sha256": {
         "main_schedule.py": "2b09a9d8ac459a63b7e4841968fe0eb060764a9a9e3a2874dd2edfcafc02b1cf",
-        "resource_usage.py": "ab249aac81c2daf724e6830ae5d739fbe7ef90989359ca7e0d6846dc3fa5396b",
-        "test_main_preparation.py": "d8cbaeec39004e6d66a6eee956473670770408560c697c741bf423bd02859ef3"
+        "resource_usage.py": "9de3603d02abdc93a9643bc5a1bf88252c54a74b436d7fbba9f6bdde189ae4e3",
+        "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8"
       },
       "stdout": "",
-      "stderr": ".....F.E.\n======================================================================\nERROR: test_registered_rotation_and_reverse_for_every_start (__main__.ScheduleTests.test_registered_rotation_and_reverse_for_every_start)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-7kv43_8q/test_main_preparation.py\", line 21, in test_registered_rotation_and_reverse_for_every_start\n    self.assertEqual(\"\".join(schedule.method_order(start, 1)), order)\n                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/private/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-7kv43_8q/main_schedule.py\", line 15, in method_order\n    raise ValueError(\"start index must be an integer in 0..4\")\nValueError: start index must be an integer in 0..4\n\n======================================================================\nFAIL: test_complete_unique_paired_cohort_and_positions (__main__.ScheduleTests.test_complete_unique_paired_cohort_and_positions)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-7kv43_8q/test_main_preparation.py\", line 26, in test_complete_unique_paired_cohort_and_positions\n    self.assertEqual(len(jobs), 100)\nAssertionError: 80 != 100\n\n----------------------------------------------------------------------\nRan 9 tests in 0.111s\n\nFAILED (failures=1, errors=1)\n"
+      "stderr": ".....F.E....\n======================================================================\nERROR: test_registered_rotation_and_reverse_for_every_start (__main__.ScheduleTests.test_registered_rotation_and_reverse_for_every_start)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-coyd6fqx/test_main_preparation.py\", line 24, in test_registered_rotation_and_reverse_for_every_start\n    self.assertEqual(\"\".join(schedule.method_order(start, 1)), order)\n                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/private/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-coyd6fqx/main_schedule.py\", line 15, in method_order\n    raise ValueError(\"start index must be an integer in 0..4\")\nValueError: start index must be an integer in 0..4\n\n======================================================================\nFAIL: test_complete_unique_paired_cohort_and_positions (__main__.ScheduleTests.test_complete_unique_paired_cohort_and_positions)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-coyd6fqx/test_main_preparation.py\", line 29, in test_complete_unique_paired_cohort_and_positions\n    self.assertEqual(len(jobs), 100)\nAssertionError: 80 != 100\n\n----------------------------------------------------------------------\nRan 12 tests in 0.251s\n\nFAILED (failures=1, errors=1)\n"
     },
     {
       "name": "only_one_timing_repeat",
@@ -55,11 +55,11 @@
       "exit_code": 1,
       "source_sha256": {
         "main_schedule.py": "50d2fde0c6508e9b540ad82df82a99bf0286cbbdd81d02300c732da5570cbed6",
-        "resource_usage.py": "ab249aac81c2daf724e6830ae5d739fbe7ef90989359ca7e0d6846dc3fa5396b",
-        "test_main_preparation.py": "d8cbaeec39004e6d66a6eee956473670770408560c697c741bf423bd02859ef3"
+        "resource_usage.py": "9de3603d02abdc93a9643bc5a1bf88252c54a74b436d7fbba9f6bdde189ae4e3",
+        "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8"
       },
       "stdout": "",
-      "stderr": ".....F...\n======================================================================\nFAIL: test_complete_unique_paired_cohort_and_positions (__main__.ScheduleTests.test_complete_unique_paired_cohort_and_positions)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-1pecrgaj/test_main_preparation.py\", line 26, in test_complete_unique_paired_cohort_and_positions\n    self.assertEqual(len(jobs), 100)\nAssertionError: 50 != 100\n\n----------------------------------------------------------------------\nRan 9 tests in 0.110s\n\nFAILED (failures=1)\n"
+      "stderr": ".....F......\n======================================================================\nFAIL: test_complete_unique_paired_cohort_and_positions (__main__.ScheduleTests.test_complete_unique_paired_cohort_and_positions)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-y03sgn3c/test_main_preparation.py\", line 29, in test_complete_unique_paired_cohort_and_positions\n    self.assertEqual(len(jobs), 100)\nAssertionError: 50 != 100\n\n----------------------------------------------------------------------\nRan 12 tests in 0.245s\n\nFAILED (failures=1)\n"
     },
     {
       "name": "linux_rss_as_bytes",
@@ -67,11 +67,11 @@
       "exit_code": 1,
       "source_sha256": {
         "main_schedule.py": "5ea6399c7c53489b59e3013c1008964a53391374081adbcab466134eab44719a",
-        "resource_usage.py": "f381773b699698b5d9c5edc42068f0783a148e94d564ecf8a7f33443ebeeaa4f",
-        "test_main_preparation.py": "d8cbaeec39004e6d66a6eee956473670770408560c697c741bf423bd02859ef3"
+        "resource_usage.py": "bd90cae63e881c1d8855f2bbda41340daa3f9ce446529bb88483bf801176d45f",
+        "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8"
       },
       "stdout": "",
-      "stderr": "....F....\n======================================================================\nFAIL: test_platform_units_and_unknown_units (__main__.ResourceTests.test_platform_units_and_unknown_units)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-1gce0o32/test_main_preparation.py\", line 70, in test_platform_units_and_unknown_units\n    self.assertEqual(usage.rss_bytes(1234, \"linux\"), (1234 * 1024, \"KiB\"))\nAssertionError: Tuples differ: (1234, 'KiB') != (1263616, 'KiB')\n\nFirst differing element 0:\n1234\n1263616\n\n- (1234, 'KiB')\n?     ^\n\n+ (1263616, 'KiB')\n?    + ^^^\n\n\n----------------------------------------------------------------------\nRan 9 tests in 0.112s\n\nFAILED (failures=1)\n"
+      "stderr": "....F.......\n======================================================================\nFAIL: test_platform_units_and_unknown_units (__main__.ResourceTests.test_platform_units_and_unknown_units)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-kfzlk64h/test_main_preparation.py\", line 73, in test_platform_units_and_unknown_units\n    self.assertEqual(usage.rss_bytes(1234, \"linux\"), (1234 * 1024, \"KiB\"))\nAssertionError: Tuples differ: (1234, 'KiB') != (1263616, 'KiB')\n\nFirst differing element 0:\n1234\n1263616\n\n- (1234, 'KiB')\n?     ^\n\n+ (1263616, 'KiB')\n?    + ^^^\n\n\n----------------------------------------------------------------------\nRan 12 tests in 0.249s\n\nFAILED (failures=1)\n"
     },
     {
       "name": "macos_rss_as_kib",
@@ -79,11 +79,11 @@
       "exit_code": 1,
       "source_sha256": {
         "main_schedule.py": "5ea6399c7c53489b59e3013c1008964a53391374081adbcab466134eab44719a",
-        "resource_usage.py": "cb68a11d08dd9cfddd273389810165692dc519b8b5234694ad020d50cdde8501",
-        "test_main_preparation.py": "d8cbaeec39004e6d66a6eee956473670770408560c697c741bf423bd02859ef3"
+        "resource_usage.py": "ae9baafa57a2f61f3ab0ede6f7bc388f6f820660508ca7c78d2a3a2131480355",
+        "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8"
       },
       "stdout": "",
-      "stderr": "....F....\n======================================================================\nFAIL: test_platform_units_and_unknown_units (__main__.ResourceTests.test_platform_units_and_unknown_units)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-_xo7nb4x/test_main_preparation.py\", line 69, in test_platform_units_and_unknown_units\n    self.assertEqual(usage.rss_bytes(1234, \"darwin\"), (1234, \"bytes\"))\nAssertionError: Tuples differ: (1263616, 'bytes') != (1234, 'bytes')\n\nFirst differing element 0:\n1263616\n1234\n\n- (1263616, 'bytes')\n?    - ^^^\n\n+ (1234, 'bytes')\n?     ^\n\n\n----------------------------------------------------------------------\nRan 9 tests in 0.110s\n\nFAILED (failures=1)\n"
+      "stderr": "....F.......\n======================================================================\nFAIL: test_platform_units_and_unknown_units (__main__.ResourceTests.test_platform_units_and_unknown_units)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-7s0unt46/test_main_preparation.py\", line 72, in test_platform_units_and_unknown_units\n    self.assertEqual(usage.rss_bytes(1234, \"darwin\"), (1234, \"bytes\"))\nAssertionError: Tuples differ: (1263616, 'bytes') != (1234, 'bytes')\n\nFirst differing element 0:\n1263616\n1234\n\n- (1263616, 'bytes')\n?    - ^^^\n\n+ (1234, 'bytes')\n?     ^\n\n\n----------------------------------------------------------------------\nRan 12 tests in 0.249s\n\nFAILED (failures=1)\n"
     },
     {
       "name": "double_child_cpu",
@@ -91,11 +91,11 @@
       "exit_code": 1,
       "source_sha256": {
         "main_schedule.py": "5ea6399c7c53489b59e3013c1008964a53391374081adbcab466134eab44719a",
-        "resource_usage.py": "df2d8f37ede29d74455df51c3e944c9f288d9092c4ccbd5f51cebb75f525a464",
-        "test_main_preparation.py": "d8cbaeec39004e6d66a6eee956473670770408560c697c741bf423bd02859ef3"
+        "resource_usage.py": "d785c303f75e3543142a243a2bc5d19bb0eb76481acb7b030e263b744d5c8cc1",
+        "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8"
       },
       "stdout": "",
-      "stderr": ".FF......\n======================================================================\nFAIL: test_cpu_deltas_once_rss_observations_separate_and_no_mutation (__main__.ResourceTests.test_cpu_deltas_once_rss_observations_separate_and_no_mutation)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-o9ra7grr/test_main_preparation.py\", line 82, in test_cpu_deltas_once_rss_observations_separate_and_no_mutation\n    self.assertEqual(out[\"observed_cpu_seconds\"], 3.75)\nAssertionError: 6.0 != 3.75\n\n======================================================================\nFAIL: test_interruption_retains_observed_cpu_but_never_claims_complete (__main__.ResourceTests.test_interruption_retains_observed_cpu_but_never_claims_complete)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-o9ra7grr/test_main_preparation.py\", line 92, in test_interruption_retains_observed_cpu_but_never_claims_complete\n    self.assertEqual(out[\"observed_cpu_seconds\"], 4)\nAssertionError: 6.0 != 4\n\n----------------------------------------------------------------------\nRan 9 tests in 0.112s\n\nFAILED (failures=2)\n"
+      "stderr": ".FF.........\n======================================================================\nFAIL: test_cpu_deltas_once_rss_observations_separate_and_no_mutation (__main__.ResourceTests.test_cpu_deltas_once_rss_observations_separate_and_no_mutation)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-ge6yc5ma/test_main_preparation.py\", line 85, in test_cpu_deltas_once_rss_observations_separate_and_no_mutation\n    self.assertEqual(out[\"observed_cpu_seconds\"], 3.75)\nAssertionError: 6.0 != 3.75\n\n======================================================================\nFAIL: test_interruption_retains_observed_cpu_but_never_claims_complete (__main__.ResourceTests.test_interruption_retains_observed_cpu_but_never_claims_complete)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-ge6yc5ma/test_main_preparation.py\", line 95, in test_interruption_retains_observed_cpu_but_never_claims_complete\n    self.assertEqual(out[\"observed_cpu_seconds\"], 4)\nAssertionError: 6.0 != 4\n\n----------------------------------------------------------------------\nRan 12 tests in 0.250s\n\nFAILED (failures=2)\n"
     },
     {
       "name": "rss_as_phase_delta",
@@ -103,11 +103,11 @@
       "exit_code": 1,
       "source_sha256": {
         "main_schedule.py": "5ea6399c7c53489b59e3013c1008964a53391374081adbcab466134eab44719a",
-        "resource_usage.py": "89a0779731aa05762f2663bbe0e6a718a8c77527fa391a42e9356b4ad0ca7ca9",
-        "test_main_preparation.py": "d8cbaeec39004e6d66a6eee956473670770408560c697c741bf423bd02859ef3"
+        "resource_usage.py": "4ecfb2b7409e749b42604c79974f741762b6496b60ac8d3e3516bc99b619bb4f",
+        "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8"
       },
       "stdout": "",
-      "stderr": ".F.......\n======================================================================\nFAIL: test_cpu_deltas_once_rss_observations_separate_and_no_mutation (__main__.ResourceTests.test_cpu_deltas_once_rss_observations_separate_and_no_mutation)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-n_1riejz/test_main_preparation.py\", line 84, in test_cpu_deltas_once_rss_observations_separate_and_no_mutation\n    self.assertEqual(out[\"rss\"][\"self\"][\"bytes\"], 1500)\nAssertionError: 500 != 1500\n\n----------------------------------------------------------------------\nRan 9 tests in 0.111s\n\nFAILED (failures=1)\n"
+      "stderr": ".F..........\n======================================================================\nFAIL: test_cpu_deltas_once_rss_observations_separate_and_no_mutation (__main__.ResourceTests.test_cpu_deltas_once_rss_observations_separate_and_no_mutation)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-uhsrrbmt/test_main_preparation.py\", line 87, in test_cpu_deltas_once_rss_observations_separate_and_no_mutation\n    self.assertEqual(out[\"rss\"][\"self\"][\"bytes\"], 1500)\nAssertionError: 500 != 1500\n\n----------------------------------------------------------------------\nRan 12 tests in 0.251s\n\nFAILED (failures=1)\n"
     },
     {
       "name": "default_claims_complete",
@@ -115,11 +115,11 @@
       "exit_code": 1,
       "source_sha256": {
         "main_schedule.py": "5ea6399c7c53489b59e3013c1008964a53391374081adbcab466134eab44719a",
-        "resource_usage.py": "1cb305cc3907f79c40cafd37a4cce3b3e42cf7e85ea32e19a3b2244b8172effc",
-        "test_main_preparation.py": "d8cbaeec39004e6d66a6eee956473670770408560c697c741bf423bd02859ef3"
+        "resource_usage.py": "ec5f7968df4e9a68773820a7e029e30ee8b8336f7690e6942a7b4f3a01f21d65",
+        "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8"
       },
       "stdout": "",
-      "stderr": "..F......\n======================================================================\nFAIL: test_interruption_retains_observed_cpu_but_never_claims_complete (__main__.ResourceTests.test_interruption_retains_observed_cpu_but_never_claims_complete)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-no6ha3oc/test_main_preparation.py\", line 93, in test_interruption_retains_observed_cpu_but_never_claims_complete\n    self.assertFalse(out[\"cpu_complete\"])\nAssertionError: True is not false\n\n----------------------------------------------------------------------\nRan 9 tests in 0.112s\n\nFAILED (failures=1)\n"
+      "stderr": "..F.........\n======================================================================\nFAIL: test_interruption_retains_observed_cpu_but_never_claims_complete (__main__.ResourceTests.test_interruption_retains_observed_cpu_but_never_claims_complete)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-ymh7m86k/test_main_preparation.py\", line 96, in test_interruption_retains_observed_cpu_but_never_claims_complete\n    self.assertFalse(out[\"cpu_complete\"])\nAssertionError: True is not false\n\n----------------------------------------------------------------------\nRan 12 tests in 0.251s\n\nFAILED (failures=1)\n"
     },
     {
       "name": "self_cpu_used_for_children",
@@ -127,11 +127,47 @@
       "exit_code": 1,
       "source_sha256": {
         "main_schedule.py": "5ea6399c7c53489b59e3013c1008964a53391374081adbcab466134eab44719a",
-        "resource_usage.py": "311210d55fa9808e66a37da032850f7c7efac18b80dd0e49aa302513cfee2bc2",
-        "test_main_preparation.py": "d8cbaeec39004e6d66a6eee956473670770408560c697c741bf423bd02859ef3"
+        "resource_usage.py": "178b51b6cb75024a44c43e15ae0ae497507eaab193036092ac30f75ead97fe17",
+        "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8"
       },
       "stdout": "",
-      "stderr": "...F.....\n======================================================================\nFAIL: test_live_child_excluded_until_reaped_including_its_reaped_child (__main__.ResourceTests.test_live_child_excluded_until_reaped_including_its_reaped_child)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-vhq58p5g/test_main_preparation.py\", line 130, in test_live_child_excluded_until_reaped_including_its_reaped_child\n    self.assertEqual(live[\"reaped_children\"][key], before[\"reaped_children\"][key])\nAssertionError: 0.026177 != 0.025748999999999998\n\n----------------------------------------------------------------------\nRan 9 tests in 0.110s\n\nFAILED (failures=1)\n"
+      "stderr": "...F........\n======================================================================\nFAIL: test_live_child_excluded_until_reaped_including_its_reaped_child (__main__.ResourceTests.test_live_child_excluded_until_reaped_including_its_reaped_child)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-wmwuiyzo/test_main_preparation.py\", line 133, in test_live_child_excluded_until_reaped_including_its_reaped_child\n    self.assertEqual(live[\"reaped_children\"][key], before[\"reaped_children\"][key])\nAssertionError: 0.03916 != 0.038751\n\n----------------------------------------------------------------------\nRan 12 tests in 0.247s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "wait4_double_cpu",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": {
+        "main_schedule.py": "5ea6399c7c53489b59e3013c1008964a53391374081adbcab466134eab44719a",
+        "resource_usage.py": "22ed87cd425346ee5253a1718e642e37213905654fe411fc26a5e2119c582a99",
+        "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8"
+      },
+      "stdout": "",
+      "stderr": ".........F..\n======================================================================\nFAIL: test_receipt_is_child_specific_and_preserves_pending_and_reaped_states (__main__.WaitReceiptTests.test_receipt_is_child_specific_and_preserves_pending_and_reaped_states)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-o9sff5pn/test_main_preparation.py\", line 197, in test_receipt_is_child_specific_and_preserves_pending_and_reaped_states\n    self.assertLess(measured, recorded[i][\"cpu\"] + .05)\nAssertionError: 0.23395 not less than 0.16524099999999997\n\n----------------------------------------------------------------------\nRan 12 tests in 0.249s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "wait4_pending_fabricates_cpu",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": {
+        "main_schedule.py": "5ea6399c7c53489b59e3013c1008964a53391374081adbcab466134eab44719a",
+        "resource_usage.py": "730bb328f6de9db57f34fc3a87dfd0610dde4eb3184cfe517033727b6ba7f0b3",
+        "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8"
+      },
+      "stdout": "",
+      "stderr": ".........F..\n======================================================================\nFAIL: test_receipt_is_child_specific_and_preserves_pending_and_reaped_states (__main__.WaitReceiptTests.test_receipt_is_child_specific_and_preserves_pending_and_reaped_states)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-qi8udkyh/test_main_preparation.py\", line 180, in test_receipt_is_child_specific_and_preserves_pending_and_reaped_states\n    self.assertNotIn(\"cpu\", pending)\nAssertionError: 'cpu' unexpectedly found in {'pid': 97971, 'source': 'wait4', 'platform': 'darwin', 'state': 'pending', 'available': False, 'returncode': None, 'cpu_complete': False, 'error': None, 'cpu': {'total_seconds': 0}}\n\n----------------------------------------------------------------------\nRan 12 tests in 0.248s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "wait4_signal_claims_complete",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": {
+        "main_schedule.py": "5ea6399c7c53489b59e3013c1008964a53391374081adbcab466134eab44719a",
+        "resource_usage.py": "ff51fd9cccf008f049da3d0d05f24e68fc5e4d2b1ddd14c0b462babf6c59b508",
+        "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8"
+      },
+      "stdout": "",
+      "stderr": "...........F\n======================================================================\nFAIL: test_signaled_child_never_claims_complete_descendant_accounting (__main__.WaitReceiptTests.test_signaled_child_never_claims_complete_descendant_accounting)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-main-preparation-_hgl06af/test_main_preparation.py\", line 227, in test_signaled_child_never_claims_complete_descendant_accounting\n    self.assertFalse(r[\"cpu_complete\"])\nAssertionError: True is not false\n\n----------------------------------------------------------------------\nRan 12 tests in 0.322s\n\nFAILED (failures=1)\n"
     }
   ]
 }

@@ -508,10 +508,21 @@ benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/har
 benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/main_preparation_mutations.py
 ```
 
-Nine tests cover queue completeness/order, CPU attribution across child
-lifetimes, RSS units and incomplete accounting; ten semantic mutations must
+Twelve tests cover queue completeness/order, CPU attribution across child
+lifetimes, RSS units and incomplete accounting; thirteen semantic mutations must
 be detected. `main-preparation-checks.json` retains raw output and exact source
 hashes. These are synthetic/process-accounting fixtures, not motor outcomes.
+
+`resource_usage.reap_usage` also prepares a child-specific `wait4` receipt
+for the driver cross-check. Its caller must own the PID and be its sole reaper:
+capture this receipt before `Popen.poll`, `wait` or `communicate` can consume
+the child's status, retain it, and synchronize the process handle's return
+code. Nonblocking observations stay pending while the child lives; already
+reaped children and unsupported systems explicitly report unavailable.
+Signal termination retains observed usage but never claims complete
+descendant accounting. The helper does not drain pipes or kill processes.
+Tests use two concurrent children reaped in reverse order to check attribution.
+See the [Python wait4 contract](https://docs.python.org/3.12/library/os.html#os.wait4).
 
 The standalone Rust counterpart is
 `crates/geode-core/tests/common/motor_resources.rs`. It uses the already-locked

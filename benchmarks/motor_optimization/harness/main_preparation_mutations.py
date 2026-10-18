@@ -22,6 +22,12 @@ MUTATIONS = (
      '"bytes": (b.get("maxrss_bytes", 0) - a.get("maxrss_bytes", 0))'),
     ("default_claims_complete", "resource_usage.py", "children_complete=False", "children_complete=True"),
     ("self_cpu_used_for_children", "resource_usage.py", "resource.RUSAGE_CHILDREN", "resource.RUSAGE_SELF"),
+    ("wait4_double_cpu", "resource_usage.py",
+     "total_seconds=total),", "total_seconds=2 * total),"),
+    ("wait4_pending_fabricates_cpu", "resource_usage.py",
+     'out["state"] = "pending"', 'out["state"] = "pending"; out["cpu"] = {"total_seconds": 0}'),
+    ("wait4_signal_claims_complete", "resource_usage.py",
+     'descendants_complete is True and out["returncode"] >= 0', 'descendants_complete is True'),
 )
 
 

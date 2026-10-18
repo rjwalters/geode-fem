@@ -99,3 +99,55 @@ def interval(before, after, *, label, children_complete=False, incomplete_reason
     out["cpu_complete"] = children_complete is True and not out["errors"]
     out["aggregation"] = "self plus reaped children once; do not add nested request totals"
     return out
+
+
+def reap_usage(pid, *, block=False, descendants_complete=False):
+    """Reap one owned child and retain its wait4 receipt (not yet wired).
+
+    The caller must be this PID's sole reaper: do not call Popen.poll/wait or
+    communicate first. Retain the receipt after reaping, and synchronize the
+    process handle's returncode before any later cleanup. This helper neither
+    kills processes nor drains pipes; drain output before a blocking wait.
+    Nonblocking calls return pending without inventing zero resource usage.
+
+    CPU includes descendants the child itself waited for, according to the
+    OS. It is an independent cross-check, not an extra summand for run CPU.
+    A signal death conservatively leaves descendant accounting incomplete.
+    """
+    if type(pid) is not int or pid <= 0:
+        raise ValueError("an explicit positive owned-child PID is required")
+    out = dict(pid=pid, source="wait4", platform=sys.platform,
+               state="unavailable", available=False, returncode=None,
+               cpu_complete=False, error=None)
+    if not hasattr(os, "wait4"):
+        out["error"] = "wait4 unavailable on this platform"
+        return out
+    try:
+        observed_pid, status, r = os.wait4(pid, 0 if block else os.WNOHANG)
+    except OSError as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+        return out
+    if observed_pid == 0:
+        out["state"] = "pending"
+        return out
+    if observed_pid != pid:
+        out["error"] = "wait4 returned an unexpected PID"
+        return out
+    out.update(state="reaped", wait_status=status,
+               returncode=os.waitstatus_to_exitcode(status))
+    try:
+        user, system = float(r.ru_utime), float(r.ru_stime)
+        total = user + system
+        if not all(math.isfinite(v) and v >= 0 for v in (user, system, total)):
+            raise ValueError("invalid CPU counter")
+        peak, unit = rss_bytes(r.ru_maxrss, sys.platform)
+    except (ValueError, OverflowError) as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+        return out
+    out.update(available=True, cpu=dict(user_seconds=user, system_seconds=system,
+                                      total_seconds=total),
+               rss=dict(raw=r.ru_maxrss, raw_unit=unit, bytes=peak,
+                        semantics="OS wait4 statistic for this child; not a summed process-tree peak"),
+               cpu_complete=descendants_complete is True and out["returncode"] >= 0,
+               aggregation="cross-check only; already included in reaped-child run CPU")
+    return out
