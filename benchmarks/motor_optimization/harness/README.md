@@ -624,10 +624,34 @@ training constants/weights separately, reusing the primary calibration's cold
 validation unit. Its own validation timing median is retained as a diagnostic.
 Every trace retains the selected training-model record.
 
-This is partial implementation, not launch readiness. D/E post-run diagnostics,
-paired fidelity records, both-resolution moved-mesh start preflight, durable
+D/E diagnostics now retain raw nonlinear waveforms at .25/.75, common-validator
+provenance and separate costs. Selection uses the lowest-F credited common-feasible
+validation (earliest tie), otherwise the last successfully trained optimizer
+incumbent, explicitly without a feasibility claim. Paired training values are
+retained on failed acceptance, mesh-infeasible validation and interrupted requests.
+Waveform arrays are checked against their means/stds. Training mesh hashes identify
+the reference before design motion and must be interpreted with the selected point.
+
+This is partial implementation, not launch readiness. Both-resolution moved-mesh start preflight, durable
 session/recovery and contaminated-calibration refusal, full provenance/cap
-reporting, mixed L0/L2 smoke and L0 derivative sweeps remain required. Do not
+reporting and L0 derivative sweeps remain required. The retained scalar-theta0
+mixed L0/L2 smoke verifies model separation, not an optimization outcome. Do not
 launch a main study from this intermediate branch. `test_baseline_wiring.py`
 checks model/validator separation, calibration denominator, shared optimizer
 selection, E restart serialization and the actual five-method registry's queue.
+
+The bounded mixed-model smoke runs theta0 L0/h45/g20 training (with adjoints),
+registered L2/h93/g20 validation, and a fresh-process .25/.75 diagnostic. It
+verifies exact input mesh hashes against the registered anchor, retains raw
+replies and resource receipts, and refuses to overwrite its output. L2 is
+regenerated from the pinned geometry or copied only after its hash matches the
+anchor. Example (after building the evaluator in this worktree's target):
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/mixed_model_smoke.py --binary target/release/examples/icem_harness_eval --out benchmarks/motor_optimization/smoke/mixed_l0_l2_new.json --space a
+```
+
+`test_physical_diagnostic.py` covers selection, failed acceptance, interrupted
+validation, unavailable/failed diagnostics and unchanged stopped-run results.
+`physical_diagnostic_mutations.py` checks six deliberate regressions in private
+copies. These checks and the smoke do not establish optimization performance.

@@ -177,6 +177,7 @@ class Run:
         #: post-run diagnostic).
         self.c_points = []
         self.c_incumbent = None
+        self.training_incumbent = None
         #: Method C's trust-region steps: Δ before the step, whether the
         #: point was a geometry point, whether it was accepted.
         self.c_steps = []
@@ -354,6 +355,8 @@ class Run:
                "admissible": g["admissible"], "min_h": g["min_h"], "h": g["h"],
                "discrete_pass": all(d["pass"] for d in g["detail"]["discrete"])}
         self._train[key] = rec
+        if self.training_incumbent is None:
+            self.training_incumbent = rec
         if g["admissible"]:
             # The restoration anchor: the last admissible evaluated point
             # (adoption correction 1). Its training mesh passed the policy.
@@ -429,7 +432,17 @@ class Run:
         g = self.geometry(u)
         if not g["buildable"]:
             raise WiringError("validation of a point that is not buildable")
-        r = self._request("validate", "validation", x_bits=to_bits(x), note=note)
+        train = self._train.get(key)
+        paired_training = ({"F": train["F"], "mean_full": train["mean_full"],
+                            "stds": train["stds"], "means": train["means"],
+                            "fractions": train["fractions"]} if train is not None else None)
+        try:
+            r = self._request("validate", "validation", x_bits=to_bits(x), note=note)
+        except (BudgetExhausted, EvaluatorFailure, WiringError) as error:
+            self.events.append(dict(self._stamp(), kind="validation_unavailable", x=x.tolist(),
+                                    paired_training=paired_training, error=str(error),
+                                    error_type=type(error).__name__))
+            raise
         if r["validator_msh_sha256"] != self.anchor.mesh_sha256 \
                 or r["anchor_msh_sha256"] != self.anchor.mesh_sha256:
             raise WiringError("validation was not on the anchor's θ0 mesh")
@@ -442,7 +455,7 @@ class Run:
                        status="mesh_infeasible", F_val=None, mean_full=None,
                        attained={n: False for n in TARGET_NAMES}, credited=credited,
                        admissible=False, mean_ok=False, attempts=r.get("attempts"),
-                       geometry=g["detail"])
+                       geometry=g["detail"], paired_training=paired_training)
             self.validations.append(rec)
             self._val[key] = rec
             self.events.append(dict(stamp, kind="validate", x=x.tolist(),
@@ -457,7 +470,8 @@ class Run:
                                          r["acceptance"], g["credit_admissible"])
         rec = dict(stamp, index=len(self.validations), x=x.tolist(), note=note, status="ok",
                    F_val=r["F_val"], mean_full=r["mean_full"], stds=r["stds"],
-                   fractions=r["fractions"], attained=flags, credited=credited,
+                   fractions=r["fractions"], means=r["means"],
+                   paired_training=paired_training, attained=flags, credited=credited,
                    mesh=r["mesh"], msh_sha256=r["msh_sha256"], min_h=g["min_h"],
                    h_nonnegative=g["admissible"], geometry=g["detail"], **values)
         train = self._train.get(key)
@@ -496,6 +510,8 @@ class Run:
         evaluated (a refused point has no value). Returns the validation
         record, or None when the point is not validated."""
         key = self.problem.x_of(u).tobytes()
+        if key in self._train:
+            self.training_incumbent = self._train[key]
         if key == self.start_key or key in self._val or key not in self._train:
             return None
         return self.validate(u, note=note, prediction=prediction)
@@ -687,6 +703,9 @@ def cobyqa_callables(run):
         # far (scipy 1.18.1). Amendment 5 §1: nothing during the 2n + 1
         # initial interpolation set (refused points included); then each
         # change of the best point.
+        key = P.x_of(intermediate_result.x).tobytes()
+        if key in run._train:
+            run.training_incumbent = run._train[key]
         if len(seen) < COBYQA_INITIAL(P.n):
             return
         run.accept_iterate(intermediate_result.x, note="cobyqa iterate")

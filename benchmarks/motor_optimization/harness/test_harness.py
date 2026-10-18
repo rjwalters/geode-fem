@@ -210,6 +210,14 @@ class FakeEvaluator:
                          validation={"fractions": fr, "means": [g * mval for g in fr],
                                      "stds": [g * math.sqrt(fval) for g in fr],
                                      "mesh": {"kind": "moved"}})
+            for model in ("training", "validation"):
+                m = reply[model]
+                m["angles_deg"] = list(range(20))
+                m["torques"] = [[mean + math.sqrt(2) * std * math.sin(2 * math.pi * k / 20)
+                                  for k in range(20)]
+                                 for mean, std in zip(m["means"], m["stds"])]
+            reply["training"]["reference_msh_sha256"] = SHA
+            reply["validation"]["msh_sha256"] = SHA
             return reply
         if op == "train":
             g = f.get("gradient")
@@ -627,6 +635,11 @@ class MethodTests(unittest.TestCase):
                                        0)
                     self.assertGreater(back["ledger"]["totals"]["surrogate_update"]["entries"],
                                        0)
+                elif method in ("cobyqa_l0", "slsqp_l0"):
+                    diag = back["post_run_diagnostic"]
+                    self.assertEqual(diag["status"], "ok", diag)
+                    self.assertFalse(diag["counted_in_run_budget"])
+                    self.assertEqual(diag["kind"], "nonlinear_physical_model")
                 else:
                     self.assertNotIn("post_run_diagnostic", back)
                 # Amendment 5 §1: the start is never validated.

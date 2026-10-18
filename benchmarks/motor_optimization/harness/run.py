@@ -144,6 +144,43 @@ def post_run_diagnostic(run, make_evaluator, unit, clock=time.monotonic):
     return out
 
 
+def physical_post_run_diagnostic(run, make_evaluator, unit, clock=time.monotonic):
+    """D/E nonlinear solves, isolated from the stopped optimizer and its ledger."""
+    import physical_diagnostic
+    selected = physical_diagnostic.select(run)
+    out = {"kind": "nonlinear_physical_model", "counted_in_run_budget": False,
+           "fractions": list(DIAGNOSTIC_FRACTIONS), "selection": selected,
+           "units": {"torque": "N m", "seconds": "s"}}
+    if selected is None:
+        return dict(out, status="unavailable", reason="no buildable training incumbent")
+    t0, resources_before = clock(), resource_usage.snapshot()
+    ev = failure = None
+    try:
+        ev = make_evaluator()
+        if ev.ready.get("validation_msh_sha256") != run.anchor.mesh_sha256:
+            raise ValueError("diagnostic validator differs from the registered anchor mesh")
+        bits = to_bits(selected["x"])
+        reply = ev.request("diagnose", timeout=max(10 * unit, 60.0), x_bits=bits,
+                           fractions=list(DIAGNOSTIC_FRACTIONS))
+        out["reply"] = reply  # Preserve failures and malformed diagnostic data too.
+        out["charges"] = reply.get("charges", [])
+        if not reply.get("ok"):
+            raise ValueError(reply.get("error") or "diagnostic evaluator failed")
+        if reply.get("x_bits") != bits:
+            raise ValueError("diagnostic returned a different design point")
+        out["rows"] = physical_diagnostic.rows(reply)
+        out["status"] = "ok"
+    except Exception as e:
+        failure = e
+        out.update(status="failed", error=str(e) or type(e).__name__)
+    finally:
+        if ev is not None:
+            ev.close()
+        out["resources"] = phase_resources(resources_before, ev, failure, "post_run_diagnostic")
+        out["seconds"] = clock() - t0
+    return out
+
+
 def run_one(session, method, space, start, repeat, out, position=None, clock=time.monotonic,
             evaluator_factory=None, diagnostic=True):
     """Run and write the trace; return it."""
@@ -208,7 +245,7 @@ def run_one(session, method, space, start, repeat, out, position=None, clock=tim
     trace["in_run_end_time"] = time.time()
     # After the stop and the ledger snapshot above: C's post-run diagnostic,
     # in its own process and its own ledger section.
-    if diagnostic and method == "surrogate" and run is not None:
+    if diagnostic and method in ("surrogate", "cobyqa_l0", "slsqp_l0") and run is not None:
         if evaluator_factory is None:
             def make():
                 return Evaluator(evaluator_argv(session, space, mesh_out / "diagnostic", method),
@@ -217,8 +254,10 @@ def run_one(session, method, space, start, repeat, out, position=None, clock=tim
         else:
             def make():
                 return evaluator_factory(space, None)
-        trace["post_run_diagnostic"] = post_run_diagnostic(run, make, session["unit_seconds"],
-                                                           clock=clock)
+        diagnostic_fn = (post_run_diagnostic if method == "surrogate"
+                         else physical_post_run_diagnostic)
+        trace["post_run_diagnostic"] = diagnostic_fn(run, make, session["unit_seconds"],
+                                                     clock=clock)
     trace["post_run_end_time"] = time.time()
     trace["in_run_wall_seconds"] = trace["ledger"]["total_seconds"]
     trace["post_run_wall_seconds"] = (trace.get("post_run_diagnostic") or {}).get("seconds", 0.0)
