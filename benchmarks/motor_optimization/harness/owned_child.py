@@ -10,17 +10,24 @@ import subprocess
 import time
 
 import resource_usage
+import process_tracking
 
 
 def wait_run(command, *, log, env, stop=None, journal=None, attempt_id=None,
-             grace_seconds=35.0, poll_seconds=.05):
+             grace_seconds=35.0, poll_seconds=.05, child_journal=None):
     if grace_seconds < 0 or poll_seconds <= 0:
         raise ValueError("invalid child cleanup timings")
     if stop is not None and stop() is not None:
         from interruption import Interrupted
         raise Interrupted(stop().signum)
-    proc = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT,
-                            env=env, start_new_session=True)
+    tracker = process_tracking.Spawn(journal, command, role="run" if child_journal else "direct",
+                                      child_journal=child_journal, attempt_id=attempt_id)
+    try:
+        proc = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT,
+                                env=env, start_new_session=True)
+    except OSError as error:
+        tracker.failed(error)
+        raise
     started = time.monotonic()
     receipt = None
     signals = []
@@ -57,6 +64,7 @@ def wait_run(command, *, log, env, stop=None, journal=None, attempt_id=None,
         return receipt["state"] == "reaped"
 
     try:
+        tracker.started(proc.pid)
         emit("owned_process_started", pid=proc.pid, pgid=proc.pid, command=list(command),
              launcher_pid=os.getpid(), started_time=time.time())
         while not reap():
@@ -89,6 +97,12 @@ def wait_run(command, *, log, env, stop=None, journal=None, attempt_id=None,
                    forced_kill=any(r["signal"] == signal.SIGKILL for r in signals),
                    descendant_cleanup_verified=False,
                    aggregation="child-specific lifetime cross-check; do not add to run/request CPU")
+    try:
+        tracker.reaped(receipt)
+    except BaseException as error:
+        receipt["tracking_error"] = f"{type(error).__name__}: {error}"
+        if failure is None:
+            failure = error
     if failure is not None:
         failure.launcher_receipt = receipt
         raise failure

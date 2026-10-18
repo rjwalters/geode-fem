@@ -199,7 +199,7 @@ def combine_calibrations(cals, common_unit=None):
             "per_process": cals}
 
 
-def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out, procs, common_unit=None, stop=None):
+def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out, procs, common_unit=None, stop=None, process_journal=None):
     """Amendment 3 §1 with amendment 4 addition 6: first one process alone
     (the single-process median, a diagnostic only), then `procs`
     simultaneous calibration processes, 3 cold θ0 validations each (and the
@@ -213,7 +213,7 @@ def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out, procs, common_u
         try:
             ev = Evaluator(evaluator_args(binary, space, train_mesh, val_mesh, tl, vl, anchor,
                                           out / f"calibration.meshes/{tag}{k}"),
-                           env=thread_env(), stderr_path=out / "calibration.stderr.log", stop=stop)
+                           env=thread_env(), stderr_path=out / "calibration.stderr.log", stop=stop, process_journal=process_journal)
             from evaluator import to_bits
             result = (ev.request(op, repeats=3) if op == "calibrate_unit" else
                       ev.request(op, x_bits=to_bits(ev.ready["space"]["x0"])))
@@ -428,7 +428,8 @@ def _run_job(job, ctx, suffix="", wait=wait_for_idle, spawn=None):
     with open(log_path, "x") as log:
         if spawn is None:
             receipt = owned_child.wait_run(cmd, log=log, env=thread_env(), stop=ctx.get("stop"),
-                journal=ctx.get("journal"), attempt_id=ctx.get("attempt_id"))
+                journal=ctx.get("journal"), attempt_id=ctx.get("attempt_id"),
+                child_journal=trace.stem + ".processes")
             rc = receipt["returncode"]
         else:  # Explicit fixture adapter, never used by the real session launcher.
             rc = spawn(cmd, stdout=log, stderr=subprocess.STDOUT, env=thread_env()).returncode
@@ -569,7 +570,7 @@ def accept_calibration(cal, out, name, main, journal=None):
     return evidence
 
 
-def drill_start(binary, out, starts_path, bisections=30, stop=None):
+def drill_start(binary, out, starts_path, bisections=30, stop=None, process_journal=None):
     """The smoke's boundary start: on the path from lhs1 (space A) toward
     the pilot's slsqp_a_lhs1 slot-flank failure, the point nearest the
     failure that is admissible and whose training mesh passes the policy
@@ -589,7 +590,8 @@ def drill_start(binary, out, starts_path, bisections=30, stop=None):
 
     def ok(t, k):
         ev = Evaluator(evaluator_args(binary, "a", l0, l0, 0, 0, None,
-                                      out / f"drill.meshes/probe{k:02d}"), env=thread_env(), stop=stop)
+                                      out / f"drill.meshes/probe{k:02d}"), env=thread_env(), stop=stop,
+                           process_journal=process_journal)
         try:
             x = to_bits(point(t))
             g = ev.request("geometry", x_bits=x)["geometry"]
@@ -661,7 +663,7 @@ def _main(argv=None, stop=None):
             budget = a.budget_fe or 20.0
             starts, repeats = ("theta0", "lhs1"), 1
             ev = Evaluator(evaluator_args(a.binary, "a", train_mesh, val_mesh, 0, 0, None,
-                                          out / "anchor.meshes"), env=thread_env(), stop=stop)
+                                          out / "anchor.meshes"), env=thread_env(), stop=stop, process_journal=journal)
             try:
                 r = ev.request("anchor")
             finally:
@@ -676,7 +678,7 @@ def _main(argv=None, stop=None):
                            "process_resources": ev.resources()})
             # The smoke's starts: the committed ones and the boundary drill.
             st = json.loads(starts_path.read_text())
-            st["starts"]["drill"] = drill_start(a.binary, out, starts_path, stop=stop)
+            st["starts"]["drill"] = drill_start(a.binary, out, starts_path, stop=stop, process_journal=journal)
             st["label"] = "smoke"
             starts_path = out / "starts_smoke.json"
             write(starts_path, st)
@@ -694,7 +696,7 @@ def _main(argv=None, stop=None):
             from start_preflight import verify
             preflight = verify(a.binary, starts_path,
                                {level: MESHES / f"icem_initial_sector_L{level}.msh" for level in (0, 1)},
-                               out / "start_preflight.json", stop=stop)
+                               out / "start_preflight.json", stop=stop, process_journal=journal)
             if preflight["status"] != "PASS":
                 raise SystemExit("frozen-start preflight failed; no calibration or main jobs launched")
         meshes = {"train": {"file": str(train_mesh), "level": tl, "sha256": sha256(train_mesh)},
@@ -706,7 +708,7 @@ def _main(argv=None, stop=None):
         ctx = {"out": out, "procs": a.procs, "max_wait": a.max_wait, "interval": a.load_interval,
                "monitor": monitor, "gate": a.host_gate == "on", "journal": journal, "stop": stop}
         cal = gated_calibration(ctx, lambda: calibrate(a.binary, train_mesh, val_mesh, tl, vl,
-                                                       anchor, out, a.procs, stop=stop), a.max_deferrals)
+                                                       anchor, out, a.procs, stop=stop, process_journal=journal), a.max_deferrals)
         accept_calibration(cal, out, "calibration_primary.json", not a.smoke, journal)
         session_id = f"{label}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
         primary = f"L{tl}"
@@ -720,7 +722,7 @@ def _main(argv=None, stop=None):
             secondary_out.mkdir()
             secondary_cal = gated_calibration(ctx, lambda: calibrate(
                 a.binary, l0_mesh, val_mesh, 0, vl, anchor, secondary_out, a.procs,
-                common_unit=cal["unit_seconds"], stop=stop), a.max_deferrals)
+                common_unit=cal["unit_seconds"], stop=stop, process_journal=journal), a.max_deferrals)
             accept_calibration(secondary_cal, out, "calibration_secondary.json", True, journal)
             models["L0"] = {"train_mesh": str(l0_mesh), "train_level": 0,
                             "train_mesh_sha256": sha256(l0_mesh),

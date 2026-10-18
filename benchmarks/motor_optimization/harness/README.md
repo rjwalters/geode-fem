@@ -820,3 +820,44 @@ concurrent calibration cancellation, preservation of queued jobs and setup failu
 evidence, exclusive per-child receipts, the bounded forced-exit path, and cleanup
 after journal or thread-start failure. Ten tests and five private-copy mutations
 pass; this is controlled process-lifecycle evidence, not main/FEM timing data.
+
+### Process identity and read-only orphan verification (#1202)
+
+New session journals record their owner's local PID/group/start identity and host
+boot identity. Every tracked launch records an intent **before** `Popen`, the
+child identity after launch, and its eventual child-specific exit receipt. Ordinary
+`Popen` failures retain a no-child failure event. An unpublished spawn intent is
+unresolved; a missing PID record is never interpreted as an unlaunched process.
+The run launcher links each attempt to `NAME.processes/`, where the isolated run
+records its optimizer and diagnostic evaluator launches. Setup/calibration and
+preflight evaluators use the session journal. This makes separately sessioned
+evaluators visible even after a forced launcher/run exit.
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/process_verification.py --source SESSION_DIR --out NEW_PROCESS_REPORT.json
+```
+
+The command is read-only with respect to process state: it never signals a PID or
+launches a replacement. It checks owner locks, process identities, process-group
+members and all linked evaluator journals against a fresh local process table.
+Live groups block verification even when their original leader is gone. PID reuse,
+a changed host/boot, missing or torn tracking records, malformed identities, an
+unavailable process observation, or a missing child journal all leave the result
+unresolved. Terminated zombies are reported distinctly from running processes.
+The observer collects PID/PPID/group/start/state, not command lines or environments.
+
+`processes_stopped: true` is a time-bound absence observation, with journal hashes;
+`can_launch` remains false. A recovery launcher must recheck it immediately before
+dispatch and separately establish frozen-input/calibration/host bindings and retry
+eligibility. Older sessions without the tracking schema cannot silently receive
+this verdict. The verifier neither repairs unknown spawn gaps nor makes an
+unverified interruption eligible for replacement.
+
+`test_process_verification.py` includes a real forced-exit experiment: kill the
+launcher, then its run, observe the remaining evaluator/child group, refuse
+verification, terminate only those test-owned processes, and then verify absence.
+It also covers normal exit, a very short child, failed launch, live owner locks,
+PID reuse, changed boot, malformed records, torn tails and missing journals. Nine
+tests and six private-copy mutations pass. A lifecycle test additionally confirms
+that a failing process journal cannot prevent constructor cleanup or discard the
+child receipt. Linked recovery and diagnostic-only execution remain unfinished.

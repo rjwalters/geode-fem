@@ -240,8 +240,8 @@ def reconstruct_diagnostic_run(snapshot):
     return run
 
 
-def run_one(session, method, space, start, repeat, out, position=None, clock=time.monotonic,
-            evaluator_factory=None, diagnostic=True, signals=None):
+def _run_one(session, method, space, start, repeat, out, position=None, clock=time.monotonic,
+             evaluator_factory=None, diagnostic=True, signals=None, process_journal=None):
     """Run and write the trace; return it."""
     if method not in METHODS:
         raise ValueError(method)
@@ -276,7 +276,7 @@ def run_one(session, method, space, start, repeat, out, position=None, clock=tim
             if evaluator_factory is None:
                 argv = evaluator_argv(session, space, mesh_out, method)
                 ev = Evaluator(argv, env=thread_env(), stderr_path=out.with_suffix(".stderr.log"),
-                               timeout=ledger.remaining_seconds())
+                               timeout=ledger.remaining_seconds(), process_journal=process_journal)
             else:
                 ev = evaluator_factory(space, ledger)
             ledger.sync("process start-up")
@@ -342,7 +342,7 @@ def run_one(session, method, space, start, repeat, out, position=None, clock=tim
             def make():
                 return Evaluator(evaluator_argv(session, space, mesh_out / "diagnostic", method),
                                  env=thread_env(), stderr_path=out.with_suffix(".stderr.log"),
-                                 timeout=max(10 * session["unit_seconds"], 60.0))
+                                 timeout=max(10 * session["unit_seconds"], 60.0), process_journal=process_journal)
         else:
             def make():
                 return evaluator_factory(space, None)
@@ -376,6 +376,21 @@ def run_one(session, method, space, start, repeat, out, position=None, clock=tim
     trace = json_value(trace)
     session_journal.write_atomic(out, trace)
     return trace
+
+
+def run_one(session, method, space, start, repeat, out, position=None, clock=time.monotonic,
+            evaluator_factory=None, diagnostic=True, signals=None):
+    out = Path(out)
+    stopped = out.with_name(out.stem + ".optimizer-stopped.json")
+    if any(p.exists() for p in (out, stopped, out.with_name(out.name + ".tmp"))):
+        raise FileExistsError(f"refusing to overwrite run evidence: {out}")
+    journal = session_journal.Journal(out.with_name(out.stem + ".processes"),
+                                     {"role": "run_evaluators", "trace": out.name})
+    try:
+        return _run_one(session, method, space, start, repeat, out, position, clock,
+                        evaluator_factory, diagnostic, signals, process_journal=journal)
+    finally:
+        journal.close()
 
 
 def main(argv=None):

@@ -67,7 +67,9 @@ class CancellationTests(unittest.TestCase):
 
     def test_failed_journal_does_not_abandon_child(self):
         class BrokenJournal:
-            def emit(self, *args, **kw): raise OSError("fixture journal failure")
+            def emit(self, kind, **kw):
+                if kind == "process_spawn_intent": return 0
+                raise OSError("fixture journal failure")
         with tempfile.TemporaryDirectory() as td, (Path(td) / "log").open("x") as log:
             with self.assertRaisesRegex(OSError, "fixture journal") as raised:
                 owned_child.wait_run([sys.executable, "-c", "import time; time.sleep(60)"],

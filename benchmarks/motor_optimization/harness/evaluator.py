@@ -18,6 +18,7 @@ import time
 
 import resource_usage
 import interruption
+import process_tracking
 
 
 def to_bits(x):
@@ -43,7 +44,7 @@ class EvaluatorFailure(Exception):
 
 
 class Evaluator:
-    def __init__(self, argv, env=None, stderr_path=None, timeout=None, stop=None):
+    def __init__(self, argv, env=None, stderr_path=None, timeout=None, stop=None, process_journal=None):
         self.stop = stop
         interruption.check(stop)
         self.argv = list(argv)
@@ -54,10 +55,17 @@ class Evaluator:
         self._shutdown_ack = False
         self._buf = b""
         self._id = 0
+        self.tracker = None
         try:
             self._err = open(stderr_path, "ab") if stderr_path else subprocess.DEVNULL
-            self.proc = subprocess.Popen(self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                         stderr=self._err, env=env, start_new_session=True)
+            self.tracker = process_tracking.Spawn(process_journal, self.argv, role="evaluator")
+            try:
+                self.proc = subprocess.Popen(self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                             stderr=self._err, env=env, start_new_session=True)
+            except OSError as error:
+                self.tracker.failed(error)
+                raise
+            self.tracker.started(self.proc.pid)
             self.ready = self._read(timeout)
             self._record_resources("startup", self.ready)
             if self.ready.get("op") != "ready" or not self.ready.get("ok"):
@@ -66,8 +74,12 @@ class Evaluator:
             # Construction may fail before the caller receives this object.
             # Always reap our child and close our handles, retaining evidence
             # on the exception for run/startup accounting.
-            self.kill()
-            self._close_streams()
+            try:
+                self.kill()
+            except BaseException as cleanup_error:
+                exc.cleanup_error = f"{type(cleanup_error).__name__}: {cleanup_error}"
+            finally:
+                self._close_streams()
             exc.evaluator_resources = self.resources()
             raise
 
@@ -101,6 +113,11 @@ class Evaluator:
             if code is not None:
                 receipt.update(state="reaped", returncode=code)
         self.receipt = receipt
+        try:
+            self.tracker.reaped(receipt)
+        except BaseException as error:
+            receipt["tracking_error"] = f"{type(error).__name__}: {error}"
+            raise
         return receipt
 
     def _close_streams(self):
@@ -202,5 +219,7 @@ class Evaluator:
                 except (Aborted, EvaluatorFailure, ValueError, OSError):
                     pass
         finally:
-            self.kill()
-            self._close_streams()
+            try:
+                self.kill()
+            finally:
+                self._close_streams()

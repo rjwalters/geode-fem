@@ -58,7 +58,7 @@ class LifecycleTests(unittest.TestCase):
                 p.wait(timeout=5)
         self.tmp.cleanup()
 
-    def create(self, mode="ok", timeout=2):
+    def create(self, mode="ok", timeout=2, journal=None):
         popen = subprocess.Popen
 
         def capture(*args, **kwargs):
@@ -69,7 +69,7 @@ class LifecycleTests(unittest.TestCase):
         with patch.object(evaluator.subprocess, "Popen", side_effect=capture):
             return evaluator.Evaluator(
                 [sys.executable, "-I", str(self.script), mode, str(self.pidfile)],
-                stderr_path=self.root / "stderr.log", timeout=timeout)
+                stderr_path=self.root / "stderr.log", timeout=timeout, process_journal=journal)
 
     def assert_closed(self, proc):
         self.assertIsNotNone(proc.returncode)
@@ -77,6 +77,18 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue(proc.stdout.closed)
         with self.assertRaises(ChildProcessError):
             os.waitpid(proc.pid, os.WNOHANG)
+
+    def test_failed_process_journal_cannot_skip_constructor_cleanup(self):
+        class Broken:
+            def emit(self, kind, **fields):
+                if kind == "process_spawn_intent": return 0
+                raise OSError("fixture lifecycle journal failure")
+        with self.assertRaisesRegex(OSError, "lifecycle journal failure") as error:
+            self.create(journal=Broken())
+        self.assert_closed(self.children[-1])
+        receipt = error.exception.evaluator_resources["child_receipt"]
+        self.assertEqual(receipt["state"], "reaped")
+        self.assertIn("tracking_error", receipt)
 
     def test_constructor_failures_reap_owned_child_and_preserve_receipt(self):
         for mode, expected in (("bad", json.JSONDecodeError),
