@@ -1198,3 +1198,20 @@ exact same-host values and the pre-calibration stop. The disposable mutation
 runner is `anchor_preflight_mutations.py`. Python is pinned to the 3.12 minor
 series by `pyrun.sh`; the actual patch version and package/backend contents are
 recorded and fixed within the session and its recovery generations.
+
+Verification at `728b38b2` passed the native A/B anchor gate and both mixed
+L0/L2 smokes, using a witnessed build with the same numerical binary as the
+post-rebase gradient checks. The 230-test suite passed at `d54c66b2`; the only
+following source change was a test assertion preventing anchor FEM after a
+failed start preflight. That three-test suite and 31 affected mutation probes
+passed. See `cross-platform-anchor-runtime-checks.json` for scope and hashes.
+The final cloud host must still run the new preflight after reviewed integration.
+
+Raw verification bundles are retained as gzip-compressed tar archives under
+`../smoke/`: `reviewed_rebase_bc1527e8.tar.gz` and
+`cross_platform_anchor_728b38b2.tar.gz`. Each contains a `SHA256.json` inventory,
+raw JSON/logs, build receipts and initial failed probe evidence. Executable
+binaries are not included; their hashes and recorded build inputs are retained.
+The matching `*-runtime-checks.json` summaries identify exact source snapshots
+and distinguish changed test fixtures from unchanged numerical code. Extract
+into a new directory and verify every member against its manifest before use.
