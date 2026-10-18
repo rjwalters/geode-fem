@@ -653,7 +653,7 @@ class SessionGateTests(unittest.TestCase):
             self.assertEqual(t["in_run_load"]["max"], 3.0)
             # The same overload inside the in-run phase contaminates.
             samples2 = [(1000.0 + t, 50.0) for t in range(0, 100, 5)]
-            r2 = session_mod.run_job(self.JOB, self.ctx(d, samples2),
+            r2 = session_mod.run_job(self.JOB, self.ctx(d, samples2), suffix="_second",
                                      wait=lambda *a, **k: (True, 0.0, 1.0), spawn=spawn)
             self.assertTrue(r2["host_contaminated"])
 

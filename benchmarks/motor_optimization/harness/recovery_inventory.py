@@ -1,0 +1,129 @@
+"""Read-only interrupted-session inventory; never launches or resumes an optimizer."""
+import argparse
+import fcntl
+import json
+import math
+from pathlib import Path
+import sys
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from session_journal import digest, freeze, read_events
+
+
+def owner_active(root):
+    with (root / "owner.lock").open() as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        return False
+
+
+def inventory(root):
+    root = Path(root).resolve()
+    active = owner_active(root)
+    journal = read_events(root / "events.jsonl")
+    events = journal["events"]
+    if not any(e["kind"] == "session_ready" for e in events):
+        return {"source": str(root), "owner_active": active, "ready": False,
+                "reason": "no durably accepted calibration and bound queue; cannot recover jobs",
+                "journal_sha256": journal["sha256"],
+                "incomplete_tail_bytes": journal["incomplete_tail_bytes"], "jobs": []}
+    bindings = json.loads((root / "bindings.json").read_text())
+    if any(e["kind"] == "session_ready" and e["bindings_sha256"] != digest(root / "bindings.json")
+           for e in events):
+        raise ValueError("bindings changed after session_ready")
+    for name, expected in bindings["files"].items():
+        if Path(name).name != name or digest(root / name) != expected:
+            raise ValueError(f"missing or changed frozen input: {name}")
+    session = json.loads((root / "session.json").read_text())
+    unit = session["unit_seconds"]
+    if not isinstance(unit, (int, float)) or not math.isfinite(unit) or unit <= 0:
+        raise ValueError("invalid frozen validation unit")
+    for name in ("calibration_primary.json", "calibration_secondary.json"):
+        if name not in bindings["files"]:
+            if name == "calibration_primary.json":
+                raise ValueError("missing frozen primary calibration")
+            continue
+        calibration = json.loads((root / name).read_text())
+        if (calibration.get("accepted_for_dispatch") is not True
+                or calibration["calibration"].get("unit_seconds") != unit):
+            raise ValueError("rejected calibration or changed validation unit")
+    queue = json.loads((root / "queue.json").read_text())["jobs"]
+    if len({j["name"] for j in queue}) != len(queue):
+        raise ValueError("duplicate logical job in frozen queue")
+    attempts = {}
+    for e in events:
+        if e["kind"] == "attempt_created":
+            attempts[e["sequence"]] = {"attempt_id": e["sequence"], "job": e["job"],
+                                       "suffix": e["suffix"], "created_time": e["time"]}
+        elif e["kind"] in ("attempt_dispatched", "attempt_finished", "attempt_failed"):
+            a = attempts[e["attempt_id"]]
+            key = e["kind"].removeprefix("attempt_")
+            if key in a:
+                raise ValueError("duplicate attempt transition")
+            a[key] = e
+    if any(a["job"]["name"] not in {j["name"] for j in queue} for a in attempts.values()):
+        raise ValueError("attempt is not in the frozen queue")
+    rows = []
+    for job in queue:
+        prior = [a for a in attempts.values() if a["job"]["name"] == job["name"]]
+        for a in prior:
+            if a["job"] != job:
+                raise ValueError("attempt changed its logical job settings")
+        completed = []
+        for a in prior:
+            result = a.get("finished", {}).get("result")
+            if result is None or result["status"] != "ran":
+                continue
+            trace_name = result.get("trace")
+            if not trace_name or Path(trace_name).name != trace_name or not result.get("trace_sha256"):
+                raise ValueError("finished attempt lacks bound trace")
+            trace = root / trace_name
+            if digest(trace) != result["trace_sha256"]:
+                raise ValueError("finished attempt trace changed")
+            raw = json.loads(trace.read_text())
+            if any(raw.get(k) != job[k] for k in ("method", "space", "start", "repeat")):
+                raise ValueError("trace identity differs from its logical job")
+            if result.get("host_contaminated") is False and result.get("exit") == 0:
+                completed.append((a, result))
+        if completed:
+            # First eligible completion, never lowest objective or fastest time.
+            selected, result = completed[0]
+            disposition, launch = "completed_preserve", False
+            eligible = {"attempt_id": selected["attempt_id"], "trace": result["trace"],
+                        "trace_sha256": result["trace_sha256"]}
+        elif not any("dispatched" in a for a in prior):
+            disposition, launch, eligible = "never_started_or_deferred", True, None
+        elif any("dispatched" in a and "finished" not in a for a in prior):
+            disposition, launch, eligible = "interrupted_unresolved", False, None
+        elif all(a.get("finished", {}).get("result", {}).get("host_contaminated") is True
+                 for a in prior if "dispatched" in a):
+            disposition, launch, eligible = "contaminated_unresolved", False, None
+        else:
+            disposition, launch, eligible = "terminal_failure_preserve", False, None
+        rows.append({"job": job, "disposition": disposition, "eligible_completion": eligible,
+                     "never_started_launch_candidate": launch, "attempts": prior})
+    return {"source": str(root), "owner_active": active, "ready": True,
+            "journal_sha256": journal["sha256"],
+            "bindings_sha256": digest(root / "bindings.json"),
+            "incomplete_tail_bytes": journal["incomplete_tail_bytes"], "jobs": rows,
+            "can_launch": False,
+            "reason": "inventory only; requires verified process cleanup, frozen retry policy and recovery launcher"}
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--source", type=Path, required=True)
+    ap.add_argument("--out", type=Path, required=True)
+    a = ap.parse_args()
+    result = inventory(a.source)
+    freeze(a.out, result)
+    print(json.dumps({"ready": result["ready"], "owner_active": result["owner_active"],
+                      "jobs": len(result["jobs"]), "can_launch": False}))
+
+
+if __name__ == "__main__":
+    main()

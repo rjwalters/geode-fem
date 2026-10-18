@@ -712,3 +712,33 @@ orders and process receipts are retained in
 rejections and all earlier central records are unchanged from commit653f029f.
 The original setup runtime receipt binds that earlier source; the additive
 `boundary-gradient-runtime-checks.json` binds the new boundary-check source.
+
+### Durable session preparation and inventory (#1202)
+
+The launcher refuses an existing output directory. `events.jsonl` is appended and
+fsynced as setup, load samples and attempts happen; each event has a sequence and
+timestamps. An advisory OS lock identifies the live session owner. Session/queue
+and calibration artifacts are created once and bound by hashes before dispatch.
+A completed but contaminated or inconsistent main calibration is archived and
+rejected before optimizer dispatch. Per-process calibration replies and resource
+receipts are saved even when another calibration process fails.
+
+Attempt creation precedes its idle gate, dispatch precedes process launch, and the
+terminal event binds the saved trace hash. Existing trace/log paths are refused.
+Worker exceptions remain in scheduler results. A torn last journal line is retained
+as an incomplete tail, never interpreted as a finished attempt. Monitoring errors
+cannot establish uncontaminated work. Atomic writes protect owned JSON snapshots.
+
+A read-only inventory can be exported with:
+
+```sh
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/recovery_inventory.py --source SESSION_DIR --out NEW_INVENTORY.json
+```
+
+It verifies bound metadata and completed traces, preserves the earliest eligible
+completion (including ordinary scientific failure/censoring), and lists never-started,
+deferred, contaminated and interrupted work. It does not resume or relaunch anything.
+`recovery-policy-proposal.md` states the proposed disposition for external interruption;
+that rule still needs independent review before main execution. Owned-process cleanup,
+launcher lifetime receipts, orphan verification and linked recovery execution remain
+required. The current code is not a completed recovery workflow or main-run approval.

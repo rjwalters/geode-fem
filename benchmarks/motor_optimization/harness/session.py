@@ -61,6 +61,7 @@ from linalg_info import fingerprint as linalg_fingerprint  # noqa: E402
 from run import thread_env  # noqa: E402
 import resource_usage  # noqa: E402
 import main_schedule  # noqa: E402
+import session_journal  # noqa: E402
 
 ROOT = HERE.parents[2]
 OPT = ROOT / "benchmarks/motor_optimization"
@@ -138,7 +139,7 @@ def provenance(binary):
 
 
 def write(path, obj):
-    Path(path).write_text(json.dumps(obj, indent=1) + "\n")
+    session_journal.write_atomic(path, obj)
 
 
 def evaluator_args(binary, space, train_mesh, val_mesh, train_level, val_level, anchor, out):
@@ -206,20 +207,26 @@ def calibrate(binary, train_mesh, val_mesh, tl, vl, anchor, out, procs, common_u
     resources_before = resource_usage.snapshot()
 
     def one(k, tag):
-        ev = Evaluator(evaluator_args(binary, "a", train_mesh, val_mesh, tl, vl, anchor,
-                                      out / f"calibration.meshes/{tag}{k}"),
-                       env=thread_env(), stderr_path=out / "calibration.stderr.log")
-        result = None
+        ev = result = failure = None
         try:
+            ev = Evaluator(evaluator_args(binary, "a", train_mesh, val_mesh, tl, vl, anchor,
+                                          out / f"calibration.meshes/{tag}{k}"),
+                           env=thread_env(), stderr_path=out / "calibration.stderr.log")
             result = ev.request("calibrate_unit", repeats=3)
             return result
+        except BaseException as error:
+            failure = error
+            raise
         finally:
-            ev.close()
+            if ev is not None:
+                ev.close()
+            measured = (ev.resources() if ev is not None else
+                        getattr(failure, "evaluator_resources", None))
             if result is not None:
-                # Each calibration has a separate evaluator; the launcher
-                # has concurrent threads, so its CHILDREN delta cannot be
-                # attributed to this calibration.
-                result["process_resources"] = ev.resources()
+                result["process_resources"] = measured
+            session_journal.freeze(out / f"calibration_request_{tag}{k}.json", {
+                "tag": tag, "index": k, "reply": result, "process_resources": measured,
+                "error": f"{type(failure).__name__}: {failure}" if failure is not None else None})
 
     single = one(0, "single")
     if not single.get("ok"):
@@ -262,17 +269,25 @@ class LoadMonitor:
     stamped with the wall clock (`time.time`, comparable with the run
     traces' `in_run_start_time` / `in_run_end_time`)."""
 
-    def __init__(self, interval=5.0, clock=time.time, load=os.getloadavg):
+    def __init__(self, interval=5.0, clock=time.time, load=os.getloadavg, journal=None):
         import threading
         self.interval, self.clock, self.load = interval, clock, load
         self.samples = []
+        self.journal, self.error = journal, None
         self._stop = threading.Event()
         self._t = threading.Thread(target=self._run, daemon=True)
 
     def _run(self):
-        while not self._stop.is_set():
-            self.samples.append((self.clock(), self.load()[0]))
-            self._stop.wait(self.interval)
+        try:
+            while not self._stop.is_set():
+                sample = (self.clock(), self.load()[0])
+                self.samples.append(sample)
+                if self.journal is not None:
+                    self.journal.emit("load_sample", sampled_time=sample[0], load_one_minute=sample[1])
+                self._stop.wait(self.interval)
+        except BaseException as error:
+            self.error = error
+            self._stop.set()
 
     def start(self):
         self._t.start()
@@ -352,6 +367,25 @@ def gate(ctx, wait=wait_for_idle):
 
 
 def run_job(job, ctx, suffix="", wait=wait_for_idle, spawn=subprocess.run):
+    """Journal each attempt before its gate, and each terminal disposition."""
+    journal = ctx.get("journal")
+    attempt = (journal.emit("attempt_created", job=job, suffix=suffix)
+               if journal is not None else None)
+    local = dict(ctx, attempt_id=attempt)
+    try:
+        result = _run_job(job, local, suffix, wait, spawn)
+        if attempt is not None:
+            result["attempt_id"] = attempt
+            journal.emit("attempt_finished", attempt_id=attempt, result=result)
+        return result
+    except BaseException as error:
+        if attempt is not None:
+            journal.emit("attempt_failed", attempt_id=attempt,
+                         error=f"{type(error).__name__}: {error}")
+        raise
+
+
+def _run_job(job, ctx, suffix="", wait=wait_for_idle, spawn=subprocess.run):
     """One job under the host rule. If the idle gate times out the run is
     **not started**: the record is `status: deferred` and the caller
     requeues it. Otherwise the run is started; contamination is judged on
@@ -361,18 +395,28 @@ def run_job(job, ctx, suffix="", wait=wait_for_idle, spawn=subprocess.run):
     out = ctx["out"]
     name = job["name"] + suffix
     trace = out / f"{name}.json"
+    log_path = out / "logs" / f"{name}.log"
+    if trace.exists() or log_path.exists():
+        raise FileExistsError(f"refusing to overwrite attempt {name}")
+    if getattr(ctx["monitor"], "error", None) is not None:
+        raise RuntimeError("load monitoring failed; refusing dispatch")
     passed, waited, load0 = gate(ctx, wait)
     base = dict(job, name=name, job_name=job["name"], pre_run_load=load0,
                 pre_run_wait_s=waited)
     if not passed:
         return dict(base, status="deferred", exit=None, host_contaminated=None)
+    if getattr(ctx["monitor"], "error", None) is not None:
+        raise RuntimeError("load monitoring failed during gate; refusing dispatch")
     cmd = [sys.executable, "-I", str(HERE / "run.py"),
            "--session", str(out / job.get("session_file", "session.json")),
            "--method", job["method"], "--space", job["space"], "--start", job["start"],
            "--repeat", str(job["repeat"]), "--position", str(job["position"]),
            "--out", str(trace)]
     t = time.time()
-    with open(out / "logs" / f"{name}.log", "w") as log:
+    if ctx.get("journal") is not None:
+        ctx["journal"].emit("attempt_dispatched", attempt_id=ctx["attempt_id"],
+                            command=cmd, trace=trace.name, log=str(log_path.relative_to(out)))
+    with open(log_path, "x") as log:
         rc = spawn(cmd, stdout=log, stderr=subprocess.STDOUT, env=thread_env()).returncode
     t1 = time.time()
     res = json.loads(trace.read_text()) if trace.exists() else {}
@@ -380,18 +424,24 @@ def run_job(job, ctx, suffix="", wait=wait_for_idle, spawn=subprocess.run):
     r1 = res.get("in_run_end_time", t1)
     samples = list(ctx["monitor"].samples)
     bad, longest = contaminated(samples, r0, r1, ctx["procs"])
+    monitor_error = getattr(ctx["monitor"], "error", None)
+    if monitor_error is not None:
+        bad = None  # Unknown load coverage cannot establish uncontaminated work.
     diag = load_summary(samples, r1, res.get("post_run_end_time", t1))
     if trace.exists():
         res.update(host_contaminated=bad, pre_run_load=load0, pre_run_wait_s=waited,
                    host_gate=ctx["gate"], longest_overload_s=longest,
+                   monitor_error=str(monitor_error) if monitor_error else None,
                    in_run_load=load_summary(samples, r0, r1), diagnostic_load=diag)
-        trace.write_text(json.dumps(res, indent=1, default=float) + "\n")
+        write(trace, res)
     return dict(base, status="ran", exit=rc, wall_s=t1 - t, trace=trace.name,
+                trace_sha256=sha256(trace) if trace.exists() else None,
                 stop_reason=res.get("stop_reason"),
                 total_fe=(res.get("ledger") or {}).get("total_fe"),
                 in_run_wall_s=res.get("in_run_wall_seconds"),
                 post_run_wall_s=res.get("post_run_wall_seconds"),
                 host_contaminated=bad, longest_overload_s=longest, diagnostic_load=diag,
+                monitor_error=str(monitor_error) if monitor_error else None,
                 attained={k: v["attained"] for k, v in res.get("attainment", {}).items()})
 
 
@@ -412,7 +462,11 @@ def schedule(jobs, ctx, max_deferrals, suffix="", run=run_job):
                 j, n = q.get_nowait()
             except queue.Empty:
                 return
-            r = run(j, ctx, suffix)
+            try:
+                r = run(j, ctx, suffix)
+            except Exception as error:
+                r = dict(j, job_name=j["name"], status="error", exit=None,
+                         host_contaminated=None, error=f"{type(error).__name__}: {error}")
             r["deferrals"] = n
             with lock:
                 out.append(r)
@@ -444,8 +498,26 @@ def gated_calibration(ctx, fn, max_deferrals, wait=wait_for_idle, clock=time.tim
     bad, longest = contaminated(list(ctx["monitor"].samples), t0, t1, ctx["procs"])
     cal["host"] = {"gate": ctx["gate"], "pre_run_load": load0, "pre_run_wait_s": waited,
                    "deferrals": n, "host_contaminated": bad, "longest_overload_s": longest,
+                   "monitor_error": str(ctx["monitor"].error) if getattr(ctx["monitor"], "error", None) else None,
                    "load": load_summary(list(ctx["monitor"].samples), t0, t1)}
     return cal
+
+
+def accept_calibration(cal, out, name, main, journal=None):
+    """Archive even a rejected calibration before deciding whether to dispatch."""
+    accepted = (not main or (cal.get("host", {}).get("gate") is True
+                and cal["host"].get("host_contaminated") is False
+                and cal["host"].get("monitor_error") is None
+                and cal.get("deterministic") is True
+                and cal.get("anchor_agrees_4ulp") is True
+                and cal.get("space_b_theta0_train_agrees_bitwise") is True))
+    evidence = session_journal.freeze(Path(out) / name,
+                                     {"accepted_for_dispatch": accepted, "calibration": cal})
+    if journal is not None:
+        journal.emit("calibration_completed", evidence=evidence, accepted_for_dispatch=accepted)
+    if not accepted:
+        raise SystemExit("calibration rejected before dispatch; raw evidence retained")
+    return evidence
 
 
 def drill_start(binary, out, starts_path, bisections=30):
@@ -522,155 +594,191 @@ def main(argv=None):
     if not a.binary.exists():
         raise SystemExit(f"{a.binary}: build it with cargo build -p geode-core --release "
                          "--example icem_harness_eval")
-    out.mkdir(parents=True, exist_ok=True)
-    before = host_record()
-    prov = provenance(a.binary)
-    label = "smoke" if a.smoke else "main"
-    starts_path = HERE / "starts.json"
-    if a.smoke:
-        tl = vl = 0
-        train_mesh = val_mesh = MESHES / "icem_initial_sector_L0.msh"
-        budget = a.budget_fe or 20.0
-        starts, repeats = ("theta0", "lhs1"), 1
-        ev = Evaluator(evaluator_args(a.binary, "a", train_mesh, val_mesh, 0, 0, None,
-                                      out / "anchor.meshes"), env=thread_env())
-        try:
-            r = ev.request("anchor")
-        finally:
-            ev.close()
-        if not r.get("ok"):
-            raise SystemExit(f"smoke anchor: {r.get('error')}")
-        anchor = out / "anchor_L0_smoke.json"
-        write(anchor, {"issue": 1201, "label": "smoke",
-                       "note": "L0 anchor for the smoke session only; not the registered "
-                               "anchor (benchmarks/motor_optimization/anchor.json)",
-                       "anchor": r["anchor"], "validation": r["validation"],
-                       "process_resources": ev.resources()})
-        # The smoke's starts: the committed ones and the boundary drill.
-        st = json.loads(starts_path.read_text())
-        st["starts"]["drill"] = drill_start(a.binary, out, starts_path)
-        st["label"] = "smoke"
-        starts_path = out / "starts_smoke.json"
-        write(starts_path, st)
-    else:
-        tl, vl = 1, 2
-        train_mesh = MESHES / "icem_initial_sector_L1.msh"
-        val_mesh = MESHES / "icem_initial_sector_L2.msh"
-        anchor = OPT / "anchor.json"
-        budget = a.budget_fe or 120.0
-        starts, repeats = STARTS, 2
-        if budget != 120.0:
-            raise SystemExit("the main budget is 120 FE (amendment 7 §4)")
-    preflight = None
-    if not a.smoke:
-        from start_preflight import verify
-        preflight = verify(a.binary, starts_path,
-                           {level: MESHES / f"icem_initial_sector_L{level}.msh" for level in (0, 1)},
-                           out / "start_preflight.json")
-        if preflight["status"] != "PASS":
-            raise SystemExit("frozen-start preflight failed; no calibration or main jobs launched")
-    meshes = {"train": {"file": str(train_mesh), "level": tl, "sha256": sha256(train_mesh)},
-              "validation": {"file": str(val_mesh), "level": vl, "sha256": sha256(val_mesh)},
-              "anchor": {"file": str(anchor), "sha256": sha256(anchor)},
-              "starts": {"file": str(starts_path), "sha256": sha256(starts_path)}}
-    (out / "logs").mkdir(exist_ok=True)
-    monitor = LoadMonitor(interval=a.load_interval).start()
-    ctx = {"out": out, "procs": a.procs, "max_wait": a.max_wait, "interval": a.load_interval,
-           "monitor": monitor, "gate": a.host_gate == "on"}
-    cal = gated_calibration(ctx, lambda: calibrate(a.binary, train_mesh, val_mesh, tl, vl,
-                                                   anchor, out, a.procs), a.max_deferrals)
-    session_id = f"{label}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
-    primary = f"L{tl}"
-    models = {primary: {"train_mesh": str(train_mesh), "train_level": tl,
-                        "train_mesh_sha256": sha256(train_mesh),
-                        "theta0_train": cal["theta0_train"], "weights": cal["weights"]}}
-    secondary_cal = None
-    if not a.smoke:
-        l0_mesh = MESHES / "icem_initial_sector_L0.msh"
-        secondary_out = out / "calibration_L0"
-        secondary_out.mkdir()
-        secondary_cal = gated_calibration(ctx, lambda: calibrate(
-            a.binary, l0_mesh, val_mesh, 0, vl, anchor, secondary_out, a.procs,
-            common_unit=cal["unit_seconds"]), a.max_deferrals)
-        models["L0"] = {"train_mesh": str(l0_mesh), "train_level": 0,
-                        "train_mesh_sha256": sha256(l0_mesh),
-                        "theta0_train": secondary_cal["theta0_train"],
-                        "weights": secondary_cal["weights"]}
-    session = {"issue": 1201, "label": label, "session_id": session_id,
-               "budget_fe": budget, "checkpoint_fe": 60.0, "unit_seconds": cal["unit_seconds"],
-               "weights": cal["weights"], "theta0_train": cal["theta0_train"],
-               "models": models, "primary_model": primary,
-               "evaluator": {"binary": str(a.binary), "train_mesh": str(train_mesh),
-                             "val_mesh": str(val_mesh), "anchor": str(anchor),
-                             "train_level": tl, "val_level": vl},
-               "starts": str(starts_path), "procs": a.procs,
-               "linear_algebra": prov["linear_algebra"]}
-    write(out / "session.json", session)
-    jobs = (build_jobs(starts, SPACES, repeats) if a.smoke else
-            main_schedule.build_jobs({s["letter"]: m for m, s in METHOD_SPECS.items()}))
-    if a.smoke:
-        # The drills (module docs).
-        for m in method_order(1):
-            jobs.append({"position": len(jobs), "repeat": 1, "space": "a", "start": "drill",
-                         "method": m, "order_index": 0, "name": f"{m}_a_drill_r1"})
-        # Injected mesher failures (smoke only): every attempt (the
-        # mesh-infeasible path), or the first only (repair succeeds at
-        # attempt 1). Space B from lhs1, where remeshes occur.
-        for tag, k in (("meshdrill", 99), ("repairdrill", 1)):
-            drill = dict(session, evaluator=dict(session["evaluator"],
-                                                 extra_args=["--drill-mesher-fails", str(k)]),
-                         label="smoke", drill=f"the first {k} mesher attempts fail")
-            write(out / f"session_{tag}.json", drill)
-            for m in method_order(1):
-                jobs.append({"position": len(jobs), "repeat": 1, "space": "b", "start": "lhs1",
-                             "method": m, "order_index": 0, "name": f"{m}_b_lhs1_{tag}_r1",
-                             "session_file": f"session_{tag}.json"})
+    if a.procs < 1 or a.max_deferrals < 1 or a.load_interval <= 0 or a.max_wait < 0:
+        raise SystemExit("positive workers/deferrals/interval and nonnegative wait are required")
+    journal = session_journal.Journal(out, {"argv": list(argv) if argv is not None else sys.argv[1:],
+                                         "label": "smoke" if a.smoke else "main", "procs": a.procs})
+    monitor = None
     try:
-        results = schedule(jobs, ctx, a.max_deferrals)
-        # Contaminated runs are re-run at the end of the session (amendment
-        # 7 §6); both records are kept. With the gate off (smoke) nothing is
-        # re-run: contamination is only recorded.
-        again = [j for j in jobs
-                 if any(r["job_name"] == j["name"] and r["status"] == "ran"
-                        and r["host_contaminated"] for r in results)]
-        if ctx["gate"] and again:
-            results += schedule(again, ctx, a.max_deferrals, suffix="_rerun1")
+        before = host_record()
+        prov = provenance(a.binary)
+        journal.emit("setup_started", host=before, provenance=prov)
+        label = "smoke" if a.smoke else "main"
+        starts_path = HERE / "starts.json"
         if a.smoke:
-            # The gate drill (smoke): one job through the real gate, no wait;
-            # on a loaded host it is deferred and never started.
-            gctx = dict(ctx, gate=True, max_wait=0.0)
-            gate_drill = schedule([dict(jobs[0], name=jobs[0]["name"] + "_gatedrill")],
-                                  gctx, 2)
-            for r in gate_drill:
-                r["gate_drill"] = True
+            tl = vl = 0
+            train_mesh = val_mesh = MESHES / "icem_initial_sector_L0.msh"
+            budget = a.budget_fe or 20.0
+            starts, repeats = ("theta0", "lhs1"), 1
+            ev = Evaluator(evaluator_args(a.binary, "a", train_mesh, val_mesh, 0, 0, None,
+                                          out / "anchor.meshes"), env=thread_env())
+            try:
+                r = ev.request("anchor")
+            finally:
+                ev.close()
+            if not r.get("ok"):
+                raise SystemExit(f"smoke anchor: {r.get('error')}")
+            anchor = out / "anchor_L0_smoke.json"
+            write(anchor, {"issue": 1201, "label": "smoke",
+                           "note": "L0 anchor for the smoke session only; not the registered "
+                                   "anchor (benchmarks/motor_optimization/anchor.json)",
+                           "anchor": r["anchor"], "validation": r["validation"],
+                           "process_resources": ev.resources()})
+            # The smoke's starts: the committed ones and the boundary drill.
+            st = json.loads(starts_path.read_text())
+            st["starts"]["drill"] = drill_start(a.binary, out, starts_path)
+            st["label"] = "smoke"
+            starts_path = out / "starts_smoke.json"
+            write(starts_path, st)
         else:
-            gate_drill = []
+            tl, vl = 1, 2
+            train_mesh = MESHES / "icem_initial_sector_L1.msh"
+            val_mesh = MESHES / "icem_initial_sector_L2.msh"
+            anchor = OPT / "anchor.json"
+            budget = a.budget_fe or 120.0
+            starts, repeats = STARTS, 2
+            if budget != 120.0:
+                raise SystemExit("the main budget is 120 FE (amendment 7 §4)")
+        preflight = None
+        if not a.smoke:
+            from start_preflight import verify
+            preflight = verify(a.binary, starts_path,
+                               {level: MESHES / f"icem_initial_sector_L{level}.msh" for level in (0, 1)},
+                               out / "start_preflight.json")
+            if preflight["status"] != "PASS":
+                raise SystemExit("frozen-start preflight failed; no calibration or main jobs launched")
+        meshes = {"train": {"file": str(train_mesh), "level": tl, "sha256": sha256(train_mesh)},
+                  "validation": {"file": str(val_mesh), "level": vl, "sha256": sha256(val_mesh)},
+                  "anchor": {"file": str(anchor), "sha256": sha256(anchor)},
+                  "starts": {"file": str(starts_path), "sha256": sha256(starts_path)}}
+        (out / "logs").mkdir(exist_ok=True)
+        monitor = LoadMonitor(interval=a.load_interval, journal=journal).start()
+        ctx = {"out": out, "procs": a.procs, "max_wait": a.max_wait, "interval": a.load_interval,
+               "monitor": monitor, "gate": a.host_gate == "on", "journal": journal}
+        cal = gated_calibration(ctx, lambda: calibrate(a.binary, train_mesh, val_mesh, tl, vl,
+                                                       anchor, out, a.procs), a.max_deferrals)
+        accept_calibration(cal, out, "calibration_primary.json", not a.smoke, journal)
+        session_id = f"{label}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
+        primary = f"L{tl}"
+        models = {primary: {"train_mesh": str(train_mesh), "train_level": tl,
+                            "train_mesh_sha256": sha256(train_mesh),
+                            "theta0_train": cal["theta0_train"], "weights": cal["weights"]}}
+        secondary_cal = None
+        if not a.smoke:
+            l0_mesh = MESHES / "icem_initial_sector_L0.msh"
+            secondary_out = out / "calibration_L0"
+            secondary_out.mkdir()
+            secondary_cal = gated_calibration(ctx, lambda: calibrate(
+                a.binary, l0_mesh, val_mesh, 0, vl, anchor, secondary_out, a.procs,
+                common_unit=cal["unit_seconds"]), a.max_deferrals)
+            accept_calibration(secondary_cal, out, "calibration_secondary.json", True, journal)
+            models["L0"] = {"train_mesh": str(l0_mesh), "train_level": 0,
+                            "train_mesh_sha256": sha256(l0_mesh),
+                            "theta0_train": secondary_cal["theta0_train"],
+                            "weights": secondary_cal["weights"]}
+        session = {"issue": 1201, "label": label, "session_id": session_id,
+                   "budget_fe": budget, "checkpoint_fe": 60.0, "unit_seconds": cal["unit_seconds"],
+                   "weights": cal["weights"], "theta0_train": cal["theta0_train"],
+                   "models": models, "primary_model": primary,
+                   "evaluator": {"binary": str(a.binary), "train_mesh": str(train_mesh),
+                                 "val_mesh": str(val_mesh), "anchor": str(anchor),
+                                 "train_level": tl, "val_level": vl},
+                   "starts": str(starts_path), "procs": a.procs,
+                   "linear_algebra": prov["linear_algebra"]}
+        session_journal.freeze(out / "session.json", session)
+        jobs = (build_jobs(starts, SPACES, repeats) if a.smoke else
+                main_schedule.build_jobs({s["letter"]: m for m, s in METHOD_SPECS.items()}))
+        if a.smoke:
+            # The drills (module docs).
+            for m in method_order(1):
+                jobs.append({"position": len(jobs), "repeat": 1, "space": "a", "start": "drill",
+                             "method": m, "order_index": 0, "name": f"{m}_a_drill_r1"})
+            # Injected mesher failures (smoke only): every attempt (the
+            # mesh-infeasible path), or the first only (repair succeeds at
+            # attempt 1). Space B from lhs1, where remeshes occur.
+            for tag, k in (("meshdrill", 99), ("repairdrill", 1)):
+                drill = dict(session, evaluator=dict(session["evaluator"],
+                                                     extra_args=["--drill-mesher-fails", str(k)]),
+                             label="smoke", drill=f"the first {k} mesher attempts fail")
+                write(out / f"session_{tag}.json", drill)
+                for m in method_order(1):
+                    jobs.append({"position": len(jobs), "repeat": 1, "space": "b", "start": "lhs1",
+                                 "method": m, "order_index": 0, "name": f"{m}_b_lhs1_{tag}_r1",
+                                 "session_file": f"session_{tag}.json"})
+        session_journal.freeze(out / "queue.json", {"jobs": jobs})
+        pinned = ["session.json", "queue.json", "calibration_primary.json"]
+        if secondary_cal is not None:
+            pinned.append("calibration_secondary.json")
+        if preflight is not None:
+            pinned.append("start_preflight.json")
+        meshes["training_models"] = {key: {"file": m["train_mesh"], "level": m["train_level"],
+                                           "sha256": m["train_mesh_sha256"]} for key, m in models.items()}
+        session_journal.freeze(out / "bindings.json", {
+            "files": {name: sha256(out / name) for name in pinned},
+            "provenance": prov, "meshes": meshes, "host": before,
+            "procs": a.procs, "unit_seconds": cal["unit_seconds"]})
+        journal.emit("session_ready", bindings_sha256=sha256(out / "bindings.json"))
+        try:
+            results = schedule(jobs, ctx, a.max_deferrals)
+            # Contaminated runs are re-run at the end of the session (amendment
+            # 7 §6); both records are kept. With the gate off (smoke) nothing is
+            # re-run: contamination is only recorded.
+            again = [j for j in jobs
+                     if any(r["job_name"] == j["name"] and r["status"] == "ran"
+                            and r["host_contaminated"] for r in results)]
+            if ctx["gate"] and again:
+                results += schedule(again, ctx, a.max_deferrals, suffix="_rerun1")
+            if a.smoke:
+                # The gate drill (smoke): one job through the real gate, no wait;
+                # on a loaded host it is deferred and never started.
+                gctx = dict(ctx, gate=True, max_wait=0.0)
+                gate_drill = schedule([dict(jobs[0], name=jobs[0]["name"] + "_gatedrill")],
+                                      gctx, 2)
+                for r in gate_drill:
+                    r["gate_drill"] = True
+            else:
+                gate_drill = []
+        finally:
+            monitor.stop()
+        after = host_record()
+        host_idle = session_host_idle(results) and ctx["gate"] and monitor.error is None \
+            and not cal["host"]["host_contaminated"] \
+            and not (secondary_cal and secondary_cal["host"]["host_contaminated"])
+        unresolved = [j["name"] for j in jobs if not any(
+            r["job_name"] == j["name"] and r["status"] == "ran" and r["exit"] == 0
+            and (not ctx["gate"] or r["host_contaminated"] is False) for r in results)]
+        complete = not unresolved and monitor.error is None
+        manifest = {"issue": 1201, "label": label, "session_id": session_id,
+                    "complete": complete, "unresolved_jobs": unresolved,
+                    "monitor_error": str(monitor.error) if monitor.error else None,
+                    "preregistration": "#1185 with amendments 1-8 (amendment 7 revision 1 with "
+                                       "the adoption corrections)",
+                    "method_labels": METHOD_LABELS, "method_specs": METHOD_SPECS,
+                    "host_before": before, "host_after": after, "host_idle": host_idle,
+                    "host_rule": {"gate": ctx["gate"], "pre_run_max_load": a.procs + 1,
+                                  "max_wait_s": a.max_wait, "max_deferrals": a.max_deferrals,
+                                  "calibration": cal["host"],
+                                  "contamination_load": CONTAMINATION_FACTOR * a.procs,
+                                  "contamination_seconds": CONTAMINATION_SECONDS,
+                                  "load_samples": monitor.samples},
+                    "procs": a.procs, "provenance": prov, "meshes": meshes, "calibration": cal,
+                    "secondary_calibration": secondary_cal, "start_preflight": preflight,
+                    "unit_seconds": cal["unit_seconds"], "budget_fe": budget, "jobs": results,
+                    "gate_drill": gate_drill}
+        write(out / "manifest.json", manifest)
+        journal.emit("session_finished", manifest_sha256=sha256(out / "manifest.json"), complete=complete)
+        for r in results:
+            print(f"{r['name']}: {r['status']} exit {r['exit']} {r.get('stop_reason')} "
+                  f"{r.get('total_fe')} FE {r.get('attained')} contaminated {r['host_contaminated']}")
+        return 0 if complete else 1
+    except BaseException as error:
+        journal.emit("session_failed", error=f"{type(error).__name__}: {error}")
+        raise
     finally:
-        monitor.stop()
-    after = host_record()
-    host_idle = session_host_idle(results) and ctx["gate"] \
-        and not cal["host"]["host_contaminated"] \
-        and not (secondary_cal and secondary_cal["host"]["host_contaminated"])
-    manifest = {"issue": 1201, "label": label, "session_id": session_id,
-                "preregistration": "#1185 with amendments 1-8 (amendment 7 revision 1 with "
-                                   "the adoption corrections)",
-                "method_labels": METHOD_LABELS, "method_specs": METHOD_SPECS,
-                "host_before": before, "host_after": after, "host_idle": host_idle,
-                "host_rule": {"gate": ctx["gate"], "pre_run_max_load": a.procs + 1,
-                              "max_wait_s": a.max_wait, "max_deferrals": a.max_deferrals,
-                              "calibration": cal["host"],
-                              "contamination_load": CONTAMINATION_FACTOR * a.procs,
-                              "contamination_seconds": CONTAMINATION_SECONDS,
-                              "load_samples": monitor.samples},
-                "procs": a.procs, "provenance": prov, "meshes": meshes, "calibration": cal,
-                "secondary_calibration": secondary_cal, "start_preflight": preflight,
-                "unit_seconds": cal["unit_seconds"], "budget_fe": budget, "jobs": results,
-                "gate_drill": gate_drill}
-    write(out / "manifest.json", manifest)
-    for r in results:
-        print(f"{r['name']}: {r['status']} exit {r['exit']} {r.get('stop_reason')} "
-              f"{r.get('total_fe')} FE {r.get('attained')} contaminated {r['host_contaminated']}")
-    return 0 if all(r["exit"] == 0 for r in results if r["status"] == "ran") else 1
+        if monitor is not None:
+            monitor.stop()
+        journal.close()
+
 
 
 if __name__ == "__main__":
