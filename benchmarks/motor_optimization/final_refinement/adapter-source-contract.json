@@ -26,5 +26,6 @@
     "benchmarks/motor_optimization/harness/starts.json": "d4840d876b35e8dffe775c109e3d195a2fa3d980224738213b9d22c01128f759"
   },
   "scope": "Read-only archive/recovery reconciliation, recorded validation checks and registered parameter/settings mapping; source/runtime/capture authentication, geometry reconstruction and native refinement remain pending; no main result",
-  "candidate_commit": "89d0bf9efa901e9a103d551570642330145e44fd"
+  "candidate_commit": "89d0bf9efa901e9a103d551570642330145e44fd",
+  "source_pin_scope": "These hashes bind the reviewed main-study producer at commit, not the later post-run executor. The latter adds repair-history observation to icem_experiment2.rs and needs its own build/source receipt."
 }

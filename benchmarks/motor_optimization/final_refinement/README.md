@@ -78,7 +78,10 @@ Nonzero rotor offsets alone do not exclude an otherwise supported check.
 
 Dependency #1201 merged at `5c998bda`; #1202 five-method integration merged
 through PR #1206 at `9486a9da`. This branch incorporates that reviewed merge;
-all 22 adapter source bindings match the previously tested candidate byte for byte.
+all 22 adapter source bindings matched the previously tested candidate byte for byte
+at reconciliation. The native post-run executor subsequently adds observation-only
+repair-history retention to its copy of the validator; it does not change the
+source pin of the main-study producer.
 The complete archive adapter, L3/g40/tight/shifted/conforming runner, resource
 accounting, and a real wiring smoke remain pending.
 This module alone does not complete #1203 or validate any scientific claim.
@@ -342,3 +345,55 @@ pending. Run the local checks with:
 python3 -I benchmarks/motor_optimization/final_refinement/test_design_evidence.py
 python3 -I benchmarks/motor_optimization/final_refinement/design_mutations.py
 ```
+
+### Native post-run executor
+
+`icem_final_refinement` executes one check of one exact design per process:
+
+```sh
+cargo build -p geode-core --example icem_final_refinement --release
+./target/release/examples/icem_final_refinement --request request.json --mesh theta0_L2.msh --out NEW_DIRECTORY
+```
+
+Use the worktree's private Cargo target directory (or its Loom-owned target).
+The output directory must not already exist. Each attempt retains the request,
+`result.json`, and any fresh meshes and mesher output. Scientific failures return
+exit status 2 with their result; they never select a replacement candidate.
+
+The request has exactly these fields:
+
+- `schema: "icem-final-refinement/1"`, `cost_scope: "post_run"`, `space: "a" | "b"`.
+- `check`: `primary`, `L3`, `g40`, `tight`, `shifted`, `withheld`, or `conforming`.
+- `design_key` and `base_settings_sha256`: caller-bound cohort/settings identifiers.
+- `reference_data_sha256` and `reference_mesh_sha256`: hashes of the actual input bytes.
+- `x_bits`: unsigned binary64 bit patterns of the eight or eighteen free coordinates.
+- `point_names` and `point_bits`: complete native point order and exact expanded values,
+  as emitted by `RegisteredDesigns.adapt` (`native_point_names`, `native_point_bits`).
+
+The executable independently reconstructs the full point, rejects disagreement,
+nonfinite values, out-of-box coordinates and unknown overrides, and checks the
+geometry's construction/discrete constraints and credit tolerance. It selects
+fixed registered settings, including repair and the 5-degree mesh policy.
+`shifted` starts its own 0.5, 1.5, ..., 19.5-degree solve; it does not slice g40.
+Each current starts cold and subsequent angles continue the previous solution.
+Raw waveforms, current means/variances, Newton iterations, mesh evidence and
+post-run wall/CPU/RSS measurements are retained. The main-run credit is unchanged.
+
+Harmonic checks use the supplied theta0 mesh of their level and existing
+moved/fresh policy. Conforming checks require exactly zero stator offsets and
+supported rotations, then **always** generate a new candidate mesh, even for
+theta0. Their separate fresh-mesh attempt records establish that origin; the
+validation's `mesh.kind=own` means own geometry on that newly generated mesh.
+Nonzero rotor offsets alone do not disqualify this check. An undefined conforming
+check is recorded as unavailable/model-dependent. A fresh mesh must pass policy
+before any solve.
+
+This executable does not authenticate the cohort, source revision, binary or
+runtime from caller-supplied identifiers. It also cannot infer from a mesh hash
+that a supplied harmonic base mesh was built at theta0. Those bindings and the
+closed-study capture must be verified by the complete driver. A solve error can
+lack partial waveforms; no missing current or angle is counted as completed.
+The validator also retains the completed repair history before a failed solve,
+so the preceding mesh costs and quality checks remain inspectable. Native coverage
+of the matrix, both maps, fresh-mesh branches and failures remains required
+before interpreting main-study refinement outcomes.

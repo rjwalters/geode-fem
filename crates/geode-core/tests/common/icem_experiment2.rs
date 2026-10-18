@@ -756,6 +756,8 @@ pub struct Validator<Sp: Space> {
     pub base_sha256: String,
     base: Sp::Setup,
     remesher: IcemRemesher<Sp>,
+    /// Completed repair history retained if the following solve fails.
+    last_attempts: Vec<RemeshAttempt>,
 }
 
 impl<Sp: Space> Validator<Sp> {
@@ -791,6 +793,7 @@ impl<Sp: Space> Validator<Sp> {
             theta0,
             base,
             remesher,
+            last_attempts: Vec::new(),
         })
     }
 
@@ -804,6 +807,11 @@ impl<Sp: Space> Validator<Sp> {
         &self.remesher.records
     }
 
+    /// Repair history before the latest solve, also available on solve error.
+    pub fn last_attempts(&self) -> &[RemeshAttempt] {
+        &self.last_attempts
+    }
+
     /// The validation value of `p` (module docs): on the moved θ0 mesh if
     /// it passes the policy, otherwise on a fresh mesh of `p` that passes
     /// it; always cold.
@@ -812,6 +820,7 @@ impl<Sp: Space> Validator<Sp> {
     ///
     /// [`ValidationError`]; no value is returned on error.
     pub fn validate(&mut self, p: &Sp::Point) -> Result<Validation<Sp::Point>, ValidationError> {
+        self.last_attempts.clear();
         let t0 = Instant::now();
         let geo = Sp::geo(p);
         let arkkio = self.cfg.eval.mode.is_arkkio();
@@ -921,6 +930,7 @@ impl<Sp: Space> Validator<Sp> {
         };
         let remesh_mesh_seconds: f64 = attempts.iter().map(|a| a.mesh_seconds).sum();
         let remesh_setup_seconds: f64 = attempts.iter().map(|a| a.setup_seconds).sum();
+        self.last_attempts = attempts.clone();
         let (currents, solve_seconds) = forward_on::<Sp>(&self.cfg, &fresh, p)?;
         let record = self.remesher.records.last().cloned().expect("fresh record");
         let mesh = ValidationMesh::Fresh {
