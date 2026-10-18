@@ -486,3 +486,59 @@ verification.
 ```sh
 python3 -I benchmarks/motor_optimization/final_refinement/test_conforming_results.py
 ```
+
+The new `closed_capture.py` prepares a terminal study for offline verification.
+It runs on the original host and paths, after all registered jobs and required
+recoveries/diagnostics are resolved. It uses the producer's existing isolated
+Python environment and original working directory; it launches no optimization,
+FEM, build or recovery and does not rewrite the study or producer checkout.
+
+`producer_source.py` verifies the complete declared source census against an
+independently selected reviewed Git commit and the actual clean checkout. Producer
+Python modules are compiled from those verified bytes, so stale timestamp-valid
+bytecode cannot replace them. The exporter calls the production runtime/input
+binding verifier, witnessed-build verifier, process verifier and pinned recovery
+policy. It requires all 100 registered jobs resolved, a complete final manifest,
+no active tracked owner/group, and unchanged source/runtime/input/host bindings.
+
+The exporter copies the entire original/recovery trees, build records and binary,
+frozen external inputs and its own tool sources into a new directory. Before/after
+checks retain the actual process tables and reports, source/runtime observations,
+complete file/directory censuses and reconciled policy. Every original path remains
+in the evidence; a separate mapping locates its portable copy. New/changed files or
+registry state invalidate capture. A failed copy retains `capture-failed.json` and
+never publishes `capture.json`; an existing destination is refused.
+
+The exporter and its three dependencies must be copied **outside** the frozen
+producer checkout. After the study closes, the owner can run the following from
+`/home/ubuntu/geode-fem`, with `CAPTURE_PYTHON` set to the same existing virtualenv
+interpreter and the same launch environment used by the study:
+
+```sh
+"$CAPTURE_PYTHON" -I -B /home/ubuntu/exp2-capture-tool/closed_capture.py \
+  --source /home/ubuntu/exp2-main/main \
+  --repo /home/ubuntu/geode-fem \
+  --reviewed-commit 9486a9da58beeca91968d4d3608f06b998abff45 \
+  --out /home/ubuntu/exp2-main/closed-capture
+```
+
+The tool bundle is `closed_capture.py`, `producer_source.py`, `trace_archive.py`
+and `recovery_evidence.py`. Use the existing environment directly; capture should
+not install packages or rebuild a virtualenv to make an equality check pass.
+The returned manifest SHA-256 must be retained with the observed execution receipt
+before copying the export elsewhere. The capture is a witnessed local observation,
+not a cryptographic signature or independent scientific review, and is time-bound:
+it does not authorize later modifications or prove that no future run can start.
+
+Sixteen new tests cover trusted Git/source binding, stale bytecode, source/index
+changes, complete copying without source mutation, file/registry/host changes,
+actual production process observations and the 99-versus-100-job closure boundary.
+All 148 final-refinement tests pass. Runtime/build orchestration uses explicit
+fixtures in these tests; no completed main capture has been made. A read-only
+probe of the running study's frozen inputs separately matched all 1,419 declared
+source hashes to reviewed commit `9486a9da`; this does not assert current remote
+source/runtime equality, process absence or study closure.
+
+The offline capture verifier and archive-to-selection driver remain to be joined
+to this exporter and the existing scientific/design checks. Both selection and
+launch capability flags stay false until the full workflow is verified.
