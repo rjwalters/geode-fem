@@ -860,4 +860,30 @@ It also covers normal exit, a very short child, failed launch, live owner locks,
 PID reuse, changed boot, malformed records, torn tails and missing journals. Nine
 tests and six private-copy mutations pass. A lifecycle test additionally confirms
 that a failing process journal cannot prevent constructor cleanup or discard the
-child receipt. Linked recovery and diagnostic-only execution remain unfinished.
+child receipt. Linked recovery dispatch remains unfinished.
+
+### Diagnostic-only repair worker (#1202)
+
+`diagnostic_repair.execute` runs only the post-run calculation from a hash-bound
+optimizer-stopped snapshot. It verifies completion, the pending diagnostic state,
+session identity, original calibration unit, budget, training model and anchor.
+It reconstructs the inputs used by C's prediction diagnostic or D/E's nonlinear
+diagnostic without creating an optimizer or ledger. Each call requires a new
+attempt directory; inputs, pending result, process journal and terminal result
+are retained separately from the original trace and snapshot. Diagnostic failure
+or interruption retains its own cost and never alters target attainment or the
+original outcome. Production evaluator launches have the same intent, process
+identity and exit-receipt tracking as ordinary runs.
+
+This is an internal worker, with no CLI. The linked recovery launcher is still
+required to establish job eligibility, frozen source/environment/host bindings,
+fresh process absence, exclusive attempt ownership and queue/retry policy before
+dispatch. A stopped snapshot alone is not permission to repeat a diagnostic, and
+the worker's input checks are not a substitute for those launcher checks.
+
+`test_diagnostic_repair.py` checks all three methods against their original
+diagnostic rows, refuses changed inputs, preserves an earlier failed repair,
+records preparation failures, prevents launch after a pending stop, and exercises
+SIGTERM against a real tracked evaluator and child. Six tests and five private-copy
+mutations pass, including a deliberate optimizer reentry. This is controlled
+recovery-component evidence, not main-run performance data.

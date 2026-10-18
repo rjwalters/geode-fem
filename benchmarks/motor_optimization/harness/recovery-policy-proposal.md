@@ -38,9 +38,12 @@ The paper and summary must list every replacement, its reason and evidence, and
 the original partial costs, and count the affected logical jobs. Unverified
 interruptions remain unresolved with no automatic rerun.
 
-Pending implementation: linked recovery execution, diagnostic-only recovery,
+Pending implementation: linked recovery execution and diagnostic-only dispatch,
 including fresh process-absence checks at dispatch, and execution tests of this
-adopted policy. Cooperative run/session cancellation, stopped-result snapshots,
+adopted policy. A separately recorded diagnostic-only worker now has controlled
+tests for input bindings, outcome preservation, interruption and process cleanup;
+it has no CLI and does not determine eligibility or authorize a launch.
+Cooperative run/session cancellation, stopped-result snapshots,
 sole-reaper launcher receipts and read-only process-identity/orphan verification
 now have controlled process tests. These do not by themselves authorize a
 replacement. `recovery_inventory.py` currently
