@@ -7,8 +7,13 @@
 //!   icem_harness_eval --space a|b --train-mesh FILE --val-mesh FILE
 //!                     [--anchor FILE.json] [--mesh-out DIR]
 //!                     [--train-level L] [--val-level L] [--newton default|tight]
-//!                     [--degrees 0:20]
+//!                     [--degrees 0:20] [--drill-mesher-fails K]
 //! ```
+//!
+//! * `--drill-mesher-fails K` (a labelled smoke session only): the first K
+//!   attempts of every fresh training mesh fail without running gmsh (K of
+//!   4 or more: the mesh-infeasible path; K = 1: a repair that succeeds at
+//!   attempt 1; #1201). Refused with the registered levels.
 //!
 //! * The defaults are the registered session (training h45 L1 g20,
 //!   validation h93 L2 g20). `--train-mesh` and `--val-mesh` are the θ0
@@ -46,6 +51,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use icem_experiment2::{Anchor, space_a, space_b};
+use icem_harness::resources;
 use icem_harness::{Session, SessionConfig};
 use icem_remesh::{CpSpace, MeshSource, ScalarSpace, Space};
 use serde_json::{Value, json};
@@ -57,6 +63,7 @@ struct Args {
     anchor: Option<PathBuf>,
     mesh_out: PathBuf,
     cfg: SessionConfig,
+    drill_mesher_fails: Option<usize>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -68,9 +75,16 @@ fn parse_args() -> Result<Args, String> {
         anchor: None,
         mesh_out: std::env::temp_dir().join("icem_harness_meshes"),
         cfg: SessionConfig::registered(),
+        drill_mesher_fails: None,
     };
     let mut i = 0;
     while i < argv.len() {
+        if argv[i] == "--drill-mesher-fails" {
+            let k = argv.get(i + 1).ok_or("--drill-mesher-fails needs K")?;
+            a.drill_mesher_fails = Some(k.parse::<usize>().map_err(|e| format!("{k}: {e}"))?);
+            i += 2;
+            continue;
+        }
         let v = argv
             .get(i + 1)
             .cloned()
@@ -106,6 +120,9 @@ fn parse_args() -> Result<Args, String> {
     if a.train_mesh.as_os_str().is_empty() || a.val_mesh.as_os_str().is_empty() {
         return Err("--train-mesh and --val-mesh are required".into());
     }
+    if a.drill_mesher_fails.is_some() && a.cfg.is_registered() {
+        return Err("--drill-mesher-fails is for a labelled smoke session only".into());
+    }
     Ok(a)
 }
 
@@ -119,10 +136,11 @@ fn anchor_of(path: &Option<PathBuf>) -> Result<Option<Anchor>, String> {
     Anchor::from_json(&v["anchor"]).map(Some)
 }
 
-fn serve<Sp: Space>(mut s: Session<Sp>, startup: f64) {
+fn serve<Sp: Space>(mut s: Session<Sp>, startup: f64, before: &resources::Snapshot) {
     let mut ready = s.handle(&json!({"op": "info"}));
     ready["op"] = json!("ready");
     ready["startup_s"] = json!(startup);
+    ready["resources"] = resources::interval(before, &resources::snapshot(), "startup", true, None);
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
     writeln!(out, "{ready}").unwrap();
@@ -134,10 +152,13 @@ fn serve<Sp: Space>(mut s: Session<Sp>, startup: f64) {
         }
         let reply = match serde_json::from_str::<Value>(&line) {
             Ok(req) if req["op"] == "shutdown" => {
+                let before = resources::snapshot();
                 writeln!(
                     out,
                     "{}",
-                    json!({"op": "shutdown", "ok": true, "id": req["id"]})
+                    json!({"op": "shutdown", "ok": true, "id": req["id"],
+                        "resources": resources::interval(&before, &resources::snapshot(),
+                            "shutdown", true, None)})
                 )
                 .unwrap();
                 out.flush().unwrap();
@@ -151,7 +172,7 @@ fn serve<Sp: Space>(mut s: Session<Sp>, startup: f64) {
     }
 }
 
-fn start() -> Result<(), String> {
+fn start(before: &resources::Snapshot) -> Result<(), String> {
     let t0 = Instant::now();
     faer::set_global_parallelism(faer::Par::Seq);
     let a = parse_args()?;
@@ -159,8 +180,15 @@ fn start() -> Result<(), String> {
     let train = read(&a.train_mesh)?;
     let val = read(&a.val_mesh)?;
     let anchor = anchor_of(&a.anchor)?;
-    let tsrc = MeshSource::Gmsh {
-        out_dir: a.mesh_out.join("train"),
+    let tsrc = if let Some(first) = a.drill_mesher_fails {
+        MeshSource::DrillFail {
+            first,
+            out_dir: Some(a.mesh_out.join("train")),
+        }
+    } else {
+        MeshSource::Gmsh {
+            out_dir: a.mesh_out.join("train"),
+        }
     };
     let vsrc = MeshSource::Gmsh {
         out_dir: a.mesh_out.join("validation"),
@@ -177,7 +205,7 @@ fn start() -> Result<(), String> {
                 tsrc,
                 vsrc,
             )?;
-            serve(s, t0.elapsed().as_secs_f64());
+            serve(s, t0.elapsed().as_secs_f64(), before);
         }
         "b" => {
             let s = Session::<CpSpace>::new(
@@ -190,7 +218,7 @@ fn start() -> Result<(), String> {
                 tsrc,
                 vsrc,
             )?;
-            serve(s, t0.elapsed().as_secs_f64());
+            serve(s, t0.elapsed().as_secs_f64(), before);
         }
         o => return Err(format!("--space {o:?} (a | b)")),
     }
@@ -198,8 +226,14 @@ fn start() -> Result<(), String> {
 }
 
 fn main() {
-    if let Err(e) = start() {
-        println!("{}", json!({"op": "ready", "ok": false, "error": e}));
+    let before = resources::snapshot();
+    if let Err(e) = start(&before) {
+        println!(
+            "{}",
+            json!({"op": "ready", "ok": false, "error": e,
+            "resources": resources::interval(&before, &resources::snapshot(),
+                "startup_failure", true, None)})
+        );
         std::process::exit(2);
     }
 }

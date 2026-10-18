@@ -35,9 +35,10 @@
 //! - `diagnose`: `x_bits` and `fractions` (current fractions of the peak
 //!   current). The training model and the validation model (no acceptance:
 //!   another current set is not the primary model) at those currents only,
-//!   both cold. The post-run held-out-current diagnostic of method C
-//!   (#1185 amendment 6 §3); a dedicated process runs it after the run has
-//!   stopped, so it changes nothing in the run.
+//!   both cold in a dedicated fresh process. Returns per-angle torques,
+//!   means/stds, angle/current arrays and mesh provenance for C and the
+//!   nonlinear D/E baselines (#1185 amendments 6 and 8). It runs after the
+//!   optimizer stops, so it changes nothing in the run.
 //! - `check`: whether `x` is in the box and has a geometry, and the moved
 //!   training mesh's quality and trigger (no solve).
 //!
@@ -57,6 +58,9 @@
 //! `mod icem_experiment2;` next to this module.
 #![allow(dead_code)] // each binary uses a subset
 
+#[path = "motor_resources.rs"]
+pub mod resources;
+
 use std::time::Instant;
 
 use geode_core::mesh::design_remesh::{MovingMesh, RemeshPolicy};
@@ -65,12 +69,16 @@ use serde_json::{Value, json};
 
 use crate::icem;
 use crate::icem_design::Mode;
+use geode_core::mesh::design_remesh::RemeshError;
+use geode_core::mesh::icem_domain::{CREDIT_H_TOLERANCE, Domain, TAU};
+
 use crate::icem_experiment2::{
-    Anchor, CostCategory, CostLedger, FeRule, FrozenSpace, Purpose, ValidationConfig, Validator,
-    g20, sha256_hex, validation_json,
+    Anchor, CostCategory, CostLedger, Exp2Error, FeRule, FrozenSpace, Purpose, ValidationConfig,
+    ValidationError, Validator, attempt_json, g20, sha256_hex, validation_json,
 };
 use crate::icem_remesh::{
-    EvaluatorConfig, MeshSource, RemeshEvaluator, Space, event_json, quality_json, trigger_json,
+    EvalError, EvaluatorConfig, FreshMeshRecord, MeshSource, RemeshEvaluator, Space, event_json,
+    quality_json, trigger_json,
 };
 
 /// Protocol name in every `info` reply.
@@ -94,6 +102,9 @@ pub struct SessionConfig {
     /// threshold to exercise the remesh path; the validator always uses
     /// the default (its acceptance path refuses any other).
     pub train_policy: RemeshPolicy,
+    /// The mesh repair of #1185 amendment 7 §3 on both models (registered:
+    /// on; at most 4 attempts, `icem_remesh::MESH_REPAIR_ATTEMPTS`).
+    pub mesh_repair: bool,
 }
 
 impl SessionConfig {
@@ -106,6 +117,7 @@ impl SessionConfig {
             newton_tight: false,
             val_level: 2,
             train_policy: RemeshPolicy::default(),
+            mesh_repair: true,
         }
     }
 
@@ -124,6 +136,7 @@ impl SessionConfig {
         c.degrees = self.train_degrees.clone();
         c.newton = icem::newton_config(self.newton_tight);
         c.policy = self.train_policy;
+        c.mesh_repair = self.mesh_repair;
         c
     }
 
@@ -131,13 +144,19 @@ impl SessionConfig {
     /// model at any other level.
     pub fn validation(&self) -> ValidationConfig {
         let name = match self.val_level {
-            2 => return ValidationConfig::primary(),
+            2 => "primary",
             0 => "primary-L0",
             1 => "primary-L1",
             3 => "primary-L3",
             _ => "primary-other",
         };
-        ValidationConfig::at(self.val_level, Mode::H93, g20(), name)
+        let mut v = if self.val_level == 2 {
+            ValidationConfig::primary()
+        } else {
+            ValidationConfig::at(self.val_level, Mode::H93, g20(), name)
+        };
+        v.eval.mesh_repair = self.mesh_repair;
+        v
     }
 
     /// Whether this is the registered session.
@@ -153,6 +172,7 @@ impl SessionConfig {
                 "degrees": t.degrees, "fractions": t.fractions, "i_peak0_A": t.i_peak0,
                 "newton_rel_tol": t.newton.rel_tol, "newton_max_iterations": t.newton.max_iterations,
                 "policy_min_angle_deg": t.policy.min_angle_deg,
+                "mesh_repair": t.mesh_repair,
                 "warm": format!("{:?}", t.warm)},
             "validation": self.validation().to_json(),
         })
@@ -168,6 +188,9 @@ pub struct Session<Sp: Space> {
     anchor: Option<Anchor>,
     /// SHA-256 of the training θ0 mesh.
     pub train_mesh_sha256: String,
+    /// Detail of the last failed request (attempts, fresh meshes), attached
+    /// to its error reply.
+    detail: Option<Value>,
 }
 
 /// Errors are strings in the reply; the request fails, the session lives.
@@ -222,6 +245,7 @@ impl<Sp: Space> Session<Sp> {
             validator,
             anchor,
             train_mesh_sha256: sha256_hex(train_msh),
+            detail: None,
         })
     }
 
@@ -243,11 +267,15 @@ impl<Sp: Space> Session<Sp> {
     /// Answer one request (module docs). Never panics on a bad request.
     pub fn handle(&mut self, req: &Value) -> Value {
         let t0 = Instant::now();
+        let resources_before = resources::snapshot();
         let op = req["op"].as_str().unwrap_or("").to_string();
         let mut ledger = CostLedger::new(FeRule::WallTime { unit_seconds: 1.0 }, f64::INFINITY);
         let note = req["note"].as_str().unwrap_or("").to_string();
+        self.detail = None;
         let result = match op.as_str() {
             "info" => Ok(self.info()),
+            "geometry" => self.op_geometry(req, &mut ledger),
+            "mesh_check" => self.op_mesh_check(req, &mut ledger),
             "train" => self.op_train(req, &mut ledger, &note),
             "validate" => self.op_validate(req, &mut ledger, &note),
             "calibrate_unit" => self.op_calibrate(req, &mut ledger),
@@ -269,13 +297,21 @@ impl<Sp: Space> Session<Sp> {
                 if let Some(cat) = failure_category(&op, req) {
                     ledger.charge_time(cat, uncovered, (0, 0), &format!("failed: {e}"));
                 }
-                json!({"ok": false, "error": e})
+                // The design point of a failed request is always recorded
+                // (the #1200 Judge's finding 2), with any attempt history.
+                json!({"ok": false, "error": e, "x_bits": req["x_bits"],
+                    "detail": self.detail.take()})
             }
         };
         body["id"] = req["id"].clone();
         body["op"] = json!(op);
         body["charges"] = charges_json(&ledger);
         body["handler_s"] = json!(seconds);
+        // Every child launched by a completed handler is synchronously
+        // waited for. A killed request supplies no reply; the caller must
+        // retain that interruption as incomplete accounting.
+        body["resources"] =
+            resources::interval(&resources_before, &resources::snapshot(), &op, true, None);
         body
     }
 
@@ -296,14 +332,121 @@ impl<Sp: Space> Session<Sp> {
         Ok(x)
     }
 
+    /// The geometry domain at `x` (#1185 amendment 7 §1), with the
+    /// gradients over the free components, charged to `geometry_check`.
+    fn domain_at(&self, x: &[f64], ledger: &mut CostLedger, note: &str) -> Result<Domain, String> {
+        let t = Instant::now();
+        let p = self.space.point(x).map_err(|e| e.to_string())?;
+        let d = Sp::domain(&Sp::geo(&p));
+        ledger.charge_time(
+            CostCategory::GeometryCheck,
+            t.elapsed().as_secs_f64(),
+            (0, 0),
+            note,
+        );
+        Ok(d)
+    }
+
+    /// Indices of the free components among the geometric components.
+    fn free_geo_indices(&self) -> Result<Vec<usize>, String> {
+        let g = Sp::geo_names();
+        self.space
+            .names
+            .iter()
+            .map(|n| {
+                g.iter()
+                    .position(|m| m == n)
+                    .ok_or_else(|| format!("free component {n} is not geometric"))
+            })
+            .collect()
+    }
+
+    fn op_geometry(&mut self, req: &Value, ledger: &mut CostLedger) -> OpResult {
+        let x = self.x_of(req)?;
+        let d = self.domain_at(&x, ledger, "geometry")?;
+        let idx = self.free_geo_indices()?;
+        Ok(json!({"x": x, "x_bits": x_bits(&x), "geometry": domain_json(&d, &idx)}))
+    }
+
+    /// Refuse a design that is not buildable before anything else runs:
+    /// no mesh, no solve (amendment 7 §1).
+    fn require_buildable(d: &Domain) -> Result<(), String> {
+        if d.buildable() {
+            return Ok(());
+        }
+        let failed: Vec<&str> = d
+            .guards
+            .iter()
+            .filter(|g| !g.pass)
+            .map(|g| g.spec.name.as_str())
+            .chain(d.discrete.iter().filter(|g| !g.pass).map(|g| g.name))
+            .collect();
+        Err(format!(
+            "refused: not buildable (failed guards {failed:?}; construction: {})",
+            d.construction.as_ref().err().map_or("ok", |e| e.as_str())
+        ))
+    }
+
+    /// Fresh-mesh records of the training model from index `from` on.
+    fn train_meshes_since(&mut self, from: usize) -> Vec<Value> {
+        self.train.fresh_meshes()[from..]
+            .iter()
+            .map(fresh_record_json)
+            .collect()
+    }
+
     fn op_train(&mut self, req: &Value, ledger: &mut CostLedger, note: &str) -> OpResult {
         let x = self.x_of(req)?;
         let gradient = req["gradient"].as_bool().unwrap_or(false);
         let purpose = purpose_of(req)?;
-        let ev = self
-            .space
-            .evaluate(&mut self.train, &x, gradient)
-            .map_err(|e| e.to_string())?;
+        let d = self.domain_at(&x, ledger, "buildability")?;
+        Self::require_buildable(&d)?;
+        if gradient && !d.jacobian_defined() {
+            // At a zero slot-top discriminant the geometry exists but its
+            // derivative does not (icem_domain module docs): a recorded
+            // derivative-domain rejection, no mesh, no solve, no value.
+            return Ok(
+                json!({"x": x, "x_bits": x_bits(&x), "status": "derivative_undefined",
+                "detail": "the design derivative is not defined here (zero discriminant)"}),
+            );
+        }
+        let n0 = self.train.fresh_meshes().len();
+        let t = Instant::now();
+        let ev = match self.space.evaluate(&mut self.train, &x, gradient) {
+            Ok(ev) => ev,
+            Err(Exp2Error::Eval(EvalError::Mesh(RemeshError::MeshInfeasible {
+                moved,
+                attempts,
+            }))) => {
+                // Every repair attempt failed: a candidate-dependent outcome,
+                // not a failure (amendment 7 §3). Every attempt is charged.
+                let remesh: f64 = attempts
+                    .iter()
+                    .map(|a| a.mesh_seconds + a.setup_seconds)
+                    .sum();
+                let motion = (t.elapsed().as_secs_f64() - remesh).max(0.0);
+                ledger.charge_time(CostCategory::MeshMotion, motion, (0, 0), note);
+                ledger.charge_time(CostCategory::Remesh, remesh, (0, 0), note);
+                return Ok(
+                    json!({"x": x, "x_bits": x_bits(&x), "status": "mesh_infeasible",
+                    "moved_trigger": trigger_json(&moved),
+                    "attempts": attempts.iter().map(attempt_json).collect::<Vec<_>>(),
+                    "remesh_meshes": self.train_meshes_since(n0)}),
+                );
+            }
+            Err(e) => {
+                let attempts = match &e {
+                    Exp2Error::Eval(EvalError::Mesh(
+                        RemeshError::Remesh { attempts, .. }
+                        | RemeshError::FreshInvalid { attempts, .. },
+                    )) => attempts.iter().map(attempt_json).collect::<Vec<_>>(),
+                    _ => Vec::new(),
+                };
+                let meshes = self.train_meshes_since(n0);
+                self.detail = Some(json!({"attempts": attempts, "remesh_meshes": meshes}));
+                return Err(e.to_string());
+            }
+        };
         ledger.charge_evaluation(&ev.full, purpose, note);
         let k = full_index(
             &ev.full
@@ -313,18 +456,73 @@ impl<Sp: Space> Session<Sp> {
                 .collect::<Vec<_>>(),
         )?;
         Ok(json!({
-            "x": x, "x_bits": x_bits(&x), "F": ev.f, "dF": ev.d_f,
+            "x": x, "x_bits": x_bits(&x), "status": "ok", "F": ev.f, "dF": ev.d_f,
             "fractions": ev.full.currents.iter().map(|c| c.fraction).collect::<Vec<_>>(),
             "means": ev.means, "stds": ev.full.currents.iter().map(|c| c.std).collect::<Vec<_>>(),
             "mean_full": ev.means[k],
             "dmean_full": ev.d_means.as_ref().map(|d| d[k].clone()),
             "generation": ev.full.generation,
             "event": ev.full.event.as_ref().map(event_json),
+            "attempts": ev.full.event.as_ref()
+                .map(|e| e.attempts.iter().map(attempt_json).collect::<Vec<_>>()),
+            "remesh_meshes": self.train_meshes_since(n0),
             "quality": quality_json(&ev.full.quality),
             "newton_iterations": ev.full.currents.iter().map(|c| c.newton_iterations).sum::<usize>(),
             "solves": ev.full.currents.iter().map(|c| c.torques.len()).sum::<usize>(),
             "seconds": ev.full.seconds,
         }))
+    }
+
+    /// The mesh step of a training evaluation at `x`, alone (the
+    /// mesh-feasibility test of a restoration, amendment 7 §3): move, and
+    /// remesh with repair if the policy fires. A fresh mesh that passes
+    /// becomes the training reference, as a training request at `x` would
+    /// make it.
+    fn op_mesh_check(&mut self, req: &Value, ledger: &mut CostLedger) -> OpResult {
+        let x = self.x_of(req)?;
+        let d = self.domain_at(&x, ledger, "mesh_check buildability")?;
+        Self::require_buildable(&d)?;
+        let p = self.space.point(&x).map_err(|e| e.to_string())?;
+        let n0 = self.train.fresh_meshes().len();
+        let t = Instant::now();
+        let r = self.train.prepare_mesh(&p);
+        let total = t.elapsed().as_secs_f64();
+        let (status, attempts, event) = match &r {
+            Ok(pm) => {
+                let ev = pm.event.map(|i| self.train.events()[i].clone());
+                let at = ev.as_ref().map(|e| e.attempts.clone()).unwrap_or_default();
+                ("ok", at, ev)
+            }
+            Err(RemeshError::MeshInfeasible { attempts, .. }) => {
+                ("mesh_infeasible", attempts.clone(), None)
+            }
+            Err(e) => {
+                if let RemeshError::Remesh { attempts, .. }
+                | RemeshError::FreshInvalid { attempts, .. } = e
+                {
+                    self.detail = Some(json!({
+                        "attempts": attempts.iter().map(attempt_json).collect::<Vec<_>>(),
+                        "remesh_meshes": self.train_meshes_since(n0)}));
+                }
+                return Err(e.to_string());
+            }
+        };
+        let remesh: f64 = attempts
+            .iter()
+            .map(|a| a.mesh_seconds + a.setup_seconds)
+            .sum();
+        ledger.charge_time(
+            CostCategory::MeshMotion,
+            (total - remesh).max(0.0),
+            (0, 0),
+            "mesh_check",
+        );
+        ledger.charge_time(CostCategory::Remesh, remesh, (0, 0), "mesh_check");
+        Ok(json!({"x": x, "x_bits": x_bits(&x), "status": status,
+            "generation": self.train.reference().generation(),
+            "event": event.as_ref().map(event_json),
+            "attempts": attempts.iter().map(attempt_json).collect::<Vec<_>>(),
+            "remesh_meshes": self.train_meshes_since(n0)}))
     }
 
     fn op_validate(&mut self, req: &Value, ledger: &mut CostLedger, note: &str) -> OpResult {
@@ -333,18 +531,58 @@ impl<Sp: Space> Session<Sp> {
             .clone()
             .ok_or("validate needs an anchor (--anchor)")?;
         let x = self.x_of(req)?;
+        let d = self.domain_at(&x, ledger, "buildability")?;
+        Self::require_buildable(&d)?;
         let p = self.space.point(&x).map_err(|e| e.to_string())?;
-        let (v, a) = self
-            .validator
-            .accept(&anchor, &p)
-            .map_err(|e| e.to_string())?;
+        let t = Instant::now();
+        let (v, a) = match self.validator.accept(&anchor, &p) {
+            Ok(va) => va,
+            Err(ValidationError::MeshInfeasible { attempts }) => {
+                // Mesh-infeasible on the validation mesh: no value, and no
+                // credit (the mesh policy is part of admissibility).
+                let remesh: f64 = attempts
+                    .iter()
+                    .map(|a| a.mesh_seconds + a.setup_seconds)
+                    .sum();
+                ledger.charge_time(
+                    CostCategory::MeshMotion,
+                    (t.elapsed().as_secs_f64() - remesh).max(0.0),
+                    (0, 0),
+                    note,
+                );
+                ledger.charge_time(CostCategory::Remesh, remesh, (0, 0), note);
+                return Ok(
+                    json!({"x": x, "x_bits": x_bits(&x), "status": "mesh_infeasible",
+                    "attempts": attempts.iter().map(attempt_json).collect::<Vec<_>>(),
+                    "validator_msh_sha256": self.validator.base_sha256,
+                    "anchor_msh_sha256": anchor.mesh_sha256}),
+                );
+            }
+            Err(e) => {
+                if let ValidationError::Remesh { attempts, .. }
+                | ValidationError::FreshInvalid { attempts, .. } = &e
+                {
+                    self.detail = Some(json!({
+                        "attempts": attempts.iter().map(attempt_json).collect::<Vec<_>>()}));
+                }
+                return Err(e.to_string());
+            }
+        };
+        // Target credit requires admissibility (amendment 7, correction 2),
+        // with the ruled tolerance h_i >= -1e-12 (CREDIT_H_TOLERANCE).
+        let a = a.with_admissibility(d.credit_admissible());
         ledger.charge_validation(&v, note);
         Ok(json!({
-            "x": x, "x_bits": x_bits(&x), "F_val": v.f, "mean_full": v.full_current_mean(),
+            "x": x, "x_bits": x_bits(&x), "status": "ok", "F_val": v.f,
+            "mean_full": v.full_current_mean(),
             "fractions": v.currents.iter().map(|c| c.fraction).collect::<Vec<_>>(),
             "means": v.currents.iter().map(|c| c.mean).collect::<Vec<_>>(),
             "stds": v.currents.iter().map(|c| c.std).collect::<Vec<_>>(),
             "acceptance": a.to_json(), "mesh": v.mesh.to_json(), "msh_sha256": v.mesh_sha256,
+            "admissibility": {"buildable": d.buildable(), "admissible": d.admissible(),
+                "credit_admissible": d.credit_admissible(),
+                "credit_h_tolerance": CREDIT_H_TOLERANCE,
+                "min_h": d.min_h(), "inadmissible_guards": d.inadmissible_guards()},
             "validator_msh_sha256": self.validator.base_sha256,
             "anchor_msh_sha256": anchor.mesh_sha256,
             "config": v.config.to_json(), "solves": v.solves(), "solve_seconds": v.solve_seconds,
@@ -482,13 +720,25 @@ impl<Sp: Space> Session<Sp> {
         self.validator.cfg.eval.fractions = saved;
         let va = va.map_err(|e| e.to_string())?;
         ledger.charge_validation(&va, "diagnostic validation");
+        let meshes = self.train_meshes_since(0);
+        let train_reference_sha = meshes
+            .last()
+            .and_then(|m| m["msh_sha256"].as_str())
+            .unwrap_or(&self.train_mesh_sha256);
         Ok(json!({
             "x": x, "x_bits": x_bits(&x), "fractions": fractions,
             "training": {"means": tr.means,
+                "angles_deg": self.train.cfg.degrees,
+                "torques": tr.full.currents.iter().map(|c| &c.torques).collect::<Vec<_>>(),
+                "reference_msh_sha256": train_reference_sha,
+                "mesh_hash_scope": "reference mesh before design motion; bind with x_bits",
+                "remesh_meshes": meshes,
                 "stds": tr.full.currents.iter().map(|c| c.std).collect::<Vec<_>>(),
                 "fractions": tr.full.currents.iter().map(|c| c.fraction).collect::<Vec<_>>(),
                 "generation": tr.full.generation},
             "validation": {"means": va.currents.iter().map(|c| c.mean).collect::<Vec<_>>(),
+                "angles_deg": self.validator.cfg.angles_deg,
+                "torques": va.currents.iter().map(|c| &c.torques).collect::<Vec<_>>(),
                 "stds": va.currents.iter().map(|c| c.std).collect::<Vec<_>>(),
                 "fractions": va.currents.iter().map(|c| c.fraction).collect::<Vec<_>>(),
                 "mesh": va.mesh.to_json(), "msh_sha256": va.mesh_sha256},
@@ -516,8 +766,11 @@ impl<Sp: Space> Session<Sp> {
             (0, 0),
             "check",
         );
+        let idx = self.free_geo_indices()?;
+        let domain = Sp::domain(&geo);
         Ok(json!({
             "x": x, "x_bits": x_bits(&x), "geometry_ok": curves.is_ok() && motion_error.is_none(),
+            "geometry": domain_json(&domain, &idx),
             "curves_error": curves.err(), "motion_error": motion_error,
             "quality": quality.as_ref().map(quality_json),
             "trigger": trigger.as_ref().map(trigger_json),
@@ -568,6 +821,8 @@ pub fn failure_category(op: &str, req: &Value) -> Option<CostCategory> {
         "validate" => Some(CostCategory::Validation),
         "calibrate_unit" | "anchor" | "diagnose" => Some(CostCategory::SetupCalibration),
         "check" => Some(CostCategory::MeshMotion),
+        "geometry" => Some(CostCategory::GeometryCheck),
+        "mesh_check" => Some(CostCategory::Remesh),
         _ => None,
     }
 }
@@ -669,4 +924,43 @@ pub fn latin_hypercube(seed: u64, m: usize, d: usize) -> Vec<Vec<f64>> {
         }
     }
     out
+}
+
+/// JSON of a geometry domain (#1185 amendment 7 §1) with the derivatives
+/// over the free components `idx` (indices into the geometric components).
+/// No value is ever NaN: an undefined margin is `null` with its safe `c`,
+/// `h` and a zero derivative; an undefined derivative is `null`.
+pub fn domain_json(d: &Domain, idx: &[usize]) -> Value {
+    let guards: Vec<Value> = d
+        .guards
+        .iter()
+        .map(|g| {
+            json!({"name": g.spec.name, "kind": "smooth", "unit": g.spec.unit.symbol(),
+                "strict": g.spec.strict, "requires": g.spec.requires, "source": g.spec.source,
+                "margin": g.margin, "scale": g.scale, "c": g.c, "h": g.h, "pass": g.pass,
+                "floor": TAU * g.scale,
+                "dh_dx": g.grad_h.as_ref().map(|v| idx.iter().map(|&i| v[i]).collect::<Vec<_>>())})
+        })
+        .collect();
+    json!({
+        "tau": TAU, "buildable": d.buildable(), "admissible": d.admissible(),
+        "credit_admissible": d.credit_admissible(), "credit_h_tolerance": CREDIT_H_TOLERANCE,
+        "construction_ok": d.construction.is_ok(),
+        "construction_error": d.construction.as_ref().err(),
+        "guards_pass": d.guards_pass(), "discrete_pass": d.discrete_pass(),
+        "jacobian_defined": d.jacobian_defined(), "min_h": d.min_h(),
+        "inadmissible_guards": d.inadmissible_guards(),
+        "h": d.guards.iter().map(|g| g.h).collect::<Vec<_>>(),
+        "guards": guards,
+        "discrete": d.discrete.iter().map(|g| json!({"name": g.name, "kind": "discrete",
+            "pass": g.pass, "source": g.source})).collect::<Vec<_>>(),
+    })
+}
+
+/// JSON of one fresh-mesh record: the attempt, its mesh's SHA-256 and file
+/// (the #1200 Judge's finding 1: every training remesh `.msh` is pinned).
+pub fn fresh_record_json(r: &FreshMeshRecord) -> Value {
+    json!({"name": r.name, "attempt": r.attempt, "label": r.label, "msh_sha256": r.sha256,
+        "file": r.file.as_ref().map(|f| f.display().to_string()), "seconds": r.seconds,
+        "error": r.error})
 }

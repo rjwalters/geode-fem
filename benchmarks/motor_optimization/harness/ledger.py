@@ -24,7 +24,7 @@ import math
 import time
 
 CATEGORIES = ("setup_calibration", "forward", "adjoint", "line_search", "mesh_motion",
-              "remesh", "validation", "surrogate_update", "overhead")
+              "remesh", "validation", "surrogate_update", "geometry_check", "overhead")
 
 
 class BudgetExhausted(Exception):
@@ -72,11 +72,17 @@ class Ledger:
             self.charge("overhead", gap, note=note)
 
     def time(self, category, note, fn):
-        """Run fn, charging its wall time to category (after syncing)."""
+        """Run fn, charging its wall time to category (after syncing). The
+        charges fn makes itself (requests it sends, e.g. the geometry
+        requests of C's subproblem) keep their own categories; only the
+        rest of its wall time goes to `category`, so nothing is charged
+        twice."""
         self.sync("driver")
         t = self.clock()
+        inner = self._seconds
         out = fn()
-        self.charge(category, self.clock() - t, note=note)
+        own = (self.clock() - t) - (self._seconds - inner)
+        self.charge(category, max(own, 0.0), note=note)
         return out
 
     def remaining_seconds(self):

@@ -48,6 +48,11 @@ STATOR_FRAME0 = 13.0 * math.pi / 36.0
 SLOT_PITCH = math.pi / 18.0
 
 
+#: Exit status and stderr marker of a gmsh meshing failure (issue #1201).
+MESH_FAILURE_EXIT = 3
+MESH_FAILURE_MARKER = "MESH_FAILURE"
+
+
 def require(cond, msg):
     if not cond:
         raise SystemExit(f"FAIL: {msg}")
@@ -157,7 +162,11 @@ def winding_tags(curves0):
     return out
 
 
-def build(design, level, n_base, out_dir, wtags):
+def build(design, level, n_base, out_dir, wtags, options=()):
+    """Mesh one design at one level. `options` are (name, value) gmsh
+    options set after the defaults below (the mesh-repair attempts of
+    #1185 amendment 7 §3); gmsh is initialized afresh for every mesh, so
+    nothing carries over from an earlier call."""
     import gmsh
 
     curves = {c["name"]: c for c in design["curves"]}
@@ -282,6 +291,8 @@ def build(design, level, n_base, out_dir, wtags):
     gmsh.option.setNumber("Mesh.MshFileVersion", 4.1)
     gmsh.option.setNumber("Mesh.Binary", 0)
     gmsh.option.setNumber("Mesh.SaveAll", 0)
+    for oname, value in options:
+        gmsh.option.setNumber(oname, value)
     gmsh.model.mesh.generate(2)
 
     node_tags, coords, _ = gmsh.model.mesh.getNodes()
@@ -308,6 +319,16 @@ def build(design, level, n_base, out_dir, wtags):
             "min_angle_deg": float(ang.min())}
 
 
+def parse_options(items):
+    """`NAME=VALUE` strings to (name, float) pairs; only `Mesh.` options."""
+    out = []
+    for it in items:
+        name, sep, value = it.partition("=")
+        require(sep == "=" and name.startswith("Mesh."), f"bad --option {it!r}")
+        out.append((name, float(value)))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -317,7 +338,10 @@ def main():
     ap.add_argument("--designs", nargs="*", default=None)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--summary", type=Path, default=None)
+    ap.add_argument("--option", action="append", default=[], metavar="NAME=VALUE",
+                    help="a gmsh option on top of the defaults (repeatable; issue #1201)")
     args = ap.parse_args()
+    options = parse_options(args.option)
     plan = json.loads(args.plan.read_text())
     designs = plan["designs"]
     if args.designs:
@@ -325,9 +349,25 @@ def main():
     theta0 = next(d for d in plan["designs"] if d["name"] == "theta0")
     wtags = winding_tags({c["name"]: c for c in theta0["curves"]})
     rows = []
+    import gmsh  # an import or environment error is not a meshing failure
     for level in args.levels:
         for d in designs:
-            rep = build(d, level, args.n_base, args.out, wtags)
+            try:
+                rep = build(d, level, args.n_base, args.out, wtags, options)
+            except SystemExit:
+                raise
+            except Exception as e:  # noqa: BLE001
+                # gmsh's own failure on this design (issue #1201): a
+                # distinct exit status and marker, so that the caller can
+                # tell a meshing failure (design-dependent) from an
+                # infrastructure one (any other non-zero exit).
+                try:
+                    gmsh.finalize()
+                except Exception:  # noqa: BLE001
+                    pass
+                print(f"{MESH_FAILURE_MARKER}: {d['name']} L{level}: {e}", file=sys.stderr,
+                      flush=True)
+                sys.exit(MESH_FAILURE_EXIT)
             rows.append(rep)
             print(f"{rep['file']}: nodes {rep['nodes']} tris {rep['triangles']} "
                   f"min angle {rep['min_angle_deg']:.2f} deg", flush=True)

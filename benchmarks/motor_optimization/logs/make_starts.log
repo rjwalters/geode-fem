@@ -1,0 +1,11 @@
+lhs1: index 1 (pilot index 1, kept True), 0 rejected; min h A 0.5469, B 0.5469
+lhs2: index 4 (pilot index 4, kept True), 0 rejected; min h A 0.5605, B 0.5605
+lhs3: index 0, 0 rejected; min h A 0.3273, B 0.3273
+lhs4: index 7, 7 rejected; min h A 0.5024, B 0.5024
+  rejected index 0: {"a_L0": {"trigger": {"kind": "min_angle", "min_angle_deg": 3.000806660192865, "threshold_deg": 5.0}}, "a_L1": {"trigger": {"kind": "min_angle", "min_angle_deg": 1.4576041896551182, "threshold_deg": 5.0}}, "b_L0": {"trigger": {"kind": "inverted", "min_area_ratio": -0.03475413794343358, "triangles": 
+  rejected index 1: {"a_L0": {"trigger": {"kind": "inverted", "min_area_ratio": -0.18421734701916098, "triangles": 82}}, "a_L1": {"trigger": {"kind": "inverted", "min_area_ratio": -0.29254517339575803, "triangles": 284}}, "b_L0": {"trigger": {"kind": "inverted", "min_area_ratio": -0.09368249617762477, "triangles": 4}},
+  rejected index 2: {"a_L0": {"not_buildable": "construction: no slot-top arc through the opening tangent to both flanks (discriminant -1.165e-6)", "geometry": "construction: no slot-top arc through the opening tangent to both flanks (discriminant -1.165e-6)"}, "a_L1": {"not_buildable": "construction: no slot-top arc t
+  rejected index 3: {"a_L1": {"trigger": {"kind": "min_angle", "min_angle_deg": 3.306475178837802, "threshold_deg": 5.0}}, "b_L0": {"trigger": {"kind": "min_angle", "min_angle_deg": 0.431820535666073, "threshold_deg": 5.0}}, "b_L1": {"trigger": {"kind": "inverted", "min_area_ratio": -0.08705507254100911, "triangles": 3
+  rejected index 4: {"a_L1": {"trigger": {"kind": "min_angle", "min_angle_deg": 4.714137612274544, "threshold_deg": 5.0}}, "b_L1": {"trigger": {"kind": "min_angle", "min_angle_deg": 3.154110156495392, "threshold_deg": 5.0}}}
+  rejected index 5: {"a_L0": {"trigger": {"kind": "min_angle", "min_angle_deg": 4.21742917628903, "threshold_deg": 5.0}}, "b_L1": {"trigger": {"kind": "inverted", "min_area_ratio": -0.06054779995984159, "triangles": 4}}}
+  rejected index 6: {"a_L0": {"trigger": {"kind": "inverted", "min_area_ratio": -0.17517957822962077, "triangles": 108}}, "a_L1": {"trigger": {"kind": "inverted", "min_area_ratio": -0.14267065088699604, "triangles": 276}}, "b_L1": {"trigger": {"kind": "min_angle", "min_angle_deg": 2.9468459992316913, "threshold_deg": 5

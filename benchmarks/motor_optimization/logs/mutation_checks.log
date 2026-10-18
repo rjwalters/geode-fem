@@ -35,3 +35,4 @@ anchor_mesh_check_removed: KILLED (anchor_and_accept_use_the_full_current_mean_o
 anchor_from_moved_mesh_allowed: KILLED (anchor_and_accept_use_the_full_current_mean_on_the_anchor_mesh)
 validation_sha_is_base_always: KILLED (triggering_candidate_is_validated_on_a_fresh_mesh)
 35/35 mutations killed
+exit 0

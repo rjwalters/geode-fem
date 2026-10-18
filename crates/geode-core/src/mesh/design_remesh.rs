@@ -196,6 +196,18 @@ impl MovingMesh for IcemCpShapeMap {
 }
 
 /// Produces fresh meshes and the reference state on them.
+///
+/// # Mesh repair (#1185 amendment 7 §3)
+///
+/// A remesher may offer several **attempts** ([`attempts`](Self::attempts)),
+/// tried in order until one gives a fresh mesh that passes the policy. Each
+/// attempt is made from the mesher's defaults plus that attempt's own
+/// settings only: nothing carries over from an earlier attempt. The default
+/// is one attempt, [`fresh_mesh`](Self::fresh_mesh), and then the loop
+/// behaves exactly as before: a failing fresh mesh is
+/// [`RemeshError::FreshInvalid`] and a failing mesher
+/// [`RemeshError::Remesh`]. With more than one attempt, a design whose
+/// every attempt fails is [`RemeshError::MeshInfeasible`].
 pub trait Remesher<S: MovingMesh> {
     /// A fresh mesh of the geometry at `theta` (MSH text).
     ///
@@ -210,6 +222,86 @@ pub trait Remesher<S: MovingMesh> {
     ///
     /// A message if the mesh cannot be read or attached to the design map.
     fn reference_on(&mut self, msh: &str, theta: &S::Design) -> Result<S, String>;
+
+    /// Number of mesh-repair attempts (default 1).
+    fn attempts(&self) -> usize {
+        1
+    }
+
+    /// Label of attempt `attempt` (0-based) for the records.
+    fn attempt_label(&self, attempt: usize) -> String {
+        if attempt == 0 {
+            "default".into()
+        } else {
+            format!("attempt {attempt}")
+        }
+    }
+
+    /// SHA-256 (hex) of the mesh the last attempt produced, if any and if
+    /// the remesher computes it (default `None`).
+    fn last_mesh_sha256(&self) -> Option<String> {
+        None
+    }
+
+    /// The fresh mesh of attempt `attempt` (0-based), from the mesher's
+    /// defaults plus that attempt's settings only. The default calls
+    /// [`fresh_mesh`](Self::fresh_mesh) and treats its failure as fatal.
+    ///
+    /// # Errors
+    ///
+    /// [`AttemptError::Failed`] if this attempt produced no mesh for this
+    /// design (the next attempt is tried); [`AttemptError::Fatal`] for a
+    /// failure that does not depend on the design (no attempt helps).
+    fn fresh_mesh_attempt(
+        &mut self,
+        theta: &S::Design,
+        attempt: usize,
+    ) -> Result<String, AttemptError> {
+        let _ = attempt;
+        self.fresh_mesh(theta).map_err(AttemptError::Fatal)
+    }
+}
+
+/// Why one mesh-repair attempt produced no mesh.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AttemptError {
+    /// The mesher failed on this design with this attempt's settings.
+    Failed(String),
+    /// The mesher could not run at all (not design-dependent).
+    Fatal(String),
+}
+
+/// The outcome of one mesh-repair attempt.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AttemptOutcome {
+    /// The fresh mesh passes the policy at its own design.
+    Passed,
+    /// The mesher produced no mesh.
+    MesherFailed(String),
+    /// The fresh mesh fires the policy at its own design.
+    PolicyFailed(RemeshTrigger),
+    /// The fresh mesh could not be read or attached (fatal).
+    SetupFailed(String),
+    /// The mesher could not run (fatal).
+    Fatal(String),
+}
+
+/// One mesh-repair attempt of a remesh, with its wall times (every
+/// attempt is charged).
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemeshAttempt {
+    /// 0-based attempt index.
+    pub attempt: usize,
+    /// [`Remesher::attempt_label`].
+    pub label: String,
+    pub outcome: AttemptOutcome,
+    /// Wall time of the mesher (s).
+    pub mesh_seconds: f64,
+    /// Wall time of the set-up on the fresh mesh and its quality check (s).
+    pub setup_seconds: f64,
+    /// SHA-256 of the fresh mesh bytes, if the remesher reports it
+    /// ([`Remesher::last_mesh_sha256`]).
+    pub msh_sha256: Option<String>,
 }
 
 /// One remesh of the design loop.
@@ -235,12 +327,15 @@ pub struct RemeshEvent {
     /// Whether the connectivity changed (it always does for a gmsh remesh;
     /// `false` only if the fresh mesh has the old triangle list).
     pub topology_changed: bool,
-    /// Wall time of [`Remesher::fresh_mesh`] (s).
+    /// Wall time of [`Remesher::fresh_mesh`] (s), summed over the attempts.
     pub mesh_seconds: f64,
-    /// Wall time of [`Remesher::reference_on`] (s).
+    /// Wall time of [`Remesher::reference_on`] (s), summed over the
+    /// attempts.
     pub setup_seconds: f64,
     /// Wall time of the whole event, quality checks included (s).
     pub seconds: f64,
+    /// Every attempt, in order; the last one passed.
+    pub attempts: Vec<RemeshAttempt>,
 }
 
 /// Node positions of a valid mesh at a design.
@@ -276,6 +371,8 @@ pub enum RemeshError {
         trigger: RemeshTrigger,
         /// The remesher's message.
         message: String,
+        /// Every attempt made, in order, the failing one last.
+        attempts: Vec<RemeshAttempt>,
     },
     /// The fresh mesh itself fires the policy; the reference is unchanged.
     #[error("fresh mesh fails the policy: {trigger:?} (moved mesh: {moved:?})")]
@@ -284,6 +381,18 @@ pub enum RemeshError {
         trigger: RemeshTrigger,
         /// The moved mesh's trigger.
         moved: RemeshTrigger,
+        /// The attempt (one).
+        attempts: Vec<RemeshAttempt>,
+    },
+    /// Every mesh-repair attempt failed (a remesher with more than one
+    /// attempt): the design is mesh-infeasible. The reference is
+    /// unchanged; the attempts carry their costs.
+    #[error("mesh-infeasible after {} attempts (moved mesh: {moved:?})", attempts.len())]
+    MeshInfeasible {
+        /// The moved mesh's trigger.
+        moved: RemeshTrigger,
+        /// Every attempt, in order.
+        attempts: Vec<RemeshAttempt>,
     },
     /// Frozen check on an inverted mesh.
     #[error("generation {generation}: moved mesh inverted ({trigger:?}); no field")]
@@ -442,31 +551,103 @@ impl<S: MovingMesh, R: Remesher<S>> RemeshingReference<S, R> {
             });
         };
         let t_mesh = Instant::now();
-        let msh = self
-            .remesher
-            .fresh_mesh(theta)
-            .map_err(|message| RemeshError::Remesh { trigger, message })?;
-        let mesh_seconds = t_mesh.elapsed().as_secs_f64();
-        let t_setup = Instant::now();
-        let fresh = self
-            .remesher
-            .reference_on(&msh, theta)
-            .map_err(|message| RemeshError::Remesh { trigger, message })?;
-        let setup_seconds = t_setup.elapsed().as_secs_f64();
-        let t1 = Instant::now();
-        // The fresh mesh is checked at its own design, where the moved
-        // positions are its node positions and every area ratio is 1. In
-        // practice this is therefore a minimum-angle check: a clockwise
-        // triangle from the mesher would not count as inverted here. That is
-        // the `MovingMesh` contract (the reference mesh is counter-clockwise,
-        // which `read_tagged_tri_mesh` enforces on load).
-        let (xf, qf, tf) = self.moved(&fresh, theta)?;
-        if let Some(tf) = tf {
-            return Err(RemeshError::FreshInvalid {
-                trigger: tf,
-                moved: trigger,
+        let n_attempts = self.remesher.attempts().max(1);
+        let mut attempts: Vec<RemeshAttempt> = Vec::with_capacity(n_attempts);
+        let mut found = None;
+        for k in 0..n_attempts {
+            let label = self.remesher.attempt_label(k);
+            let t_a = Instant::now();
+            let produced = self.remesher.fresh_mesh_attempt(theta, k);
+            let mesh_seconds = t_a.elapsed().as_secs_f64();
+            let msh_sha256 = self.remesher.last_mesh_sha256();
+            let record = |outcome, setup_seconds| RemeshAttempt {
+                attempt: k,
+                label: label.clone(),
+                outcome,
+                mesh_seconds,
+                setup_seconds,
+                msh_sha256: msh_sha256.clone(),
+            };
+            let msh = match produced {
+                Ok(m) => m,
+                Err(AttemptError::Fatal(message)) => {
+                    attempts.push(record(AttemptOutcome::Fatal(message.clone()), 0.0));
+                    return Err(RemeshError::Remesh {
+                        trigger,
+                        message,
+                        attempts,
+                    });
+                }
+                Err(AttemptError::Failed(message)) => {
+                    attempts.push(record(AttemptOutcome::MesherFailed(message.clone()), 0.0));
+                    if n_attempts == 1 {
+                        return Err(RemeshError::Remesh {
+                            trigger,
+                            message,
+                            attempts,
+                        });
+                    }
+                    continue;
+                }
+            };
+            let t_setup = Instant::now();
+            // The fresh mesh is checked at its own design, where the moved
+            // positions are its node positions and every area ratio is 1.
+            // In practice this is therefore a minimum-angle check: a
+            // clockwise triangle from the mesher would not count as
+            // inverted here. That is the `MovingMesh` contract (the
+            // reference mesh is counter-clockwise, which
+            // `read_tagged_tri_mesh` enforces on load).
+            let checked = self.remesher.reference_on(&msh, theta).and_then(|fresh| {
+                let x = fresh.moved_positions(theta)?;
+                let q = motion_quality(fresh.reference_mesh(), &x);
+                let t = self.policy.trigger(&q);
+                Ok((fresh, x, q, t))
             });
+            let setup_seconds = t_setup.elapsed().as_secs_f64();
+            let (fresh, xf, qf, tf) = match checked {
+                Ok(v) => v,
+                Err(message) => {
+                    // A fresh mesh that cannot be read or attached is not a
+                    // property of the design: fatal, with every attempt kept.
+                    attempts.push(record(
+                        AttemptOutcome::SetupFailed(message.clone()),
+                        setup_seconds,
+                    ));
+                    return Err(RemeshError::Remesh {
+                        trigger,
+                        message,
+                        attempts,
+                    });
+                }
+            };
+            match tf {
+                None => {
+                    attempts.push(record(AttemptOutcome::Passed, setup_seconds));
+                    found = Some((fresh, xf, qf));
+                    break;
+                }
+                Some(t) => {
+                    attempts.push(record(AttemptOutcome::PolicyFailed(t), setup_seconds));
+                    if n_attempts == 1 {
+                        return Err(RemeshError::FreshInvalid {
+                            trigger: t,
+                            moved: trigger,
+                            attempts,
+                        });
+                    }
+                }
+            }
         }
+        let Some((fresh, xf, qf)) = found else {
+            return Err(RemeshError::MeshInfeasible {
+                moved: trigger,
+                attempts,
+            });
+        };
+        let mesh_seconds: f64 = attempts.iter().map(|a| a.mesh_seconds).sum();
+        let setup_seconds: f64 = attempts.iter().map(|a| a.setup_seconds).sum();
+        let t1 = Instant::now();
         let old = self.current.reference_mesh();
         let new = fresh.reference_mesh();
         let old_size = (old.n_nodes(), old.tris.len());
@@ -485,6 +666,7 @@ impl<S: MovingMesh, R: Remesher<S>> RemeshingReference<S, R> {
             mesh_seconds,
             setup_seconds,
             seconds: t0.elapsed().as_secs_f64(),
+            attempts,
         };
         let motion_seconds = (t_mesh - t0).as_secs_f64() + t1.elapsed().as_secs_f64();
         let old = std::mem::replace(&mut self.current, fresh);
@@ -979,7 +1161,7 @@ mod tests {
         )
         .with_retired(true);
         match r.prepare(&0.05) {
-            Err(RemeshError::FreshInvalid { trigger, moved }) => {
+            Err(RemeshError::FreshInvalid { trigger, moved, .. }) => {
                 assert!(matches!(
                     trigger,
                     RemeshTrigger::MinAngle { min_angle_deg, .. }
@@ -1018,5 +1200,149 @@ mod tests {
             r.check_on(1, &0.0),
             Err(RemeshError::NoGeneration(1))
         ));
+    }
+
+    /// What one attempt of [`RepairToy`] does.
+    #[derive(Clone, Copy, Debug)]
+    enum Step {
+        /// A fresh square (passes the default policy; 45° angles).
+        Mesh,
+        /// The mesher fails on this design.
+        Fail,
+        /// The mesher cannot run.
+        Fatal,
+        /// A mesh that cannot be attached.
+        Garbage,
+        /// A fresh mesh with a 1° sliver (fails the default policy).
+        Sliver,
+    }
+
+    /// A remesher with one scripted behaviour per attempt; records the
+    /// attempt indices it was called with.
+    struct RepairToy {
+        script: Vec<Step>,
+        called: Vec<usize>,
+    }
+
+    impl Remesher<Fold> for RepairToy {
+        fn fresh_mesh(&mut self, _: &f64) -> Result<String, String> {
+            unreachable!("the attempt API is used")
+        }
+        fn reference_on(&mut self, msh: &str, theta: &f64) -> Result<Fold, String> {
+            let mesh = match msh {
+                "square" => square(3, 0.0),
+                "sliver" => TriMesh {
+                    nodes: vec![[0.0, 0.0], [1.0, 0.0], [0.5, 0.008]],
+                    tris: vec![[0, 1, 2]],
+                },
+                _ => return Err(format!("unreadable {msh}")),
+            };
+            Ok(Fold {
+                mesh,
+                theta0: *theta,
+            })
+        }
+        fn attempts(&self) -> usize {
+            self.script.len()
+        }
+        fn last_mesh_sha256(&self) -> Option<String> {
+            self.called.last().map(|k| format!("hash{k}"))
+        }
+        fn fresh_mesh_attempt(&mut self, _: &f64, attempt: usize) -> Result<String, AttemptError> {
+            self.called.push(attempt);
+            match self.script[attempt] {
+                Step::Mesh => Ok("square".into()),
+                Step::Sliver => Ok("sliver".into()),
+                Step::Garbage => Ok("garbage".into()),
+                Step::Fail => Err(AttemptError::Failed(format!("gmsh failed {attempt}"))),
+                Step::Fatal => Err(AttemptError::Fatal("no uv".into())),
+            }
+        }
+    }
+
+    fn repair(script: Vec<Step>) -> RemeshingReference<Fold, RepairToy> {
+        RemeshingReference::new(
+            Fold {
+                mesh: square(3, 0.0),
+                theta0: 0.0,
+            },
+            RemeshPolicy::default(),
+            RepairToy {
+                script,
+                called: Vec::new(),
+            },
+        )
+    }
+
+    #[test]
+    fn repair_succeeds_after_failed_attempts_and_keeps_every_attempt() {
+        let mut r = repair(vec![Step::Fail, Step::Sliver, Step::Mesh, Step::Mesh]);
+        let p = r.prepare(&3.0).unwrap();
+        assert_eq!(p.generation, 1);
+        // Attempts are made in order, each once, and stop at the first pass.
+        assert_eq!(r.remesher_mut().called, vec![0, 1, 2]);
+        let ev = &r.events()[0];
+        let outcomes: Vec<_> = ev.attempts.iter().map(|a| a.outcome.clone()).collect();
+        assert!(matches!(outcomes[0], AttemptOutcome::MesherFailed(_)));
+        assert!(matches!(
+            outcomes[1],
+            AttemptOutcome::PolicyFailed(RemeshTrigger::MinAngle { .. })
+        ));
+        assert_eq!(outcomes[2], AttemptOutcome::Passed);
+        let hashes: Vec<_> = ev.attempts.iter().map(|a| a.msh_sha256.clone()).collect();
+        assert_eq!(
+            hashes,
+            vec![
+                Some("hash0".to_string()),
+                Some("hash1".into()),
+                Some("hash2".into())
+            ]
+        );
+        // Every attempt is charged: the event's times are their sums.
+        let m: f64 = ev.attempts.iter().map(|a| a.mesh_seconds).sum();
+        let s: f64 = ev.attempts.iter().map(|a| a.setup_seconds).sum();
+        assert_eq!((ev.mesh_seconds, ev.setup_seconds), (m, s));
+    }
+
+    #[test]
+    fn every_attempt_failing_is_mesh_infeasible_with_the_full_history() {
+        let mut r = repair(vec![Step::Fail, Step::Sliver, Step::Fail, Step::Sliver]);
+        match r.prepare(&3.0) {
+            Err(RemeshError::MeshInfeasible { moved, attempts }) => {
+                assert!(matches!(moved, RemeshTrigger::Inverted { .. }));
+                assert_eq!(
+                    attempts.iter().map(|a| a.attempt).collect::<Vec<_>>(),
+                    vec![0, 1, 2, 3]
+                );
+            }
+            other => panic!("expected MeshInfeasible, got {other:?}"),
+        }
+        assert_eq!(r.generation(), 0);
+        assert!(r.events().is_empty());
+    }
+
+    #[test]
+    fn a_fatal_error_after_a_failed_attempt_keeps_the_history() {
+        for (last, want) in [(Step::Fatal, "fatal"), (Step::Garbage, "setup")] {
+            let mut r = repair(vec![Step::Fail, last, Step::Mesh, Step::Mesh]);
+            match r.prepare(&3.0) {
+                Err(RemeshError::Remesh { attempts, .. }) => {
+                    assert_eq!(attempts.len(), 2, "{want}");
+                    assert!(matches!(
+                        attempts[0].outcome,
+                        AttemptOutcome::MesherFailed(_)
+                    ));
+                    match (&attempts[1].outcome, want) {
+                        (AttemptOutcome::Fatal(_), "fatal")
+                        | (AttemptOutcome::SetupFailed(_), "setup") => {}
+                        (o, _) => panic!("{want}: {o:?}"),
+                    }
+                }
+                other => panic!("{want}: expected Remesh, got {other:?}"),
+            }
+            // No later attempt after a fatal one.
+            assert_eq!(r.remesher_mut().called, vec![0, 1]);
+            assert_eq!(r.generation(), 0);
+        }
     }
 }

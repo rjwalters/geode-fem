@@ -1,0 +1,4012 @@
+{
+ "issue": 1201,
+ "label": "smoke",
+ "method": "cobyqa",
+ "method_label": "derivative-free trust region (COBYQA)",
+ "method_spec": {
+  "letter": "B",
+  "optimizer": "cobyqa",
+  "resolution": null,
+  "label": "derivative-free trust region (COBYQA)"
+ },
+ "space": "a",
+ "start": "lhs1",
+ "repeat": 1,
+ "order_position": 4,
+ "session": "smoke-20261018T125328Z",
+ "budget_fe": 20.0,
+ "unit_seconds": 3.318281604,
+ "started_utc": "2026-10-18T12:53:28Z",
+ "load_before": [
+  18.1494140625,
+  17.77001953125,
+  19.9541015625
+ ],
+ "linear_algebra": {
+  "system": "Darwin",
+  "machine": "arm64",
+  "numpy": "2.5.4",
+  "scipy": "1.18.1",
+  "numpy_blas": "accelerate",
+  "numpy_blas_version": "unknown",
+  "numpy_lapack": "accelerate",
+  "numpy_lapack_version": "unknown",
+  "scipy_blas": "Accelerate",
+  "scipy_blas_version": "unknown",
+  "scipy_lapack": "Accelerate",
+  "scipy_lapack_version": "unknown"
+ },
+ "x_start": [
+  0.008163727952145202,
+  0.007997747892536641,
+  0.01134090854488188,
+  0.0044088066467323234,
+  0.0015251716300998131,
+  0.0012990301069571437,
+  0.004190315703291599,
+  0.001332316504115846
+ ],
+ "stop_reason": "budget",
+ "message": "wall-time budget spent",
+ "error": null,
+ "attainment": {
+  "T50": {
+   "wall_fe": 18.837832223058125,
+   "solve_fe": 21.394603813588812,
+   "seconds": 62.509232125012204,
+   "validation": 4,
+   "x": [
+    0.006,
+    0.008692862878600435,
+    0.01935363871416733,
+    0.0045251027892539,
+    0.001,
+    0.001250050010794632,
+    0.010972854847501642,
+    0.001510408169855297
+   ],
+   "F_val": 0.0006929182784188211,
+   "mean_full": 1.6355152304728844,
+   "attained": true,
+   "censored": false
+  },
+  "T90": {
+   "wall_fe": 18.837832223058125,
+   "solve_fe": 21.394603813588812,
+   "seconds": 62.509232125012204,
+   "validation": 4,
+   "x": [
+    0.006,
+    0.008692862878600435,
+    0.01935363871416733,
+    0.0045251027892539,
+    0.001,
+    0.001250050010794632,
+    0.010972854847501642,
+    0.001510408169855297
+   ],
+   "F_val": 0.0006929182784188211,
+   "mean_full": 1.6355152304728844,
+   "attained": true,
+   "censored": false
+  },
+  "T99": {
+   "attained": false,
+   "censored": true
+  }
+ },
+ "checkpoint_60": {
+  "fe": 60.0,
+  "rule": "validations completed by the checkpoint",
+  "targets": {
+   "T50": {
+    "attained": true,
+    "wall_fe": 18.837832223058125,
+    "validation": 4
+   },
+   "T90": {
+    "attained": true,
+    "wall_fe": 18.837832223058125,
+    "validation": 4
+   },
+   "T99": {
+    "attained": false,
+    "censored": true
+   }
+  }
+ },
+ "validations": [
+  {
+   "wall_fe": 12.821196365842896,
+   "solve_fe": 14.271822134809991,
+   "seconds": 42.544340042048134,
+   "index": 0,
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.01,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "note": "cobyqa iterate",
+   "status": "ok",
+   "F_val": 0.00029786722310619574,
+   "mean_full": 0.5659509292390894,
+   "stds": [
+    0.0013458984677536393,
+    0.007107920201117038,
+    0.015669500656857144
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 148.6473126688569,
+     "max_area_ratio": 2.1429917104483116,
+     "min_angle_deg": 10.606975650075016,
+     "min_area_ratio": 0.3300999219359807
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.4763157894736842,
+   "h_nonnegative": true,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.01183852415531815,
+      "scale": 0.013999999999999999,
+      "c": 0.8456088682370109,
+      "h": 0.7956088682370108,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.007997747892536641,
+      "scale": 0.007,
+      "c": 1.1425354132195202,
+      "h": 1.0925354132195202,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.005,
+      "scale": 0.0095,
+      "c": 0.5263157894736842,
+      "h": 0.4763157894736842,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0007625858150499066,
+      "scale": 0.00115,
+      "c": 0.663118100043397,
+      "h": 0.613118100043397,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.0031594226085947105,
+      "scale": 0.002772008423644617,
+      "c": 1.1397593822751535,
+      "h": 1.0897593822751535,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 2.7727313652923906e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 1.0197085541984763,
+      "h": 0.9697085541984762,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.001838636217797937,
+      "scale": 0.0018379416028071888,
+      "c": 1.0003779309362644,
+      "h": 0.9503779309362643,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0012279217249293456,
+      "scale": 0.0010180704175208324,
+      "c": 1.206126515216438,
+      "h": 1.156126515216438,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.001332316504115846,
+      "scale": 0.001,
+      "c": 1.3323165041158458,
+      "h": 1.2823165041158457,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.0018720875543692455,
+      "scale": 0.002084755137755031,
+      "c": 0.8979891789043405,
+      "h": 0.8479891789043404,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.013903528584022447,
+      "scale": 0.010528559286427139,
+      "c": 1.32055376293945,
+      "h": 1.2705537629394499,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ],
+    "credit_admissible": true
+   },
+   "delta_F": 2.9786722310619576e-05,
+   "F_upper": 0.0003276539454168153,
+   "mean_ok": false,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.00023021488975508717,
+   "mean_train": 0.5655166548255075
+  },
+  {
+   "wall_fe": 14.275192600585363,
+   "solve_fe": 16.052517554504696,
+   "seconds": 47.369109000079334,
+   "index": 1,
+   "x": [
+    0.008058228177966186,
+    0.008029724360872178,
+    0.013472984133517534,
+    0.00441321451722938,
+    0.0013931566103137993,
+    0.0012972064875771197,
+    0.005682557550479638,
+    0.0013423007768453388
+   ],
+   "note": "cobyqa iterate",
+   "status": "ok",
+   "F_val": 0.0006625493860072729,
+   "mean_full": 0.9219041511945892,
+   "stds": [
+    0.0028646437631163536,
+    0.011374890544089121,
+    0.022911897940321387
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 142.67299097873538,
+     "max_area_ratio": 1.7705301892574712,
+     "min_angle_deg": 13.084054119147577,
+     "min_area_ratio": 0.45373538446742556
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.5557202653538258,
+   "h_nonnegative": true,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.011912047461161635,
+      "scale": 0.013999999999999999,
+      "c": 0.8508605329401169,
+      "h": 0.8008605329401168,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.008029724360872178,
+      "scale": 0.007,
+      "c": 1.1471034801245967,
+      "h": 1.0971034801245967,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.006736492066758767,
+      "scale": 0.0095,
+      "c": 0.7091044280798703,
+      "h": 0.6591044280798702,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0006965783051568996,
+      "scale": 0.00115,
+      "c": 0.6057202653538258,
+      "h": 0.5557202653538258,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.0032254301184877175,
+      "scale": 0.002772008423644617,
+      "c": 1.163571542920113,
+      "h": 1.113571542920113,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 2.8600128012218166e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 1.0518074542051767,
+      "h": 1.0018074542051767,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.0018646411290985931,
+      "scale": 0.0018379416028071888,
+      "c": 1.0145268632314677,
+      "h": 0.9645268632314676,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0012939261222538073,
+      "scale": 0.0010180704175208324,
+      "c": 1.2709593560381889,
+      "h": 1.2209593560381888,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0013423007768453388,
+      "scale": 0.001,
+      "c": 1.3423007768453388,
+      "h": 1.2923007768453387,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.0017284250338714833,
+      "scale": 0.002084755137755031,
+      "c": 0.82907819847502,
+      "h": 0.7790781984750199,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.012375180397786456,
+      "scale": 0.010528559286427139,
+      "c": 1.1753916239746005,
+      "h": 1.1253916239746005,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ],
+    "credit_admissible": true
+   },
+   "delta_F": 6.62549386007273e-05,
+   "F_upper": 0.0007288043246080002,
+   "mean_ok": false,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.0005477382852284977,
+   "mean_train": 0.9169251389567424
+  },
+  {
+   "wall_fe": 15.764789666727616,
+   "solve_fe": 17.8332129741994,
+   "seconds": 52.31201154203154,
+   "index": 2,
+   "x": [
+    0.007750370578529966,
+    0.00812336939059035,
+    0.015039436147310094,
+    0.004425322410224052,
+    0.0012020896756860149,
+    0.0012922424525253912,
+    0.006745805256893441,
+    0.0013663616828790417
+   ],
+   "note": "cobyqa iterate",
+   "status": "ok",
+   "F_val": 0.0006441965222262587,
+   "mean_full": 1.0882470599729324,
+   "stds": [
+    0.0026245303376451266,
+    0.011664343037779393,
+    0.022388645877543523
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 139.2484353413699,
+     "max_area_ratio": 1.6176832464606856,
+     "min_angle_deg": 13.12217724338134,
+     "min_area_ratio": 0.5068062263726703
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.472647685080876,
+   "h_nonnegative": true,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.01212626003087968,
+      "scale": 0.013999999999999999,
+      "c": 0.8661614307771202,
+      "h": 0.8161614307771201,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.00812336939059035,
+      "scale": 0.007,
+      "c": 1.1604813415129072,
+      "h": 1.1104813415129071,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.007519718073655047,
+      "scale": 0.0095,
+      "c": 0.7915492709110576,
+      "h": 0.7415492709110576,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0006010448378430074,
+      "scale": 0.00115,
+      "c": 0.522647685080876,
+      "h": 0.472647685080876,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.0033209635858016096,
+      "scale": 0.002772008423644617,
+      "c": 1.1980351709881278,
+      "h": 1.1480351709881278,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 2.959802200508139e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 1.0885063228169434,
+      "h": 1.0385063228169433,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.0018935562229801667,
+      "scale": 0.0018379416028071888,
+      "c": 1.0302591878262262,
+      "h": 0.9802591878262261,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0013856131766840675,
+      "scale": 0.0010180704175208324,
+      "c": 1.36101899518725,
+      "h": 1.31101899518725,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0013663616828790417,
+      "scale": 0.001,
+      "c": 1.3663616828790417,
+      "h": 1.3163616828790417,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.0016030679701528746,
+      "scale": 0.002084755137755031,
+      "c": 0.7689478448193866,
+      "h": 0.7189478448193866,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.011260110894566785,
+      "scale": 0.010528559286427139,
+      "c": 1.0694825937944543,
+      "h": 1.0194825937944543,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ],
+    "credit_admissible": true
+   },
+   "delta_F": 6.441965222262588e-05,
+   "F_upper": 0.0007086161744488846,
+   "mean_ok": false,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.0005233607746682529,
+   "mean_train": 1.0848723885724127
+  },
+  {
+   "wall_fe": 17.279027347752045,
+   "solve_fe": 19.613908393894107,
+   "seconds": 57.33667858305853,
+   "index": 3,
+   "x": [
+    0.006948690713472618,
+    0.008359994880923712,
+    0.017412900810790992,
+    0.004457376613798166,
+    0.001,
+    0.0012790448845325167,
+    0.00709843225994232,
+    0.0014206237413782663
+   ],
+   "note": "cobyqa iterate",
+   "status": "ok",
+   "F_val": 0.0006844904149754124,
+   "mean_full": 1.3638664931212838,
+   "stds": [
+    0.0013822086111250557,
+    0.01228334499181587,
+    0.023058606856069516
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 136.7734693321971,
+     "max_area_ratio": 1.5888882554424535,
+     "min_angle_deg": 13.174008228027201,
+     "min_area_ratio": 0.4150513354472891
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.38478260869565223,
+   "h_nonnegative": true,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.012691314405603664,
+      "scale": 0.013999999999999999,
+      "c": 0.906522457543119,
+      "h": 0.856522457543119,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.008359994880923712,
+      "scale": 0.007,
+      "c": 1.1942849829891016,
+      "h": 1.1442849829891015,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.008706450405395496,
+      "scale": 0.0095,
+      "c": 0.9164684637258417,
+      "h": 0.8664684637258416,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005,
+      "scale": 0.00115,
+      "c": 0.4347826086956522,
+      "h": 0.38478260869565223,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.003422008423644617,
+      "scale": 0.002772008423644617,
+      "c": 1.234487021920873,
+      "h": 1.184487021920873,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 3.008314591717784e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 1.1063473949526428,
+      "h": 1.0563473949526427,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.001906206396263016,
+      "scale": 0.0018379416028071888,
+      "c": 1.0371419817428165,
+      "h": 0.9871419817428164,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0014706909512031264,
+      "scale": 0.0010180704175208324,
+      "c": 1.4445866669856677,
+      "h": 1.3945866669856677,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.0014206237413782663,
+      "scale": 0.001,
+      "c": 1.4206237413782663,
+      "h": 1.3706237413782663,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.0014969121364950806,
+      "scale": 0.002084755137755031,
+      "c": 0.7180277958720038,
+      "h": 0.6680277958720038,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.010846412097634262,
+      "scale": 0.010528559286427139,
+      "c": 1.030189582692181,
+      "h": 0.9801895826921809,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ],
+    "credit_admissible": true
+   },
+   "delta_F": 6.844904149754124e-05,
+   "F_upper": 0.0007529394564729536,
+   "mean_ok": false,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.0005533825435136007,
+   "mean_train": 1.362347547071351
+  },
+  {
+   "wall_fe": 18.837832223058125,
+   "solve_fe": 21.394603813588812,
+   "seconds": 62.509232125012204,
+   "index": 4,
+   "x": [
+    0.006,
+    0.008692862878600435,
+    0.01935363871416733,
+    0.0045251027892539,
+    0.001,
+    0.001250050010794632,
+    0.010972854847501642,
+    0.001510408169855297
+   ],
+   "note": "cobyqa iterate",
+   "status": "ok",
+   "F_val": 0.0006929182784188211,
+   "mean_full": 1.6355152304728844,
+   "stds": [
+    0.002341338792064113,
+    0.012156887711755632,
+    0.023230292556129416
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 136.76573589513401,
+     "max_area_ratio": 1.8769010966841115,
+     "min_angle_deg": 13.212053989963856,
+     "min_area_ratio": 0.39475914982773364
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "min_h": 0.38478260869565223,
+   "h_nonnegative": true,
+   "geometry": {
+    "buildable": true,
+    "admissible": true,
+    "construction_error": null,
+    "guards": [
+     {
+      "name": "magnet_shaft_clearance",
+      "unit": "m",
+      "margin": 0.013307137121399564,
+      "scale": 0.013999999999999999,
+      "c": 0.9505097943856833,
+      "h": 0.9005097943856832,
+      "pass": true
+     },
+     {
+      "name": "magnet_height",
+      "unit": "m",
+      "margin": 0.008692862878600435,
+      "scale": 0.007,
+      "c": 1.2418375540857765,
+      "h": 1.1918375540857764,
+      "pass": true
+     },
+     {
+      "name": "magnet_half_width",
+      "unit": "m",
+      "margin": 0.009676819357083664,
+      "scale": 0.0095,
+      "c": 1.0186125639035437,
+      "h": 0.9686125639035437,
+      "pass": true
+     },
+     {
+      "name": "opening_half_width",
+      "unit": "m",
+      "margin": 0.0005,
+      "scale": 0.00115,
+      "c": 0.4347826086956522,
+      "h": 0.38478260869565223,
+      "pass": true
+     },
+     {
+      "name": "opening_vs_pitch",
+      "unit": "m",
+      "margin": 0.003422008423644617,
+      "scale": 0.002772008423644617,
+      "c": 1.234487021920873,
+      "h": 1.184487021920873,
+      "pass": true
+     },
+     {
+      "name": "slot_top_discriminant",
+      "unit": "m^2",
+      "margin": 2.8783028182726225e-06,
+      "scale": 2.7191410269886834e-06,
+      "c": 1.0585338493679393,
+      "h": 1.0085338493679392,
+      "pass": true
+     },
+     {
+      "name": "arc_centre_beyond_opening",
+      "unit": "m",
+      "margin": 0.0018648272655835754,
+      "scale": 0.0018379416028071888,
+      "c": 1.0146281376597182,
+      "h": 0.9646281376597181,
+      "pass": true
+     },
+     {
+      "name": "arc_radius_vs_opening",
+      "unit": "m",
+      "margin": 0.0014306943648501407,
+      "scale": 0.0010180704175208324,
+      "c": 1.4053000069819481,
+      "h": 1.355300006981948,
+      "pass": true
+     },
+     {
+      "name": "fillet_radius",
+      "unit": "m",
+      "margin": 0.001510408169855297,
+      "scale": 0.001,
+      "c": 1.510408169855297,
+      "h": 1.4604081698552969,
+      "pass": true
+     },
+     {
+      "name": "fillet_centre_y",
+      "unit": "m",
+      "margin": 0.001025969133092531,
+      "scale": 0.002084755137755031,
+      "c": 0.4921293222941021,
+      "h": 0.4421293222941021,
+      "pass": true
+     },
+     {
+      "name": "flank_length",
+      "unit": "m",
+      "margin": 0.0069412679252731785,
+      "scale": 0.010528559286427139,
+      "c": 0.6592799391101396,
+      "h": 0.6092799391101396,
+      "pass": true
+     }
+    ],
+    "discrete": [
+     {
+      "name": "components_finite",
+      "pass": true
+     }
+    ],
+    "credit_admissible": true
+   },
+   "delta_F": 6.929182784188212e-05,
+   "F_upper": 0.0007622101062607033,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "admissible": true,
+   "F_train": 0.000696082929333534,
+   "mean_train": 1.6353885051803896
+  }
+ ],
+ "best_validated_feasible": {
+  "wall_fe": 18.837832223058125,
+  "solve_fe": 21.394603813588812,
+  "seconds": 62.509232125012204,
+  "index": 4,
+  "x": [
+   0.006,
+   0.008692862878600435,
+   0.01935363871416733,
+   0.0045251027892539,
+   0.001,
+   0.001250050010794632,
+   0.010972854847501642,
+   0.001510408169855297
+  ],
+  "note": "cobyqa iterate",
+  "status": "ok",
+  "F_val": 0.0006929182784188211,
+  "mean_full": 1.6355152304728844,
+  "stds": [
+   0.002341338792064113,
+   0.012156887711755632,
+   0.023230292556129416
+  ],
+  "fractions": [
+   0.0,
+   0.5,
+   1.0
+  ],
+  "attained": {
+   "T50": true,
+   "T90": true,
+   "T99": false
+  },
+  "credited": true,
+  "mesh": {
+   "kind": "moved",
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.76573589513401,
+    "max_area_ratio": 1.8769010966841115,
+    "min_angle_deg": 13.212053989963856,
+    "min_area_ratio": 0.39475914982773364
+   }
+  },
+  "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+  "min_h": 0.38478260869565223,
+  "h_nonnegative": true,
+  "geometry": {
+   "buildable": true,
+   "admissible": true,
+   "construction_error": null,
+   "guards": [
+    {
+     "name": "magnet_shaft_clearance",
+     "unit": "m",
+     "margin": 0.013307137121399564,
+     "scale": 0.013999999999999999,
+     "c": 0.9505097943856833,
+     "h": 0.9005097943856832,
+     "pass": true
+    },
+    {
+     "name": "magnet_height",
+     "unit": "m",
+     "margin": 0.008692862878600435,
+     "scale": 0.007,
+     "c": 1.2418375540857765,
+     "h": 1.1918375540857764,
+     "pass": true
+    },
+    {
+     "name": "magnet_half_width",
+     "unit": "m",
+     "margin": 0.009676819357083664,
+     "scale": 0.0095,
+     "c": 1.0186125639035437,
+     "h": 0.9686125639035437,
+     "pass": true
+    },
+    {
+     "name": "opening_half_width",
+     "unit": "m",
+     "margin": 0.0005,
+     "scale": 0.00115,
+     "c": 0.4347826086956522,
+     "h": 0.38478260869565223,
+     "pass": true
+    },
+    {
+     "name": "opening_vs_pitch",
+     "unit": "m",
+     "margin": 0.003422008423644617,
+     "scale": 0.002772008423644617,
+     "c": 1.234487021920873,
+     "h": 1.184487021920873,
+     "pass": true
+    },
+    {
+     "name": "slot_top_discriminant",
+     "unit": "m^2",
+     "margin": 2.8783028182726225e-06,
+     "scale": 2.7191410269886834e-06,
+     "c": 1.0585338493679393,
+     "h": 1.0085338493679392,
+     "pass": true
+    },
+    {
+     "name": "arc_centre_beyond_opening",
+     "unit": "m",
+     "margin": 0.0018648272655835754,
+     "scale": 0.0018379416028071888,
+     "c": 1.0146281376597182,
+     "h": 0.9646281376597181,
+     "pass": true
+    },
+    {
+     "name": "arc_radius_vs_opening",
+     "unit": "m",
+     "margin": 0.0014306943648501407,
+     "scale": 0.0010180704175208324,
+     "c": 1.4053000069819481,
+     "h": 1.355300006981948,
+     "pass": true
+    },
+    {
+     "name": "fillet_radius",
+     "unit": "m",
+     "margin": 0.001510408169855297,
+     "scale": 0.001,
+     "c": 1.510408169855297,
+     "h": 1.4604081698552969,
+     "pass": true
+    },
+    {
+     "name": "fillet_centre_y",
+     "unit": "m",
+     "margin": 0.001025969133092531,
+     "scale": 0.002084755137755031,
+     "c": 0.4921293222941021,
+     "h": 0.4421293222941021,
+     "pass": true
+    },
+    {
+     "name": "flank_length",
+     "unit": "m",
+     "margin": 0.0069412679252731785,
+     "scale": 0.010528559286427139,
+     "c": 0.6592799391101396,
+     "h": 0.6092799391101396,
+     "pass": true
+    }
+   ],
+   "discrete": [
+    {
+     "name": "components_finite",
+     "pass": true
+    }
+   ],
+   "credit_admissible": true
+  },
+  "delta_F": 6.929182784188212e-05,
+  "F_upper": 0.0007622101062607033,
+  "mean_ok": true,
+  "mean_floor": 1.448620886053446,
+  "admissible": true,
+  "F_train": 0.000696082929333534,
+  "mean_train": 1.6353885051803896
+ },
+ "feasible_validated": true,
+ "infeasible": false,
+ "events": [
+  {
+   "wall_fe": 0.7432778601558581,
+   "solve_fe": 0.7806954196947054,
+   "seconds": 2.4664052500156686,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.0115,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.0004070292253107089,
+   "mean_full": 0.6948325327105781,
+   "stds": [
+    0.0009334882864677032,
+    0.008381544634401144,
+    0.018327780402200313
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 146.28750992307414,
+    "max_area_ratio": 1.978975690082037,
+    "min_angle_deg": 12.365734752507183,
+    "min_area_ratio": 0.35734581093112044
+   },
+   "newton_iterations": 163,
+   "admissible": true,
+   "min_h": 0.5552631578947368,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 1.4478001060129484,
+   "solve_fe": 1.5613908393894107,
+   "seconds": 4.804208458052017,
+   "kind": "train",
+   "x": [
+    0.009063727952145202,
+    0.007997747892536641,
+    0.0115,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.0003910193983741808,
+   "mean_full": 0.6767822248725535,
+   "stds": [
+    0.0010263993308816475,
+    0.008196292421523015,
+    0.01796626542519705
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 146.9700541247355,
+    "max_area_ratio": 1.981622978193296,
+    "min_angle_deg": 12.365734752507183,
+    "min_area_ratio": 0.2856592905771499
+   },
+   "newton_iterations": 163,
+   "admissible": true,
+   "min_h": 0.5552631578947368,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 2.1466615782249754,
+   "solve_fe": 2.342086259084116,
+   "seconds": 7.1232276250375435,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.008997747892536642,
+    0.0115,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.0004206671452210688,
+   "mean_full": 0.702541612340376,
+   "stds": [
+    0.0009467756615879839,
+    0.008496936800617104,
+    0.01864330512741805
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 147.93740865021235,
+    "max_area_ratio": 2.24581906739379,
+    "min_angle_deg": 12.365734752507183,
+    "min_area_ratio": 0.27521908621799146
+   },
+   "newton_iterations": 162,
+   "admissible": true,
+   "min_h": 0.5552631578947368,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 2.858096777139416,
+   "solve_fe": 3.1227816787788214,
+   "seconds": 9.483969958033413,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.013000000000000001,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.0006362493907672114,
+   "mean_full": 0.8216766423247851,
+   "stds": [
+    0.0011254716614211235,
+    0.010616991240077516,
+    0.022853056717092937
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 143.59851766535712,
+    "max_area_ratio": 1.8149596697157626,
+    "min_angle_deg": 12.365734752507183,
+    "min_area_ratio": 0.35734581093112044
+   },
+   "newton_iterations": 165,
+   "admissible": true,
+   "min_h": 0.613118100043397,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 3.562259788574438,
+   "solve_fe": 3.9034770984735268,
+   "seconds": 11.820581125095487,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.0115,
+    0.004808806646732324,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.00040445898681579565,
+   "mean_full": 0.6953513887017071,
+   "stds": [
+    0.0009308029433269094,
+    0.008377287810712555,
+    0.01825961778441642
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 146.28750992307414,
+    "max_area_ratio": 1.978975690082037,
+    "min_angle_deg": 11.28219514895184,
+    "min_area_ratio": 0.3576975225386292
+   },
+   "newton_iterations": 163,
+   "admissible": true,
+   "min_h": 0.5552631578947368,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 4.269442836908114,
+   "solve_fe": 4.684172518168232,
+   "seconds": 14.167213625041768,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.0115,
+    0.0044088066467323234,
+    0.001825171630099813,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.0007789616075844388,
+   "mean_full": 0.6926491251087834,
+   "stds": [
+    0.0011925498194556715,
+    0.011571294754025905,
+    0.02537015116683398
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 146.28750992307414,
+    "max_area_ratio": 1.978975690082037,
+    "min_angle_deg": 12.311873566598583,
+    "min_area_ratio": 0.357379166898357
+   },
+   "newton_iterations": 164,
+   "admissible": true,
+   "min_h": 0.5552631578947368,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 4.973758135885828,
+   "solve_fe": 5.4648679378629375,
+   "seconds": 16.504330125055276,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.0115,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0013990301069571438,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.00041297698536539443,
+   "mean_full": 0.6943156111689269,
+   "stds": [
+    0.0009404707722830951,
+    0.008451740767729459,
+    0.018456992660966617
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 146.28750992307414,
+    "max_area_ratio": 1.978975690082037,
+    "min_angle_deg": 12.487591634629933,
+    "min_area_ratio": 0.35729992510076586
+   },
+   "newton_iterations": 163,
+   "admissible": true,
+   "min_h": 0.5552631578947368,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 5.670809484454946,
+   "solve_fe": 6.245563357557643,
+   "seconds": 18.81734279205557,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.0115,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.005990315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.00041000372248579334,
+   "mean_full": 0.736571281592043,
+   "stds": [
+    0.0009144422587846345,
+    0.008373655131075523,
+    0.01841329458806747
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 146.28750992307414,
+    "max_area_ratio": 1.978975690082037,
+    "min_angle_deg": 12.776058122497833,
+    "min_area_ratio": 0.3796149102263776
+   },
+   "newton_iterations": 161,
+   "admissible": true,
+   "min_h": 0.5552631578947368,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 6.379156212209376,
+   "solve_fe": 7.026258777252348,
+   "seconds": 21.167836708016694,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.0115,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.0014823165041158459
+   ],
+   "F": 0.000406975406381372,
+   "mean_full": 0.6960462975465935,
+   "stds": [
+    0.0009329152036624934,
+    0.008381105637392616,
+    0.01832654206060197
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 146.28750992307414,
+    "max_area_ratio": 1.978975690082037,
+    "min_angle_deg": 12.487170455606574,
+    "min_area_ratio": 0.36113120362507006
+   },
+   "newton_iterations": 164,
+   "admissible": true,
+   "min_h": 0.5552631578947368,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 7.0824227129218285,
+   "solve_fe": 7.8069541969470535,
+   "seconds": 23.501473000040278,
+   "kind": "train",
+   "x": [
+    0.007263727952145202,
+    0.007997747892536641,
+    0.0115,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.00041793922007651375,
+   "mean_full": 0.7142165946227815,
+   "stds": [
+    0.0007445325989230871,
+    0.008489211009377716,
+    0.01858273897260344
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 146.71507221452083,
+    "max_area_ratio": 1.9763284019707794,
+    "min_angle_deg": 12.365734752507183,
+    "min_area_ratio": 0.35734581093112044
+   },
+   "newton_iterations": 162,
+   "admissible": true,
+   "min_h": 0.5552631578947368,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 7.78262343255427,
+   "solve_fe": 8.587649616641759,
+   "seconds": 25.82493616710417,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.006997747892536641,
+    0.0115,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.00039059278203495995,
+   "mean_full": 0.6852121439852057,
+   "stds": [
+    0.0009174669186214088,
+    0.008239954523301339,
+    0.017940295034979806
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 146.28562188426594,
+    "max_area_ratio": 1.7664387964414936,
+    "min_angle_deg": 12.365734752507183,
+    "min_area_ratio": 0.35734581093112044
+   },
+   "newton_iterations": 162,
+   "admissible": true,
+   "min_h": 0.5552631578947368,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 8.472811866303127,
+   "solve_fe": 9.368345036336464,
+   "seconds": 28.115175750106573,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.01,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.00023021488975508717,
+   "mean_full": 0.5655166548255075,
+   "stds": [
+    0.0006244443606771666,
+    0.006292987864588542,
+    0.013792144964857605
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 148.6473126688569,
+    "max_area_ratio": 2.1429917104483116,
+    "min_angle_deg": 10.606975650075016,
+    "min_area_ratio": 0.3300999219359807
+   },
+   "newton_iterations": 159,
+   "admissible": true,
+   "min_h": 0.4763157894736842,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 9.179584561596212,
+   "solve_fe": 10.14904045603117,
+   "seconds": 30.460446583107114,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.0115,
+    0.004008806646732324,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.0004095286673198674,
+   "mean_full": 0.6941562012029994,
+   "stds": [
+    0.0009366123019963444,
+    0.008386654078167174,
+    0.018393353638985425
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 146.28750992307414,
+    "max_area_ratio": 1.978975690082037,
+    "min_angle_deg": 12.776058122497833,
+    "min_area_ratio": 0.35675456802588323
+   },
+   "newton_iterations": 164,
+   "admissible": true,
+   "min_h": 0.5552631578947368,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 9.890370868020325,
+   "solve_fe": 10.929735875725875,
+   "seconds": 32.81903570808936,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.0115,
+    0.0044088066467323234,
+    0.001225171630099813,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.00024231297955991095,
+   "mean_full": 0.6953142383831169,
+   "stds": [
+    0.0007242681913688535,
+    0.006382284810548067,
+    0.014179381359704295
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 146.28750992307414,
+    "max_area_ratio": 1.978975690082037,
+    "min_angle_deg": 12.406344472056468,
+    "min_area_ratio": 0.35731950378510047
+   },
+   "newton_iterations": 165,
+   "admissible": true,
+   "min_h": 0.48268331743470133,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 10.59522581648906,
+   "solve_fe": 11.71043129542058,
+   "seconds": 35.15794291708153,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.0115,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.001199030106957144,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.0004015144323365517,
+   "mean_full": 0.6953429642072042,
+   "stds": [
+    0.0009269131323383088,
+    0.008315800359305223,
+    0.0182072163925689
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 146.28750992307414,
+    "max_area_ratio": 1.978975690082037,
+    "min_angle_deg": 12.245749259700005,
+    "min_area_ratio": 0.35739170058844416
+   },
+   "newton_iterations": 163,
+   "admissible": true,
+   "min_h": 0.5552631578947368,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 11.377519553339956,
+   "solve_fe": 12.491126715115286,
+   "seconds": 37.753813832998276,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.0115,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.002390315703291598,
+    0.001332316504115846
+   ],
+   "F": 0.00031581559496830596,
+   "mean_full": 0.5134395408629251,
+   "stds": [
+    0.0008185480039777378,
+    0.008632408569894758,
+    0.015512159630944287
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 1,
+   "remesh": true,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 127.29249094378845,
+    "max_area_ratio": 1.0,
+    "min_angle_deg": 22.984405392187522,
+    "min_area_ratio": 1.0
+   },
+   "newton_iterations": 173,
+   "admissible": true,
+   "min_h": 0.5552631578947368,
+   "remesh_meshes": [
+    {
+     "attempt": 0,
+     "error": null,
+     "file": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/cobyqa_a_lhs1_r1.meshes/train/icem_remesh_remesh000_L0.msh",
+     "label": "default",
+     "msh_sha256": "ea2aa4f72242be97a3176813211f091aacf5d66552ff1f772b2e181b95a6d01a",
+     "name": "remesh000",
+     "seconds": 0.5013585
+    }
+   ],
+   "attempts": [
+    {
+     "attempt": 0,
+     "detail": null,
+     "label": "default",
+     "mesh_s": 0.501957792,
+     "msh_sha256": "ea2aa4f72242be97a3176813211f091aacf5d66552ff1f772b2e181b95a6d01a",
+     "outcome": "passed",
+     "setup_s": 0.012828125
+    }
+   ]
+  },
+  {
+   "wall_fe": 11.975700023529736,
+   "solve_fe": 13.271822134809991,
+   "seconds": 39.738745083101094,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.0115,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001182316504115846
+   ],
+   "F": 0.0004363212555376952,
+   "mean_full": 0.6873685972814376,
+   "stds": [
+    0.0007584091026806416,
+    0.008668161483998186,
+    0.01898970899350479
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 116.897663583484,
+    "max_area_ratio": 1.9716471557010704,
+    "min_angle_deg": 16.594470626146265,
+    "min_area_ratio": 0.8177700771909232
+   },
+   "newton_iterations": 161,
+   "admissible": true,
+   "min_h": 0.5552631578947368,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 12.821196365842896,
+   "solve_fe": 14.271822134809991,
+   "seconds": 42.544340042048134,
+   "kind": "validate",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.01,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F_val": 0.00029786722310619574,
+   "mean_full": 0.5659509292390894,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 13.404201046836116,
+   "solve_fe": 15.052517554504696,
+   "seconds": 44.478913750033826,
+   "kind": "train",
+   "x": [
+    0.008058228177966186,
+    0.008029724360872178,
+    0.013472984133517534,
+    0.00441321451722938,
+    0.0013931566103137993,
+    0.0012972064875771197,
+    0.005682557550479638,
+    0.0013423007768453388
+   ],
+   "F": 0.0005477382852284977,
+   "mean_full": 0.9169251389567424,
+   "stds": [
+    0.0006857905307532424,
+    0.010123322952029255,
+    0.02108995753872787
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 132.60794811043957,
+    "max_area_ratio": 2.7858108777948454,
+    "min_angle_deg": 12.63722812994911,
+    "min_area_ratio": 0.6664916281535533
+   },
+   "newton_iterations": 156,
+   "admissible": true,
+   "min_h": 0.5557202653538258,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 14.275192600585363,
+   "solve_fe": 16.052517554504696,
+   "seconds": 47.369109000079334,
+   "kind": "validate",
+   "x": [
+    0.008058228177966186,
+    0.008029724360872178,
+    0.013472984133517534,
+    0.00441321451722938,
+    0.0013931566103137993,
+    0.0012972064875771197,
+    0.005682557550479638,
+    0.0013423007768453388
+   ],
+   "F_val": 0.0006625493860072729,
+   "mean_full": 0.9219041511945892,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 14.881292217179626,
+   "solve_fe": 16.8332129741994,
+   "seconds": 49.380318208015524,
+   "kind": "train",
+   "x": [
+    0.007750370578529966,
+    0.00812336939059035,
+    0.015039436147310094,
+    0.004425322410224052,
+    0.0012020896756860149,
+    0.0012922424525253912,
+    0.006745805256893441,
+    0.0013663616828790417
+   ],
+   "F": 0.0005233607746682529,
+   "mean_full": 1.0848723885724127,
+   "stds": [
+    0.00037298485831478934,
+    0.0102108448604585,
+    0.020468519834110355
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 140.6059154479364,
+    "max_area_ratio": 3.363973170557804,
+    "min_angle_deg": 10.650786247706012,
+    "min_area_ratio": 0.5660392316616356
+   },
+   "newton_iterations": 164,
+   "admissible": true,
+   "min_h": 0.472647685080876,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 15.764789666727616,
+   "solve_fe": 17.8332129741994,
+   "seconds": 52.31201154203154,
+   "kind": "validate",
+   "x": [
+    0.007750370578529966,
+    0.00812336939059035,
+    0.015039436147310094,
+    0.004425322410224052,
+    0.0012020896756860149,
+    0.0012922424525253912,
+    0.006745805256893441,
+    0.0013663616828790417
+   ],
+   "F_val": 0.0006441965222262587,
+   "mean_full": 1.0882470599729324,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 16.371995089135236,
+   "solve_fe": 18.613908393894107,
+   "seconds": 54.3268901250558,
+   "kind": "train",
+   "x": [
+    0.006948690713472618,
+    0.008359994880923712,
+    0.017412900810790992,
+    0.004457376613798166,
+    0.001,
+    0.0012790448845325167,
+    0.00709843225994232,
+    0.0014206237413782663
+   ],
+   "F": 0.0005533825435136007,
+   "mean_full": 1.362347547071351,
+   "stds": [
+    0.0015449263816737972,
+    0.010578398481492958,
+    0.020954551571330665
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 143.46703709932564,
+    "max_area_ratio": 3.5589301054440985,
+    "min_angle_deg": 10.272425022787179,
+    "min_area_ratio": 0.527284943689964
+   },
+   "newton_iterations": 165,
+   "admissible": true,
+   "min_h": 0.38478260869565223,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 17.279027347752045,
+   "solve_fe": 19.613908393894107,
+   "seconds": 57.33667858305853,
+   "kind": "validate",
+   "x": [
+    0.006948690713472618,
+    0.008359994880923712,
+    0.017412900810790992,
+    0.004457376613798166,
+    0.001,
+    0.0012790448845325167,
+    0.00709843225994232,
+    0.0014206237413782663
+   ],
+   "F_val": 0.0006844904149754124,
+   "mean_full": 1.3638664931212838,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 17.912280388849606,
+   "solve_fe": 20.394603813588812,
+   "seconds": 59.43799050000962,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.008692862878600435,
+    0.01935363871416733,
+    0.0045251027892539,
+    0.001,
+    0.001250050010794632,
+    0.010972854847501642,
+    0.001510408169855297
+   ],
+   "F": 0.000696082929333534,
+   "mean_full": 1.6353885051803896,
+   "stds": [
+    0.004352762523068924,
+    0.0114024033411351,
+    0.023390630299275215
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 159.07792991930128,
+    "max_area_ratio": 5.666092470387186,
+    "min_angle_deg": 6.0244287862723445,
+    "min_area_ratio": 0.2294684409706295
+   },
+   "newton_iterations": 174,
+   "admissible": true,
+   "min_h": 0.38478260869565223,
+   "remesh_meshes": [],
+   "attempts": null
+  },
+  {
+   "wall_fe": 18.837832223058125,
+   "solve_fe": 21.394603813588812,
+   "seconds": 62.509232125012204,
+   "kind": "validate",
+   "x": [
+    0.006,
+    0.008692862878600435,
+    0.01935363871416733,
+    0.0045251027892539,
+    0.001,
+    0.001250050010794632,
+    0.010972854847501642,
+    0.001510408169855297
+   ],
+   "F_val": 0.0006929182784188211,
+   "mean_full": 1.6355152304728844,
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "admissible": true
+  },
+  {
+   "wall_fe": 19.43966154480307,
+   "solve_fe": 22.175299233283518,
+   "seconds": 64.50627129210625,
+   "kind": "train",
+   "x": [
+    0.007224918064415122,
+    0.007530860327238663,
+    0.020729968520757987,
+    0.004236340078128172,
+    0.001,
+    0.0013748249287571777,
+    0.011888838974906578,
+    0.0013195786783276294
+   ],
+   "F": 0.0009957096603729135,
+   "mean_full": 1.6545856788353768,
+   "stds": [
+    0.0036806125713953995,
+    0.013464585104255355,
+    0.028299605994473925
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "cobyqa",
+   "generation": 1,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 158.8911293233823,
+    "max_area_ratio": 6.147917449066432,
+    "min_angle_deg": 5.724912570980472,
+    "min_area_ratio": 0.16545864306535424
+   },
+   "newton_iterations": 163,
+   "admissible": true,
+   "min_h": 0.38478260869565223,
+   "remesh_meshes": [],
+   "attempts": null
+  }
+ ],
+ "refusals": [],
+ "restorations": [],
+ "restarts": null,
+ "surrogate_initial_set": null,
+ "surrogate_steps": null,
+ "assessment": null,
+ "aborted_request": {
+  "category": "forward",
+  "op": "train",
+  "x": [
+   0.006,
+   0.009295413321471234,
+   0.019192396914958054,
+   0.004652578440913775,
+   0.001,
+   0.0011954359050886088,
+   0.012228356053894853,
+   0.001639359139230431
+  ]
+ },
+ "ledger": {
+  "fe_rule": {
+   "rule": "wall_time",
+   "unit_seconds": 3.318281604
+  },
+  "budget_fe": 20.0,
+  "budget_seconds": 66.36563208,
+  "total_fe": 20.0,
+  "total_seconds": 66.36563208,
+  "elapsed_seconds": 66.36956466711126,
+  "solve_fe": 22.175299233283518,
+  "weights": {
+   "validation_eval": 1.0,
+   "train_forward_eval": 0.7806954196947054,
+   "adjoint_eval": 0.1750375728509147,
+   "validation_solve": 0.016666666666666666,
+   "train_forward_solve": 0.013011590328245089,
+   "adjoint_solve": 0.0029172928808485783,
+   "validation_solves_per_eval": 60,
+   "train_solves_per_eval": 60
+  },
+  "exhausted": true,
+  "totals": {
+   "setup_calibration": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "forward": {
+    "seconds": 50.97487157893861,
+    "fe": 15.361828097257115,
+    "entries": 23,
+    "forward_solves": 1320,
+    "adjoint_solves": 0
+   },
+   "adjoint": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "line_search": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "mesh_motion": {
+    "seconds": 0.010728709,
+    "fe": 0.003233212331065317,
+    "entries": 27,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "remesh": {
+    "seconds": 0.514785917,
+    "fe": 0.15513629596097414,
+    "entries": 1,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "validation": {
+    "seconds": 14.704032666,
+    "fe": 4.431219052739563,
+    "entries": 5,
+    "forward_solves": 300,
+    "adjoint_solves": 0
+   },
+   "surrogate_update": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "geometry_check": {
+    "seconds": 0.00083425,
+    "fe": 0.00025141024770000204,
+    "entries": 51,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "overhead": {
+    "seconds": 0.16037895906137611,
+    "fe": 0.04833193146357693,
+    "entries": 104,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   }
+  },
+  "entries": [
+   {
+    "seq": 0,
+    "category": "overhead",
+    "seconds": 0.03769945807289332,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "process start-up"
+   },
+   {
+    "seq": 1,
+    "category": "overhead",
+    "seconds": 0.08352145901881158,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 2,
+    "category": "geometry_check",
+    "seconds": 2.6542e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 3,
+    "category": "overhead",
+    "seconds": 0.0002770409868167595,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 4,
+    "category": "overhead",
+    "seconds": 0.0035609579645097256,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 5,
+    "category": "geometry_check",
+    "seconds": 1.925e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 6,
+    "category": "overhead",
+    "seconds": 0.00020362503816187538,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 7,
+    "category": "overhead",
+    "seconds": 4.4874963350594044e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 8,
+    "category": "geometry_check",
+    "seconds": 9.791e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 9,
+    "category": "mesh_motion",
+    "seconds": 0.000488875,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 10,
+    "category": "forward",
+    "seconds": 2.340288041,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 11,
+    "category": "overhead",
+    "seconds": 0.00026533497112479765,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 12,
+    "category": "overhead",
+    "seconds": 0.0005586250917986035,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 13,
+    "category": "geometry_check",
+    "seconds": 1.9667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 14,
+    "category": "overhead",
+    "seconds": 0.00019004099960184817,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 15,
+    "category": "overhead",
+    "seconds": 2.8041889891028404e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 16,
+    "category": "geometry_check",
+    "seconds": 2.125e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 17,
+    "category": "mesh_motion",
+    "seconds": 0.000399709,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 18,
+    "category": "forward",
+    "seconds": 2.3363205000000002,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 19,
+    "category": "overhead",
+    "seconds": 0.0002653740550560002,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 20,
+    "category": "overhead",
+    "seconds": 0.0003560000332072377,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 21,
+    "category": "geometry_check",
+    "seconds": 1.7375e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 22,
+    "category": "overhead",
+    "seconds": 0.00021499999408458592,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 23,
+    "category": "overhead",
+    "seconds": 2.5499961338937283e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 24,
+    "category": "geometry_check",
+    "seconds": 1.2333e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 25,
+    "category": "mesh_motion",
+    "seconds": 0.000405458,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 26,
+    "category": "forward",
+    "seconds": 2.317767583,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 27,
+    "category": "overhead",
+    "seconds": 0.00021991799689580205,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 28,
+    "category": "overhead",
+    "seconds": 0.0003236670745536685,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 29,
+    "category": "geometry_check",
+    "seconds": 2.0958e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 30,
+    "category": "overhead",
+    "seconds": 0.00018249989380336729,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 31,
+    "category": "overhead",
+    "seconds": 2.695806324481964e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 32,
+    "category": "geometry_check",
+    "seconds": 1.1542e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 33,
+    "category": "mesh_motion",
+    "seconds": 0.000418,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 34,
+    "category": "forward",
+    "seconds": 2.359542125,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 35,
+    "category": "overhead",
+    "seconds": 0.0002165829642670758,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 36,
+    "category": "overhead",
+    "seconds": 0.0009654170135036111,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 37,
+    "category": "geometry_check",
+    "seconds": 1.7e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 38,
+    "category": "overhead",
+    "seconds": 0.00020420797075360042,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 39,
+    "category": "overhead",
+    "seconds": 6.008404307067394e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 40,
+    "category": "geometry_check",
+    "seconds": 1.2e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 41,
+    "category": "mesh_motion",
+    "seconds": 0.000398792,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 42,
+    "category": "forward",
+    "seconds": 2.3347390839999997,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 43,
+    "category": "overhead",
+    "seconds": 0.00021458203474722382,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 44,
+    "category": "overhead",
+    "seconds": 0.00029324996285140514,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 45,
+    "category": "geometry_check",
+    "seconds": 1.6833e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 46,
+    "category": "overhead",
+    "seconds": 0.00016937505349190474,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 47,
+    "category": "overhead",
+    "seconds": 2.645899076014757e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 48,
+    "category": "geometry_check",
+    "seconds": 1.15e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 49,
+    "category": "mesh_motion",
+    "seconds": 0.000389292,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 50,
+    "category": "forward",
+    "seconds": 2.345504416,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 51,
+    "category": "overhead",
+    "seconds": 0.00022137493917995243,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 52,
+    "category": "overhead",
+    "seconds": 0.00029137497767806053,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 53,
+    "category": "geometry_check",
+    "seconds": 1.825e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 54,
+    "category": "overhead",
+    "seconds": 0.00018208307373512866,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 55,
+    "category": "overhead",
+    "seconds": 7.924996316432953e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 56,
+    "category": "geometry_check",
+    "seconds": 9.792e-06,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 57,
+    "category": "mesh_motion",
+    "seconds": 0.00039425,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 58,
+    "category": "forward",
+    "seconds": 2.335887167,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 59,
+    "category": "overhead",
+    "seconds": 0.00025433299893151684,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 60,
+    "category": "overhead",
+    "seconds": 0.0002810000441968441,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 61,
+    "category": "geometry_check",
+    "seconds": 1.85e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 62,
+    "category": "overhead",
+    "seconds": 0.0001780829869737488,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 63,
+    "category": "overhead",
+    "seconds": 2.729194238781929e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 64,
+    "category": "geometry_check",
+    "seconds": 1.6083e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 65,
+    "category": "mesh_motion",
+    "seconds": 0.000398125,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 66,
+    "category": "forward",
+    "seconds": 2.311836,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 67,
+    "category": "overhead",
+    "seconds": 0.0002575840267375895,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 68,
+    "category": "overhead",
+    "seconds": 0.00031179096549749374,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 69,
+    "category": "geometry_check",
+    "seconds": 1.775e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 70,
+    "category": "overhead",
+    "seconds": 0.00017279207950693376,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 71,
+    "category": "overhead",
+    "seconds": 3.683299291878939e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 72,
+    "category": "geometry_check",
+    "seconds": 1.1125e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 73,
+    "category": "mesh_motion",
+    "seconds": 0.000394458,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 74,
+    "category": "forward",
+    "seconds": 2.349325458,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 75,
+    "category": "overhead",
+    "seconds": 0.0002237089232011158,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 76,
+    "category": "overhead",
+    "seconds": 0.0003819999983534217,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 77,
+    "category": "geometry_check",
+    "seconds": 1.8334e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 78,
+    "category": "overhead",
+    "seconds": 0.00018891600649695306,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 79,
+    "category": "overhead",
+    "seconds": 3.5208999179303646e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 80,
+    "category": "geometry_check",
+    "seconds": 1.0792e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 81,
+    "category": "mesh_motion",
+    "seconds": 0.000403959,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 82,
+    "category": "forward",
+    "seconds": 2.332323792,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 83,
+    "category": "overhead",
+    "seconds": 0.0002732900195532295,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 84,
+    "category": "overhead",
+    "seconds": 0.00028604199178516865,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 85,
+    "category": "geometry_check",
+    "seconds": 1.7209e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 86,
+    "category": "overhead",
+    "seconds": 0.00017116600829325535,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 87,
+    "category": "overhead",
+    "seconds": 2.666597720235586e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 88,
+    "category": "geometry_check",
+    "seconds": 1.675e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 89,
+    "category": "mesh_motion",
+    "seconds": 0.000405292,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 90,
+    "category": "forward",
+    "seconds": 2.322326335,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 91,
+    "category": "overhead",
+    "seconds": 0.00021370708661194726,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 92,
+    "category": "overhead",
+    "seconds": 0.00030416599474847317,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 93,
+    "category": "geometry_check",
+    "seconds": 1.5875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 94,
+    "category": "overhead",
+    "seconds": 0.00015029192300985983,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 95,
+    "category": "overhead",
+    "seconds": 3.50000336766243e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 96,
+    "category": "geometry_check",
+    "seconds": 1.0917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 97,
+    "category": "mesh_motion",
+    "seconds": 0.000393292,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 98,
+    "category": "forward",
+    "seconds": 2.289124208,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 99,
+    "category": "overhead",
+    "seconds": 0.00020583305096977256,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 100,
+    "category": "overhead",
+    "seconds": 0.00029341690242290497,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 101,
+    "category": "geometry_check",
+    "seconds": 1.7708e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 102,
+    "category": "overhead",
+    "seconds": 0.00018054205438033932,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 103,
+    "category": "overhead",
+    "seconds": 3.412493970245123e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 104,
+    "category": "geometry_check",
+    "seconds": 1e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 105,
+    "category": "mesh_motion",
+    "seconds": 0.000400666,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 106,
+    "category": "forward",
+    "seconds": 2.34411375,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 107,
+    "category": "overhead",
+    "seconds": 0.00022062510403486613,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 108,
+    "category": "overhead",
+    "seconds": 0.000365458894520998,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 109,
+    "category": "geometry_check",
+    "seconds": 2.0667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 110,
+    "category": "overhead",
+    "seconds": 0.0002210410104339644,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 111,
+    "category": "overhead",
+    "seconds": 5.216698627918959e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 112,
+    "category": "geometry_check",
+    "seconds": 1.2041e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 113,
+    "category": "mesh_motion",
+    "seconds": 0.000395542,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 114,
+    "category": "forward",
+    "seconds": 2.357289583,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 115,
+    "category": "overhead",
+    "seconds": 0.0002326250910087424,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 116,
+    "category": "overhead",
+    "seconds": 0.00028924993239343166,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 117,
+    "category": "geometry_check",
+    "seconds": 1.6875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 118,
+    "category": "overhead",
+    "seconds": 0.00016608401827511443,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 119,
+    "category": "overhead",
+    "seconds": 2.5916029699146748e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 120,
+    "category": "geometry_check",
+    "seconds": 1.5959e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 121,
+    "category": "mesh_motion",
+    "seconds": 0.000398625,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 122,
+    "category": "forward",
+    "seconds": 2.337700124,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 123,
+    "category": "overhead",
+    "seconds": 0.0002943760117943839,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 124,
+    "category": "overhead",
+    "seconds": 0.0003096249420195818,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 125,
+    "category": "geometry_check",
+    "seconds": 1.8875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 126,
+    "category": "overhead",
+    "seconds": 0.00018212501711190043,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 127,
+    "category": "overhead",
+    "seconds": 2.6875059120357037e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 128,
+    "category": "geometry_check",
+    "seconds": 1.575e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 129,
+    "category": "mesh_motion",
+    "seconds": 0.000395124,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 130,
+    "category": "remesh",
+    "seconds": 0.514785917,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 131,
+    "category": "forward",
+    "seconds": 2.079848251,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 132,
+    "category": "overhead",
+    "seconds": 0.00028837389849201145,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 133,
+    "category": "overhead",
+    "seconds": 0.00031254207715392113,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 134,
+    "category": "geometry_check",
+    "seconds": 1.85e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 135,
+    "category": "overhead",
+    "seconds": 0.00021095797536219152,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 136,
+    "category": "overhead",
+    "seconds": 6.787502206861973e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 137,
+    "category": "geometry_check",
+    "seconds": 1.6958e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 138,
+    "category": "mesh_motion",
+    "seconds": 0.000366708,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 139,
+    "category": "forward",
+    "seconds": 1.983705458,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 140,
+    "category": "overhead",
+    "seconds": 0.00023225102822266308,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 141,
+    "category": "overhead",
+    "seconds": 0.00030729197897017,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 142,
+    "category": "geometry_check",
+    "seconds": 1.8917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 143,
+    "category": "mesh_motion",
+    "seconds": 0.000453625,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa iterate"
+   },
+   {
+    "seq": 144,
+    "category": "validation",
+    "seconds": 2.804612625,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa iterate"
+   },
+   {
+    "seq": 145,
+    "category": "overhead",
+    "seconds": 0.0002024999680756423,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 146,
+    "category": "overhead",
+    "seconds": 0.003766083042137325,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 147,
+    "category": "geometry_check",
+    "seconds": 1.8542e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 148,
+    "category": "overhead",
+    "seconds": 0.00019733298486102058,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 149,
+    "category": "overhead",
+    "seconds": 3.124994691461325e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 150,
+    "category": "geometry_check",
+    "seconds": 1.0416e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 151,
+    "category": "mesh_motion",
+    "seconds": 0.000369542,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 152,
+    "category": "forward",
+    "seconds": 1.929960832,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 153,
+    "category": "overhead",
+    "seconds": 0.00021971001177689686,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 154,
+    "category": "overhead",
+    "seconds": 0.0002898749662563205,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 155,
+    "category": "geometry_check",
+    "seconds": 1.6792e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 156,
+    "category": "mesh_motion",
+    "seconds": 0.000396708,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa iterate"
+   },
+   {
+    "seq": 157,
+    "category": "validation",
+    "seconds": 2.889316,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa iterate"
+   },
+   {
+    "seq": 158,
+    "category": "overhead",
+    "seconds": 0.00017587507925753698,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 159,
+    "category": "overhead",
+    "seconds": 0.002649958012625575,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 160,
+    "category": "geometry_check",
+    "seconds": 1.625e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 161,
+    "category": "overhead",
+    "seconds": 0.0001682919174044173,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 162,
+    "category": "overhead",
+    "seconds": 2.291705459356308e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 163,
+    "category": "geometry_check",
+    "seconds": 1.6917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 164,
+    "category": "mesh_motion",
+    "seconds": 0.000373166,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 165,
+    "category": "forward",
+    "seconds": 2.007752083,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 166,
+    "category": "overhead",
+    "seconds": 0.00020962495155885108,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 167,
+    "category": "overhead",
+    "seconds": 0.0002952089998871088,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 168,
+    "category": "geometry_check",
+    "seconds": 1.6583e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 169,
+    "category": "mesh_motion",
+    "seconds": 0.00038225,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa iterate"
+   },
+   {
+    "seq": 170,
+    "category": "validation",
+    "seconds": 2.930818875,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa iterate"
+   },
+   {
+    "seq": 171,
+    "category": "overhead",
+    "seconds": 0.00018041701613213945,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 172,
+    "category": "overhead",
+    "seconds": 0.0027072500670328736,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 173,
+    "category": "geometry_check",
+    "seconds": 1.7291e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 174,
+    "category": "overhead",
+    "seconds": 0.00021279200922919017,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 175,
+    "category": "overhead",
+    "seconds": 3.100000321865082e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 176,
+    "category": "geometry_check",
+    "seconds": 1.5458e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 177,
+    "category": "mesh_motion",
+    "seconds": 0.000375708,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 178,
+    "category": "forward",
+    "seconds": 2.011305791,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 179,
+    "category": "overhead",
+    "seconds": 0.00021329294477823169,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 180,
+    "category": "overhead",
+    "seconds": 0.00028899998869746923,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 181,
+    "category": "geometry_check",
+    "seconds": 2.1083e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 182,
+    "category": "mesh_motion",
+    "seconds": 0.000383084,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa iterate"
+   },
+   {
+    "seq": 183,
+    "category": "validation",
+    "seconds": 3.008908625,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa iterate"
+   },
+   {
+    "seq": 184,
+    "category": "overhead",
+    "seconds": 0.00018666601403083405,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 185,
+    "category": "overhead",
+    "seconds": 0.0027936670230701566,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 186,
+    "category": "geometry_check",
+    "seconds": 1.5917e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 187,
+    "category": "overhead",
+    "seconds": 0.00016645796260661427,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 188,
+    "category": "overhead",
+    "seconds": 2.316699828952551e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 189,
+    "category": "geometry_check",
+    "seconds": 1.6125e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 190,
+    "category": "mesh_motion",
+    "seconds": 0.0003795,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 191,
+    "category": "forward",
+    "seconds": 2.097693543,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 192,
+    "category": "overhead",
+    "seconds": 0.00022353996712354274,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 193,
+    "category": "overhead",
+    "seconds": 0.0002719580661505461,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 194,
+    "category": "geometry_check",
+    "seconds": 1.9667e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 195,
+    "category": "mesh_motion",
+    "seconds": 0.000385792,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa iterate"
+   },
+   {
+    "seq": 196,
+    "category": "validation",
+    "seconds": 3.070376541,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa iterate"
+   },
+   {
+    "seq": 197,
+    "category": "overhead",
+    "seconds": 0.00018766693643357257,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 198,
+    "category": "overhead",
+    "seconds": 0.0024916670517995954,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 199,
+    "category": "geometry_check",
+    "seconds": 1.7875e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 200,
+    "category": "overhead",
+    "seconds": 0.00018058297214906815,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 201,
+    "category": "overhead",
+    "seconds": 6.891705561429262e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 202,
+    "category": "geometry_check",
+    "seconds": 1.7541e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "buildability"
+   },
+   {
+    "seq": 203,
+    "category": "mesh_motion",
+    "seconds": 0.000383167,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 204,
+    "category": "forward",
+    "seconds": 1.993654292,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "cobyqa"
+   },
+   {
+    "seq": 205,
+    "category": "overhead",
+    "seconds": 0.00022512501448090916,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 206,
+    "category": "overhead",
+    "seconds": 0.002271790988743305,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 207,
+    "category": "geometry_check",
+    "seconds": 1.8125e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "geometry"
+   },
+   {
+    "seq": 208,
+    "category": "overhead",
+    "seconds": 0.00017970898602470697,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io geometry"
+   },
+   {
+    "seq": 209,
+    "category": "overhead",
+    "seconds": 2.7999980375170708e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 210,
+    "category": "forward",
+    "seconds": 1.856863162938609,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "train aborted at the budget"
+   }
+  ]
+ },
+ "anchor": {
+  "F0": 0.009963070019754904,
+  "mean0_full_current": 1.4450083651405945,
+  "level": 0,
+  "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+  "targets": {
+   "T50": 0.004981535009877452,
+   "T90": 0.0009963070019754904,
+   "T99": 9.963070019754904e-05
+  },
+  "mean_floor": 1.448620886053446,
+  "source": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/anchor_L0_smoke.json",
+  "file_sha256": "01292abae8a66e616918b839e4c6cd43a64897f6fe7fc5d7e92c727cd7ab6f8b",
+  "file_values": {
+   "F0": 0.009963070019754905,
+   "mean0": 1.4450083651405945
+  }
+ },
+ "in_run_start_time": 1792328008.9312692,
+ "in_run_end_time": 1792328075.3013408,
+ "post_run_end_time": 1792328075.3013408,
+ "in_run_wall_seconds": 66.36563208,
+ "post_run_wall_seconds": 0.0,
+ "load_after": [
+  19.185546875,
+  18.208984375,
+  19.94775390625
+ ],
+ "finished_utc": "2026-10-18T12:54:35Z",
+ "host_contaminated": true,
+ "pre_run_load": 18.1494140625,
+ "pre_run_wait_s": 0.0,
+ "host_gate": false,
+ "longest_overload_s": 63.7282338142395,
+ "in_run_load": {
+  "samples": 13,
+  "max": 19.87890625,
+  "mean": 19.066969651442307
+ },
+ "diagnostic_load": {
+  "samples": 0,
+  "max": null,
+  "mean": null
+ }
+}
