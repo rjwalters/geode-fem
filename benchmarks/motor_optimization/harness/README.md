@@ -1103,3 +1103,29 @@ binding, cancellation and recovery-execution regressions. The tests launch actua
 controlled child processes that emit fixture Cargo records; they do not compile
 Rust. The native recorder invocation, reviewed dependency rebase, affected native
 verification, independent review and main-host selection are still pending.
+
+
+### BLAS/LAPACK identity in recovery (#1204 review follow-up)
+
+Frozen runtime payloads now include an explicit linear-algebra fingerprint for
+NumPy/SciPy in the optimizer and NumPy in the mesher. The optimizer's flat keys
+match `linalg_info.py` at #1204 head `1a3a94ea`; full BLAS/LAPACK build dependency
+dictionaries additionally retain ABI/configuration details. Missing or failing
+configuration probes refuse verification. Accelerate reports version `unknown`,
+so its named backend, macOS version, host platform, package contents and numerical
+environment are all retained; this is not a claim to have hashed Apple's loaded
+system framework.
+
+Backend name/version, ABI fields, OS version and selected library/backend override
+environment variables are part of exact frozen equality. A change during setup or
+before recovery dispatch is refused. Installed package hashes remain required;
+matching NumPy/SciPy version strings alone is insufficient. This explicitly records
+the backend difference implicated in the macOS/Linux pilot replay divergence.
+
+Six focused checks and three mutations pass, plus thirty binding, recovery,
+build-provenance and journal regressions. `recovery-blas-runtime-probe.json` retains
+the actual optimizer/mesher observations and exact equality with the peer helper's
+thirteen flat keys. The local environments both report Accelerate. The initial
+offline mesher probe refused because its package-resolution cache was absent; the
+unchanged pinned uv command populated it, after which offline verification passed.
+No source/package versions were changed and no FEM/main job ran for this check.

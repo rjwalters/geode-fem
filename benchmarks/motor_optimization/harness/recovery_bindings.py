@@ -20,7 +20,9 @@ SOURCE_PATHS = ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo", "cr
 NUMERICAL_ENV = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
                  "VECLIB_MAXIMUM_THREADS", "BLIS_NUM_THREADS", "OMP_DYNAMIC",
                  "OMP_SCHEDULE", "MKL_DYNAMIC", "MKL_CBWR", "PYTHONHASHSEED",
-                 "RAYON_NUM_THREADS", "GEODE_NUM_THREADS")
+                 "RAYON_NUM_THREADS", "GEODE_NUM_THREADS", "OPENBLAS_CORETYPE",
+                 "GOTO_NUM_THREADS", "BLIS_ARCH_TYPE",
+                 "LD_LIBRARY_PATH", "LD_PRELOAD", "DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES")
 
 
 def command(argv, cwd, *, env=None):
