@@ -436,7 +436,7 @@ retained request, checks actual coordinates/configuration, independently checks
 geometry margins, mesh quality/history and retained mesh bytes, and recomputes
 waveform statistics. CPU counters and post-run cost scope remain per observation.
 Failed/unavailable results and missing checks are retained without replacement.
-Conforming reporting remains a separate pending integration step.
+The conforming integration described next extends this same API.
 
 The nine tests in `test_native_results.py` replay nine unchanged native harmonic
 outputs (580 torque samples) from the two existing smoke archives. The additional
@@ -456,4 +456,33 @@ not select main candidates or launch processes; both capability flags are false.
 
 ```sh
 python3 -I benchmarks/motor_optimization/final_refinement/test_native_results.py
+```
+
+
+The frozen plan, comparison reducer and native reader accept
+`include_conforming=True` to add one conforming check for every candidate and
+matching-space theta0 reference. The six-check default remains available for
+harmonic-only archives; it does not imply that conforming checks are complete.
+The added specification declares L2, the outer-band Arkkio estimator, a fresh
+candidate mesh, zero stator offsets and supported rotations. Every requested
+check remains in the report even when its estimator is unavailable.
+
+A successful conforming output must retain its ordered fresh-mesh attempts,
+actual generated files, final passing quality and the same mesh in validation.
+The reader refuses moved-mesh substitution, mismatched quality/digests, skipped
+repair history, nonzero stator offsets and unsupported rotations. Rotor offsets
+alone do not cause refusal. Conforming versus primary comparisons retain the
+matched physical angles and disclose their different estimators; target checks
+use the matching conforming theta0 and cannot alter original credit.
+
+Six additional tests replay the original successful fresh conforming solve and
+the native nonzero-stator unavailable result. The combined report has ten
+completed checks, 640 torque samples and eighteen missing checks in its synthetic
+four-design cohort. All 132 Python checks pass. No new FEM or main-study candidate
+selection is performed. Full closed-capture authentication and cohort execution
+remain pending; native build/source/runtime declarations still require external
+verification.
+
+```sh
+python3 -I benchmarks/motor_optimization/final_refinement/test_conforming_results.py
 ```

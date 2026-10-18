@@ -116,9 +116,9 @@ def target_check(candidate, reference):
             'scope': 'post-run matching-settings check only; original attainment/credit unchanged'}
 
 
-def summarize(selection, records):
+def summarize(selection, records, *, include_conforming=False):
     """Retain every declared observation and every missing planned check."""
-    plan = make_plan(selection)
+    plan = make_plan(selection, include_conforming=include_conforming)
     jobs = {j['job_id']: j for j in plan['jobs']}
     observed, reduced = {}, {}
     for row in records:

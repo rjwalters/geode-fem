@@ -7,13 +7,14 @@ an execution receipt. The complete driver must supply those verified bindings.
 import copy
 import hashlib
 import json
+import math
 from pathlib import Path
 
 from check_plan import make_plan
 from comparison import reduce_record, summarize, sha
 from design_evidence import SCALARS, OFFSETS, bits, _bound_json
 from selection import Design, _exact
-from validation_evidence import geometry, number, same, verify_mesh, REPAIR_LABELS
+from validation_evidence import geometry, number, same, verify_mesh, quality, REPAIR_LABELS
 
 
 def _file(path, expected):
@@ -52,13 +53,13 @@ def _design(adapted, definitions):
     return design, space, definition
 
 
-def requests(selection, designs, definitions, meshes):
-    """Return exact requests for all six planned checks, without executing them.
+def requests(selection, designs, definitions, meshes, *, include_conforming=False):
+    """Return exact planned requests, optionally including the conforming check.
 
     `meshes` maps levels 2/3 to {path, sha256}; its theta0-construction provenance
     must already have been verified. `designs` contains RegisteredDesigns output.
     """
-    plan = make_plan(selection)
+    plan = make_plan(selection, include_conforming=include_conforming)
     if set(designs) != {row['design_key'] for row in plan['cohort']}:
         raise ValueError('design mapping differs from frozen cohort')
     mesh_hashes = {}
@@ -93,6 +94,8 @@ def _config(spec, adapted):
     config = copy.deepcopy(adapted['settings']['common_validator'])
     config.update(name=spec['name'], level=spec['level'], angles_deg=spec['angles_deg'],
                   fractions=spec['current_fractions'], newton_rel_tol=spec['newton_rel_tol'])
+    if spec['name'] == 'conforming':
+        config.update(mode='conforming-outer', torque='conforming/outer-band Arkkio')
     return config
 
 
@@ -162,6 +165,58 @@ def _mesh_files(raw, meshes):
         raise ValueError('own/moved check has unexpected fresh-mesh execution')
 
 
+def _conforming_gate(adapted, spec):
+    if any(adapted['parameters'][name] != 0.0 for name in ('CPS1', 'CPS2', 'CPS3')):
+        raise ValueError('completed conforming check has nonzero stator offsets')
+    segments_per_degree = (120 << spec['level']) / 60.0
+    for angle in spec['angles_deg']:
+        shift = number(angle, 'conforming angle') * segments_per_degree
+        if not math.isfinite(shift) or abs(shift-round(shift)) > 1e-9:
+            raise ValueError('unsupported conforming rotation')
+
+
+def _conforming_mesh(raw, meshes):
+    """Successful conforming solve must use its freshly built candidate mesh."""
+    history, records = raw.get('forced_fresh_attempts'), raw.get('fresh_mesh_records')
+    if (type(history) is not list or not 1 <= len(history) <= 4
+            or type(records) is not list or len(records) != len(history)):
+        raise ValueError('missing conforming fresh-mesh history')
+    for index, (attempt, record) in enumerate(zip(history, records)):
+        if any(type(r.get('attempt')) is not int or r['attempt'] != index
+               or r.get('label') != REPAIR_LABELS[index] for r in (attempt, record)):
+            raise ValueError('conforming repair order changed')
+        number(attempt.get('mesh_s'), 'conforming mesh time', minimum=0)
+        number(record.get('seconds'), 'native mesher time', minimum=0)
+        digest = record.get('sha256')
+        if digest is not None:
+            if digest not in meshes:
+                raise ValueError('missing conforming mesh bytes')
+            _file(meshes[digest], digest)
+        final = index == len(history)-1
+        outcome = attempt.get('outcome')
+        if outcome == 'mesher_failed' and not final:
+            if (type(attempt.get('error')) is not str or not attempt['error']
+                    or type(record.get('error')) is not str or not record['error']):
+                raise ValueError('missing conforming mesher failure reason')
+            continue
+        if outcome != ('passed' if final else 'policy_failed') or record.get('error') is not None:
+            raise ValueError('conforming history must end at its first passing mesh')
+        number(attempt.get('setup_s'), 'conforming setup time', minimum=0)
+        if not sha(digest) or digest != attempt.get('msh_sha256') or quality(attempt.get('quality')) != final:
+            raise ValueError('conforming mesh digest/quality disagrees with history')
+    v = raw['validation'];last = history[-1]
+    if (v['mesh'].get('kind') != 'own' or v.get('msh_sha256') != last['msh_sha256']
+            or _exact(v['mesh'].get('quality')) != _exact(last['quality'])):
+        raise ValueError('conforming validation does not use the passing fresh candidate mesh')
+    # The native conforming path builds at the candidate. Validator must retain
+    # that own mesh without further repair. Its measured motion_s can include
+    # the time to choose the own-mesh path even though no motion occurs.
+    for name in ('remesh_mesh_s', 'remesh_setup_s'):
+        if number(v.get(name), name, minimum=0) != 0.0:
+            raise ValueError('conforming validation remeshed the candidate mesh')
+    verify_mesh(v, last['msh_sha256'])
+
+
 def _observation(job, request, adapted, definitions, artifact, *, provenance, guard_specs, discrete_names):
     """Read a hash-bound native result and independently validate its contents.
 
@@ -209,8 +264,12 @@ def _observation(job, request, adapted, definitions, artifact, *, provenance, gu
     record = {'geometry': detail, 'admissible': detail['credit_admissible'],
               'h_nonnegative': detail['admissible'], 'min_h': detail['min_h']}
     geometry(record, guard_specs, discrete_names)
-    verify_mesh(v, request['reference_mesh_sha256'])
-    _mesh_files(raw, artifact['meshes'])
+    if job['spec']['name'] == 'conforming':
+        _conforming_gate(adapted, job['spec'])
+        _conforming_mesh(raw, artifact['meshes'])
+    else:
+        verify_mesh(v, request['reference_mesh_sha256'])
+        _mesh_files(raw, artifact['meshes'])
     currents = v.get('currents')
     if type(currents) is not list:
         raise ValueError('missing current sweep')
@@ -220,8 +279,8 @@ def _observation(job, request, adapted, definitions, artifact, *, provenance, gu
         if type(current.get('newton_iterations')) is not int or current['newton_iterations'] < 0:
             raise ValueError('missing Newton count')
         same(current.get('std2'), current['std']**2, 'current variance')
-    for key in ('setup_s',):
-        number(raw.get(key), key, minimum=0)
+    if job['spec']['name'] != 'conforming':
+        number(raw.get('setup_s'), 'setup_s', minimum=0)
     for key in ('motion_s','remesh_mesh_s','remesh_setup_s','solve_s','total_s'):
         number(v.get(key), key, minimum=0)
     if raw['wall_seconds'] < v['total_s']:
@@ -229,6 +288,9 @@ def _observation(job, request, adapted, definitions, artifact, *, provenance, gu
     row.update(status='ok', actual_spec=copy.deepcopy(job['spec']), currents=copy.deepcopy(currents),
                sum_variances=v.get('F'), geometry=copy.deepcopy(detail), mesh_pass=True,
                geometry_raw_sha256=geobinding['sha256'], native_mesh=copy.deepcopy(v['mesh']))
+    if job['spec']['name'] == 'conforming':
+        row['forced_fresh_attempts'] = copy.deepcopy(raw['forced_fresh_attempts'])
+        row['fresh_mesh_records'] = copy.deepcopy(raw['fresh_mesh_records'])
     reduced = reduce_record(job, row)
     if job['spec']['name'] == 'withheld':
         if v.get('full_current_mean') is not None:
@@ -238,9 +300,9 @@ def _observation(job, request, adapted, definitions, artifact, *, provenance, gu
     return row
 
 
-def report(selection, designs, definitions, meshes, artifacts, *, provenance, geometry_definitions):
+def report(selection, designs, definitions, meshes, artifacts, *, provenance, geometry_definitions, include_conforming=False):
     """Join exact requests, supplied observations and all missing planned checks."""
-    prepared = requests(selection, designs, definitions, meshes)
+    prepared = requests(selection, designs, definitions, meshes, include_conforming=include_conforming)
     jobs = {j['job_id']: j for j in prepared['plan']['jobs']}
     if not set(artifacts) <= jobs.keys():
         raise ValueError('artifact is outside the frozen plan')
@@ -250,8 +312,9 @@ def report(selection, designs, definitions, meshes, artifacts, *, provenance, ge
         space = adapted['settings']['design_space']
         rows.append(_observation(jobs[key], prepared['requests'][key], adapted, definitions, artifact,
                                 provenance=provenance, **geometry_definitions[space]))
-    result = summarize(selection, rows)
-    result['scope'] = 'Hash-bound native harmonic results mapped to the frozen plan. Caller must authenticate closed capture and execution provenance; no new original target credit.'
+    result = summarize(selection, rows, include_conforming=include_conforming)
+    result['conforming_checks'] = prepared['plan']['conforming_checks']
+    result['scope'] = 'Hash-bound native results mapped to the frozen plan. Caller must authenticate closed capture and execution provenance; no new original target credit.'
     result['can_select'] = False
     result['can_launch'] = False
     return result

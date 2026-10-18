@@ -31,14 +31,15 @@ def _spec(name, level, angles, *, tolerance=1e-8, currents=(0.0, 0.5, 1.0)):
     }
 
 
-def make_plan(selection):
+def make_plan(selection, *, include_conforming=False):
     """Expand one frozen cohort into mandatory all-mode checks and references.
 
     Primary and withheld checks are included so comparisons have explicit
     dependencies. The runner may reuse a record only after proving exact
     geometry/settings/source equivalence; a g40 slice is not a shifted solve.
     This plan does not assert that settings in the selector are complete or
-    that any check has run. Conforming checks need a separate fresh-mesh gate.
+    that any check has run. include_conforming schedules the additional check
+    for every frozen design; its fresh-mesh/stator/rotation gates remain required.
     """
     if selection.get("schema_version") != 1:
         raise ValueError("unsupported selection schema")
@@ -85,6 +86,14 @@ def make_plan(selection):
         _spec("shifted", 2, [i + 0.5 for i in range(20)]),
         _spec("withheld", 2, g20, currents=(0.25, 0.75)),
     ]
+    if type(include_conforming) is not bool:
+        raise ValueError('conforming schedule flag must be boolean')
+    if include_conforming:
+        conforming = _spec('conforming', 2, g20)
+        conforming.update(harmonic_max=None, torque_estimator='conforming/outer-band Arkkio',
+                          mesh_origin='fresh_candidate', requires_zero_stator_offsets=True,
+                          requires_supported_rotations=True)
+        specs.append(conforming)
     # Build the reference first, then deterministic design/spec ordering.
     jobs = []
     for key in sorted(keys, key=lambda k: (k not in references, k != anchor, k)):
@@ -110,6 +119,7 @@ def make_plan(selection):
         "reference_design_keys": sorted(references),
         "target_credit_policy": "preserve_original_common_validation",
         "replacement_policy": "never_replace_selected_design",
-        "conforming_checks": "pending_separate_fresh_mesh_and_supported_rotation_gate",
+        "conforming_checks": ("scheduled_with_fresh_mesh_stator_and_rotation_gates" if include_conforming
+                              else "pending_separate_fresh_mesh_and_supported_rotation_gate"),
         "scope": "All-mode schedule only; no execution, outcomes, or conforming verdict.",
     }
