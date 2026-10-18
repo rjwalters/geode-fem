@@ -6,10 +6,65 @@ Requested 2026-10-17 after v2's evidence audit. Coordinate execution in Squad wi
 
 - Experiment 1 merged as #1182 at `224332c526be1191183af82b610973c7778de720`. V6 retains fresh export/NURBS L2–L3 records, with coupling torque for harmonic fields and outer-band Arkkio only for the checked fresh conforming meshes. Fixed unscaled and physical current are distinct at Opt120's radial scale.
 - Experiment 3 merged as #1191 at `8acd21ecf85d89fe077275a3c04ca70b53963d43`. The coarse rerun reproduces all 60 saved torques before refinement; 24×24 brings cogging std agreement to 0.10%. This resolves the coarse-reference explanation at matched order, without claiming a continuum bound.
-- Experiment 2's authoritative preregistration is [#1185](https://github.com/rjwalters/geode-fem/issues/1185). Amendments 1–6 and the amendment-6 addendum governed the pilot. Amendments 7 (revision 1 plus adoption corrections) and 8 now govern the prospective main study. The frozen spaces remain 8 scalars vs 8+10 offsets, with LENGTH/SD1/ScaleR/OPERATING_ANGLE fixed and physical current 9.6777 A. Targets T50/T90/T99 are set before method outcomes. The pilot budget was 60 measured cold validation-forward wall-time units; main runs receive 120 with a 60-unit checkpoint. All in-run method costs are charged. Shared reference calibration is recorded separately, and the final comparison also reports end-to-end costs.
-- Remesh/torque guards and validation infrastructure (#1190/#1192/#1194) are merged; the optimizer harness #1196 merged at `89e6c4e127a5fbef7e4b2e0f10b90e70bd1193b4`. The 36-run development-host pilot merged in PR #1200 at `43db1c626bdc2367f896905d7807979789ee22b3`, from reviewed head `66de22d4be1563a90e0dbe9a7a74caeab406dab8`. It recorded 13 failures (11 unbuildable slot flanks, two fresh meshes below the 5-degree minimum-angle policy), 13 budget stops and 10 T99 stops. Space-B T99 attainment is 6/6 SLSQP, 4/6 COBYQA and 0/6 empirical RBF surrogate; space A has no T99 attainment. Counts include earlier target crossings in runs that subsequently failed; final run status remains separate. These loaded-host observations are feasibility/budget evidence only. Amendments 7 and 8 are adopted for the main study; targets remain frozen, and main runs still require reviewed implementation and an idle-host session. No smoke result is paper evidence. The empirical cubic-RBF surrogate must be named as such, not a reduced physical model. Its half-current prediction is at a training current. Post-run .25/.75 diagnostics evaluate a frozen linear interpolation between current-specific RBF predictions; their separately recorded costs do not affect the stopped run or attainment times. These test the added current interpolation, not intrinsic current generalization.
+- Experiment 2's authoritative preregistration is [#1185](https://github.com/rjwalters/geode-fem/issues/1185). Amendments 1–6 and the amendment-6 addendum governed the pilot. Amendments 7 (revision 1 plus adoption corrections) and 8 govern the main study. The frozen spaces remain 8 scalars vs 8+10 offsets, with LENGTH/SD1/ScaleR/OPERATING_ANGLE fixed and physical current 9.6777 A. Targets T50/T90/T99 are set before method outcomes. The pilot budget was 60 measured cold validation-forward wall-time units; main runs receive 120 with a 60-unit checkpoint. All in-run method costs are charged. Shared reference calibration is recorded separately, and the final comparison also reports end-to-end costs.
+- Remesh/torque guards and validation infrastructure (#1190/#1192/#1194) are merged; the optimizer harness #1196 merged at `89e6c4e127a5fbef7e4b2e0f10b90e70bd1193b4`. The 36-run development-host pilot merged in PR #1200 at `43db1c626bdc2367f896905d7807979789ee22b3`, from reviewed head `66de22d4be1563a90e0dbe9a7a74caeab406dab8`. It recorded 13 failures (11 unbuildable slot flanks, two fresh meshes below the 5-degree minimum-angle policy), 13 budget stops and 10 T99 stops. Space-B T99 attainment is 6/6 SLSQP, 4/6 COBYQA and 0/6 empirical RBF surrogate; space A has no T99 attainment. Counts include earlier target crossings in runs that subsequently failed; final run status remains separate. These loaded-host observations are feasibility/budget evidence only. Amendments 7 and 8 are adopted for the main study; targets remain frozen. Reviewed main implementation merged through PR #1206, and the main session has started on a dedicated host (dated status below). No smoke result is paper evidence. The empirical cubic-RBF surrogate must be named as such, not a reduced physical model. Its half-current prediction is at a training current. Post-run .25/.75 diagnostics evaluate a frozen linear interpolation between current-specific RBF predictions; their separately recorded costs do not affect the stopped run or attainment times. These test the added current interpolation, not intrinsic current generalization.
 
 The original experiment requests below retain the wider research scope. Where they conflict with the frozen pilot, the issue's amendments govern that pilot. The strongest inexpensive-physics comparison and broader geometric feasibility constraints still need explicit evidence before the full research hypothesis can be claimed.
+
+## Main launch and remaining evidence (observed 2026-10-18, 19:32 UTC)
+
+[PR #1206](https://github.com/rjwalters/geode-fem/pull/1206) merged at
+17:53:12 UTC, with merge commit
+`9486a9da58beeca91968d4d3608f06b998abff45`. The main session
+`main-20261018T181644Z` runs from that source. Its retained setup records
+show anchor preflight `PASS`, a clean source tree, bitwise agreement between
+the two spaces at the anchor, and both calibrations accepted for dispatch.
+The common measured unit is 70.935572288 seconds; N = 15, the run budget is
+120 FE and the checkpoint is 60 FE. These are setup facts, not optimization
+results. A read-only host observation at 19:32:29 UTC confirmed the session
+and evaluator processes were still running. No interim objective values,
+target attainment or method comparisons are used in this status update.
+
+The setup records are retained locally in
+`/Volumes/Stripe/scratch-codex-review/exp2-main-session/setup-records/`.
+They must enter the verified closed-session artifact before the final paper
+relies on them; this local locator is not a public availability link.
+Identity checks for that handoff are:
+
+| Record | SHA-256 |
+|---|---|
+| `session.json` | `451427f45bbf8ea108a44a3c1de006b6e243b79f25cf2971787ab97f0da8d6d5` |
+| `anchor_preflight.json` | `bde4e260e549a134e6632333439fb18c8ebe7d25b6dcf541d5b6715cb0ea2628` |
+| `calibration_primary.json` | `1496a44cbf5157b506fdaee20117df2682cd4ba5bce96502000531e83bde36f2` |
+| `calibration_secondary.json` | `f92575e2268c99be8981b4d9edee41bcb0675d859ba81cc47fbb4db1af017d55` |
+| `bindings.json` | `4dac96a80c22c6ff35981124afdbd268b8049231682e6ab1d3da32cb66815d89` |
+
+The first launch was refused before preflight or FEM because the remesher's
+package environment had not been prepared. The environment was prepared
+with the evaluator's own command and verified offline before the current
+session launched. The refused attempt is preserved separately; it is not
+an optimizer run. Host operations and that refusal are recorded in the
+session's local `operations-handoff.json` for the eventual artifact package.
+
+[PR #1207](https://github.com/rjwalters/geode-fem/pull/1207), currently at head
+`19cc493ed9992885cefcc3192657255ef1eeddc2`, implements the closed-capture,
+selection, final-check and reporting chain and awaits independent review.
+Its [evidence index](https://github.com/rjwalters/geode-fem/blob/19cc493ed9992885cefcc3192657255ef1eeddc2/benchmarks/motor_optimization/final_refinement/EVIDENCE.md)
+distinguishes synthetic cohort tests from bounded native execution evidence.
+Neither is a complete main-cohort result. The remaining evidence sequence is:
+
+1. Close and verify the full main session, including every attempt, exclusion,
+   recovery and resource record; retain the frozen starts, queue and costs.
+2. Complete independent pipeline review and execute the frozen final cohort
+   with matched reference settings, explicit failed/unavailable checks and
+   separate post-run costs.
+3. Generate paired per-start curves, target-attainment tables, refinement
+   comparisons and resource summaries from those verified records. Preserve
+   censoring and the distinction between timing repeats and design starts.
+4. Integrate the results and actual execution metadata into a new immutable
+   manuscript, correct v6's deferred caption finding, then complete fresh
+   independent reviews, numerical/citation audit and rendered-figure checks.
+5. Verify the PDF and public source/data package from a clean checkout.
 
 ## 1. Validate the optimization target before timing methods
 
@@ -55,7 +110,7 @@ A [pilot-only figure preview](refs/pilot-figure-preview/README.md) separates des
 
 A [prospective methods fragment](refs/main-study-methods-draft.tex) prepares the next manuscript from the adopted protocol. A [clause-by-clause coverage audit](refs/main-study-methods-protocol-audit.md) records missing or implicit details against the adopted amendments and preserves the exact source snapshot. The [author response](refs/main-study-methods-coverage-followup.md) records the subsequent prospective-text revision and the evidence still pending. A [prospective settings supplement](refs/main-study-settings-supplement.tex), with [source provenance](refs/main-study-settings-supplement.json), supplies parameter/group tables and the adopted algorithm while distinguishing unreviewed implementation observations. The [space-motion and finite-cap clarification](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248418735) is recorded before main outcomes: cross-space differences do not isolate added offsets, and finite cap hits must be reported. It explicitly contains no main-study result and retains a pending execution-metadata marker. It must be reconciled with the merged implementation and actual manifests, then reviewed with the new manuscript; it is not part of the audited v6 text.
 
-The [prospective main-run runbook](refs/main-run-runbook.md) covers host preflight, calibration and scheduling, contamination handling, interruption recovery, evidence archiving and the #1203 handoff. Its command templates must be bound to the reviewed #1201/#1202 merges. Durable session recovery and clean-calibration sequencing are implemented in the private #1202 candidate and require independent review before main launch. Recovery replaces eligible whole attempts; it is not optimizer-state resume.
+The [prospective main-run runbook](refs/main-run-runbook.md) covers host preflight, calibration and scheduling, contamination handling, interruption recovery, evidence archiving and the #1203 handoff. For the actual launch, its command templates were bound to the reviewed source at `9486a9da58beeca91968d4d3608f06b998abff45`. Durable session recovery and clean-calibration sequencing merged through PR #1206. The prospective preparation snapshot remains a historical record, not the actual launch receipt. Recovery replaces eligible whole attempts; it is not optimizer-state resume.
 
 ## Publication-readiness goal (operator, 2026-10-18)
 
@@ -66,10 +121,10 @@ Completion requires the following evidence, checked at the final manuscript's ac
 | Requirement | Evidence needed | Current state / owner |
 |---|---|---|
 | Reproduced nonlinear motor and verified derivatives | Pinned raw arrays, independent verification and accurate scoped claims | V6 audit PASS at `1dd8cdef`; archived verbatim in `.6.audit/` |
-| Valid optimization domain and trustworthy solver callbacks | Adopted amendment, complete guard inventory, unit-consistent margins, solver-visible rejection/restoration, charged mesh repair, independent implementation review | Amendment 7 implementation reviewed and merged through #1204 at `5c998bda`; #1202 integration under verification |
-| Matched useful-design-space comparison and cost | Frozen starts/targets/cost rules; complete idle-host main records, paired results, failed/censored outcomes, 60-FE checkpoint if budget expands | Pilot complete in #1200; no main-run results |
-| Inexpensive physical competitor | Named physical model, calibration and adaptation protocol frozen before its outcomes, all training/setup costs charged, same final target | L0 nonlinear FEM screened locally; amendment 8 adopted for COBYQA and SLSQP on L0; Codex implementation #1202 follows #1201; no optimizer results |
-| Candidate reliability | Common validation plus L3/g40/shifted-grid/tight-Newton/interface and withheld-condition checks at the reported new candidates; limits on numerical error | Original Opt120 checks exist; amendment-8 addendum freezes representative/crossing selection; #1203 implements the new checks after #1202 |
+| Valid optimization domain and trustworthy solver callbacks | Adopted amendment, complete guard inventory, unit-consistent margins, solver-visible rejection/restoration, charged mesh repair, independent implementation review | Amendment 7 and #1202 integration reviewed and merged through #1206 at `9486a9da`; main source fixed to that commit |
+| Matched useful-design-space comparison and cost | Frozen starts/targets/cost rules; complete idle-host main records, paired results, failed/censored outcomes, 60-FE checkpoint if budget expands | Pilot complete in #1200; main session running; closed cohort and paired outcome analysis pending |
+| Inexpensive physical competitor | Named physical model, calibration and adaptation protocol frozen before its outcomes, all training/setup costs charged, same final target | L0 COBYQA/SLSQP implementation merged through #1206 and included in the live main matrix; complete optimizer outcomes and comparison pending |
+| Candidate reliability | Common validation plus L3/g40/shifted-grid/tight-Newton/interface and withheld-condition checks at the reported new candidates; limits on numerical error | Original Opt120 checks exist; frozen selection and final-check pipeline implemented in PR #1207, under independent review; actual main-cohort checks pending |
 | Final manuscript and figures | New immutable version integrating measured results without overstating generality, corrected v6 N1, reproducible figures and claim guards | V6 is preserved; next substantive version pending |
 | Independent review and audit | Fresh reviews, resolved critical findings, citation/numerical/artifact audit on exact final content | V6 passed for its existing scope; future results need new checks |
 | Submission-ready artifact | Author/venue metadata resolved, PDF and source package verified from clean checkout, public provenance/availability links, selected target formatting | Author Robb Walters; venue open; final package pending. Actual submission/publication is not implied by this goal. |
@@ -85,7 +140,7 @@ The initial brief and October 16 screen contain broader proposed deliverables th
 | CMA-ES as well as trust-region derivative-free search | COBYQA, empirical RBF, and both COBYQA/SLSQP on coarse nonlinear FEM | CMA-ES is not in the 100-run matrix; no superiority claim over it or over all credible alternatives is supported |
 | Mean-torque floors at each loaded current | A full-current mean floor; ripple at 0, 0.5 and 1; post-run .25/.75 checks | A full-current floor is not a half-current mean constraint |
 | Minimum gap/bridge thickness, bounded magnet area and fixed envelope/length | Fixed envelope/length/control policy, published variable bounds, construction and mesh guards, prospective 5% normalized construction margins | Construction feasibility is not a manufacturing constraint; equal parameter boxes do not hold magnet volume constant; any claimed resource or feature limits need explicit numerical definitions and checks |
-| Elapsed time, CPU-hours and peak memory | Measured wall-time ledger, solve counts, fixed process/thread limits; CPU deltas and scoped RSS observations required in #1202 | Resource instrumentation is pending; process-wall hours are not CPU-hours and separate process high-water marks are not a simultaneous process-tree peak |
+| Elapsed time, CPU-hours and peak memory | Measured wall-time ledger, solve counts, fixed process/thread limits; CPU deltas and scoped RSS observations required in #1202 | Resource instrumentation merged through #1206; complete main-cohort measurements remain pending. Process-wall hours are not CPU-hours and separate process high-water marks are not a simultaneous process-tree peak |
 | Cheap-model response changes and scaled torque-residual Jacobian singular values across perturbed designs | Two local scalar L0/L1 gradient comparisons; prospective paired low/high-fidelity outputs | Gradient-vector cosine is not an effective-dimension analysis; no claim of intrinsic high-dimensional necessity follows |
 
 The original screen labels these as a proposed model and execution plan. A revised paper may make a narrower empirical claim if that change is explicitly justified and reviewed, but it must retain the user's central test: useful, refinement-validated optimization and honest end-to-end cost against a credible inexpensive physical competitor. Scope reconciliation must not be used to turn unmeasured performance into a completed result.
@@ -115,7 +170,7 @@ Squad review #19, the [adopted amendment-8 addendum](https://github.com/rjwalter
 - For each method, space and target, additionally select the earliest attaining validation across starts using repeat-1 timing: at most 30 crossing designs. Deduplicate identical geometry/settings against the ten possible representatives with complete provenance. Use repeat-1 records only, with absent crossings recorded rather than replaced by repeat 2.
 - Geometry/mesh admissibility is additional to the existing full-current mean floor and completed-within-budget validation requirements. Target crossings also retain the registered objective/error-margin test. The adopted clarification explicitly preserves all these acceptance rules.
 - Check theta0 and selected designs at L3/h93/g20 and L2/h93/g40, at the three training currents, retaining half-current and .25/.75 diagnostics. Conforming outer-band Arkkio checks require zero stator offsets and fresh meshes under the existing supported-rotation policy. Nonzero stator offsets must report `no conforming check (model-dependent)`.
-- The [adopted part-2 addendum](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248492318) (Squad review #25) adds two checks for theta0 and the same deduplicated cohort at all three training currents: L2/h93/g20 with Newton `rel_tol=1e-12` versus default `1e-8`, and an independently solved L2/h93 grid at 0.5, 1.5, ..., 19.5 degrees with default tolerance. Each current sweep starts cold, then continues between angles. Retain signed waveform/mean/std/F changes and observed failures, comparing candidates with theta0 at matching settings. Even/odd g40 subsets are optional sampling diagnostics only; their continuation history does not constitute an independent shifted solve. No candidate replacement or target-credit changes are permitted. Implementation and measured costs remain pending.
+- The [adopted part-2 addendum](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248492318) (Squad review #25) adds two checks for theta0 and the same deduplicated cohort at all three training currents: L2/h93/g20 with Newton `rel_tol=1e-12` versus default `1e-8`, and an independently solved L2/h93 grid at 0.5, 1.5, ..., 19.5 degrees with default tolerance. Each current sweep starts cold, then continues between angles. Retain signed waveform/mean/std/F changes and observed failures, comparing candidates with theta0 at matching settings. Even/odd g40 subsets are optional sampling diagnostics only; their continuation history does not constitute an independent shifted solve. No candidate replacement or target-credit changes are permitted. Implementation is in PR #1207 and awaits independent review; actual main-cohort execution and measured costs remain pending.
 - Keep all post-run costs separate. Time-to-target remains measured at common L2/h93/g20 validation; these best-observed representatives and earliest crossings do not certify every crossing or typical-start behavior. Report failed checks and observed refinement changes alongside the affected claims.
 
 ### Main-result figure guidance
@@ -141,7 +196,7 @@ Required protocol clarifications before main runs:
 
 Revision 1 ([comment 6247097203](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247097203)) was accepted for implementation in Squad review #16, with an explicit correction: restoration anchors must be admissible, not merely buildable; mesh restoration also needs an anchor that passed the mesh policy. The implementation must freeze the remaining guard scales and repair settings and pass independent review. Target credit must separately require geometric admissibility, since optimizer callbacks can expose constraint-infeasible iterates. Protocol acceptance does not approve an implementation or a performance claim.
 
-The amendment was subsequently [adopted with both corrections](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247152017). Implementation is tracked by [#1201](https://github.com/rjwalters/geode-fem/issues/1201). Its reviewed implementation merged through #1204 at `5c998bda`. Main runs await reviewed #1202 method integration and final host checks; the selected cloud concurrency is N = 15.
+The amendment was subsequently [adopted with both corrections](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247152017). Implementation is tracked by [#1201](https://github.com/rjwalters/geode-fem/issues/1201). Its reviewed implementation merged through #1204 at `5c998bda`. Reviewed #1202 integration merged through PR #1206; the main session has passed setup and is running at cloud concurrency N = 15.
 
 ## Inexpensive physics screen and amendment 8 proposal
 
@@ -156,7 +211,7 @@ These are two local comparisons using ten angles and the prior fixed unscaled cu
 
 This motivates a coarse nonlinear FEM competitor: it retains the nonlinear material law and solves the field equations at lower spatial resolution. It is not a magnetic-equivalent circuit or a reduced-basis model. The proposed [amendment 8](refs/amendment8-physical-baseline.md) pairs L0 with both derivative-free COBYQA and safeguarded SLSQP, holding validation and cost rules fixed. Actual validated optimization outcomes, including failures, must determine the conclusion. The screen does not discharge the open physical-baseline requirement.
 
-Claude independently accepted that exact proposal at `ca25a11bda465add9240ac794ed787a081d50772` in Squad review #17 and [adopted it on #1185](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247152174). Keep the linked proposal unchanged as the reviewed text. The comparison has 100 runs: five methods, two spaces, five starts and two timing repeats. A/B/D/E are the optimizer-by-resolution factorial comparison; C is the empirical RBF competitor. Codex owns the additional L0 method integration in [#1202](https://github.com/rjwalters/geode-fem/issues/1202), after #1201 merges. Its acceptance criteria bind a single validation-cost denominator, actual mixed-resolution wiring, complete diagnostics and the five-method scheduling rules.
+Claude independently accepted that exact proposal at `ca25a11bda465add9240ac794ed787a081d50772` in Squad review #17 and [adopted it on #1185](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247152174). Keep the linked proposal unchanged as the reviewed text. The comparison has 100 runs: five methods, two spaces, five starts and two timing repeats. A/B/D/E are the optimizer-by-resolution factorial comparison; C is the empirical RBF competitor. The additional L0 method integration in [#1202](https://github.com/rjwalters/geode-fem/issues/1202) merged through PR #1206 after #1201. Its acceptance criteria bind a single validation-cost denominator, actual mixed-resolution wiring, complete diagnostics and the five-method scheduling rules.
 
 For planning only, 100 runs spending their full 120-unit budgets at approximately 35 seconds per unit require about 117 aggregate process-hours, or 19.4 hours at six continuously occupied workers, excluding setup and post-run checks. That unit is a proxy from the pilot's single-process diagnostic on a loaded host, not an idle-host measurement. Early stops may shorten the runs; setup, diagnostics and contamination reruns may lengthen the session. The actual main-run unit must be measured on the selected host. This historical planning proxy is superseded by the cloud probe described in the runbook; its timings still do not replace the final main calibration.
 
@@ -170,8 +225,8 @@ required. Target credit and best-feasible selection allow every scaled
 h_i >= -1e-12; optimizer constraints and exact buildability guards are unchanged.
 The paper must disclose the implicit geometric exclusion from the 5-degree
 mesh floor and the unguarded space-B slot-opening wall (down to 0.16 micrometres
-at minimum SW3 / maximum CPS1). These are adopted rules, pending reviewed
-implementation, not new performance evidence.
+at minimum SW3 / maximum CPS1). These adopted rules are implemented in the reviewed PR #1206 source;
+that implementation is not performance evidence.
 
 [Comment 6249073475](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6249073475)
 adopts the interrupted-session policy from Squad review 28. It preserves the
@@ -182,8 +237,8 @@ queue in original relative order; source/environment/inputs/host/N and the
 original recorded unit must match. No recalibration or reset of contamination
 allowances is permitted. Report every replacement, reason, evidence and original
 partial cost, and count affected jobs. Unverified interruptions remain unresolved.
-The runbook describes the adopted policy; its implementation in #1202 still
-needs independent review before main launch. After the reviewed dependency merge,
+The runbook describes the adopted policy; its implementation in #1202
+merged through the independently reviewed PR #1206. After the dependency merge,
 verification at `bc1527e8` passed 98 safeguard mutations, 20 frozen-start checks,
 six admissible central and two inward-boundary gradient checks, and both-space
 L0-training/L2-validation smokes. Earlier records remain historical. These checks
@@ -205,8 +260,9 @@ is not the adopted main acceptance rule.
 The cloud probe has no optimizer runs. Its retained data reproduce the Mac
 anchor to about `2.4e-13` relative in F0 and `7.4e-15` in mean, with maximum
 torque difference `1.1e-13 N m`. The runbook records the raw archive, arithmetic
-audit scope, actual interpreter/backend and N = 15 selection. The private
-implementation adds an automatically recorded pre-calibration waveform gate;
-reviewed integration and a fresh main calibration remain required. No CPython
+audit scope, actual interpreter/backend and N = 15 selection. The reviewed PR #1206 implementation adds an automatically recorded
+pre-calibration waveform gate. The actual main session passed that gate and
+both calibration acceptance checks (dated launch status above); this does not
+establish completed optimizer or final-refinement evidence. No CPython
 patch version is pinned across platforms; the actual interpreter and numerical
 packages are frozen within the session and its recovery generations.

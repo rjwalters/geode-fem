@@ -5,7 +5,7 @@ skill: paper
 paper_number: 3
 documentclass: anvil-paper
 anonymous: false
-status_of_inputs: "Revision 6 audit PASS; pilot merged; main protocols adopted; safeguards and coarse-model integration pending"
+status_of_inputs: "Revision 6 audit PASS; reviewed main harness merged; main study running; final-refinement implementation in review; performance results pending"
 claim: "Test whether exact field gradients reduce time to a validated motor-design target beyond calibrated simple models, and how that advantage depends on useful shape freedom."
 audience: "Computational electromagnetics, electric-machine optimization, and differentiable scientific computing researchers"
 venue_target: "Select from the validated main-study contribution; use the generic paper class initially"
@@ -123,11 +123,11 @@ historical screen and report differences in scope explicitly.
 | M1: nonlinear magnetostatics | B-H residual and consistent tangent, linear-limit and manufactured/reference checks, Newton convergence and unit conventions. | Complete; solver and tests merged in #1159 |
 | M2: reference motor | Slotted geometry, physical rotation/coupling and torque waveform at each current level; spatial and angular refinement, independent reference agreement. | Paired coupling and reference refinement merged (#1169/#1172/#1191); coarse reference explains cogging gap; finite-resolution and physical-validation limits remain |
 | M3: motor shape gradients | Directional finite-difference step sweeps and Taylor checks at initial and perturbed designs; stable gradients as state tolerances tighten. | Scalar and grouped-control derivatives reviewed; scalar evidence in manuscript; validation infrastructure merged through #1194 |
-| M4: useful design freedom | Compare nested engineering-parameter and surface-control spaces from matched starts; establish improvements above numerical uncertainty. | Protocol adopted; #1201/#1202 implementation and main results pending |
-| M5: measured optimization cost | Same-host, same-target comparisons of SLSQP/COBYQA at L0/L1 and the empirical RBF, with setup/calibration charged and resource use recorded. CMA-ES is an explicitly untested follow-on. | Five-method protocol adopted; no main-run performance result |
+| M4: useful design freedom | Compare engineering-parameter and surface-control spaces from matched starts; establish improvements above numerical uncertainty, with the different motion conventions disclosed. | Reviewed #1201/#1202 implementation merged through #1206; main study running; complete cohort and final refinements pending |
+| M5: measured optimization cost | Same-host, same-target comparisons of SLSQP/COBYQA at L0/L1 and the empirical RBF, with setup/calibration charged and resource use recorded. CMA-ES is an explicitly untested follow-on. | Five-method main study running at N = 15; no completed main-study performance result |
 | M6: manuscript and artifacts | Freeze evidence, draft the paper, independently review claims and rendered figures, then complete the Anvil audit. | V6 independent audit passed at 1dd8cdef; full optimization experiment and subsequent manuscript revision remain open |
 
-M2 includes independent reference refinement and M3 includes verified scalar gradients. Opt120 candidate validation is merged. The fixed 8/18-variable optimization protocol is preregistered on #1185; amendments 1–6 and the amendment-6 addendum governed the pilot, and adopted amendments 7/8 govern the prospective main study. The harness #1196 merged at `89e6c4e127a5fbef7e4b2e0f10b90e70bd1193b4`; the 36-run development-host pilot merged in PR #1200 at `43db1c626bdc2367f896905d7807979789ee22b3`. It recorded 13 failures: 11 construction failures and two fresh-mesh minimum-angle failures. These loaded-host observations are feasibility/budget evidence only and do not enter the audited manuscript. Smoke runs are not benchmark evidence. Matched idle-host M4/M5 results remain unperformed. Safeguards are being implemented in #1201; coarse-model methods follow in #1202. The prioritized experimental requests and required handoff data are in `EXPERIMENTS.md`.
+M2 includes independent reference refinement and M3 includes verified scalar gradients. Opt120 candidate validation is merged. The fixed 8/18-variable optimization protocol is preregistered on #1185; amendments 1–6 and the amendment-6 addendum governed the pilot, and adopted amendments 7/8 govern the main study. The harness #1196 merged at `89e6c4e127a5fbef7e4b2e0f10b90e70bd1193b4`; the 36-run development-host pilot merged in PR #1200 at `43db1c626bdc2367f896905d7807979789ee22b3`. It recorded 13 failures: 11 construction failures and two fresh-mesh minimum-angle failures. These loaded-host observations are feasibility/budget evidence only and do not enter the audited manuscript. Smoke runs are not benchmark evidence. Reviewed safeguards, coarse-model methods and session recovery merged through [PR #1206](https://github.com/rjwalters/geode-fem/pull/1206) at `9486a9da58beeca91968d4d3608f06b998abff45`. The main study is running from that source; completed cohort evidence and M4/M5 comparisons remain pending. [PR #1207](https://github.com/rjwalters/geode-fem/pull/1207) contains the final-selection/refinement/reporting pipeline and awaits independent review. The dated launch status, prioritized experimental requests and required handoff data are in [EXPERIMENTS.md](EXPERIMENTS.md).
 
 Before M5, freeze numerical tolerances, target/error margins, design bounds,
 starts/seeds and compute budgets. The main preregistration uses five starts, two timing repeats and 120 validation-forward wall-time units per run, with a completed-validation checkpoint at 60. The five methods are SLSQP and COBYQA at both L1 and L0, plus an empirical RBF trained on L1: 100 runs across the two spaces. Targets are fixed reductions of 50/90/99% from the refined initial objective, with candidate-based error allowance and a 0.25% full-current mean floor. The empirical RBF baseline does not discharge the separate inexpensive-physics comparison; the adopted L0 physical comparison still needs actual results. Do not infer a finite speedup when a
@@ -140,8 +140,9 @@ diagnostic. These proposals have been reconciled explicitly: CMA-ES and other
 population methods remain untested follow-ons; only full-current mean torque is
 constrained, with half-current mean reported against theta0 for every final
 candidate; no intrinsic-dimension claim is made from the two nested spaces.
-Measured CPU time and RSS observations are added to #1202, with their scope and
-units recorded; the budget stays wall time. The physical-bound proposal is
+CPU-time and RSS instrumentation merged with #1202, with its scope and
+units recorded; complete main-study resource evidence remains pending and the
+budget stays wall time. The physical-bound proposal is
 discharged by the independently verified derivation in
 `refs/geometry-bounds-audit.md` and the verbatim review in
 `refs/geometry-bounds-review.md`. These continuous-geometry bounds do not mean
