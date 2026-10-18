@@ -513,6 +513,26 @@ lifetimes, RSS units and incomplete accounting; ten semantic mutations must
 be detected. `main-preparation-checks.json` retains raw output and exact source
 hashes. These are synthetic/process-accounting fixtures, not motor outcomes.
 
+The standalone Rust counterpart is
+`crates/geode-core/tests/common/motor_resources.rs`. It uses the already-locked
+`nix = 0.29.0` safe wrapper as a Unix-only dev-dependency with only its
+`resource` feature. No library code or evaluator requests call it yet. Other
+platforms explicitly report unavailable counters. macOS and Linux RSS units
+are normalized separately; other platforms retain an unknown unit.
+
+```sh
+CARGO_TARGET_DIR="$PWD/target" cargo test -p geode-core --test motor_resource_accounting
+CARGO_TARGET_DIR="$PWD/target" cargo clippy -p geode-core --test motor_resource_accounting -- -D warnings
+```
+
+Four checks on the macOS preparation host cover unit conversion, CPU deltas,
+separate lifetime RSS observations, incomplete/invalid intervals, and real
+self/child CPU. The conditional non-Unix unavailable-path test requires a
+non-Unix host and has not been executed here. At integration, driver-side
+`wait4` CPU totals must cross-check the evaluator's request observations;
+startup and between-request work can make the inclusive total larger than
+their sum. Do not add request observations again to inclusive run totals.
+
 ### Existing harness commands
 
 ```bash
