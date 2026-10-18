@@ -48,5 +48,5 @@ generation summaries retain the complete history. See the harness README for the
 CLI and the distinction between runtime verification and external-cause review.
 
 These tests do not establish native FEM correctness or main-run readiness. Reviewed
-dependency integration, independent review, native build provenance/cap reporting
+dependency integration, independent review, native build provenance
 and main-host selection remain required. Policy adoption is not code approval.

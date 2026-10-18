@@ -145,6 +145,7 @@ def inventory(root):
                 raise ValueError("normal exit contradicts incomplete optimizer")
             a["outcome"] = {key: raw.get(key) for key in (
                 "optimizer_completed", "stop_reason", "diagnostic_status", "ledger", "interruption",
+                "optimizer_cap_hit", "surrogate_subproblem_cap_count", "solver_calls",
                 "in_run_wall_seconds", "post_run_wall_seconds", "resources", "optimizer_snapshot")}
             pending_snapshot = diagnostic_pending_snapshot(root, raw)
             if result.get("host_contaminated") is False:

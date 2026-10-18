@@ -634,7 +634,7 @@ the reference before design motion and must be interpreted with the selected poi
 
 This is partial implementation, not launch readiness. Durable session/recovery
 and contaminated-calibration refusal are implemented with controlled tests;
-independent review, native build provenance and full cap reporting remain required. Frozen-start and L0 gradient evidence is described below. The retained scalar-theta0
+independent review and native build provenance remain required. Frozen-start and L0 gradient evidence is described below. The retained scalar-theta0
 mixed L0/L2 smoke verifies model separation, not an optimization outcome. Do not
 launch a main study from this intermediate branch. `test_baseline_wiring.py`
 checks model/validator separation, calibration denominator, shared optimizer
@@ -1026,4 +1026,36 @@ concurrent-launch exclusion. Six private-copy mutations are detected. Test adapt
 replace numerical evaluation and expensive source/runtime probes; these are process
 and policy checks, not native FEM or performance evidence. The CLI and internal
 worker still require independent review and the reviewed dependency rebase before
-main use. Native build provenance, cap reporting and main-host selection remain open.
+main use. Native build provenance and main-host selection remain open.
+
+
+### Solver termination and cap reporting (#1202)
+
+Every SciPy call now retains its solver, options, scope, status, success, message
+and available iteration/evaluation counters in `solver_calls`. Aborted calls retain
+the exception type and leave unknown status/counters/cap state null. A returned
+whole-run iteration or evaluation cap gives `stop_reason: optimizer_cap`; another
+unsuccessful return gives `solver_stopped`. Completed scientific outcomes remain
+eligible for first-completion reporting and are never rerun just because a solver
+reported failure. Target credit still comes only from the unchanged common validator.
+A target reached in final validation can supersede the stop reason while the
+previously recorded cap remains visible.
+
+`optimizer_cap_hit` reports observed whole-run caps. Method C's local SLSQP limits
+are counted separately in `surrogate_subproblem_cap_count`, since the outer search
+can continue after a local cap. These records appear in traces, stopped snapshots,
+session results and recovered outcomes. Limits and tolerances are unchanged:
+A/E maxiter=100000, B/D maxiter=maxfev=1e9, and C subproblem maxiter=200.
+
+Mappings are checked against the installed pinned SciPy 1.18.1: SLSQP status9,
+COBYQA status5 (evaluations) and6 (iterations). `cap_kind` follows the solver's
+reported status. A pinned COBYQA quirk is retained and tested: exhausting maxfev
+inside its initial interpolation set returns status6 with nit=0. Raw options and
+counters expose this discrepancy; the harness does not rewrite upstream evidence.
+The registered production limits exceed the interpolation-set size.
+
+Eight focused tests pass, including real pinned-solver iteration/evaluation caps,
+ordinary convergence, all four A/B/D/E methods, target-stop preservation, aborted
+calls and C's separate local limits. Four mutations are detected; 88 related
+harness/safeguard/inventory/journal/interruption tests pass. These checks use scalar
+test objectives or controlled evaluator fixtures, not native performance data.

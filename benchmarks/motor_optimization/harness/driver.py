@@ -167,6 +167,7 @@ class Run:
         self.method = method
         self.clock = clock
         self.events = []
+        self.solver_calls = []
         self.validations = []
         self.attained = {}
         # Method C only. "new_design_validation_model_checks" compare C at
@@ -548,6 +549,9 @@ class Run:
             "feasible_validated": bool(feasible),
             "infeasible": not feasible,
             "events": self.events,
+            "solver_calls": self.solver_calls,
+            "optimizer_cap_hit": any(c.get("cap_hit") for c in self.solver_calls if c["scope"] == "optimizer"),
+            "surrogate_subproblem_cap_count": sum(bool(c.get("cap_hit")) for c in self.solver_calls if c["scope"] == "surrogate_subproblem"),
             "refusals": self.refusals,
             "restorations": self.restorations,
             "restarts": self.restarts if METHOD_SPECS[self.method]["optimizer"] == "slsqp" else None,
@@ -635,6 +639,37 @@ def slsqp_callables(run):
     return fun, jac, con, con_jac, geo, geo_jac, callback
 
 
+def recorded_minimize(run, scope, *args, **kwargs):
+    """Retain every SciPy call, including aborted calls, without changing it.
+
+    Status mappings are from the pinned SciPy 1.18.1 SLSQP exit_modes and
+    scipy._external.cobyqa.settings.ExitStatus. A missing result does not
+    establish either convergence or a cap hit.
+    """
+    record = {"index": len(run.solver_calls), "scope": scope,
+              "solver": kwargs["method"], "options": dict(kwargs.get("options", {})),
+              "state": "started", "status": None, "success": None,
+              "message": None, "nit": None, "nfev": None, "njev": None,
+              "cap_hit": None, "cap_kind": None}
+    run.solver_calls.append(record)
+    try:
+        result = minimize(*args, **kwargs)
+    except BaseException as error:
+        record.update(state="aborted", exception_type=type(error).__name__)
+        raise
+    status = result.get("status")
+    status = int(status) if status is not None else None
+    cap = ({9: "maxiter"} if kwargs["method"] == "SLSQP" else
+           {5: "maxfev", 6: "maxiter"}).get(status)
+    record.update(state="returned", status=status,
+                  success=bool(result.success) if result.get("success") is not None else None,
+                  message=str(result.message) if result.get("message") is not None else None,
+                  cap_hit=cap is not None if status is not None else None, cap_kind=cap)
+    for name in ("nit", "nfev", "njev"):
+        record[name] = int(result[name]) if result.get(name) is not None else None
+    return result
+
+
 def run_slsqp(run, u0):
     """Safeguarded SLSQP with restarts (amendment 7 §2 A): a refused x
     aborts the `minimize` call; restoration finds y; SLSQP restarts at the
@@ -643,7 +678,7 @@ def run_slsqp(run, u0):
     while True:
         fun, jac, con, con_jac, geo, geo_jac, callback = slsqp_callables(run)
         try:
-            res = minimize(fun, u, jac=jac, method="SLSQP", bounds=Bounds(0.0, 1.0),
+            res = recorded_minimize(run, "optimizer", fun, u, jac=jac, method="SLSQP", bounds=Bounds(0.0, 1.0),
                            constraints=[{"type": "ineq", "fun": con, "jac": con_jac},
                                         {"type": "ineq", "fun": geo, "jac": geo_jac}],
                            callback=callback, options={"ftol": 1e-15, "maxiter": 100000})
@@ -726,7 +761,7 @@ def run_cobyqa(run, u0):
     refused one counts as an evaluation of the set, gets the barrier, and
     COBYQA proceeds with the rest."""
     fun, cons, callback, _ = cobyqa_callables(run)
-    res = minimize(fun, u0, method="COBYQA", bounds=Bounds(0.0, 1.0),
+    res = recorded_minimize(run, "optimizer", fun, u0, method="COBYQA", bounds=Bounds(0.0, 1.0),
                    constraints=NonlinearConstraint(cons, 0.0, np.inf), callback=callback,
                    options={"initial_tr_radius": COBYQA_RADIUS0, "final_tr_radius": 1e-6,
                             "maxfev": 10 ** 9, "maxiter": 10 ** 9, "scale": False})
@@ -827,7 +862,7 @@ def run_surrogate(run, u0, opts=SURROGATE):
             return d
 
         try:
-            res = minimize(models.f, uk, jac=models.f_grad, method="SLSQP",
+            res = recorded_minimize(run, "surrogate_subproblem", models.f, uk, jac=models.f_grad, method="SLSQP",
                            bounds=Bounds(lb, ub),
                            constraints=[{"type": "ineq",
                                          "fun": lambda u: models.mean(u) - P.floor_ratio,
@@ -1003,6 +1038,13 @@ def execute(run, u0):
         if not g["admissible"]:
             raise RestorationFailed("the start is not admissible")
         msg = RUNNERS[METHOD_SPECS[run.method]["optimizer"]](run, np.asarray(u0, dtype=float))
+        outer = [c for c in run.solver_calls if c["scope"] == "optimizer"]
+        if outer:
+            last = outer[-1]
+            if last.get("cap_hit"):
+                return "optimizer_cap", msg, None
+            if last.get("success") is not True:
+                return "solver_stopped", msg, None
         return "converged", msg, None
     except TargetReached:
         return "T99", "T99 attained", None
