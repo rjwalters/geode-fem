@@ -607,3 +607,49 @@ result. The capture-entry wrapper has not yet been exercised on a complete real
 scientific capture. Per-validation adaptation, generated-mesh byte checks and
 archive-to-selection integration remain required; selection and launch flags
 remain false.
+
+
+`study_selection.load` now connects capture verification, frozen setup replay,
+scientific record checks and cohort selection. It uses the reviewed recovery
+policy's selected completion for each of the 100 logical jobs. It retains all
+attempts and rejected validation records, including contaminated attempts and
+earlier valid observations from runs that eventually stop with an error.
+
+The adapter binds each trace to its original start, effective canonical anchor,
+training configuration and full design. It replays the reviewed producer ledger,
+requires validation stamps to match ordered ledger prefixes, and recomputes
+geometry, mesh policy, feasibility, targets and budget credit. Every generated
+validation mesh digest must match captured mesh bytes inside its own attempt's
+validation directory. Reference mesh bytes were already checked during capture
+verification. Missing generated evidence refuses selection; it is not silently
+excluded in favor of a different candidate.
+
+Selection emits all 40 cells, the full validation audit, complete selected-design
+identities, both matched theta0 references, and the seven-mode final-check plan.
+No solver runs and `can_launch` remains false. This freezes a cohort; it does not
+establish refinement success or comparative optimization performance.
+
+Run only after complete capture, with the separately retained capture digest and
+independently reviewed producer/tool revisions:
+
+```sh
+python3 -I benchmarks/motor_optimization/final_refinement/study_selection.py \
+  --capture /path/to/closed-capture --manifest-sha256 "$CAPTURE_SHA256" \
+  --git-repo /path/to/geode-fem --reviewed-commit "$PRODUCER_COMMIT" \
+  --capture-tool-commit "$CAPTURE_TOOL_COMMIT" --out /path/to/frozen-selection.json
+```
+
+The output must be new and outside the archive. The command prints its SHA-256
+and cohort/check counts. Eleven integration tests include a complete synthetic
+100-job capture through the public API and CLI. Real frozen physics definitions
+and reviewed source computations are used, but build/runtime observations,
+training-mesh bytes and optimizer outcomes are explicitly synthetic. All 185
+Python tests pass. This test is not a completed main study; independent review,
+real closed capture, selected-cohort execution and paper results remain pending.
+
+The portable fixture `smoke/synthetic_scientific_selection.tar.gz` replays the
+public API after extraction and compares its frozen selection, plan and complete
+design mappings. Its pinned archive/capture digests and permission-preserving
+extraction checks are recorded in `study-selection-checks.json`. Run its
+`replay.py /path/to/geode-fem` with isolated Python. The fixture's independent
+capture identity is test data, not a witness for real scientific execution.

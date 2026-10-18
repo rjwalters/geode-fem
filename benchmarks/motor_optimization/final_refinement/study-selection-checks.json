@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "scope": "Synthetic 100-job capture through public verification/setup/scientific-selection API and CLI. Build/runtime/optimizer outcomes and training mesh bytes are fixture data; no main-study result or FEM execution.",
+  "reviewed_producer_commit": "9486a9da58beeca91968d4d3608f06b998abff45",
+  "source_sha256": {
+    "study_selection.py": "4b46ab2b27eada8545c9ba54032dedd9f00d7ec7371e1910eb6ebd28f75ba031",
+    "test_study_selection.py": "1dda2fff084543a6ec52bbae43c41f44eef9c0cfa1142a095600de215f3c2238",
+    "setup_evidence.py": "26923bd1fe449b3bbd82ffbf5f9f96dbf474146b6285684dd3f95a70f5da1e09",
+    "capture_archive.py": "4d207bc9cc3a6b85b9e4b201c83326a34613d2ea298ffcee8a70f2b8deea1453"
+  },
+  "tests": {
+    "command": "python3 -I -m unittest discover -s benchmarks/motor_optimization/final_refinement -p 'test_*.py'",
+    "passed": 185,
+    "new_tests": 11,
+    "exit_code": 0
+  },
+  "roundtrip": {
+    "status": "PASS",
+    "attempts": 100,
+    "cells": 40,
+    "designs": 3,
+    "planned_checks": 21,
+    "modes": 7,
+    "can_launch": false,
+    "archive_bytes_and_mtimes_unchanged": true,
+    "cli_output_matches_api": true,
+    "overwrite_refused": true
+  },
+  "archive": {
+    "file": "smoke/synthetic_scientific_selection.tar.gz",
+    "sha256": "1586dcb76f8e53fe3bbdd2cd59bd512e1f45d70d69d38d783985812041760e79",
+    "files": 136,
+    "capture_manifest_sha256": "4b64a36f57c8cc863b7b17725972e640bc75976edb151e988de14e90f2e0e203"
+  },
+  "packaged_replay": {
+    "status": "PASS",
+    "extraction": "Pinned SHA checked, all members regular relative paths with no traversal/special mode bits; tar filter preserves original permission bits.",
+    "command": "python3 -I replay.py /path/to/geode-fem",
+    "compared": [
+      "selection",
+      "plan",
+      "designs"
+    ],
+    "attempt_count": 100
+  },
+  "remaining": [
+    "Independent archive/setup/selection integration review.",
+    "Real closed main capture and selection; full performance analysis.",
+    "Source-bound selected-cohort native execution, final figures/results and publication audit."
+  ]
+}
