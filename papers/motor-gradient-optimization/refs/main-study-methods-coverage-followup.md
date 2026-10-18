@@ -86,6 +86,9 @@ python3 papers/motor-gradient-optimization/refs/main-study-settings-supplement.p
 
 This passed against nine pinned source files. It checks transcription and
 provenance, not runtime behavior, group topology, scientific outcomes or
-publication readiness. The proposed algorithm's treatment of geometry points
-after refused C candidates still needs review reconciliation (Squad message
-725); the supplement distinguishes adopted rules from provisional code.
+publication readiness. Claude resolved the C refusal/geometry-point interpretation in
+[preregistration comment 6248450266](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248450266):
+refused candidates count toward the every-second-rejection geometry sample,
+which must itself pass buildability. The supplement states this explicitly.
+The builder is responsible for the fix, a two-refusal regression and mutation;
+those implementation checks are still pending, not discharged by the ruling.

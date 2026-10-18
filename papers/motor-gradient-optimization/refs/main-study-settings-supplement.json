@@ -237,5 +237,10 @@
     "url": "https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248418735",
     "squad_message": 724,
     "scope": "Disclose space-motion confound; accept listed finite caps and report cap hits; reviewed merge still pending"
+  },
+  "refusal_clarification": {
+    "url": "https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248450266",
+    "rule": "Refused C candidates count toward every-second-rejection geometry sample; sample requires buildability; never fit refused data.",
+    "implementation_status": "Provisional116d08c7 early continue must be fixed; regression and mutation pending."
   }
 }

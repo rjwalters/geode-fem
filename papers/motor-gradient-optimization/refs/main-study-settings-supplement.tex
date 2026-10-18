@@ -185,7 +185,9 @@ reduction. If $\rho\geq0.75$ (or the old incumbent was infeasible) and the
 step is at least $0.9\Delta$, increase the radius to
 $\min(2\Delta,0.5)$. Validate accepted incumbents under the common policy.
 \item Otherwise halve the radius. The registered geometry-point rule adds
-one coordinate point after every second consecutive rejection. A
+one coordinate point after every second consecutive rejection. This includes
+refused candidates: their early return must not skip this step. The added
+geometry point is itself checked for buildability and skipped if refused. A
 non-improving geometry substitute is itself a rejection; all refusal and
 geometry-point edge cases must agree with the reviewed implementation.
 \end{enumerate}
