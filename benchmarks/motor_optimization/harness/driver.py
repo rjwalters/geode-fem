@@ -868,18 +868,18 @@ def run_surrogate(run, u0, opts=SURROGATE):
         f_hat_c = models.f(cand)
         r = add(cand, "surrogate geometry" if geometry else "surrogate candidate")
         if r is None:
-            # A refused candidate is skipped (never fitted) and counts as a
-            # rejection.
+            # A refused candidate is a rejection in every respect but the
+            # fit (the #1185 ruling): never fitted; Δ halved, the counter
+            # advanced, and it counts toward the geometry point below.
             run.c_steps.append({"delta": delta, "geometry": geometry, "accepted": False,
                                 "refused": run._refused.get(P.x_of(cand).tobytes())})
-            delta *= 0.5
-            rejections += 1
-            continue
-        held_out(models, cand, r, "geometry" if geometry else "candidate")
-        models = run.ledger.time("surrogate_update", "surrogate refit", fit)
-        run.c_steps.append({"delta": delta, "geometry": geometry,
-                            "accepted": bool(better(P, r, inc))})
-        if better(P, r, inc):
+            accepted = False
+        else:
+            held_out(models, cand, r, "geometry" if geometry else "candidate")
+            models = run.ledger.time("surrogate_update", "surrogate refit", fit)
+            accepted = bool(better(P, r, inc))
+            run.c_steps.append({"delta": delta, "geometry": geometry, "accepted": accepted})
+        if accepted:
             step = float(np.max(np.abs(cand - uk)))
             pred = f_hat_k - f_hat_c
             rho = (inc["F"] - r["F"]) / P.f_ref / pred if pred > 0 else -math.inf
@@ -893,12 +893,17 @@ def run_surrogate(run, u0, opts=SURROGATE):
                                prediction=physical(models, inc["u"]))
         else:
             # A rejection, including a non-improving geometry point that
-            # replaced a near-duplicate (amendment 5 §2 C1).
+            # replaced a near-duplicate (amendment 5 §2 C1) and a refused
+            # candidate.
             delta *= 0.5
             rejections += 1
             if rejections % 2 == 0:
                 g, gj = geometry_point(inc["u"], delta, gj)
+                run.c_steps[-1]["geometry_point_after"] = None if g is None else \
+                    P.x_of(g).tolist()
                 if g is not None:
+                    # geometry_point checked buildability; a mesh-infeasible
+                    # one is skipped (never fitted).
                     rg = add(g, "surrogate geometry")
                     if rg is None:
                         continue

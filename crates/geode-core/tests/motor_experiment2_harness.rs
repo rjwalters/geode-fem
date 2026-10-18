@@ -43,7 +43,7 @@ use icem_experiment2::{
     Anchor, FrozenSpace, ValidationConfig, Validator, accept, space_a, space_b,
 };
 use icem_harness::{Session, SessionConfig, latin_hypercube, median, x_bits};
-use icem_remesh::{CpSpace, MeshSource, Space};
+use icem_remesh::{CpSpace, MeshSource, ScalarSpace, Space};
 use serde_json::{Value, json};
 
 const DEGREES: [i64; 4] = [0, 3, 7, 12];
@@ -742,4 +742,92 @@ fn diagnose_runs_both_models_at_the_requested_currents_and_restores_the_session(
         let e = s.handle(&json!({"op": "diagnose", "x_bits": x_bits(&x), "fractions": bad}));
         assert_eq!(e["ok"], false);
     }
+}
+
+// ── Each space's own mesh motion (#1201 disclosure) ─────────────────────
+
+#[test]
+fn every_mesh_decision_uses_its_own_spaces_motion() {
+    // Space A moves the θ0 mesh with the Jacobian-stiffened extension
+    // (χ = 1), space B with the plain harmonic one (χ = 0). A session
+    // serves one space, and its moved-mesh check (`check`, the start rule),
+    // its mesh step (`mesh_check`, the restoration probe) and its training
+    // remesh decision all move that space's own map.
+    use geode_core::mesh::design_remesh::MovingMesh;
+    use geode_core::mesh::icem_parametric::motion_quality;
+    let r = icem::load_reference();
+    let mut sa = session(
+        space_a(&r),
+        fd_cfg(),
+        &l0(),
+        &l0(),
+        None,
+        MeshSource::Fixed(String::new()),
+    )
+    .unwrap();
+    let mut sb = session(
+        space_b(&r),
+        fd_cfg(),
+        &l0(),
+        &l0(),
+        None,
+        MeshSource::Fixed(String::new()),
+    )
+    .unwrap();
+    let ma = sa.training().reference().current().map.options();
+    let mb = sb.training().reference().current().map.options();
+    assert_eq!((ma.stiffening, mb.stiffening), (1.0, 0.0));
+    // The same scalars in both spaces (B's offsets at θ0): the two motions
+    // give different moved meshes, and each reply is its own space's.
+    let mut xa = space_a(&r).x0();
+    xa[6] += 0.25 * (space_a(&r).upper[6] - xa[6]);
+    let mut xb = space_b(&r).x0();
+    xb[..xa.len()].copy_from_slice(&xa);
+    let qa = sa.handle(&json!({"op": "check", "x_bits": x_bits(&xa)}));
+    let qb = sb.handle(&json!({"op": "check", "x_bits": x_bits(&xb)}));
+    let own_a = {
+        let s = sa.training().reference().current();
+        let p = space_a(&r).point(&xa).unwrap();
+        motion_quality(
+            s.reference_mesh(),
+            &s.moved_positions(&ScalarSpace::geo(&p)).unwrap(),
+        )
+    };
+    let own_b = {
+        let s = sb.training().reference().current();
+        let p = space_b(&r).point(&xb).unwrap();
+        motion_quality(
+            s.reference_mesh(),
+            &s.moved_positions(&CpSpace::geo(&p)).unwrap(),
+        )
+    };
+    assert_eq!(
+        qa["quality"]["min_angle_deg"].as_f64().unwrap(),
+        own_a.min_angle_deg
+    );
+    assert_eq!(
+        qb["quality"]["min_angle_deg"].as_f64().unwrap(),
+        own_b.min_angle_deg
+    );
+    // Same scalars, same θ0 mesh: the two motions move its nodes
+    // differently.
+    let pa = {
+        let s = sa.training().reference().current();
+        s.moved_positions(&ScalarSpace::geo(&space_a(&r).point(&xa).unwrap()))
+            .unwrap()
+    };
+    let pb = {
+        let s = sb.training().reference().current();
+        s.moved_positions(&CpSpace::geo(&space_b(&r).point(&xb).unwrap()))
+            .unwrap()
+    };
+    assert_eq!(pa.len(), pb.len());
+    let diff = pa
+        .iter()
+        .zip(&pb)
+        .map(|(a, b)| (a[0] - b[0]).hypot(a[1] - b[1]))
+        .fold(0.0, f64::max);
+    assert!(diff > 1e-7, "the two motions differ (max {diff:e} m)");
+    let ma = sa.handle(&json!({"op": "mesh_check", "x_bits": x_bits(&xa)}));
+    assert_eq!(ma["status"], "ok", "{ma}");
 }

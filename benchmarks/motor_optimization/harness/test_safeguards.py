@@ -312,6 +312,29 @@ class SurrogateTests(unittest.TestCase):
         for k in refused:
             self.assertEqual(run.c_steps[k + 1]["delta"], run.c_steps[k]["delta"] / 2)
 
+    def test_two_consecutive_refusals_trigger_a_geometry_point(self):
+        # The #1185 ruling: a refusal is a rejection in every respect but the
+        # fit, so it counts toward the every-second-rejection geometry point,
+        # which is itself checked for buildability.
+        trap = lambda u: u[0] > U0[0] + 0.25  # noqa: E731
+        run, fake, led, clock = make_run(method="surrogate", budget_fe=120.0, trap=trap)
+        driver.execute(run, U0)
+        steps = run.c_steps
+        hit = [k for k in range(1, len(steps))
+               if steps[k].get("refused") and "geometry_point_after" in steps[k]]
+        self.assertGreater(len(hit), 0, "a refusal reached the geometry-point step")
+        for k in hit:
+            g = steps[k]["geometry_point_after"]
+            if g is not None:
+                self.assertTrue(run.geometry(run.problem.u_of(g))["buildable"])
+        # Two refusals in a row reach it: the second of a consecutive pair.
+        pairs = [k for k in range(1, len(steps)) if steps[k].get("refused")
+                 and steps[k - 1].get("refused")
+                 and "geometry_point_after" in steps[k]]
+        self.assertGreater(len(pairs), 0)
+        for p in run.c_points:
+            self.assertFalse(trap(p["u"]))
+
     def test_initial_step_order(self):
         self.assertEqual(driver.c_initial_steps(0.5, 0.1),
                          [0.1, -0.1, 0.05, -0.05, 0.025, -0.025, 0.0125, -0.0125])

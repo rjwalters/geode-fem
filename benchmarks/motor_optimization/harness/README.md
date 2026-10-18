@@ -287,8 +287,11 @@ Every validation is charged to the method.
   constraint (the pinned scipy's extreme barrier); the geometry constraints
   are their real values. The initial set is COBYQA's own 2n + 1 points, a
   refused one counting in it. Results come only from validated attainment.
-- **C.** Refused points are skipped and never fitted; a refused candidate
-  or geometry point counts as a rejection (Δ halved). The initial set tries
+- **C.** Refused points are skipped and never fitted. A refused candidate
+  is a rejection in every respect but the fit (the #1185 ruling): Δ is
+  halved, the counter advances, and it counts toward the geometry point of
+  every second consecutive rejection, which is itself checked for
+  buildability (and a refused geometry point is skipped). The initial set tries
   +σ, −σ, then σ/2, σ/4, σ/8 each way (+ first unless it leaves the box); a
   coordinate with no buildable step is `restoration_failed`. The subproblem
   includes `h ≥ 0`. The feasible-first ordering uses the total violation:
@@ -311,6 +314,12 @@ Every validation is charged to the method.
   the end of the session; both records are kept. The unit calibration is
   gated and monitored the same way. `host_idle: true` only if nothing was
   contaminated or every contaminated run was re-run cleanly.
+- **Motion (disclosure).** The two spaces move the θ0 mesh differently:
+  space A with the Jacobian-stiffened harmonic extension (χ = 1), space B
+  with the plain one (χ = 0, `CP_MOTION_DEFAULT`). An evaluator process
+  serves one space, so every moved-mesh decision (the start rule's `check`,
+  the restoration's `mesh_check`, the training remesh trigger, the
+  validator) uses its own space's motion; a CI test pins it.
 - **#1200 Judge's gaps.** Every training remesh `.msh` SHA-256 is in the
   trace (`remesh_meshes`, per attempt); every failed, refused or aborted
   request records its x; in-run and post-run wall time are separate.
@@ -404,8 +413,9 @@ unedited run.
   was **off** (`--host-gate off`, smoke only) and contamination was only
   recorded. The safeguards it exercised:
   - B's NaN barrier at non-buildable (4) and mesh-infeasible (1) points;
-    C skipping non-buildable (2) and mesh-infeasible (7) points, its −σ
-    initial-set retry (2) and refused steps counted as rejections (7);
+    C skipping non-buildable (2) and mesh-infeasible (5) points, its −σ
+    initial-set retry (2), and refused steps counted as rejections, two of
+    them reaching the every-second-rejection geometry point;
   - A's restoration of mesh-infeasible requests: 7 restorations with
     `mesh_check` and 7 restarts at the restored y, then one
     `restoration_failed` (the injected mesher failure in every attempt);

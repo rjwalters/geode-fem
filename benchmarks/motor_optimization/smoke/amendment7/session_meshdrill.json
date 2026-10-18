@@ -1,17 +1,17 @@
 {
  "issue": 1201,
  "label": "smoke",
- "session_id": "smoke-20261018T084413Z",
+ "session_id": "smoke-20261018T100028Z",
  "budget_fe": 20.0,
  "checkpoint_fe": 60.0,
- "unit_seconds": 3.339084521,
+ "unit_seconds": 3.328648979,
  "weights": {
   "validation_eval": 1.0,
-  "train_forward_eval": 0.777584695496841,
-  "adjoint_eval": 0.17466612010927285,
+  "train_forward_eval": 0.7811438150745303,
+  "adjoint_eval": 0.17543477073855795,
   "validation_solve": 0.016666666666666666,
-  "train_forward_solve": 0.012959744924947348,
-  "adjoint_solve": 0.0029111020018212142,
+  "train_forward_solve": 0.013019063584575505,
+  "adjoint_solve": 0.0029239128456426326,
   "validation_solves_per_eval": 60,
   "train_solves_per_eval": 60
  },
@@ -80,11 +80,11 @@
    },
    "weights": {
     "validation_eval": 1.0,
-    "train_forward_eval": 0.777584695496841,
-    "adjoint_eval": 0.17466612010927285,
+    "train_forward_eval": 0.7811438150745303,
+    "adjoint_eval": 0.17543477073855795,
     "validation_solve": 0.016666666666666666,
-    "train_forward_solve": 0.012959744924947348,
-    "adjoint_solve": 0.0029111020018212142,
+    "train_forward_solve": 0.013019063584575505,
+    "adjoint_solve": 0.0029239128456426326,
     "validation_solves_per_eval": 60,
     "train_solves_per_eval": 60
    }

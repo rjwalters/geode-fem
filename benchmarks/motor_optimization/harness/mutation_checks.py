@@ -202,8 +202,12 @@ MUTATIONS = [
      "        for step in (primary, -primary):", "        for step in (primary,):"),
     ("c_halvings_not_3 [#1201]", DRV, "C_HALVINGS = 3", "C_HALVINGS = 2"),
     ("c_refused_candidate_not_a_rejection [#1201]", DRV,
-     '                                "refused": run._refused.get(P.x_of(cand).tobytes())})\n            delta *= 0.5',
-     '                                "refused": run._refused.get(P.x_of(cand).tobytes())})\n            delta *= 1.0'),
+     "            accepted = False\n        else:\n            held_out(",
+     "            continue\n        else:\n            held_out("),
+    ("c_refusal_skips_the_geometry_point [#1201]", DRV,
+     "            accepted = False\n        else:\n            held_out(",
+     "            delta *= 0.5\n            rejections += 1\n            continue\n"
+     "        else:\n            held_out("),
     # ── #1201: amendment 7 §3 (mesh repair) ─────────────────────────────
     ("repair_attempts_cumulative [#1201]", REM,
      '        options: &[("Mesh.MeshSizeFactor", 0.9)],',
@@ -234,7 +238,7 @@ MUTATIONS = [
     ("calibration_not_gated [#1201]", SES,
      "        if passed:\n            break\n    else:", "        break\n    else:"),
     ("host_idle_ignores_contamination [#1201]", SES,
-     '        if runs[0]["host_contaminated"] and not any(',
+     '        if done[0]["host_contaminated"] and not any(',
      '        if False and not any('),
     # ── #1201: the #1200 Judge's gaps and the record ────────────────────
     ("training_remesh_hash_not_in_trace [#1201]", DRV,
