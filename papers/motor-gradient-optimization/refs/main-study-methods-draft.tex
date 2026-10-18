@@ -301,7 +301,23 @@ diagnostic is repaired independently, without repeating completed optimization.
 All original records and partial costs are retained, with incomplete accounting
 identified. The report will list every replacement, reason, supporting evidence
 and original partial cost, and count the affected jobs. These are adopted
-rules; recovery execution still requires implementation and review.
+rules. A private implementation now has controlled recovery checks; its
+reviewed integration and native verification remain pending.
+
+The execution record will bind the evaluator to a recorded build of the clean
+source revision and retain the build log and a separate executable copy.
+The optimizer and mesher environments will record their BLAS/LAPACK backends,
+package contents, numerical environment and operating-system versions.
+These identities must remain fixed for the session and its recovery attempts;
+a changed backend is not interchangeable merely because package version strings
+match. Missing runtime evidence prevents recovery verification.
+
+Solver return records will retain status, success, message and available
+iteration/evaluation counts. A whole-run iteration or evaluation cap will be
+reported as a cap, rather than convergence; other unsuccessful returns remain
+explicit. Local surrogate-subproblem caps are reported separately from whole-run
+termination. These labels do not alter common-validator target credit or permit
+replacement of a completed scientific outcome.
 
 The charged run ledger includes evaluator startup, geometry checks, mesh
 updates and repairs, assembly and solves, adjoints, search overhead,

@@ -132,7 +132,7 @@ is pinned; success flags never determine target attainment.}
 \end{table}
 
 The provisional driver additionally sets SLSQP \texttt{maxiter=100000},
-COBYQA \texttt{maxiter=maxfev=$10^9$} and \texttt{scale=False}; the explicit
+COBYQA \texttt{maxiter} and \texttt{maxfev} to $10^9$, and \texttt{scale=False}; the explicit
 unit-box transform already scales its variables. These are finite
 implementation caps, not literally unlimited iterations. These settings were accepted before main outcomes; the reviewed
 merge must be checked against them. Every main-run record must state whether
@@ -219,6 +219,23 @@ solves its surrogate subproblem with
 \texttt{maxiter=200}, $\mathrm{ftol}=10^{-14}$. The finite subproblem caps were accepted before main outcomes. The other
 observed details still require reviewed freezing; they are not new permissions to alter the
 registered comparison after outcomes.
+
+\subsection{Execution provenance preparation}
+
+Private implementation \texttt{d1bae200} adds recorded evaluator builds,
+linked recovery with frozen calibration and runtime inputs, and explicit solver
+termination records. Its optimizer BLAS/LAPACK fingerprint matches the peer
+helper at \texttt{1a3a94ea}; full backend dependency dictionaries also retain
+ABI details. The source and evidence bindings are listed separately in
+\path{main-study-runtime-preparation.json}. They do not replace the earlier
+numeric-table source snapshot or establish an executed main study.
+
+The final execution manifest must identify the actual build, host, concurrency,
+NumPy/SciPy and mesher runtimes, BLAS/LAPACK configurations, thread/environment
+settings and calibration. Build receipts and controlled-process tests are
+preparation evidence; the reviewed native build and main measurements remain
+pending. Whole-run solver caps and local surrogate-subproblem caps will be
+reported separately, with no change to target credit.
 
 \subsection{Outstanding verification}
 

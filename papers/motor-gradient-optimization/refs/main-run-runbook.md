@@ -1,10 +1,11 @@
 # Main motor study: prospective runbook
 
 Status: operations draft, 2026-10-18. **Not a launch authorization or a
-tested command recipe.** Bind the commands to the reviewed merges of
+tested native command recipe.** Bind the commands to the reviewed merges of
 [#1201](https://github.com/rjwalters/geode-fem/issues/1201) and
 [#1202](https://github.com/rjwalters/geode-fem/issues/1202) before use.
-The operator's host choice is pending. This file is outside the audited v6
+The private implementation observations below are bound to `d1bae200`;
+reviewed integration and a native build remain pending. The operator's host choice is pending. This file is outside the audited v6
 manuscript and contains no main-study results.
 
 The governing protocol is #1185 amendments 7 and 8, including the adopted
@@ -19,7 +20,11 @@ Record the merged source commit, clean checkout status, evaluator binary
 SHA-256, build command and log, Rust/compiler versions, Python version and
 package-lock SHA-256. Use a private Cargo target directory under the
 repository's build-isolation instructions. Build and install dependencies
-before measuring host idleness or calibration.
+before measuring host idleness or calibration. The private candidate's
+`build_provenance.py` records a Cargo invocation, checks clean source/build-environment
+stability, and retains a hash-bound executable copy. Main execution requires
+its receipt; a binary hash alone is insufficient. A changed source commit
+requires a new build record. Cached Cargo artifacts remain explicitly labelled.
 
 Freeze the anchor, L0/L1 training meshes and L2 validation mesh with their
 hashes; the geometry inventory/scales; the five start vectors and their
@@ -39,7 +44,11 @@ Confirm that CPU/RSS accounting and post-run diagnostics are present.
 Record hostname, UTC time, OS/kernel, CPU model, logical/physical core
 counts where available, RAM, process count N, thread limits, affinity
 support/settings, power settings, and free archive space. Preserve the
-actual environment, not just intended settings. Keep the host awake
+actual environment, not just intended settings. Include the explicit NumPy/SciPy
+and mesher BLAS/LAPACK configuration, package payload hashes and backend/library
+override environment. Accelerate can report version `unknown`; retain its named
+backend and OS version as well. Fix these identities across the session and
+recovery; matching package version strings alone is insufficient. Keep the host awake
 through the session and record interruptions or power-state changes.
 
 The host must otherwise be idle: no concurrent FEM studies, Rust builds,
@@ -56,14 +65,24 @@ These thresholds do not replace checking for competing work.
 
 ## 3. Bind and execute the command sequence
 
-The following are the **observed #1201 draft interfaces**, not final
-main-study commands. Run from the eventual pinned checkout. Replace each
-angle-bracket argument with its recorded absolute path/value. Do not run
-these templates literally or against the present three-method draft.
+The following are **observed private #1202 interfaces at d1bae200**, not
+reviewed native main-study commands. Run from the eventual pinned checkout.
+Replace each angle-bracket argument with its recorded absolute path/value.
+Do not run these templates literally or before the required reviewed merges.
 
 1. Inspect `pyrun.sh`, then use its hash-locked Python environment for all
    harness commands. An environment path supplied through
-   `MOTOR_HARNESS_VENV` must be private to this study.
+   `MOTOR_HARNESS_VENV` must be private to this study. Record the evaluator
+   build in a new directory under the private target:
+
+   ```text
+   benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/build_provenance.py --out <new-build-record-dir>
+   ```
+
+   The recorded command uses `cargo build --locked --release -p geode-core
+   --example icem_harness_eval`. Use the retained `icem_harness_eval` copy
+   and `build-receipt.json` from that directory. The recorder has controlled
+   process tests; its native invocation remains to be exercised after rebase.
 2. Reproduce the start preflight into a separate file; do not overwrite
    the committed starts:
 
@@ -87,13 +106,15 @@ these templates literally or against the present three-method draft.
    session entry point combines gated calibration and scheduling:
 
    ```text
-   benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/session.py --main --procs <N> --binary <evaluator> --out <new-session-dir> --host-gate on --max-wait 1800 --max-deferrals 3 --load-interval 5
+   benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/session.py --main --procs <N> --binary <build-record-dir>/icem_harness_eval --build-receipt <build-record-dir>/build-receipt.json --out <new-session-dir> --host-gate on --max-wait 1800 --max-deferrals 3 --load-interval 5
    ```
 
    **Pending binding:** verify all flags against merged `--help`, confirm
-   five-method dispatch, and insert the exact queue-export and recovery
-   commands here. Do not invent a `--resume` flag: the inspected #1201
-   draft has none and can overwrite an existing output directory.
+   five-method dispatch, and freeze the exact queue-export invocation.
+   `main_schedule.build_jobs()` supplies the pure queue construction; there
+   is no standalone queue-export CLI. The private session launcher refuses
+   an existing output directory. Recovery uses the separate command below;
+   it is not optimizer-state resume.
 
 Calibration uses N simultaneous processes with three cold theta0
 validations each; freeze the median of all 3N timings as the shared unit.
@@ -121,7 +142,9 @@ Do not relabel it clean or silently choose a favorable attempt.
 Check for parseable traces, progress, disk space, evaluator failures and
 load samples without adding competing compute. Preserve budget stops,
 restoration failures, infrastructure failures, refusals and aborted request
-coordinates/charges. Do not rerun ordinary scientific failures merely to
+coordinates/charges. Preserve raw solver return status/message/counts and
+whole-run cap flags; keep local C subproblem caps separate. An unsuccessful
+solver return is not convergence. Do not rerun ordinary scientific failures merely to
 improve the result. Keep in-run wall/CPU accounting distinct from setup and
 post-run diagnostics; RSS high-water marks are not additive memory peaks.
 
@@ -159,10 +182,28 @@ reason/evidence/partial costs and the count of affected jobs.
 
 If optimization completed but its post-run diagnostic was interrupted, repair
 only the diagnostic with separate provenance and cost; never repeat optimization.
-The private #1202 branch has a durable journal and read-only inventory, but owned
-process cleanup, orphan verification, linked execution and diagnostic-only
-recovery remain implementation work. Bind exact reviewed commands and exercise
-these paths before launch. Policy adoption does not establish working recovery.
+The private #1202 branch now includes the durable journal, stopped-result
+snapshots, owned-process cleanup/receipts, orphan verification, fixed recovery
+registry and diagnostic-only workers. Controlled execution tests cover these
+paths. Bind and review them again after dependency integration; this is not
+main-run approval.
+
+```text
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/recovery_inventory.py --source <original-session-dir> --out <new-inventory.json>
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/process_verification.py --source <original-session-dir> --out <new-process-report.json>
+benchmarks/motor_optimization/harness/pyrun.sh benchmarks/motor_optimization/harness/recovery.py --source <original-session-dir> --main [--external-events <reviewed-events.json>]
+```
+
+The inventory and process observer do not launch work. The linked launcher
+holds the fixed registry lock, reads every generation and rechecks source,
+runtime (including BLAS/LAPACK), input and process evidence before dispatch.
+It has no overrides for N, unit, budget, numerical settings or output directory.
+A failed verification requires disposition, not a fresh directory that resets
+allowances. Reviewed external-event attestations identify the attempt, external
+cause, reviewer/reference and hash-bound evidence; a signal alone is insufficient.
+Diagnostic repairs get separate attempts and costs, with no optimizer relaunch.
+Every generation retains an immutable plan and sealed summary. Preparation and
+verification elapsed times may overlap worker time and must not be added twice.
 
 ## 6. Archive, review and hand off
 
