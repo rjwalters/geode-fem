@@ -51,7 +51,7 @@ class SelectionTests(unittest.TestCase):
         ]
         for changes, reason in cases:
             with self.subTest(changes=changes):
-                bad = replace(record(run_id="bad", ordinal=1, f_val=0.001), **changes)
+                bad = replace(record(run_id="bad", start_index=1, ordinal=1, f_val=0.001), **changes)
                 out = selection([bad, record()])
                 self.assertEqual(cell(out)["record_id"], "run-0:0")
                 row = next(r for r in out["records"] if r["record"]["run_id"] == "bad")
@@ -89,7 +89,7 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(cell(out)["status"], "selected")
         for target in ("T50", "T90", "T99"):
             c = cell(out, f"A/a/{target}")
-            self.assertEqual(c["reason"], "no_repeat1_crossing")
+            self.assertEqual(c.get("reason"), "no_repeat1_crossing")
 
     def test_representative_uses_objective_crossing_uses_elapsed_time(self):
         best = record(run_id="best", start_index=1, f_val=0.001, elapsed_seconds=80.0)
@@ -176,6 +176,43 @@ class SelectionTests(unittest.TestCase):
         out = selection([fast, best])
         self.assertEqual(cell(out)["record_id"], "run-0:7")
         self.assertEqual(cell(out, "A/a/T99")["record_id"], "run-0:3")
+
+    def test_different_motion_settings_need_separate_theta0_and_preserve_roles(self):
+        other=design(1.0,motion='cp')
+        reference=design(0.0,motion='cp')
+        rows=[record(),record(run_id='cp',space='b',design=other)]
+        with self.assertRaisesRegex(ValueError,'matching-settings theta0'):
+            selection(rows)
+        out=selection(rows,theta0_references=[reference])
+        self.assertEqual(len(out['jobs']),4)
+        chosen=next(j for j in out['jobs'] if j['design_key']==other.key)
+        self.assertEqual(chosen['theta0_design_key'],reference.key)
+        self.assertIn('A/b/representative',chosen['roles'])
+        self.assertIn('A/b/T50',chosen['roles'])
+        initial=next(j for j in out['jobs'] if j['design_key']==reference.key)
+        self.assertEqual(initial['roles'],['theta0_reference'])
+        self.assertEqual(initial['theta0_design_key'],reference.key)
+        self.assertEqual(initial['source_records'],[])
+        self.assertEqual(out['f0'],1.0)
+        self.assertEqual(out['mean0'],1.0)
+
+    def test_additional_reference_must_be_the_same_theta0_and_unambiguous(self):
+        with self.assertRaisesRegex(ValueError,'physical theta0'):
+            selection([],theta0_references=[design(2.0,motion='cp')])
+        with self.assertRaisesRegex(ValueError,'duplicate theta0'):
+            selection([],theta0_references=[design()])
+        out=selection([],theta0_references=[design(0.0,motion='cp')])
+        self.assertEqual(len(out['jobs']),2)  # Each supplied space retains its theta0 checks.
+
+    def test_reference_lookup_preserves_exact_settings_bits(self):
+        current=math.nextafter(9.6777,math.inf)
+        candidate=design(1.0,current=current)
+        with self.assertRaisesRegex(ValueError,'matching-settings theta0'):
+            selection([record(design=candidate)])
+        out=selection([record(design=candidate)],theta0_references=[design(0.0,current=current)])
+        self.assertEqual(len(out['jobs']),3)
+        self.assertNotEqual(candidate.settings_key,design().settings_key)
+        self.assertEqual(candidate.identity_parts()[0],design(1.0).identity_parts()[0])
 
     def test_source_records_and_output_cannot_change_each_other(self):
         rows = [record(), record(ordinal=1, f_val=0.2)]

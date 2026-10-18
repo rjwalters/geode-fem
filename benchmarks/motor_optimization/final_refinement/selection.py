@@ -55,6 +55,23 @@ class Design:
     def key(self):
         return hashlib.sha256(self.canonical.encode()).hexdigest()
 
+    def identity_parts(self):
+        """Return the exact encoded parameters/settings, without float parsing."""
+        try:
+            value = json.loads(self.canonical)
+            if (not isinstance(value, list) or len(value) != 2 or value[0] != "array"
+                    or not isinstance(value[1], list) or len(value[1]) != 2
+                    or json.dumps(value, separators=(",", ":")) != self.canonical):
+                raise ValueError("invalid canonical design")
+            return value[1]
+        except (TypeError, json.JSONDecodeError) as error:
+            raise ValueError("invalid canonical design") from error
+
+    @property
+    def settings_key(self):
+        return hashlib.sha256(json.dumps(self.identity_parts()[1],
+                                         separators=(",", ":")).encode()).hexdigest()
+
 
 @dataclass(frozen=True)
 class Validation:
@@ -126,16 +143,26 @@ def _reasons(r, mean_floor):
     return reasons
 
 
-def select(records, *, f0, mean0, theta0):
+def select(records, *, f0, mean0, theta0, theta0_references=()):
     """Return all 10/30 cells, every input decision, and deduplicated jobs.
 
     f0/mean0 must come from the independently verified common anchor. Records
     must use that anchor and validator; the adapter must refuse mismatches.
+    theta0_references supplies the same physical theta0 under additional exact
+    numerical/physical settings, such as the CP motion map. Every selected
+    design must have a matching reference; no numerical equivalence is inferred.
     Failed runs retain earlier eligible validations. No refinement output is
     accepted by this API, so a failed check cannot cause candidate replacement.
     """
     if not all(_finite(v) and v > 0 for v in (f0, mean0)):
         raise ValueError("positive finite anchor values required")
+    references = {theta0.settings_key: theta0}
+    for reference in theta0_references:
+        if reference.identity_parts()[0] != theta0.identity_parts()[0]:
+            raise ValueError("reference changed the physical theta0 parameters")
+        if reference.settings_key in references:
+            raise ValueError("duplicate theta0 settings reference")
+        references[reference.settings_key] = reference
     mean_floor = mean0 * 1.0025
     records = list(records)
     seen = set()
@@ -176,12 +203,16 @@ def select(records, *, f0, mean0, theta0):
                                       "roles": [], "source_records": []})
         if entry["canonical_design"] != design.canonical:
             raise ValueError("design hash collision")
-        entry["roles"].append(role)
+        if role not in entry["roles"]:
+            entry["roles"].append(role)
         if record_id is not None and record_id not in entry["source_records"]:
             entry["source_records"].append(record_id)
         return key
 
     job(theta0, "theta0", None)
+    for reference in references.values():
+        if reference.key != theta0.key:
+            job(reference, "theta0_reference", None)
     cells = []
     for method in METHODS:
         for space in SPACES:
@@ -203,6 +234,17 @@ def select(records, *, f0, mean0, theta0):
                     cell["reason"] = ("no_feasible_representative" if name == "representative"
                                       else "no_repeat1_crossing")
                 cells.append(cell)
+    # Explicit references remain even when their space has no selected design.
+    # The original theta0 remains the common-validation anchor for selection.
+    for entry in list(jobs.values()):
+        design = Design(entry["canonical_design"])
+        reference = references.get(design.settings_key)
+        if reference is None:
+            raise ValueError("selected design has no matching-settings theta0 reference")
+        role = "theta0" if reference.key == theta0.key else "theta0_reference"
+        reference_key = job(reference, role, None)
+        jobs[reference_key]["theta0_design_key"] = reference_key
+        entry["theta0_design_key"] = reference_key
     for row in audit.values():
         row["decision"] = ("rejected" if not row["eligible"] else
                            "selected" if row["selected_for"] else "eligible_not_selected")

@@ -272,3 +272,32 @@ Until the dependency merge, pass the explicit candidate harness directory:
 python3 -I benchmarks/motor_optimization/final_refinement/test_recovery_evidence.py --harness /path/to/candidate/benchmarks/motor_optimization/harness
 python3 -I benchmarks/motor_optimization/final_refinement/recovery_mutations.py --harness /path/to/candidate/benchmarks/motor_optimization/harness
 ```
+
+
+Matched references are now explicit. `select(..., theta0=..., theta0_references=...)`
+accepts additional theta0 entries with the same exact physical parameters and
+separate complete settings. For the real adapter these settings must distinguish
+space A's scalar motion map from space B's control-point map, even with zero
+offsets: knot-parameter attachment and harmonic-extension weights differ from
+the scalar map. Matching scalar values therefore do not justify cross-space
+deduplication. Supply both per-space references; both remain in the check cohort
+even if one space has no selected candidate.
+
+Each selected design records `theta0_design_key`. A missing matching-settings
+reference is an error. `make_plan` independently checks reference geometry and
+settings, emits the per-job `base_settings_sha256` alongside each refinement
+specification, and schedules all references before candidates. Each candidate's
+six checks point to its matching reference at the same resolution, angle grid,
+current set and tolerance. `comparison` refuses cross-settings waveform subtraction,
+uses the declared matching reference for target-survival diagnostics, and keeps
+all reference entries out of candidate rankings. A missing reference remains
+unavailable; the other space's result cannot substitute for it.
+
+The original common-validation F0/mean0 and all selection credit remain unchanged.
+These extra theta0 checks are post-run evidence, not new optimization trajectories
+or a change to target thresholds. Seventy relevant tests pass, including eight new
+selection/planning/comparison checks. Seventeen selector, five comparison and six
+matching-reference mutations are detected. `matched-reference-checks.json` binds
+this evidence and a synthetic four-design, 24-check example. The motion distinction
+is established by the source implementation; actual full-design adaptation and
+native refinement wiring remain pending.

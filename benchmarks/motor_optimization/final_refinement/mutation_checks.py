@@ -58,7 +58,8 @@ def main():
             (root / "test_selection.py").write_text(tests)
             p = subprocess.run([sys.executable, "-I", str(root / "test_selection.py")],
                                capture_output=True, text=True, timeout=30)
-        passed = p.returncode == 0 if name == "baseline" else p.returncode != 0
+        passed = p.returncode == 0 if name == "baseline" else (
+            p.returncode != 0 and "AssertionError" in p.stderr)
         rows.append({"name": name, "expected_result": passed, "exit_code": p.returncode,
                      "source_sha256": hashlib.sha256(candidate.encode()).hexdigest(),
                      "stdout": p.stdout, "stderr": p.stderr})

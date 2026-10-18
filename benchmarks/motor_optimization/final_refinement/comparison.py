@@ -81,6 +81,8 @@ def difference(left, right, reduced):
         return {'status': 'unavailable', 'reason': 'one or both checks failed, invalid or missing'}
     if left['provenance'] != right['provenance']:
         raise ValueError('comparison mixes source/binary/physical settings')
+    if left['actual_spec']['base_settings_sha256'] != right['actual_spec']['base_settings_sha256']:
+        raise ValueError('comparison mixes base design settings')
     la, ra = left['actual_spec']['angles_deg'], right['actual_spec']['angles_deg']
     common = [angle for angle in la if angle in ra]
     if [c['fraction'] for c in a['currents']] != [c['fraction'] for c in b['currents']]:
@@ -139,13 +141,13 @@ def summarize(selection, records):
                 {'status': 'unavailable', 'reason': 'missing primary or different current sets'})
         comparisons[key] = {'matching_theta0': pair, 'versus_primary': base,
                             'target_check': target_check(reduced[key], reduced[reference])}
-    anchor = next(c['design_key'] for c in plan['cohort'] if 'theta0' in c['roles'])
+    references = set(plan['reference_design_keys'])
     rankings = {}
     for spec in plan['specs']:
         rows = []
         for job in plan['jobs']:
             key = job['job_id']
-            if job['spec']['name'] != spec['name'] or job['design_key'] == anchor:
+            if job['spec']['name'] != spec['name'] or job['design_key'] in references:
                 continue
             decision = comparisons[key]['target_check']
             if decision.get('status') == 'ok' and decision['feasible']:

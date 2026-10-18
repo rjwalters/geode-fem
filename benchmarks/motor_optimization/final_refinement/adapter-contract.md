@@ -141,3 +141,15 @@ must include `recovery_policy.py`, `session_journal.py` and `process_identity.py
 verified source bytes execute directly rather than trusting cached bytecode.
 See `recovery-evidence-checks.json` for synthetic tests, mutations and exact policy
 agreement with the production Registry/inventory schema probe.
+
+
+For full design identity, preserve the source space's actual motion map in the
+settings. `icem_controlpoints.rs` specifies spline-knot attachment and the plain
+harmonic extension (`chi=0`), while the scalar map uses its own arc parameterization
+and Jacobian-stiffened extension. Equal scalars and zero offsets do not establish
+the same numerical check. The adapter must expand both spaces to complete physical
+parameter dictionaries and supply one theta0 `Design` per space through
+`theta0_references`. References must share exact physical theta0 parameters, while
+each candidate's reference must match its exact settings. The selector, plan and
+comparison reducer now enforce these declared identities. This does not discharge
+the adapter's obligation to establish the declarations from native source/data.

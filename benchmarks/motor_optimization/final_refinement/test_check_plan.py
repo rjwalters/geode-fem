@@ -1,5 +1,6 @@
 """Synthetic planning checks; no FEM or optimization-performance evidence."""
 import copy
+from dataclasses import replace
 import json
 from pathlib import Path
 import sys
@@ -21,6 +22,19 @@ def manifest():
         discrete_pass=True, mesh_pass=True,
     )
     return select([row], f0=1.0, mean0=1.0, theta0=theta0)
+
+
+def multiple_settings_manifest():
+    scalar={'motion':'scalar','current_A':9.6777}
+    cp={'motion':'cp','current_A':9.6777}
+    initial=Design.from_values({'x':0.0},scalar)
+    cp_initial=Design.from_values({'x':0.0},cp)
+    row=Validation('scalar-attempt','a'*64,'A','a',0,1,0,
+        Design.from_values({'x':1.0},scalar),10.,120.,.001,1.01,
+        eligible_run=True,host_contaminated=False,completed=True,
+        geometry_admissible=True,discrete_pass=True,mesh_pass=True)
+    cp_row=replace(row,run_id='cp-attempt',space='b',design=Design.from_values({'x':1.0},cp))
+    return select([row,cp_row],f0=1.,mean0=1.,theta0=initial,theta0_references=[cp_initial])
 
 
 class PlanTests(unittest.TestCase):
@@ -101,6 +115,47 @@ class PlanTests(unittest.TestCase):
         source["records"][0]["record"]["source_sha256"] = "b" * 64
         second = make_plan(source)
         self.assertNotEqual(first["selection_manifest_sha256"], second["selection_manifest_sha256"])
+
+    def test_each_motion_map_has_its_own_matched_reference_and_no_extra_roles(self):
+        source=multiple_settings_manifest();plan=make_plan(source)
+        cohort={c['design_key']:c for c in plan['cohort']}
+        jobs={j['job_id']:j for j in plan['jobs']}
+        references=set(plan['reference_design_keys'])
+        self.assertEqual(len(references),2)
+        self.assertEqual(len(plan['jobs']),24)
+        self.assertEqual(plan['cohort'],source['jobs'])
+        for job in jobs.values():
+            ref=jobs[job['theta0_job_id']]
+            self.assertEqual(ref['spec'],job['spec'])
+            self.assertIn(ref['design_key'],references)
+            self.assertEqual(cohort[job['design_key']]['theta0_design_key'],ref['design_key'])
+            expected=Design(cohort[job['design_key']]['canonical_design']).settings_key
+            self.assertEqual(job['spec']['base_settings_sha256'],expected)
+        self.assertTrue(all(j['design_key'] in references for j in plan['jobs'][:12]))
+
+    def test_missing_or_cross_map_theta0_binding_is_refused(self):
+        for mutation in ('missing','cross_map','self','role'):
+            source=multiple_settings_manifest()
+            primary=next(j for j in source['jobs'] if 'theta0' in j['roles'])
+            secondary=next(j for j in source['jobs'] if 'theta0_reference' in j['roles'])
+            candidate=next(j for j in source['jobs'] if 'A/b/representative' in j['roles'])
+            if mutation=='missing':candidate.pop('theta0_design_key')
+            elif mutation=='cross_map':candidate['theta0_design_key']=primary['design_key']
+            elif mutation=='self':candidate['theta0_design_key']=candidate['design_key']
+            else:secondary['roles']=['invalid-reference-role']
+            with self.subTest(mutation=mutation),self.assertRaisesRegex(ValueError,'theta0 reference'):
+                make_plan(source)
+
+    def test_reference_geometry_cannot_change_with_recomputed_design_hash(self):
+        source=multiple_settings_manifest()
+        secondary=next(j for j in source['jobs'] if 'theta0_reference' in j['roles'])
+        old=secondary['design_key'];parts=json.loads(secondary['canonical_design'])
+        parts[1][0]=json.loads(Design.from_values({'x':2.0},{'unused':True}).canonical)[1][0]
+        altered=Design(json.dumps(parts,separators=(',',':')))
+        secondary.update(canonical_design=altered.canonical,design_key=altered.key)
+        for entry in source['jobs']:
+            if entry['theta0_design_key']==old:entry['theta0_design_key']=altered.key
+        with self.assertRaisesRegex(ValueError,'geometry or comparison settings'):make_plan(source)
 
     def test_missing_anchor_duplicate_and_tampered_design_fail_closed(self):
         for mutation in ("anchor", "duplicate", "tampered", "empty", "schema"):

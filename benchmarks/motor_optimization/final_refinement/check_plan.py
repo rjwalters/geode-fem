@@ -7,6 +7,7 @@ and conforming-interface eligibility. See #1203 and #1185 comment 6248492318.
 import copy
 import hashlib
 import json
+from selection import Design
 
 
 def _digest(value):
@@ -60,6 +61,21 @@ def make_plan(selection):
     if len(anchors) != 1:
         raise ValueError("exactly one theta0 reference is required")
     anchor = anchors[0]
+    entries = {entry["design_key"]: entry for entry in cohort}
+    initial_parameters = Design(entries[anchor]["canonical_design"]).identity_parts()[0]
+    references = set()
+    for entry in cohort:
+        reference_key = entry.get("theta0_design_key")
+        reference = entries.get(reference_key)
+        if reference is None or not set(reference['roles']) & {'theta0', 'theta0_reference'}:
+            raise ValueError("missing matching-settings theta0 reference")
+        design = Design(entry['canonical_design'])
+        initial = Design(reference['canonical_design'])
+        if (initial.identity_parts()[0] != initial_parameters
+                or initial.identity_parts()[1] != design.identity_parts()[1]
+                or reference.get('theta0_design_key') != reference_key):
+            raise ValueError("theta0 reference changes geometry or comparison settings")
+        references.add(reference_key)
     g20 = [float(i) for i in range(20)]
     specs = [
         _spec("primary", 2, g20),
@@ -71,14 +87,16 @@ def make_plan(selection):
     ]
     # Build the reference first, then deterministic design/spec ordering.
     jobs = []
-    for key in sorted(keys, key=lambda k: (k != anchor, k)):
+    for key in sorted(keys, key=lambda k: (k not in references, k != anchor, k)):
         for spec in specs:
             name = spec["name"]
+            actual_spec = copy.deepcopy(spec)
+            actual_spec['base_settings_sha256'] = Design(entries[key]['canonical_design']).settings_key
             jobs.append({
                 "job_id": f"{key}/{name}",
                 "design_key": key,
-                "spec": copy.deepcopy(spec),
-                "theta0_job_id": f"{anchor}/{name}",
+                "spec": actual_spec,
+                "theta0_job_id": f"{entries[key]['theta0_design_key']}/{name}",
                 "primary_job_id": f"{key}/primary" if name != "withheld" else None,
                 "status": "not_run",
                 "cost_scope": "post_run",
@@ -89,6 +107,7 @@ def make_plan(selection):
         "cohort": copy.deepcopy(cohort),
         "specs": specs,
         "jobs": jobs,
+        "reference_design_keys": sorted(references),
         "target_credit_policy": "preserve_original_common_validation",
         "replacement_policy": "never_replace_selected_design",
         "conforming_checks": "pending_separate_fresh_mesh_and_supported_rotation_gate",

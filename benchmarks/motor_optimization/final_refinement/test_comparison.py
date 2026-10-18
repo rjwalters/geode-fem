@@ -6,8 +6,8 @@ import sys
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from check_plan import make_plan
-from comparison import summarize
-from test_check_plan import manifest
+from comparison import summarize, difference
+from test_check_plan import manifest, multiple_settings_manifest
 
 
 def records(selection):
@@ -15,7 +15,7 @@ def records(selection):
     anchor=next(c['design_key'] for c in plan['cohort'] if 'theta0' in c['roles'])
     rows=[]
     for job in plan['jobs']:
-        initial=job['design_key']==anchor
+        initial=job['design_key'] in plan['reference_design_keys']
         mean=1.0 if initial else 1.01
         amp=.001 if initial else .0002
         currents=[]
@@ -51,6 +51,41 @@ class ComparisonTests(unittest.TestCase):
         self.assertAlmostEqual(comparison['matching_theta0']['currents'][0]['mean_change'],.01)
         self.assertLess(comparison['matching_theta0']['F_change'],0)
         self.assertEqual(report['observations'][candidate['job_id']]['cost'],candidate['cost'])
+
+    def test_cp_candidate_uses_cp_reference_without_changing_original_credit(self):
+        selection=multiple_settings_manifest();rows,anchor=records(selection)
+        before=copy.deepcopy(selection)
+        cp_reference=next(c['design_key'] for c in selection['jobs'] if 'theta0_reference' in c['roles'])
+        cp_candidate=next(c['design_key'] for c in selection['jobs'] if 'A/b/representative' in c['roles'])
+        scalar_candidate=next(c['design_key'] for c in selection['jobs'] if 'A/a/representative' in c['roles'])
+        for row in rows:
+            if row['design_key']==cp_reference:
+                for current in row['currents']:
+                    current['torques']=[v+.2 for v in current['torques']]
+                    current['mean']=math.fsum(current['torques'])/len(current['torques'])
+        report=summarize(selection,rows)
+        cp=report['comparisons'][cp_candidate+'/primary']
+        scalar=report['comparisons'][scalar_candidate+'/primary']
+        self.assertFalse(cp['target_check']['feasible'])
+        self.assertTrue(scalar['target_check']['feasible'])
+        self.assertAlmostEqual(cp['matching_theta0']['currents'][0]['mean_change'],-.19)
+        self.assertEqual(selection,before)
+        self.assertEqual(len(report['cohort']),4)
+        self.assertTrue(all(r['design_key'] not in (anchor,cp_reference)
+            for ranking in report['feasible_orderings'].values() for r in ranking))
+        rows=[r for r in rows if r['design_key']!=cp_reference]
+        missing=summarize(selection,rows)
+        self.assertEqual(missing['comparisons'][cp_candidate+'/primary']['target_check']['status'],'unavailable')
+        self.assertTrue(missing['comparisons'][scalar_candidate+'/primary']['target_check']['feasible'])
+
+    def test_direct_waveform_comparison_refuses_different_base_settings(self):
+        selection=multiple_settings_manifest();rows,_=records(selection)
+        report=summarize(selection,rows)
+        candidates=[r for r in rows if r['actual_spec']['name']=='primary']
+        left=candidates[0]
+        right=next(r for r in candidates if r['actual_spec']['base_settings_sha256']!=left['actual_spec']['base_settings_sha256'])
+        with self.assertRaisesRegex(ValueError,'base design settings'):
+            difference(left,right,report['reductions'])
 
     def test_missing_and_failed_checks_remain_unavailable_without_replacement(self):
         selection=manifest();rows,anchor=records(selection)
