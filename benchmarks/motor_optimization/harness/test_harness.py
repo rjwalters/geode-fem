@@ -84,9 +84,12 @@ class FakeEvaluator:
     1/64, solves 2, fresh mesh 1/4 when u_0 > 0.95; io (outside the
     charges) 1/512 per request."""
 
-    def __init__(self, clock, io=IO, validator_sha=SHA, tamper=None):
+    def __init__(self, clock, io=IO, validator_sha=SHA, tamper=None, post=0.0):
         self.clock = clock
         self.io = io
+        # Driver-side time after the reply has arrived (parsing it): not
+        # bounded by the request's deadline.
+        self.post = post
         self.tamper = tamper or {}
         self.lower = np.array(LOWER)
         self.width = np.array(UPPER) - self.lower
@@ -132,7 +135,7 @@ class FakeEvaluator:
         if timeout is not None and cost > timeout:
             self.clock.advance(max(timeout, 0.0))
             raise Aborted()
-        self.clock.advance(cost)
+        self.clock.advance(cost + self.post)
         for c in charges:
             self.emitted[c[0]] += c[1]
         reply = {"ok": True, "op": op, "x_bits": list(f["x_bits"]),
@@ -326,6 +329,21 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(run.attained, {})
         self.assertEqual(led.total_fe(), TRAIN + VALIDATE - 1 / 64)
         self.assertEqual(led.entries[-1]["category"], "validation")
+
+    def test_validation_whose_reply_lands_after_the_budget_is_not_credited(self):
+        # The reply arrives before the deadline, but the driver's handling
+        # of it carries the total past the budget: recorded, not credited.
+        run, fake, led, clock = make_run(budget_fe=TRAIN + VALIDATE + 1 / 1024, io=0.0)
+        u = near_centre(run)
+        run.train(u, gradient=False)
+        fake.post = 1 / 256
+        with self.assertRaises(BudgetExhausted):
+            run.validate(u)
+        self.assertEqual(len(run.validations), 1)
+        self.assertFalse(run.validations[0]["credited"])
+        self.assertTrue(run.validations[0]["attained"]["T50"])
+        self.assertEqual(run.attained, {})
+        self.assertTrue(run.result()["attainment"]["T50"]["censored"])
 
     def test_t99_stops_the_run(self):
         run, fake, led, clock = make_run()

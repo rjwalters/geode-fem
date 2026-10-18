@@ -259,6 +259,22 @@ validation solve time: 35.1 s in both spaces in the committed anchor run
 host with load 10–14 on 28 cores. The ledger keeps raw seconds and
 solve counts, so any rule #1185 freezes can be applied afterwards.
 
+## Optimizer harness (#1195)
+
+`harness/` holds the experiment-2 optimizer harness: the JSON-lines
+evaluator process (`examples/icem_harness_eval.rs`, library
+`tests/common/icem_harness.rs`), the Python driver (SLSQP, COBYQA and the
+calibrated RBF trust-region surrogate of the proposed amendment 4), the
+validation policy, the driver-owned ledger with the exact budget stop, the
+committed LHS starts and the run manifest. `harness/README.md` describes it.
+Its records are:
+
+- the FD check of the gradient replies (`runs/harness_fd_L1_*.json`);
+- the mutation log (`logs/harness_mutation_checks.log`);
+- an L0 smoke session (`smoke/`, labelled smoke, not pilot data).
+
+It holds no pilot results.
+
 ## Reproduce
 
 ```bash
