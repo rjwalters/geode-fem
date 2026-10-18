@@ -1,0 +1,3 @@
+# Fresh meshes made by the validator's policy path (rebuilt by run_all.sh;
+# the SHA-256 of each is in the run record).
+runs/*.meshes/*.msh

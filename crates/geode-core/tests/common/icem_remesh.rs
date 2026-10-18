@@ -57,13 +57,14 @@ use std::time::Instant;
 use geode_core::analytic::waveguide::TriMesh;
 use geode_core::assembly::magnetostatic_nonlinear::NewtonConfig;
 use geode_core::assembly::magnetostatic_sector::SectorError;
+use geode_core::assembly::magnetostatic_shape::SectorShapeProblem;
 use geode_core::mesh::design_remesh::{
     MovingMesh, NodalTransfer, PreparedMesh, RemeshError, RemeshEvent, RemeshPolicy, RemeshTrigger,
     Remesher, RemeshingReference,
 };
-use geode_core::mesh::icem_controlpoints::{IcemCpDesign, sector_curves_cp_f64};
+use geode_core::mesh::icem_controlpoints::{IcemCpDesign, N_ROTOR_GROUPS, sector_curves_cp_f64};
 use geode_core::mesh::icem_parametric::{
-    Curve, CurveShape, IcemDesign, IcemParamError, MotionQuality, sector_curves_f64,
+    Curve, CurveShape, IcemDesign, IcemParamError, MotionQuality, N_PARAMS, sector_curves_f64,
 };
 use serde_json::{Value, json};
 
@@ -100,6 +101,16 @@ pub trait Space {
     fn set(p: &mut Self::Point, k: usize, v: f64);
     /// `ScaleR` of a point.
     fn scale_r(p: &Self::Point) -> f64;
+    /// `LENGTH` of a point (m).
+    fn length(p: &Self::Point) -> f64;
+    /// `OPERATING_ANGLE` of a point (degrees).
+    fn phi0_deg(p: &Self::Point) -> f64;
+    /// Whether every stator control-point offset of `g` is zero (always
+    /// for the scalar space, which has none). The conforming outer-band
+    /// spot check is defined only for such designs (#1185 amendment 1).
+    fn stator_offsets_zero(g: &Self::Geo) -> bool;
+    /// The shape problem of a set-up with the nodes at `X(g)`.
+    fn problem_at(s: &Self::Setup, g: &Self::Geo) -> Result<SectorShapeProblem, SectorError>;
     /// The construction curves at `g` (for the fresh-mesh plan).
     fn curves(g: &Self::Geo) -> Result<Vec<Curve<f64>>, IcemParamError>;
     /// The set-up on `msh`, meshed at `theta0`.
@@ -224,6 +235,18 @@ impl Space for ScalarSpace {
     fn scale_r(p: &DesignPoint) -> f64 {
         p.scale_r
     }
+    fn length(p: &DesignPoint) -> f64 {
+        p.length
+    }
+    fn phi0_deg(p: &DesignPoint) -> f64 {
+        p.phi0_deg
+    }
+    fn stator_offsets_zero(_: &IcemDesign) -> bool {
+        true
+    }
+    fn problem_at(s: &DesignSetup, g: &IcemDesign) -> Result<SectorShapeProblem, SectorError> {
+        s.problem_at(g)
+    }
     fn curves(g: &IcemDesign) -> Result<Vec<Curve<f64>>, IcemParamError> {
         sector_curves_f64(g)
     }
@@ -298,6 +321,20 @@ impl Space for CpSpace {
     }
     fn scale_r(p: &CpDesignPoint) -> f64 {
         p.scale_r
+    }
+    fn length(p: &CpDesignPoint) -> f64 {
+        p.length
+    }
+    fn phi0_deg(p: &CpDesignPoint) -> f64 {
+        p.phi0_deg
+    }
+    fn stator_offsets_zero(g: &IcemCpDesign) -> bool {
+        g.values[N_PARAMS + N_ROTOR_GROUPS..]
+            .iter()
+            .all(|&v| v == 0.0)
+    }
+    fn problem_at(s: &CpDesignSetup, g: &IcemCpDesign) -> Result<SectorShapeProblem, SectorError> {
+        s.problem_at(g)
     }
     fn curves(g: &IcemCpDesign) -> Result<Vec<Curve<f64>>, IcemParamError> {
         sector_curves_cp_f64(g)
@@ -580,6 +617,22 @@ impl EvaluatorConfig {
             keep_retired: false,
         }
     }
+
+    /// The pre-registered validation model of experiment 2 (#1185,
+    /// amendments 1 and 2): h93 coupling torque, g20, currents `0, 0.5, 1`
+    /// of `I_PEAK_INITIAL`, default Newton tolerance, cold start, default
+    /// policy, at `level` (the model is L2; the spot checks are L3). Forward
+    /// values only: call [`RemeshEvaluator::evaluate`] or
+    /// [`evaluate_on`](RemeshEvaluator::evaluate_on) with `gradient =
+    /// false`. The acceptance path (`icem_experiment2::Validator`) uses
+    /// this configuration and never warm-starts, so a validation value
+    /// depends on the candidate only.
+    pub fn validation(level: usize) -> Self {
+        Self {
+            mode: Mode::H93,
+            ..Self::training(level)
+        }
+    }
 }
 
 /// One current fraction of an evaluation.
@@ -597,6 +650,11 @@ pub struct CurrentResult {
     pub d_std: Option<Vec<f64>>,
     pub newton_iterations: usize,
     pub solve_seconds: f64,
+    /// Of [`solve_seconds`](Self::solve_seconds): the forward Newton
+    /// solves, and the rest (adjoint solves, velocities and contractions;
+    /// zero without gradients).
+    pub forward_seconds: f64,
+    pub adjoint_seconds: f64,
 }
 
 /// How the Newton start of an evaluation was obtained.
@@ -871,6 +929,8 @@ impl<Sp: Space> RemeshEvaluator<Sp> {
                         d_std: Some(g.d_std),
                         newton_iterations: g.newton_iterations,
                         solve_seconds: 0.0,
+                        forward_seconds: g.forward_seconds,
+                        adjoint_seconds: 0.0,
                     },
                     ev,
                 )
@@ -896,6 +956,8 @@ impl<Sp: Space> RemeshEvaluator<Sp> {
                             .map(|s| s.solution.solution.iterations)
                             .sum(),
                         solve_seconds: 0.0,
+                        forward_seconds: 0.0,
+                        adjoint_seconds: 0.0,
                     },
                     ev,
                 )
@@ -904,8 +966,12 @@ impl<Sp: Space> RemeshEvaluator<Sp> {
             if split_nodes.is_empty() {
                 split_nodes = ev.problem.nodes().to_vec();
             }
+            let solve_s = t.elapsed().as_secs_f64();
+            let forward_s = if gradient { r.forward_seconds } else { solve_s };
             currents.push(CurrentResult {
-                solve_seconds: t.elapsed().as_secs_f64(),
+                solve_seconds: solve_s,
+                forward_seconds: forward_s,
+                adjoint_seconds: (solve_s - forward_s).max(0.0),
                 ..r
             });
         }
@@ -1012,6 +1078,7 @@ pub fn evaluation_json<Sp: Space>(ev: &DesignEvaluation<Sp::Point>) -> Value {
             "fraction": c.fraction, "i_peak_A": c.i_peak, "torques": c.torques,
             "mean": c.mean, "std": c.std, "d_mean": c.d_mean, "d_std": c.d_std,
             "newton_iterations": c.newton_iterations, "solve_s": c.solve_seconds,
+            "forward_s": c.forward_seconds, "adjoint_s": c.adjoint_seconds,
         })).collect::<Vec<_>>(),
         "F": ev.f, "dF": ev.d_f, "start": start,
         "nodes": ev.mesh_size.0, "triangles": ev.mesh_size.1,
