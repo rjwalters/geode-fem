@@ -65,7 +65,7 @@ Completion requires the following evidence, checked at the final manuscript's ac
 | Valid optimization domain and trustworthy solver callbacks | Adopted amendment, complete guard inventory, unit-consistent margins, solver-visible rejection/restoration, charged mesh repair, independent implementation review | Amendment 7 adopted with admissible-anchor and target-credit corrections; implementation #1201 in progress |
 | Matched useful-design-space comparison and cost | Frozen starts/targets/cost rules; complete idle-host main records, paired results, failed/censored outcomes, 60-FE checkpoint if budget expands | Pilot complete in #1200; no main-run results |
 | Inexpensive physical competitor | Named physical model, calibration and adaptation protocol frozen before its outcomes, all training/setup costs charged, same final target | L0 nonlinear FEM screened locally; amendment 8 adopted for COBYQA and SLSQP on L0; Codex implementation #1202 follows #1201; no optimizer results |
-| Candidate reliability | Common validation plus L3/g40/interface and withheld-condition checks at the reported new candidates; limits on numerical error | Original Opt120 checks exist; new candidate checks still needed |
+| Candidate reliability | Common validation plus L3/g40/interface and withheld-condition checks at the reported new candidates; limits on numerical error | Original Opt120 checks exist; amendment-8 addendum freezes representative/crossing selection; #1203 implements the new checks after #1202 |
 | Final manuscript and figures | New immutable version integrating measured results without overstating generality, corrected v6 N1, reproducible figures and claim guards | V6 is preserved; next substantive version pending |
 | Independent review and audit | Fresh reviews, resolved critical findings, citation/numerical/artifact audit on exact final content | V6 passed for its existing scope; future results need new checks |
 | Submission-ready artifact | Author/venue metadata resolved, PDF and source package verified from clean checkout, public provenance/availability links, selected target formatting | Author Robb Walters; venue open; final package pending. Actual submission/publication is not implied by this goal. |
@@ -96,6 +96,16 @@ The remaining decisions from #18 are:
 - Defer the residual-Jacobian effective-dimension study. Report observed differences between spaces A and B without calling them intrinsic dimensional necessity.
 
 No targets, starts, budgets or optimizer trajectories are changed by this scope decision. The central useful-design-space, refinement-validity and inexpensive-physics comparison remains required.
+
+### Final-refinement selection (reviewed before main outcomes)
+
+Squad review #19 and the [adopted amendment-8 addendum](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6247383821) define the final check cohort. [Implementation #1203](https://github.com/rjwalters/geode-fem/issues/1203) follows #1202; the following are prospective checks, not completed evidence.
+
+- For each method and space, select the lowest common-validated feasible objective among eligible uncontaminated main runs. Break ties by start index, repeat index, then validation ordinal. Earlier eligible validations from a subsequently failed run remain eligible. No feasible representative is an explicit outcome. Retain every considered record and its selection/rejection reason; never replace a selected design after its refinement fails.
+- For each method, space and target, additionally select the earliest attaining validation across starts using repeat-1 timing: at most 30 crossing designs. Deduplicate identical geometry/settings against the ten possible representatives with complete provenance. The interpretation in #1203 is repeat-1 records only, with absent crossings recorded rather than replaced by repeat 2.
+- Geometry/mesh admissibility is additional to the existing full-current mean floor and completed-within-budget validation requirements. Target crossings also retain the registered objective/error-margin test. The addendum's shorthand equating feasibility with admissibility has been flagged to Claude for explicit wording correction; it does not override these governing acceptance rules.
+- Check theta0 and selected designs at L3/h93/g20 and L2/h93/g40, at the three training currents, retaining half-current and .25/.75 diagnostics. Conforming outer-band Arkkio checks require zero stator offsets and fresh meshes under the existing supported-rotation policy. Nonzero stator offsets must report `no conforming check (model-dependent)`.
+- Keep all post-run costs separate. Time-to-target remains measured at common L2/h93/g20 validation; these best-observed representatives and earliest crossings do not certify every crossing or typical-start behavior. Report failed checks and observed refinement changes alongside the affected claims.
 
 ### Main-result figure guidance
 
