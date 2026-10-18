@@ -5,7 +5,7 @@ skill: paper
 paper_number: 3
 documentclass: anvil-paper
 anonymous: false
-status_of_inputs: "Revision 6: v5 audit corrections and review advisories; fresh audit pending; optimization comparison unmeasured"
+status_of_inputs: "Revision 6: independent audit PASS; loaded-host pilot complete; paper optimization comparison unmeasured"
 claim: "Test whether exact field gradients reduce time to a validated motor-design target beyond calibrated simple models, and how that advantage depends on useful shape freedom."
 audience: "Computational electromagnetics, electric-machine optimization, and differentiable scientific computing researchers"
 venue_target: "Select after the pilot establishes the contribution; use the generic paper class initially"
@@ -20,7 +20,7 @@ science_card_id: 3
 The operator designated this work as GEODE's third paper on 2026-10-16,
 alongside the transmon and conformal-antenna papers. This brief establishes
 the research project. The operator requested the first manuscript on
-2026-10-16. V1 is preserved unchanged and received two independent 30/44 reviews. The current manuscript is `motor-gradient-optimization.6/`, **REVISED; fresh independent audit pending**. V5 received 42/44 and 39/44 independent reviews, both ADVANCE; its numerical audit then found two critical text errors. V6 corrects the SW3 rounded component difference and distinguishes the L0/L1 Taylor failure mechanisms, adds raw-record regression coverage, completes size normalization, and includes the existing waveform figure. Original reports are archived verbatim. V1–v5 remain unchanged. The optimization-speedup hypothesis remains open.
+2026-10-16. V1 is preserved unchanged and received two independent 30/44 reviews. The current manuscript is `motor-gradient-optimization.6/`, **independent audit PASS at `1dd8cdef` (zero critical flags)**. V5 received 42/44 and 39/44 independent reviews, both ADVANCE; its numerical audit then found two critical text errors. V6 corrects the SW3 rounded component difference and distinguishes the L0/L1 Taylor failure mechanisms, adds raw-record regression coverage, completes size normalization, and includes the existing waveform figure. Original reports are archived verbatim, including the v6 audit in `.6.audit/`. The auditor confirmed that no re-review was needed; earlier 42/44 and 39/44 scores belong to v5. V1–v6 remain unchanged. A non-critical Fig. 5 mean-effect caption edit is deferred to the next substantive revision. The optimization-speedup hypothesis remains open.
 
 The author line is Robb Walters, following the operator guidance relayed by Claude in Squad message 451. Crutcher's possible coauthorship is undecided; no invitation or submission is implied. Venue remains open.
 
@@ -122,9 +122,9 @@ Keep it and this brief consistent when scope changes.
 | M3: motor shape gradients | Directional finite-difference step sweeps and Taylor checks at initial and perturbed designs; stable gradients as state tolerances tighten. | Scalar and grouped-control derivatives reviewed; scalar evidence in manuscript; validation infrastructure merged through #1194 |
 | M4: useful design freedom | Compare nested engineering-parameter and surface-control spaces from matched starts; establish improvements above numerical uncertainty. | Depends on M3 |
 | M5: measured optimization cost | Same-host, same-target comparisons against calibrated simple/reduced models, trust-region derivative-free search and CMA-ES, with all setup and calibration charged. | Depends on M4 |
-| M6: manuscript and artifacts | Freeze evidence, draft the paper, independently review claims and rendered figures, then complete the Anvil audit. | First draft authorized before M5; experimental completion, independent manuscript review and audit remain pending |
+| M6: manuscript and artifacts | Freeze evidence, draft the paper, independently review claims and rendered figures, then complete the Anvil audit. | V6 independent audit passed at 1dd8cdef; full optimization experiment and subsequent manuscript revision remain open |
 
-M2 includes independent reference refinement and M3 includes verified scalar gradients. Opt120 candidate validation is merged. The fixed 8/18-variable optimization protocol is preregistered on #1185 (amendments 1–6 and the amendment-6 addendum); #1196 merged at `89e6c4e127a5fbef7e4b2e0f10b90e70bd1193b4`; the development-host pilot is running under #1198, with preliminary feasibility issues reported in Squad message 525 (12/36 complete, 6 failed on geometry/mesh validity). These loaded-host observations are not paper timing evidence. Smoke runs are not benchmark evidence. Matched M4/M5 results remain unperformed. The prioritized experimental requests and required handoff data are in `EXPERIMENTS.md`.
+M2 includes independent reference refinement and M3 includes verified scalar gradients. Opt120 candidate validation is merged. The fixed 8/18-variable optimization protocol is preregistered on #1185 (amendments 1–6 and the amendment-6 addendum); #1196 merged at `89e6c4e127a5fbef7e4b2e0f10b90e70bd1193b4`; the 36-run development-host pilot is complete in PR #1200 at `66de22d4be1563a90e0dbe9a7a74caeab406dab8` (under review). It recorded 13 failures: 11 construction failures and two fresh-mesh minimum-angle failures. These loaded-host observations are feasibility/budget evidence only and do not enter the audited manuscript. Smoke runs are not benchmark evidence. Matched idle-host M4/M5 results remain unperformed. The prioritized experimental requests and required handoff data are in `EXPERIMENTS.md`.
 
 Before M5, freeze numerical tolerances, target/error margins, design bounds,
 starts/seeds and compute budgets. The current preregistration uses three starts, two repeats and 60 validation-forward wall-time units per run. Targets are fixed reductions of 50/90/99% from the refined initial objective, with candidate-based error allowance and a 0.25% mean floor. The empirical RBF baseline does not discharge the separate inexpensive-physics comparison. Do not infer a finite speedup when a
@@ -195,10 +195,10 @@ one design space from comparisons between design spaces.
   including the stored full-precision torque profiles and reconstruction gaps.
 
 The slotless screen is reproducible but is not a nonlinear-motor result.
-The artifact-verification command now checks actual forward/gradient records, reference reruns, candidate validation and cost ratios and v5 review corrections. A passing slotless screen alone cannot satisfy that requirement.
+The artifact-verification command now checks actual forward/gradient records, reference reruns, candidate validation and cost ratios and v5/v6 audit corrections. A passing slotless screen alone cannot satisfy that requirement.
 
 Keep the project brief mutable and manuscript versions immutable under
-Anvil. The current manuscript is `motor-gradient-optimization.5/`, with a local LaTeX class, references, data-backed figures and a pinned evidence manifest. V1–v4 remain immutable; subsequent results enter a new version. Review and audit state must come from the completed
+Anvil. The current manuscript is `motor-gradient-optimization.6/`, with a local LaTeX class, references, data-backed figures and a pinned evidence manifest. V1–v6 remain immutable; subsequent results enter a new version. Review and audit state must come from the completed
 workflow; project designation does not confer those states.
 
-The operator requested continued paper improvement; the configured iteration cap is extended from four to five for the v4 review corrections. This does not confer review approval or authorize publication.
+The operator requested continued paper improvement; the configured iteration cap is six, following the v5 audit corrections. This does not confer review approval or authorize publication.

@@ -9,7 +9,7 @@ versions are:
 |---|---|
 | `conformal-antenna-diffopt` | `conformal-antenna-diffopt.8/` (draft, not reviewed: v7, which met the 40/44 gate from both reviewers, revised against those reviews in text only: re-centring wording, adjoint wall-time cost, air-margin dip and the 1–13 MHz miss band, the FDTD cross-check moved into §4; v4 is the last audited version) |
 | `transmon-benchmark` | `transmon-benchmark.13/` (draft, not reviewed: v12 reframed as a cross-check of the Palace/DeviceLayout.jl transmon under the operator's 2026-10-15 rulings, cut to 17 pages, with PRIMA re-run in our environment, a Palace-only Newton and a second refinement family on the re-optimized design; v6 is the last audited version) |
-| [`motor-gradient-optimization`](motor-gradient-optimization/BRIEF.md) | [`motor-gradient-optimization.6/`](motor-gradient-optimization/motor-gradient-optimization.6/main.pdf) (`REVISED`, fresh audit pending): corrected numerical audit findings, reference refinement, saved-design waveform and size/current comparisons, and verified model-dependent gradients. Optimization time-to-target remains unmeasured. |
+| [`motor-gradient-optimization`](motor-gradient-optimization/BRIEF.md) | [`motor-gradient-optimization.6/`](motor-gradient-optimization/motor-gradient-optimization.6/main.pdf) (`independent audit PASS` at `1dd8cdef`, zero critical flags): reference refinement, saved-design waveform and size/current comparisons, and verified model-dependent gradients. Optimization time-to-target remains unmeasured. |
 
 ## Building a paper
 

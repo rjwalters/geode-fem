@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "thread": "motor-gradient-optimization",
+  "phases": {
+    "audit": {
+      "state": "done",
+      "completed": "2026-10-18T06:18:51.179Z"
+    }
+  },
+  "metadata": {
+    "source_head": "1dd8cdefba886001ea70c43ca4c2b60523d5c53f",
+    "reports_archived_verbatim": true,
+    "report_sha256": "b46b70a022fc61e04d0a21b21c2c90dcf60a487ddb7ea0525d299eb98c21f1b9",
+    "archived_at": "2026-10-18T07:10:25.091731+00:00",
+    "squad_review_request": 14,
+    "independent_verdict": "PASS; eligible for AUDITED",
+    "scope_review": "Auditor confirmed no re-review required; v5 scores are not v6 scores."
+  }
+}
