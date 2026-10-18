@@ -8,6 +8,10 @@ import tempfile
 
 HERE = Path(__file__).resolve().parent
 MUTATIONS = (
+    ("completed_attempt_external_replacement", "recovery_policy.py",
+     'if outcome.get("optimizer_completed") is True:',
+     'if outcome.get("optimizer_completed") is True and latest["key"] not in external_events:',
+     "test_recovery_policy.py", "PolicyTests.test_completed_contaminated_attempt_cannot_use_external_replacement"),
     ("later_completion_selected", "recovery_policy.py", 'selected = merged["completed"][0]',
      'selected = merged["completed"][-1]', "test_recovery_policy.py",
      "PolicyTests.test_first_clean_scientific_failure_survives_later_better_results"),

@@ -156,6 +156,7 @@ class DiagnosticTests(unittest.TestCase):
             train = theta0_train(FakeEvaluator(FakeClock()))
             base = {"label": "test", "session_id": "fixture", "unit_seconds": 1.,
                     "models": {"L0": {"train_level": 0, "train_mesh": "fixture.msh",
+                                       "train_mesh_sha256": "b" * 64,
                                        "weights": WEIGHTS, "theta0_train": train}},
                     "primary_model": "L0", "starts": str(root / "starts.json"),
                     "evaluator": {"anchor": str(root / "anchor.json")}}

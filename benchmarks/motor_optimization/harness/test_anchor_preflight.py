@@ -42,6 +42,15 @@ class AnchorPreflightTests(unittest.TestCase):
         self.assertNotEqual(result['currents'][0]['newton_iterations'],
                             result['currents'][0]['canonical_newton_iterations'])
 
+    def test_mean_relative_error_uses_mean_not_objective_normalization(self):
+        value, frozen = fixture()
+        value['full_current_mean'] *= 1 + .75e-9
+        self.assertEqual(check.compare(value, frozen, 'a')['status'], 'PASS')
+        value, frozen = fixture()
+        value['F'] = frozen['anchor']['F0'] = 4.
+        value['full_current_mean'] *= 1 + 1.01e-9
+        self.assertEqual(check.compare(value, frozen, 'a')['status'], 'failed')
+
     def test_each_relative_observable_refuses_two_e_minus_nine(self):
         for field in ('F', 'full_current_mean'):
             with self.subTest(field=field):

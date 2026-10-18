@@ -30,7 +30,7 @@ if str(HERE) not in sys.path:
 
 from acceptance import Anchor  # noqa: E402
 from driver import (DIAGNOSTIC_FRACTIONS, METHOD_LABELS, METHOD_SPECS, METHODS,  # noqa: E402
-                    Problem, Run, c_current_predictions, execute)
+                    Problem, Run, WiringError, c_current_predictions, execute)
 from evaluator import Aborted, Evaluator, EvaluatorFailure, to_bits  # noqa: E402
 from ledger import Ledger  # noqa: E402
 from linalg_info import fingerprint as linalg_fingerprint  # noqa: E402
@@ -64,11 +64,21 @@ def model_of(session, method=None):
             raise ValueError(f"{method} requires an explicit {res} training model")
         return {"train_mesh": session["evaluator"].get("train_mesh"),
                 "train_level": session["evaluator"].get("train_level"),
+                "train_mesh_sha256": session["evaluator"].get("train_mesh_sha256"),
                 "theta0_train": session.get("theta0_train"), "weights": session.get("weights")}
     model = models[res or session["primary_model"]]
     if res is not None and model["train_level"] != int(res[1:]):
         raise ValueError(f"{method} requires training level {res}")
     return model
+
+
+def check_training_mesh(ready, model):
+    """Bind the actually loaded training mesh to the frozen model, fail closed."""
+    expected = model.get("train_mesh_sha256")
+    if (not isinstance(expected, str) or len(expected) != 64
+            or any(c not in "0123456789abcdef" for c in expected)
+            or ready.get("train_msh_sha256") != expected):
+        raise WiringError("evaluator training mesh differs from the frozen training model")
 
 
 def evaluator_argv(session, space, mesh_out, method=None):
@@ -117,6 +127,8 @@ def post_run_diagnostic(run, make_evaluator, unit, clock=time.monotonic, signals
     r = None
     try:
         ev = make_evaluator()
+        out["evaluator_ready"] = ev.ready
+        check_training_mesh(ev.ready, run.training_model)
         r = ev.request("diagnose", timeout=max(10 * unit, 60.0), x_bits=to_bits(pred["x"]),
                        fractions=list(DIAGNOSTIC_FRACTIONS))
     except (Interrupted, KeyboardInterrupt) as e:
@@ -163,6 +175,8 @@ def physical_post_run_diagnostic(run, make_evaluator, unit, clock=time.monotonic
     ev = failure = None
     try:
         ev = make_evaluator()
+        out["evaluator_ready"] = ev.ready
+        check_training_mesh(ev.ready, run.training_model)
         if ev.ready.get("validation_msh_sha256") != run.anchor.mesh_sha256:
             raise ValueError("diagnostic validator differs from the registered anchor mesh")
         bits = to_bits(selected["x"])
@@ -225,14 +239,15 @@ def reconstruct_diagnostic_run(snapshot):
         import numpy as np
         def point(p):
             return {k: np.asarray(v) if k in ("u", "x") else v for k, v in p.items()}
-        return SimpleNamespace(c_points=[point(p) for p in state["points"]],
+        return SimpleNamespace(training_model=snapshot["training_model"], c_points=[point(p) for p in state["points"]],
             c_incumbent=point(state["incumbent"]) if state["incumbent"] is not None else None)
     if state["kind"] != "nonlinear_physical_model" or snapshot["method"] not in ("cobyqa_l0", "slsqp_l0"):
         raise ValueError("diagnostic kind does not match the method")
     selected = state["selection"]
     inc = ({"x": selected["x"]} if selected is not None and
            selected["source"] == "last_buildable_training_incumbent" else None)
-    run = SimpleNamespace(validations=snapshot["validations"], training_incumbent=inc,
+    run = SimpleNamespace(training_model=snapshot["training_model"],
+                         validations=snapshot["validations"], training_incumbent=inc,
                          anchor=SimpleNamespace(mesh_sha256=snapshot["anchor"]["msh_sha256"]))
     import physical_diagnostic
     if physical_diagnostic.select(run) != selected:
@@ -280,10 +295,13 @@ def _run_one(session, method, space, start, repeat, out, position=None, clock=ti
             else:
                 ev = evaluator_factory(space, ledger)
             ledger.sync("process start-up")
+            trace["evaluator_ready"] = ev.ready
+            check_training_mesh(ev.ready, model)
             problem = Problem(ev.ready["space"], model["theta0_train"])
             x_start = load_start(session, start, space)
             trace["x_start"] = x_start
             run = Run(ev, ledger, anchor, problem, method, clock=clock)
+            run.training_model = model
             reason, message, error = execute(run, problem.u_of(x_start))
             if not ledger.exhausted():
                 # Up to the stop; a run stopped by the budget is charged the

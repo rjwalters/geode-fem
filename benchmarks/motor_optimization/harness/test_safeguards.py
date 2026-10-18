@@ -447,13 +447,14 @@ class Issue1197Tests(unittest.TestCase):
             session = {"label": "test", "session_id": "t", "budget_fe": 9.5,
                        "unit_seconds": 1.0, "weights": th.WEIGHTS,
                        "theta0_train": th.theta0_train(probe),
-                       "evaluator": {"anchor": str(d / "anchor.json")},
+                       "evaluator": {"anchor": str(d / "anchor.json"), "train_mesh_sha256": "b" * 64},
                        "starts": str(d / "starts.json")}
             ops = {"train": ("forward", "line_search"), "validate": ("validation",),
                    "geometry": ("geometry_check",), "mesh_check": ("remesh",)}
             session["primary_model"] = "L1"
             session["models"] = {f"L{level}": {"train_mesh": f"fixture_L{level}.msh",
-                "train_level": level, "theta0_train": session["theta0_train"],
+                "train_level": level, "train_mesh_sha256": "b" * 64,
+                "theta0_train": session["theta0_train"],
                 "weights": session["weights"]} for level in (0, 1)}
             for method in driver.METHODS:
                 clock = th.TickingClock()
@@ -507,7 +508,7 @@ class ProvenanceTests(unittest.TestCase):
             session = {"label": "test", "session_id": "t", "budget_fe": 9.5,
                        "unit_seconds": 1.0, "weights": th.WEIGHTS,
                        "theta0_train": th.theta0_train(probe),
-                       "evaluator": {"anchor": str(d / "anchor.json")},
+                       "evaluator": {"anchor": str(d / "anchor.json"), "train_mesh_sha256": "b" * 64},
                        "starts": str(d / "starts.json")}
             clock = th.FakeClock()
             t = run_one(session, "surrogate", "a", "theta0", 1, d / "c.json", clock=clock,

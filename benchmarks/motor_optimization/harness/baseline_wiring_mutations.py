@@ -8,6 +8,16 @@ import tempfile
 
 HERE = Path(__file__).resolve().parent
 MUTATIONS = (
+    ("loaded_training_mesh_unchecked", "run.py",
+     'or ready.get("train_msh_sha256") != expected', 'or False'),
+    ("run_training_mesh_gate_omitted", "run.py",
+     'check_training_mesh(ev.ready, model)', 'pass'),
+    ("surrogate_diagnostic_training_gate_omitted", "run.py",
+     'check_training_mesh(ev.ready, run.training_model)\n        r = ev.request',
+     'pass\n        r = ev.request'),
+    ("physical_diagnostic_training_gate_omitted", "run.py",
+     'check_training_mesh(ev.ready, run.training_model)\n        if ev.ready',
+     'pass\n        if ev.ready'),
     ("D_uses_primary_model", "driver.py",
      '"letter": "D", "optimizer": "cobyqa", "resolution": "L0"',
      '"letter": "D", "optimizer": "cobyqa", "resolution": None'),

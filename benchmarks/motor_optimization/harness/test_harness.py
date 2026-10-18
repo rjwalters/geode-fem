@@ -87,7 +87,7 @@ class FakeEvaluator:
     charges) 1/512 per request."""
 
     def __init__(self, clock, io=IO, validator_sha=SHA, tamper=None, post=0.0, wall=None,
-                 mesh_bad=None):
+                 mesh_bad=None, train_sha="b" * 64):
         """`wall`: the coupled geometry guard m = wall - u_0 - u_3 (the
         analogue of SW2-min with SW1/SW4-max; default 1.9, outside the
         box); a second guard m = u_2 + 0.5 never binds. Buildable when
@@ -110,7 +110,8 @@ class FakeEvaluator:
         self.ready = {"op": "ready", "ok": True,
                       "space": {"free": [f"p{i}" for i in range(N)], "lower": LOWER,
                                 "upper": UPPER, "x0": X0},
-                      "validation_msh_sha256": validator_sha, "anchor": anchor_json()}
+                      "validation_msh_sha256": validator_sha, "train_msh_sha256": train_sha,
+                      "anchor": anchor_json()}
         self.closed = False
 
     def q(self, u):
@@ -277,7 +278,9 @@ def make_run(budget_fe=1000.0, method="slsqp", io=IO, **kw):
     fake = FakeEvaluator(clock, io=io, **kw)
     anchor = Anchor(F0, MEAN0, 0, SHA)
     prob = Problem(fake.ready["space"], theta0_train(fake))
-    return Run(fake, led, anchor, prob, method, clock=clock), fake, led, clock
+    run = Run(fake, led, anchor, prob, method, clock=clock)
+    run.training_model = {"train_mesh_sha256": "b" * 64}
+    return run, fake, led, clock
 
 
 def to_x(u):
@@ -590,11 +593,12 @@ class MethodTests(unittest.TestCase):
             session = {"label": "test", "session_id": "t", "budget_fe": 400.0,
                        "unit_seconds": 1.0, "weights": WEIGHTS,
                        "theta0_train": theta0_train(probe),
-                       "evaluator": {"anchor": str(d / "anchor.json")},
+                       "evaluator": {"anchor": str(d / "anchor.json"), "train_mesh_sha256": "b" * 64},
                        "starts": str(d / "starts.json")}
             session["primary_model"] = "L1"
             session["models"] = {f"L{level}": {"train_mesh": f"fixture_L{level}.msh",
-                "train_level": level, "theta0_train": session["theta0_train"],
+                "train_level": level, "train_mesh_sha256": "b" * 64,
+                "theta0_train": session["theta0_train"],
                 "weights": WEIGHTS} for level in (0, 1)}
             for method in driver.METHODS:
                 clock = FakeClock()
@@ -721,7 +725,7 @@ class DiagnosticTests(unittest.TestCase):
                 session = {"label": "test", "session_id": "t", "budget_fe": budget,
                            "unit_seconds": 1.0, "weights": WEIGHTS,
                            "theta0_train": theta0_train(probe),
-                           "evaluator": {"anchor": str(d / "anchor.json")},
+                           "evaluator": {"anchor": str(d / "anchor.json"), "train_mesh_sha256": "b" * 64},
                            "starts": str(d / "starts.json")}
                 traces = []
                 for diag in (False, True):

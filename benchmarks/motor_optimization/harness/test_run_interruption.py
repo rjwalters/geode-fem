@@ -25,7 +25,7 @@ def fixture(root):
     train = theta0_train(FakeEvaluator(FakeClock()))
     return {"label": "test", "session_id": "interruption-fixture", "unit_seconds": 1.,
             "budget_fe": 400., "primary_model": "L1",
-            "models": {f"L{k}": {"train_level": k, "train_mesh": "fixture.msh",
+            "models": {f"L{k}": {"train_level": k, "train_mesh": "fixture.msh", "train_mesh_sha256": "b" * 64,
                        "weights": WEIGHTS, "theta0_train": train} for k in (0, 1)},
             "starts": str(root / "starts.json"),
             "evaluator": {"anchor": str(root / "anchor.json")}}

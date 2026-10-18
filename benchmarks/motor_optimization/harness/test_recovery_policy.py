@@ -107,6 +107,17 @@ class PolicyTests(unittest.TestCase):
                 self.assertEqual(out["jobs"][0]["disposition"], "unresolved")
                 self.assertFalse(any(a["job"]["position"] == 0 for a in out["recovery_tail"]))
 
+    def test_completed_contaminated_attempt_cannot_use_external_replacement(self):
+        for suffix, expected in (("", "contamination_rerun"), ("_rerun1", "unresolved")):
+            with self.subTest(suffix=suffix), tempfile.TemporaryDirectory() as td:
+                inv = inventory(count=1)
+                key = attempt(inv, 0, complete=True, clean=False, suffix=suffix)
+                result = plan([inv], external_events={key: attestation(Path(td), key)})
+                self.assertEqual(result["jobs"][0]["disposition"], expected)
+                self.assertFalse(any(a["reason"] == "external_interruption"
+                                     for a in result["recovery_tail"]))
+                self.assertEqual(result["jobs"][0]["external_replacements_used"], 0)
+
     def test_deferred_replacement_does_not_spend_allowance_before_dispatch(self):
         with tempfile.TemporaryDirectory() as td:
             first, later = inventory(), inventory("recovery1")

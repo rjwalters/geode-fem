@@ -79,7 +79,8 @@ def main():
         ev.close()
         result["run_evaluator_resources"] = ev.resources()
         assert ev.receipt["cpu_complete"] and ev.receipt["returncode"] == 0
-        selected = SimpleNamespace(validations=[], training_incumbent={"x": x},
+        selected = SimpleNamespace(training_model={"train_mesh_sha256": sha(train_mesh)},
+                                   validations=[], training_incumbent={"x": x},
                                    anchor=SimpleNamespace(mesh_sha256=anchor_record["msh_sha256"]))
         def fresh():
             return Evaluator(command, env=thread_env(), timeout=120,

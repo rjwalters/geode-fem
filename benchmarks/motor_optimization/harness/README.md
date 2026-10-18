@@ -630,7 +630,11 @@ single-model session cannot silently supply L1. Main scheduling uses the
 all-L0 safeguard-smoke ordering remains ABC/CBA. Main setup calibrates L0
 training constants/weights separately, reusing the primary calibration's cold
 validation unit. Its own validation timing median is retained as a diagnostic.
-Every trace retains the selected training-model record.
+Every trace retains the selected training-model record and evaluator ready reply.
+Before any optimizer request, the observed `train_msh_sha256` must match that
+model's frozen `train_mesh_sha256`; a missing or mismatched hash refuses the run.
+The same check precedes C/D/E diagnostic requests, including diagnostic repair
+from a stopped snapshot, and retains the diagnostic evaluator's ready reply.
 
 D/E diagnostics now retain raw nonlinear waveforms at .25/.75, common-validator
 provenance and separate costs. Selection uses the lowest-F credited common-feasible

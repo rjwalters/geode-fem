@@ -1,4 +1,8 @@
 """Amendment-8 model and common-unit wiring; no performance claims."""
+import copy
+import json
+import tempfile
+from unittest import mock
 from pathlib import Path
 import sys
 import unittest
@@ -59,6 +63,72 @@ class BaselineWiringTests(unittest.TestCase):
             s["models"]["L0"]["train_level"] = 1
             with self.assertRaisesRegex(ValueError, "training level L0"):
                 run.model_of(s, method)
+
+    def test_run_refuses_wrong_observed_training_mesh_before_optimizer(self):
+        from test_harness import FakeClock, FakeEvaluator
+        from test_run_interruption import fixture as run_fixture
+        for method in driver.METHODS:
+            with self.subTest(method=method), tempfile.TemporaryDirectory() as td:
+                root, clock = Path(td), FakeClock()
+                s = run_fixture(root)
+                for level in (0, 1):
+                    s["models"][f"L{level}"]["train_mesh_sha256"] = str(level) * 64
+                expected = run.model_of(s, method)["train_mesh_sha256"]
+                # D/E deliberately report the L1 hash while loading from the L0 path.
+                wrong = "1" * 64 if expected == "0" * 64 else "0" * 64
+                ev = FakeEvaluator(clock, train_sha=wrong)
+                with mock.patch.object(run, "execute") as execute:
+                    result = run.run_one(s, method, "a", "theta0", 1, root / "trace.json",
+                        clock=clock, evaluator_factory=lambda sp, led: ev, diagnostic=False)
+                self.assertEqual(result["stop_reason"], "error")
+                self.assertIn("training mesh", result["error"])
+                self.assertEqual(result["evaluator_ready"]["train_msh_sha256"], wrong)
+                self.assertEqual(result["training_model"]["train_mesh_sha256"], expected)
+                self.assertEqual(json.loads((root / "trace.json").read_text())["evaluator_ready"], ev.ready)
+                execute.assert_not_called()
+                self.assertEqual(ev.requests, [])
+                self.assertTrue(ev.closed)
+
+    def test_run_accepts_and_retains_matching_training_mesh(self):
+        from test_harness import FakeClock, FakeEvaluator
+        from test_run_interruption import fixture as run_fixture, successful_prefix
+        for method in driver.METHODS:
+            with self.subTest(method=method), tempfile.TemporaryDirectory() as td:
+                root, clock = Path(td), FakeClock()
+                s, ev = run_fixture(root), FakeEvaluator(clock)
+                with mock.patch.object(run, "execute", successful_prefix):
+                    result = run.run_one(s, method, "a", "theta0", 1, root / "trace.json",
+                        clock=clock, evaluator_factory=lambda sp, led: ev, diagnostic=False)
+                self.assertEqual(result["stop_reason"], "converged")
+                self.assertEqual(result["evaluator_ready"], ev.ready)
+                self.assertEqual(result["training_model"]["train_mesh_sha256"], "b" * 64)
+
+    def test_missing_training_hashes_fail_closed(self):
+        for expected, observed in ((None, None), ("", ""), ("fixture", "fixture"),
+                                   ("b" * 64, None), (None, "b" * 64)):
+            with self.subTest(expected=expected, observed=observed):
+                with self.assertRaises(driver.WiringError):
+                    run.check_training_mesh({"train_msh_sha256": observed},
+                                            {"train_mesh_sha256": expected})
+
+    def test_both_diagnostic_paths_refuse_wrong_training_mesh_before_request(self):
+        from test_harness import FakeEvaluator, X0
+        for method in ("surrogate", "cobyqa_l0", "slsqp_l0"):
+            with self.subTest(method=method):
+                r, _, _, clock = make_run(method=method)
+                r.train(r.problem.u_of(X0), False)
+                ev = FakeEvaluator(clock, train_sha="1" * 64)
+                before = copy.deepcopy(r.result())
+                fn = run.post_run_diagnostic if method == "surrogate" else run.physical_post_run_diagnostic
+                with mock.patch.object(run, "c_current_predictions", return_value={"x": X0, "predictions": []}):
+                    result = fn(r, lambda: ev, 1., clock)
+                self.assertEqual(result["status"], "failed")
+                self.assertIn("training mesh", result["error"])
+                self.assertEqual(result["evaluator_ready"], ev.ready)
+                self.assertEqual(ev.requests, [])
+                self.assertTrue(ev.closed)
+                self.assertEqual(r.result(), before)
+                self.assertFalse(result["counted_in_run_budget"])
 
     def test_shared_optimizer_paths_and_slsqp_restart_record(self):
         for a, b in (("slsqp", "slsqp_l0"), ("cobyqa", "cobyqa_l0")):

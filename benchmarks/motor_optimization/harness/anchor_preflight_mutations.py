@@ -8,6 +8,9 @@ import tempfile
 
 HERE = Path(__file__).resolve().parent
 MUTATIONS = (
+    ('mean_normalized_by_objective', 'anchor_preflight.py',
+     "abs(finite(value['full_current_mean'])-anchor['mean0_full_current']) / anchor['mean0_full_current']",
+     "abs(finite(value['full_current_mean'])-anchor['mean0_full_current']) / anchor['F0']"),
     ('objective_limit_ignored', 'anchor_preflight.py', 'f_error <= TOLERANCE and mean_error', 'True and mean_error'),
     ('mean_limit_ignored', 'anchor_preflight.py', 'mean_error <= TOLERANCE\n', 'True\n'),
     ('torque_limit_ignored', 'anchor_preflight.py', "all(r['max_absolute_difference_Nm'] <= TOLERANCE for r in rows)", 'True'),

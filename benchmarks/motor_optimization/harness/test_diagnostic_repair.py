@@ -30,6 +30,22 @@ def stopped_fixture(root, method="slsqp_l0"):
 
 
 class RepairTests(unittest.TestCase):
+    def test_repair_refuses_substituted_training_mesh_and_keeps_stopped_trace(self):
+        for method in ("surrogate", "cobyqa_l0", "slsqp_l0"):
+            with self.subTest(method=method), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                session, snapshot, _ = stopped_fixture(root, method)
+                before = snapshot.read_bytes()
+                clock = FakeClock(); ev = FakeEvaluator(clock, train_sha="1" * 64)
+                result = repair.execute(snapshot, digest(snapshot), session, root / "repair",
+                    attempt_id="wrong-training-mesh", clock=clock, evaluator_factory=lambda journal: ev)
+                self.assertEqual(result["status"], "failed")
+                self.assertIn("training mesh", result["diagnostic"]["error"])
+                self.assertEqual(result["diagnostic"]["evaluator_ready"], ev.ready)
+                self.assertEqual(ev.requests, [])
+                self.assertTrue(ev.closed)
+                self.assertEqual(snapshot.read_bytes(), before)
+
     def test_repair_matches_original_diagnostic_without_optimizer_or_ledger(self):
         for method in ("surrogate", "cobyqa_l0", "slsqp_l0"):
             with self.subTest(method=method), tempfile.TemporaryDirectory() as td:
