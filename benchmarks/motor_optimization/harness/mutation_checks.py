@@ -25,6 +25,7 @@ RS = ROOT / "crates/geode-core/tests/common/icem_harness.rs"
 DRV = HERE / "driver.py"
 ACC = HERE / "acceptance.py"
 LED = HERE / "ledger.py"
+RUN = HERE / "run.py"
 
 MUTATIONS = [
     # ── [#1195] wrong target ────────────────────────────────────────────
@@ -81,6 +82,9 @@ MUTATIONS = [
     ("exhausted_not_checked_before_request", DRV,
      "        if led.exhausted():\n            raise BudgetExhausted()\n        try:",
      "        try:"),
+    ("time_after_the_stop_charged", RUN,
+     "        if not ledger.exhausted():\n            # Up to the stop;",
+     "        if True:\n            # Up to the stop;"),
     ("t99_does_not_stop", DRV,
      '        if "T99" in self.attained:\n            raise TargetReached()\n', ""),
     # ── charging ────────────────────────────────────────────────────────

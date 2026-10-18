@@ -59,6 +59,14 @@ class FakeClock:
         self.t += dt
 
 
+class TickingClock(FakeClock):
+    """A clock that moves on every read (driver work takes time)."""
+
+    def __call__(self):
+        self.t += 1 / 4096
+        return self.t
+
+
 def anchor_json():
     a = Anchor(F0, MEAN0, 0, SHA)
     return {"F0": a.f0, "mean0_full_current": a.mean0, "level": 0, "msh_sha256": SHA,
@@ -469,6 +477,14 @@ class MethodTests(unittest.TestCase):
                 back = json.loads(out.read_text())
                 self.assertEqual(back["method"], method)
                 self.assertIn(t["stop_reason"], ("T99", "budget", "converged"), t.get("error"))
+                # Short budget: the same run stops at the budget exactly.
+                clock2 = TickingClock()
+                short = dict(session, budget_fe=9.5)
+                t2 = run_one(short, method, "a", "theta0", 1, d / f"{method}_short.json",
+                             clock=clock2, evaluator_factory=lambda sp, led, c=clock2:
+                             FakeEvaluator(c))
+                self.assertEqual(t2["stop_reason"], "budget", method)
+                self.assertAlmostEqual(t2["ledger"]["total_fe"], 9.5, places=12, msg=method)
                 self.assertTrue(holder["ev"].closed)
                 self.assertGreater(len(back["validations"]), 0, method)
                 self.assertIn("T50", back["attainment"])

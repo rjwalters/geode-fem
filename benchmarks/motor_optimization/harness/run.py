@@ -79,7 +79,10 @@ def run_one(session, method, space, start, repeat, out, position=None, clock=tim
         trace["x_start"] = x_start
         run = Run(ev, ledger, anchor, problem, method, clock=clock)
         reason, message, error = execute(run, problem.u_of(x_start))
-        ledger.sync("driver end")
+        if not ledger.exhausted():
+            # Up to the stop; a run stopped by the budget is charged the
+            # budget exactly, and nothing after it.
+            ledger.sync("driver end")
         trace.update(stop_reason=reason, message=message, error=error, **run.result())
     except Aborted:
         ledger.charge_to_budget("overhead", "start-up aborted at the budget")
