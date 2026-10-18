@@ -233,7 +233,9 @@ error of the reply against central differences.
     adjoint solves with their counts, plus a remesh when one fired.
   - A validation reply charges its motion and its 60 solves.
   - A refused request charges its handling time.
-- **Python (`test_harness.py`, 25 tests, CI job `motor-harness-driver`).**
+  - `diagnose` runs both models at the requested currents only, and leaves
+    the session's currents (and so the primary validation model) intact.
+- **Python (`test_harness.py`, 31 tests, CI job `motor-harness-driver`).**
   - Every request category, plus the driver's `setup_calibration`,
     `surrogate_update` and `overhead`, reaches the ledger in full, and the
     total equals the wall time.
@@ -243,11 +245,19 @@ error of the reply against central differences.
     end beyond it is aborted and not credited, and one whose reply lands
     just past the budget is recorded but not credited.
   - T99 stops the run.
+  - No method validates its start, nor anything inside its initial set
+    (COBYQA 2n + 1, C n + 1), and no point twice (amendment 5 §1).
+  - C halves Δ after a non-improving geometry substitute (C1).
+  - The C post-run diagnostic leaves the trace's ledger, attainment,
+    validations and events identical (amendment 6 §3).
+  - The unit is the median of all 3N concurrent timings (addition 6).
+  - An evaluator that echoes other `x_bits`, or replies a flipped
+    `attained`, stops the run (the Judge's J3 and J6).
 
 ### Mutation checks
 
-`mutation_checks.py` makes 28 single-snippet mutations: 20 of the driver,
-8 of the evaluator. The four the issue names:
+`mutation_checks.py` makes 36 single-snippet mutations: 26 of the driver,
+10 of the evaluator; all 36 are killed. The four the issue names:
 
 - **Wrong target:** the recorded target, and T90's fraction.
 - **δF at the wrong point:** δF at F0, and δF at the training value.
@@ -258,14 +268,21 @@ error of the reply against central differences.
 
 The rest bind the budget edge, the credit edge, the abort remainder, the
 deadline, the post-stop charge, the T99 stop, the overhead and driver-time
-charges, the line-search labels, the unit's median, the full-current index
-and the method order. The log is `../logs/harness_mutation_checks.log`.
+charges, the line-search labels, the unit's median, the full-current index,
+the method order, the `x_bits` echo (J3) and `attained` (J6) cross-checks,
+the start and initial-set validation rules, C1, the concurrent unit, and
+the restoring of the currents after `diagnose`. C2 has no mutation: under
+amendment 5 §1 every C incumbent is validated on acceptance, so the final
+call can only meet the start or a repeat, which are skipped; removing it is
+an equivalent mutant. The log is `../logs/harness_mutation_checks.log`, one
+unedited run.
 
 ### Smoke run (`../smoke/`, labelled smoke)
 
 - **What.** Both models at L0, an L0 anchor computed for the session,
-  θ0 in both spaces, the three methods, budget 20 × unit, six processes.
-- **Host.** Loaded: load 9.7–12.3 on 28 cores.
+  θ0 in both spaces, the three methods, budget 20 × unit, six processes,
+  under amendments 4–6 (the unit under six-way concurrency).
+- **Host.** Loaded: load 9.8–12.5 on 28 cores.
 - **Not pilot data.** It is stored apart from `runs/`, and it shows only
   that the harness runs end to end. `../smoke/SUMMARY.md` has the table.
 
