@@ -39,12 +39,13 @@ use geode_core::mesh::icem_parametric::{IcemDesign, MotionQuality};
 use icem_design::Mode;
 use icem_experiment2::{
     Acceptance, Anchor, BUDGET_FE, CostCategory, CostLedger, DELTA_F_ABS, FROZEN_NAMES,
-    FROZEN_VALUES, FeRule, FrozenSpace, Purpose, SpaceError, ValidationConfig, ValidationError,
-    ValidationMesh, Validator, accept, delta_f, space_a, space_b,
+    FROZEN_VALUES, FeRule, FrozenSpace, Purpose, SpaceError, Validation, ValidationConfig,
+    ValidationError, ValidationMesh, Validator, accept, delta_f, forward_on, g20, objective_f,
+    sha256_hex, space_a, space_b,
 };
 use icem_remesh::{
-    CpSpace, CurrentResult, DesignEvaluation, EvaluatorConfig, MeshSource, RemeshEvaluator,
-    ScalarSpace, Space, StartUsed,
+    CpSpace, CurrentResult, DesignEvaluation, EvaluatorConfig, IcemRemesher, MeshSource,
+    RemeshEvaluator, ScalarSpace, Space, StartUsed,
 };
 
 const DEGREES: [i64; 4] = [0, 3, 7, 12];
@@ -293,6 +294,26 @@ fn validation_config_is_h93_coupling_g20_cold() {
     ] {
         assert!(!s.is_primary(), "{}", s.name);
     }
+    // The primary model at another level is the primary model, not the
+    // registered L2 validation.
+    let l0p = ValidationConfig::at(0, Mode::H93, g20(), "primary-L0");
+    assert!(l0p.is_primary_model() && !l0p.is_primary());
+    // Any other Newton setting, current set, grid or policy is not.
+    let mut q = ValidationConfig::primary();
+    q.eval.newton = icem::newton_config(true);
+    assert!(!q.is_primary_model() && !q.is_primary());
+    let mut q = ValidationConfig::primary();
+    q.eval.newton.max_iterations += 1;
+    assert!(!q.is_primary_model());
+    let mut q = ValidationConfig::primary();
+    q.eval.fractions = vec![0.0, 0.5, 0.75, 1.0];
+    assert!(!q.is_primary_model());
+    let mut q = ValidationConfig::primary();
+    q.eval.policy = RemeshPolicy { min_angle_deg: 4.0 };
+    assert!(!q.is_primary_model());
+    let mut q = ValidationConfig::primary();
+    q.eval.i_peak0 *= 1.0 + 1e-12;
+    assert!(!q.is_primary_model());
 }
 
 fn bits(torques: &[Vec<f64>], f: f64) -> Vec<u64> {
@@ -441,6 +462,27 @@ fn triggering_candidate_is_validated_on_a_fresh_mesh() {
         m => panic!("expected a fresh mesh, got {}", m.kind()),
     }
     assert_ne!(a.mesh_size.0, 0);
+    // The value was solved on the fresh mesh: bit-identical to a direct
+    // solve on the fixture set up at the candidate, and different from a
+    // solve on the moved θ0 mesh that the policy rejected.
+    let fx = fixture();
+    let fresh =
+        IcemRemesher::<CpSpace>::new(0, &r, cfg.eval.mode, &[], MeshSource::Fixed(String::new()))
+            .setup_on(fx.as_bytes(), CpSpace::geo(&p))
+            .unwrap();
+    let (on_fresh, _) = forward_on::<CpSpace>(&cfg, &fresh, &p).unwrap();
+    let (on_moved, _) = forward_on::<CpSpace>(&cfg, v.base(), &p).unwrap();
+    let tb = |c: &[icem_experiment2::ValidationCurrent]| -> Vec<u64> {
+        c.iter()
+            .flat_map(|c| c.torques.iter().map(|x| x.to_bits()))
+            .collect()
+    };
+    assert_eq!(tb(&a.currents), tb(&on_fresh));
+    assert_eq!(a.f.to_bits(), objective_f(&on_fresh).to_bits());
+    assert_ne!(tb(&a.currents), tb(&on_moved));
+    assert_ne!(a.f.to_bits(), objective_f(&on_moved).to_bits());
+    assert_eq!(a.mesh_sha256, sha256_hex(fx.as_bytes()));
+    assert_ne!(a.mesh_sha256, v.base_sha256);
     // History-free: the same candidate again gives the same bits, and the
     // validator did not adopt the fresh mesh as its base.
     let b = v.validate(&p).unwrap();
@@ -525,7 +567,7 @@ fn conforming_check_is_fresh_only_and_needs_zero_stator_offsets() {
 
 fn anchor() -> Anchor {
     // Values of the size of θ0 at L2 (F0 ~ 9e-3 N² m², mean ~ 1.55 N m).
-    Anchor::new(9.0e-3, 1.5, 2).unwrap()
+    Anchor::new(9.0e-3, 1.5, 2, "test").unwrap()
 }
 
 fn down(x: f64) -> f64 {
@@ -548,9 +590,9 @@ fn targets_floor_and_margin_follow_amendment_2() {
     assert_eq!(delta_f(2.6e-6), 0.1 * 2.6e-6);
     assert_eq!(delta_f(0.0), DELTA_F_ABS);
     assert!(delta_f(f64::NAN).is_nan());
-    assert!(Anchor::new(0.0, 1.0, 2).is_err());
-    assert!(Anchor::new(1.0, -1.0, 2).is_err());
-    assert!(Anchor::new(f64::NAN, 1.0, 2).is_err());
+    assert!(Anchor::new(0.0, 1.0, 2, "x").is_err());
+    assert!(Anchor::new(1.0, -1.0, 2, "x").is_err());
+    assert!(Anchor::new(f64::NAN, 1.0, 2, "x").is_err());
 }
 
 /// The largest `f ≥ 0` with `f + δF(f) ≤ t` and the next float up (for
@@ -595,7 +637,7 @@ fn each_target_flips_exactly_at_its_edge() {
 #[test]
 fn absolute_margin_edge_with_a_small_anchor() {
     // F0 = 2e-6: T50 = 1e-6; at the edge F ≈ 7.5e-7, so δF = 2.5e-7 (abs).
-    let a = Anchor::new(2.0e-6, 1.5, 2).unwrap();
+    let a = Anchor::new(2.0e-6, 1.5, 2, "test").unwrap();
     let t = a.targets()[0].1;
     let (lo, hi) = edge(t);
     assert!((lo - (t - DELTA_F_ABS)).abs() < 1e-20);
@@ -675,6 +717,67 @@ fn acceptance_requires_the_primary_model_at_the_anchor_level() {
     );
 }
 
+/// Mean of the torques of the current with fraction `frac`, computed here
+/// (not through `full_current_mean`).
+fn mean_at<P>(v: &Validation<P>, frac: f64) -> f64 {
+    let c = v.currents.iter().find(|c| c.fraction == frac).unwrap();
+    c.torques.iter().sum::<f64>() / c.torques.len() as f64
+}
+
+fn close(a: f64, b: f64) -> bool {
+    (a - b).abs() <= 1e-14 * b.abs()
+}
+
+#[test]
+fn anchor_and_accept_use_the_full_current_mean_on_the_anchor_mesh() {
+    // The primary model (h93, g20, currents 0, 0.5, 1) on the L0 mesh.
+    let r = icem::load_reference();
+    let s = space_b(&r);
+    let cfg = ValidationConfig::at(0, Mode::H93, g20(), "primary-L0");
+    let mut v = Validator::<CpSpace>::new(
+        &l0(),
+        IcemCpDesign::INITIAL,
+        &r,
+        cfg.clone(),
+        MeshSource::Fixed(String::new()),
+    )
+    .unwrap();
+    let th = v.validate(&s.embed(&s.x0()).unwrap()).unwrap();
+    assert!(matches!(th.mesh, ValidationMesh::Own { .. }));
+    let a = Anchor::from_validation(&th).unwrap();
+    let (full, half) = (mean_at(&th, 1.0), mean_at(&th, 0.5));
+    assert!(close(a.mean0, full), "{} vs {full}", a.mean0);
+    assert!((full - half).abs() > 0.3, "{full} {half}");
+    assert_eq!(a.f0.to_bits(), th.f.to_bits());
+    assert_eq!(
+        (a.level, a.mesh_sha256.as_str()),
+        (0, v.base_sha256.as_str())
+    );
+    assert_eq!(a.mesh_sha256, sha256_hex(&l0()));
+    // A candidate: the rule sees its validation F and its own full-current
+    // mean, against the anchor's floor.
+    let x = interior(&s);
+    let (cv, acc) = v.accept(&a, &s.embed(&x).unwrap()).unwrap();
+    assert!(matches!(cv.mesh, ValidationMesh::Moved { .. }));
+    assert_eq!(acc.f_val.to_bits(), cv.f.to_bits());
+    assert!(close(acc.mean_full, mean_at(&cv, 1.0)));
+    assert!((acc.mean_full - mean_at(&cv, 0.5)).abs() > 0.3);
+    assert_eq!(acc.mean_floor, a.mean_floor());
+    // θ0 against its own anchor attains nothing (its mean is below the
+    // floor, and F0 + δF > T50).
+    let (_, own) = v.accept(&a, &s.embed(&s.x0()).unwrap()).unwrap();
+    assert!(!own.mean_ok && own.targets.iter().all(|t| !t.attained));
+    // An anchor from another mesh is refused.
+    let mut other = a.clone();
+    other.mesh_sha256 = sha256_hex(fixture().as_bytes());
+    assert!(matches!(
+        v.accept(&other, &s.embed(&x).unwrap()),
+        Err(ValidationError::AnchorMesh { .. })
+    ));
+    // The anchor is only taken from θ0 on its own mesh.
+    assert!(Anchor::from_validation(&cv).is_err());
+}
+
 #[test]
 fn committed_anchor_is_consistent_with_the_rule() {
     let p = icem::motor_reference_dir().join("../motor_optimization/anchor.json");
@@ -688,6 +791,37 @@ fn committed_anchor_is_consistent_with_the_rule() {
     assert_eq!(rec["mesh"]["kind"], "own");
     assert_eq!(rec["F"].as_f64(), Some(a.f0));
     assert_eq!(rec["full_current_mean"].as_f64(), Some(a.mean0));
+    // mean0 is the mean of the stored fraction-1 torques (independent of
+    // `full_current_mean`), not of any other current.
+    let torques_at = |frac: f64| -> Vec<f64> {
+        let c = rec["currents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["fraction"].as_f64() == Some(frac))
+            .unwrap();
+        c["torques"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t.as_f64().unwrap())
+            .collect()
+    };
+    let t1 = torques_at(1.0);
+    assert_eq!(t1.len(), 20);
+    let m1 = t1.iter().sum::<f64>() / 20.0;
+    assert!(
+        (m1 - a.mean0).abs() <= 1e-14 * a.mean0,
+        "{m1} vs {}",
+        a.mean0
+    );
+    let m05 = torques_at(0.5).iter().sum::<f64>() / 20.0;
+    assert!((m05 - a.mean0).abs() > 0.5);
+    assert_eq!(
+        a.mesh_sha256,
+        "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5"
+    );
+    assert_eq!(rec["msh_sha256"].as_str(), Some(a.mesh_sha256.as_str()));
     let f: f64 = rec["currents"]
         .as_array()
         .unwrap()
@@ -781,6 +915,21 @@ fn ledger_charges_every_category_and_tracks_the_budget() {
     assert!(!l.exhausted());
     l.charge(CostCategory::Validation, 0.0, 59.0, (60, 0), "big");
     assert!(l.exhausted() && l.remaining_fe() <= 0.0);
+    // The budget edge: exactly 60 FE is spent, one ulp less is not.
+    let mut e = CostLedger::new(FeRule::WallTime { unit_seconds: 1.0 }, BUDGET_FE);
+    e.charge(CostCategory::Forward, 0.0, 30.0, (0, 0), "a");
+    e.charge(CostCategory::Validation, 0.0, 30.0, (0, 0), "b");
+    assert_eq!(e.total_fe(), 60.0);
+    assert!(e.exhausted() && e.remaining_fe() == 0.0);
+    let mut u = CostLedger::new(FeRule::WallTime { unit_seconds: 1.0 }, BUDGET_FE);
+    u.charge(
+        CostCategory::Forward,
+        0.0,
+        60.0_f64.next_down(),
+        (0, 0),
+        "a",
+    );
+    assert!(!u.exhausted() && u.remaining_fe() > 0.0);
     let j = l.to_json();
     assert_eq!(j["totals"]["forward"]["forward_solves"], 40);
     assert_eq!(j["entries"].as_array().unwrap().len(), l.entries().len());

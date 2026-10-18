@@ -449,16 +449,24 @@ impl ValidationConfig {
         }
     }
 
-    /// Whether this is the primary validation model (the only one the
-    /// acceptance rule accepts).
+    /// Whether this is the primary validation model at its registered
+    /// level, L2.
     pub fn is_primary(&self) -> bool {
+        self.is_primary_model() && self.eval.level == Self::primary().eval.level
+    }
+
+    /// Whether this is the primary validation model (h93 coupling torque,
+    /// g20, currents `0, 0.5, 1` of `I_PEAK_INITIAL`, default Newton
+    /// settings, default policy) at any level. The acceptance rule accepts
+    /// it only at the anchor's level and on the anchor's mesh.
+    pub fn is_primary_model(&self) -> bool {
         let p = Self::primary();
-        self.eval.level == p.eval.level
-            && self.eval.mode == p.eval.mode
+        self.eval.mode == p.eval.mode
             && self.angles_deg == p.angles_deg
             && self.eval.fractions == p.eval.fractions
             && self.eval.i_peak0 == p.eval.i_peak0
             && self.eval.newton.rel_tol == p.eval.newton.rel_tol
+            && self.eval.newton.max_iterations == p.eval.newton.max_iterations
             && self.eval.policy == p.eval.policy
     }
 
@@ -550,6 +558,10 @@ pub struct Validation<P> {
     pub mesh: ValidationMesh,
     /// Nodes and triangles.
     pub mesh_size: (usize, usize),
+    /// SHA-256 of the MSH bytes the value was solved on: the θ0 mesh for
+    /// [`ValidationMesh::Own`] and [`ValidationMesh::Moved`] (the motion is
+    /// of its nodes), the fresh mesh for [`ValidationMesh::Fresh`].
+    pub mesh_sha256: String,
     pub currents: Vec<ValidationCurrent>,
     /// `Σ std²` over the current fractions (N² m²).
     pub f: f64,
@@ -583,7 +595,7 @@ pub fn validation_json<Sp: Space>(v: &Validation<Sp::Point>) -> Value {
     json!({
         "space": Sp::NAME, "point_names": Sp::names(), "point": point,
         "config": v.config.to_json(), "mesh": v.mesh.to_json(),
-        "nodes": v.mesh_size.0, "triangles": v.mesh_size.1,
+        "nodes": v.mesh_size.0, "triangles": v.mesh_size.1, "msh_sha256": v.mesh_sha256,
         "currents": v.currents.iter().map(|c| json!({
             "fraction": c.fraction, "i_peak_A": c.i_peak, "torques": c.torques,
             "mean": c.mean, "std": c.std, "std2": c.std * c.std,
@@ -618,6 +630,8 @@ pub enum ValidationError {
     NotPrimary(&'static str),
     #[error("no full-current (fraction 1) solve")]
     NoFullCurrent,
+    #[error("validator θ0 mesh {validator} is not the anchor's mesh {anchor}")]
+    AnchorMesh { anchor: String, validator: String },
 }
 
 /// Coupling segments of the L0 mesh family (`N = 120 · 2^L`).
@@ -868,9 +882,14 @@ impl<Sp: Space> Validator<Sp> {
         t0: Instant,
     ) -> Validation<Sp::Point> {
         let m = Sp::model(fresh.unwrap_or(&self.base));
+        let mesh_sha256 = match &mesh {
+            ValidationMesh::Fresh { sha256, .. } => sha256.clone(),
+            _ => self.base_sha256.clone(),
+        };
         Validation {
             point: *p,
             config: self.cfg.clone(),
+            mesh_sha256,
             mesh,
             mesh_size: (m.tagged.mesh.n_nodes(), m.tagged.mesh.n_tris()),
             f: objective_f(&currents),
@@ -888,15 +907,23 @@ impl<Sp: Space> Validator<Sp> {
     /// # Errors
     ///
     /// [`ValidationError::NotPrimary`] unless this validator runs the
-    /// primary validation model at the anchor's level; any validation
-    /// error (a candidate with no valid value attains nothing).
+    /// primary validation model at the anchor's level;
+    /// [`ValidationError::AnchorMesh`] unless its θ0 mesh is the anchor's
+    /// (same SHA-256); any validation error (a candidate with no valid
+    /// value attains nothing).
     pub fn accept(
         &mut self,
         anchor: &Anchor,
         p: &Sp::Point,
     ) -> Result<(Validation<Sp::Point>, Acceptance), ValidationError> {
-        if !self.cfg.is_primary() || self.cfg.eval.level != anchor.level {
+        if !self.cfg.is_primary_model() || self.cfg.eval.level != anchor.level {
             return Err(ValidationError::NotPrimary(self.cfg.name));
+        }
+        if self.base_sha256 != anchor.mesh_sha256 {
+            return Err(ValidationError::AnchorMesh {
+                anchor: anchor.mesh_sha256.clone(),
+                validator: self.base_sha256.clone(),
+            });
         }
         let v = self.validate(p)?;
         let mean = v
@@ -933,41 +960,55 @@ pub fn delta_f(f_val: f64) -> f64 {
 }
 
 /// The θ0 anchor of every target: `F0 = F_val(θ0)` and the θ0 full-current
-/// validation mean, on the primary validation model at `level`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// validation mean, on the primary validation model at `level`, on the θ0
+/// mesh with SHA-256 `mesh_sha256`.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Anchor {
     pub f0: f64,
     pub mean0: f64,
     pub level: usize,
+    pub mesh_sha256: String,
 }
 
 impl Anchor {
     /// # Errors
     ///
     /// A non-finite or non-positive `f0` or `mean0`.
-    pub fn new(f0: f64, mean0: f64, level: usize) -> Result<Self, String> {
+    pub fn new(f0: f64, mean0: f64, level: usize, mesh_sha256: &str) -> Result<Self, String> {
         if !(f0.is_finite() && f0 > 0.0 && mean0.is_finite() && mean0 > 0.0) {
             return Err(format!(
                 "anchor needs F0 > 0 and mean0 > 0, got {f0}, {mean0}"
             ));
         }
-        Ok(Self { f0, mean0, level })
+        Ok(Self {
+            f0,
+            mean0,
+            level,
+            mesh_sha256: mesh_sha256.to_string(),
+        })
     }
 
     /// From θ0's primary validation.
     ///
     /// # Errors
     ///
-    /// Not the primary model, or no full-current solve.
+    /// Not the primary model, not θ0 on its own mesh, or no full-current
+    /// solve.
     pub fn from_validation<P>(v: &Validation<P>) -> Result<Self, String> {
-        if !v.config.is_primary() {
+        if !matches!(v.mesh, ValidationMesh::Own { .. }) {
+            return Err(format!(
+                "anchor needs θ0 on its own mesh, got a {} mesh",
+                v.mesh.kind()
+            ));
+        }
+        if !v.config.is_primary_model() {
             return Err(format!(
                 "anchor needs the primary model, got {}",
                 v.config.name
             ));
         }
         let mean = v.full_current_mean().ok_or("no full-current solve")?;
-        Self::new(v.f, mean, v.config.eval.level)
+        Self::new(v.f, mean, v.config.eval.level, &v.mesh_sha256)
     }
 
     /// From the committed record (`benchmarks/motor_optimization/anchor.json`
@@ -983,6 +1024,7 @@ impl Anchor {
             get("F0")?,
             get("mean0_full_current")?,
             v["level"].as_u64().ok_or("anchor.level")? as usize,
+            v["msh_sha256"].as_str().ok_or("anchor.msh_sha256")?,
         )?;
         // serde_json parses a written f64 back to within an ulp or so.
         let close = |x: Option<f64>, y: f64| {
@@ -1009,10 +1051,11 @@ impl Anchor {
         self.mean0 * (1.0 + MEAN_FLOOR_MARGIN)
     }
 
-    pub fn to_json(self) -> Value {
+    pub fn to_json(&self) -> Value {
         let t = self.targets();
         json!({
             "F0": self.f0, "mean0_full_current": self.mean0, "level": self.level,
+            "msh_sha256": self.mesh_sha256,
             "targets": {t[0].0: t[0].1, t[1].0: t[1].1, t[2].0: t[2].1},
             "target_fractions": {"T50": TARGETS[0].1, "T90": TARGETS[1].1, "T99": TARGETS[2].1},
             "mean_floor": self.mean_floor(), "mean_floor_margin": MEAN_FLOOR_MARGIN,

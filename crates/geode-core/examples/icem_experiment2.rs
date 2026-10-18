@@ -368,6 +368,7 @@ fn run_validate<Sp: Space>(a: &Args, reference: &Value, p: Sp::Point, mesh_geo: 
                 ValidationMesh::Moved { quality: q }
             },
             mesh_size: (m.tagged.mesh.n_nodes(), m.tagged.mesh.n_tris()),
+            mesh_sha256: v.base_sha256.clone(),
             f: objective_f(&currents),
             currents,
             motion_seconds: 0.0,

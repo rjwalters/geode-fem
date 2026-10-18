@@ -36,12 +36,22 @@ MUTATIONS = [
     ("policy_ignored", "(Some(q), self.cfg.eval.policy.trigger(&q))", "(Some(q), None)"),
     ("fresh_mesh_not_checked", "if let Some(tf) = self.cfg.eval.policy.trigger(&quality) {", "if let Some(tf) = None::<RemeshTrigger> {"),
     ("level_check_removed", "        if n != expected {", "        if false && n != expected {"),
-    ("primary_check_removed", "if !self.cfg.is_primary() || self.cfg.eval.level != anchor.level {", "if false {"),
+    ("primary_check_removed", "if !self.cfg.is_primary_model() || self.cfg.eval.level != anchor.level {", "if false {"),
     ("line_search_to_forward", "Purpose::LineSearch => CostCategory::LineSearch,", "Purpose::LineSearch => CostCategory::Forward,"),
     ("adjoint_not_charged", "            self.charge_time(CostCategory::Adjoint, adj, (0, n), note);", ""),
     ("validation_remesh_not_charged", "        if matches!(v.mesh, ValidationMesh::Fresh { .. }) {", "        if false && matches!(v.mesh, ValidationMesh::Fresh { .. }) {"),
     ("negative_charge_allowed", "            seconds.is_finite() && seconds >= 0.0 && fe.is_finite() && fe >= 0.0,", "            true,"),
     ("angle_grid_check_removed", "            if (kf - kf.round()).abs() > 1e-9 {", "            if false {"),
+    # From the #1194 review (J1-J4, J6, J7) and the anchor-mesh check.
+    ("J1_delta_at_anchor_F0", "    let d = delta_f(f_val);\n", "    let d = delta_f(anchor.f0);\n"),
+    ("J2_full_current_is_half", "            .find(|c| c.fraction == 1.0)\n", "            .find(|c| c.fraction == 0.5)\n"),
+    ("J3_fresh_solve_on_base_mesh", "let (currents, solve_seconds) = forward_on::<Sp>(&self.cfg, &fresh, p)?;", "let (currents, solve_seconds) = forward_on::<Sp>(&self.cfg, &self.base, p)?;"),
+    ("J4_exhausted_strict", "        self.total_fe() >= self.budget_fe\n", "        self.total_fe() > self.budget_fe\n"),
+    ("J6_validation_fe_uses_total_seconds", "            v.solve_seconds,\n            (v.solves(), 0),", "            v.seconds,\n            (v.solves(), 0),"),
+    ("J7_is_primary_ignores_newton_tol", "            && self.eval.newton.rel_tol == p.eval.newton.rel_tol\n", "\n"),
+    ("anchor_mesh_check_removed", "        if self.base_sha256 != anchor.mesh_sha256 {", "        if false && self.base_sha256 != anchor.mesh_sha256 {"),
+    ("anchor_from_moved_mesh_allowed", "        if !matches!(v.mesh, ValidationMesh::Own { .. }) {", "        if false && !matches!(v.mesh, ValidationMesh::Own { .. }) {"),
+    ("validation_sha_is_base_always", "            ValidationMesh::Fresh { sha256, .. } => sha256.clone(),", "            ValidationMesh::Fresh { .. } => self.base_sha256.clone(),"),
 ]
 
 
