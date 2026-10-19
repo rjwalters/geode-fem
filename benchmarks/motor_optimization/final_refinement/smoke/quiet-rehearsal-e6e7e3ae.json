@@ -1,0 +1,2199 @@
+{
+  "schema": 1,
+  "kind": "quiet_process_rehearsal",
+  "scope": "report only; no study access or capture approval",
+  "clean_pass": true,
+  "error": null,
+  "attempts": [
+    {
+      "attempt": 1,
+      "elapsed_seconds": 0.028695339000002207,
+      "processes": [
+        {
+          "comm": "networkd-dispat",
+          "argv_shape": [
+            "/usr/bin/python3",
+            "/usr/bin/networkd-dispatcher",
+            "--run-startup-triggers"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "system_daemon"
+        },
+        {
+          "comm": "unattended-upgr",
+          "argv_shape": [
+            "/usr/bin/python3",
+            "/usr/share/unattended-upgrades/unattended-upgrade-shutdown",
+            "--wait-for-signal"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "system_daemon"
+        },
+        {
+          "comm": "polkitd",
+          "argv_shape": [
+            "<arg>",
+            "--no-debug"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "systemd",
+          "argv_shape": [
+            "<arg>",
+            "--user"
+          ],
+          "uid_class": "user",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "chronyd",
+          "argv_shape": [
+            "<arg>",
+            "-F",
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": "other",
+          "verdict": "quiet"
+        },
+        {
+          "comm": "chronyd",
+          "argv_shape": [
+            "<arg>",
+            "-F",
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "multipathd",
+          "argv_shape": [
+            "<arg>",
+            "-d",
+            "-s"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "cron",
+          "argv_shape": [
+            "<arg>",
+            "-f",
+            "-P"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "rsyslogd",
+          "argv_shape": [
+            "<arg>",
+            "-n",
+            "-iNONE"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "agetty",
+          "argv_shape": [
+            "<arg>",
+            "-o",
+            "<arg>",
+            "--keep-baud",
+            "<arg>",
+            "<arg>",
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "agetty",
+          "argv_shape": [
+            "<arg>",
+            "-o",
+            "<arg>",
+            "--noclear",
+            "<arg>",
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "(sd-pam)",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "user",
+          "ppid": "other",
+          "verdict": "quiet"
+        },
+        {
+          "comm": "(udev-worker)",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": "other",
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ModemManager",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "acpid",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "amazon-ssm-agen",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irqbalance",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "snapd",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "sshd",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": "other",
+          "verdict": "quiet"
+        },
+        {
+          "comm": "sshd",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "user",
+          "ppid": "other",
+          "verdict": "quiet"
+        },
+        {
+          "comm": "sshd",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "systemd",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 0,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "systemd-fsckd",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "systemd-hostnam",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "systemd-journal",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "systemd-logind",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "systemd-network",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "systemd-resolve",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "systemd-timedat",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "systemd-udevd",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "udisksd",
+          "argv_shape": [
+            "<arg>"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "dbus-daemon",
+          "argv_shape": [
+            "@dbus-daemon",
+            "--system",
+            "--address=systemd:",
+            "--nofork",
+            "--nopidfile",
+            "--systemd-activation",
+            "--syslog-only"
+          ],
+          "uid_class": "system",
+          "ppid": 1,
+          "verdict": "system_daemon"
+        },
+        {
+          "comm": "python3",
+          "argv_shape": [
+            "python3",
+            "-I",
+            "-B",
+            "/tools/closed_capture.py",
+            "<rehearsal arguments>"
+          ],
+          "uid_class": "user",
+          "ppid": "other",
+          "verdict": "collector"
+        },
+        {
+          "comm": "",
+          "argv_shape": [],
+          "uid_class": "unknown",
+          "ppid": "other",
+          "verdict": "disappeared"
+        },
+        {
+          "comm": "cpuhp/0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "cpuhp/1",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "cpuhp/10",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "cpuhp/11",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "cpuhp/12",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "cpuhp/13",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "cpuhp/14",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "cpuhp/15",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "cpuhp/2",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "cpuhp/3",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "cpuhp/4",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "cpuhp/5",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "cpuhp/6",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "cpuhp/7",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "cpuhp/8",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "cpuhp/9",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ecryptfs-kthread",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "idle_inject/0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "idle_inject/1",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "idle_inject/10",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "idle_inject/11",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "idle_inject/12",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "idle_inject/13",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "idle_inject/14",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "idle_inject/15",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "idle_inject/2",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "idle_inject/3",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "idle_inject/4",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "idle_inject/5",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "idle_inject/6",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "idle_inject/7",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "idle_inject/8",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "idle_inject/9",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/24-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/25-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/26-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/27-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/28-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/29-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/30-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/31-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/32-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/33-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/34-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/35-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/36-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/37-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/38-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/39-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/40-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/41-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/42-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/43-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/44-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/45-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/46-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/47-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/48-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/49-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/50-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/51-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/52-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/53-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/54-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/55-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/56-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/57-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/58-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/59-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/60-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/61-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/62-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/63-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/64-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/65-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/66-pciehp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "irq/9-acpi",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "jbd2/nvme0n1p1-8",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "jbd2/nvme0n1p16-8",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kauditd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kcompactd0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kdevtmpfs",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "khugepaged",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "khungtaskd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kprobe-optimizer",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksmd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksoftirqd/0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksoftirqd/1",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksoftirqd/10",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksoftirqd/11",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksoftirqd/12",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksoftirqd/13",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksoftirqd/14",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksoftirqd/15",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksoftirqd/2",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksoftirqd/3",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksoftirqd/4",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksoftirqd/5",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksoftirqd/6",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksoftirqd/7",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksoftirqd/8",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "ksoftirqd/9",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kswapd0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kthreadd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 0,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/0:0-events_long",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/0:0H-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/0:1-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/0:1H-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/0:2-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/10:0-cgroup_free",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/10:0H-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/10:1-mm_percpu_wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/10:1H",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/10:2",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/11:0-mm_percpu_wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/11:0H",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/11:1",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/11:2-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/12:0-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/12:0H-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/12:1-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/12:1H",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/12:2-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/13:0-cgroup_free",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/13:0H",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/13:1-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/13:2",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/14:0-cgroup_free",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/14:0H-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/14:1-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/14:1H-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/14:2-cgroup_offline",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/14:3-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/15:0-memcg",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/15:0H",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/15:1-mm_percpu_wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/15:2-memcg",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/1:0-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/1:0H",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/1:1-mm_percpu_wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/1:2-cgroup_free",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/1:3-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/2:0-cgroup_free",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/2:0H-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/2:1-mm_percpu_wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/2:1H-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/2:2-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/2:3-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/3:0-cgroup_free",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/3:0H",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/3:1-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/3:2-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/4:0-memcg",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/4:0H-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/4:1-mm_percpu_wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/4:1H",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/4:2-cgroup_free",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/5:0-inode_switch_wbs",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/5:0H-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/5:1-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/5:1H-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/5:2-rcu_gp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/5:3-rcu_gp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/6:0-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/6:0H",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/6:1-cgroup_bpf_destroy",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/6:2-cgroup_offline",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/6:3",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/6:4-cgroup_free",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/7:0-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/7:0H-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/7:1-mm_percpu_wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/7:1H",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/7:2",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/8:0-cgroup_free",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/8:0H-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/8:1-events",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/8:1H-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/8:2",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/9:0-cgroup_free",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/9:0H-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/9:1-mm_percpu_wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/9:1H-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/9:2-cgroup_free",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-acpi_thermal_pm",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-ata_sff",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-blkcg_punt_bio",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-cfg80211",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-charger_manager",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-devfreq_wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-edac-poller",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-ena",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-ext4-rsv-conversion",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-ext4-rsv-conversion",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-inet_frag_wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-ipv6_addrconf",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-kblockd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-kintegrityd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-kmpath_handlerd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-kmpathd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-kstrp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-kthrotld",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-kvfree_rcu_reclaim",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-md_bitmap",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-md_llbitmap_io",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-md_llbitmap_unplug",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-mld",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-mm_percpu_wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-netns",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-nvme-auth-wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-nvme-delete-wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-nvme-reset-wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-nvme-wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-quota_events_unbound",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-rcu_gp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-slub_flushwq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-sync_wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-tls-strp",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-tpm_dev_wq",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/R-writeback",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/u64:0-qrtr_ns_handler",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/u64:1-ipv6_addrconf",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/u64:2",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/u65:0-events_power_efficient",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/u65:1-flush-259:0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/u65:2-flush-259:0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/u65:3",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/u66:0-events_power_efficient",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/u66:1-flush-259:0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/u66:2-flush-259:0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/u66:3-flush-259:0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/u66:4-flush-259:0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/u67:0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/u68:0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "kworker/u69:0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "migration/0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "migration/1",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "migration/10",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "migration/11",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "migration/12",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "migration/13",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "migration/14",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "migration/15",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "migration/2",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "migration/3",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "migration/4",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "migration/5",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "migration/6",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "migration/7",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "migration/8",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "migration/9",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "oom_reaper",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "pool_workqueue_release",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "pr/ttyS0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "psimon",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "psimon",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "rcu_exp_gp_kthread_worker",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "rcu_exp_par_gp_kthread_worker/0",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "rcu_sched",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "rcu_tasks_kthread",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "rcu_tasks_rude_kthread",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        },
+        {
+          "comm": "watchdogd",
+          "argv_shape": [],
+          "uid_class": "system",
+          "ppid": 2,
+          "verdict": "quiet"
+        }
+      ]
+    }
+  ],
+  "source_sha256": {
+    "closed_capture.py": "3f2b6c34d3a6fb090222458efe33e3d0b66e9341990bbcbd5b17a4b48f59cfc3",
+    "trace_archive.py": "fcebf5fdc02e373045f1f994fce64b189d3839d1f3650ff3f90949e75a200f03",
+    "recovery_evidence.py": "434f455f11730e319743fc752ff82efabc87f6ce4779949524164bdab3be861c",
+    "producer_source.py": "953d0bc2e0c5f576f5b74f2c42f0f458182d2808671839885afed7b1625c86b4",
+    "reboot_attestation.py": "331363d1566da13b738817be3b2ccc94169af5b60701cb8c99ac4c089c20b3b0",
+    "quiet_rehearsal.py": "bd1692d72e38dad67d404985dba091676ba42c247b5233a30c12c6f7114079df",
+    "process_identity.py": "189f2add1591fbdbf979dec251b78e71c8ac6e1d8ca22ca72c2fc0c30098f729"
+  }
+}

@@ -173,15 +173,18 @@ def _assemble(capture, setup, reader, *, ledger_type, starts):
             'scope':'Frozen cohort from verified closed study and recorded scientific evidence; no final refinement has run. Performance and publication claims require the full study analysis and completed refinements.'}
 
 
-def load(root, *, manifest_sha256, git_repo, reviewed_commit, capture_tool_commit):
+def load(root, *, manifest_sha256, git_repo, reviewed_commit, capture_tool_commit, reboot_policy_sha256=None):
     capture=capture_archive.load(root,manifest_sha256=manifest_sha256,git_repo=git_repo,
-                                 reviewed_commit=reviewed_commit,capture_tool_commit=capture_tool_commit)
+                                 reviewed_commit=reviewed_commit,capture_tool_commit=capture_tool_commit,
+                                 reboot_policy_sha256=reboot_policy_sha256)
     setup=setup_evidence.verify(capture,git_repo=git_repo)
     reader=capture_archive.Reader(root,manifest_sha256)
     starts=_bound_json(capture['input_paths']['starts'],capture['frozen']['inputs']['starts']['sha256'])
     with producer_source.committed_modules(git_repo,reviewed_commit,('ledger',)):
         result=_assemble(capture,setup,reader,ledger_type=importlib.import_module('ledger').Ledger,starts=starts)
     reader.stable()
+    if 'reboot_verification' in capture:
+        result['reboot_verification']=copy.deepcopy(capture['reboot_verification'])
     return result
 
 
@@ -192,13 +195,15 @@ def main():
     parser.add_argument('--git-repo',required=True,type=Path)
     parser.add_argument('--reviewed-commit',required=True)
     parser.add_argument('--capture-tool-commit',required=True)
+    parser.add_argument('--reboot-policy-sha256')
     parser.add_argument('--out',required=True,type=Path)
     args=parser.parse_args()
     root=args.capture.resolve(strict=True);out=args.out.resolve()
     if out==root or root in out.parents or out.exists():
         parser.error('output must be a new file outside the captured archive')
     result=load(root,manifest_sha256=args.manifest_sha256,git_repo=args.git_repo,
-                reviewed_commit=args.reviewed_commit,capture_tool_commit=args.capture_tool_commit)
+                reviewed_commit=args.reviewed_commit,capture_tool_commit=args.capture_tool_commit,
+                reboot_policy_sha256=args.reboot_policy_sha256)
     raw=(json.dumps(result,sort_keys=True,indent=2,allow_nan=False)+'\n').encode()
     with out.open('xb') as stream:stream.write(raw)
     print(json.dumps({'file':str(out),'sha256':hashlib.sha256(raw).hexdigest(),

@@ -101,6 +101,12 @@ class RefinementBundleTests(unittest.TestCase):
         bad=Path(self.temp.name)/'bad.msh';bad.write_bytes(b'not the reviewed mesh')
         with self.assertRaisesRegex(ValueError,'initial geometry/provenance'):
             bundle._l3(REPO,MESH_COMMIT,producer_commit=self.args['reviewed_commit'],reference=reference,l3_mesh=bad)
+        # Reach the digest comparison independently of the byte-count guard.
+        changed=bytearray(self.args['l3_mesh'].read_bytes());changed[len(changed)//2]^=1
+        bad.write_bytes(changed)
+        self.assertEqual(bad.stat().st_size,self.args['l3_mesh'].stat().st_size)
+        with self.assertRaisesRegex(ValueError,'initial geometry/provenance'):
+            bundle._l3(REPO,MESH_COMMIT,producer_commit=self.args['reviewed_commit'],reference=reference,l3_mesh=bad)
         link=Path(self.temp.name)/'linked.msh';link.symlink_to(self.args['l3_mesh'])
         with self.assertRaisesRegex(ValueError,'redirected external L3 mesh'):
             bundle._l3(REPO,MESH_COMMIT,producer_commit=self.args['reviewed_commit'],reference=reference,l3_mesh=link)

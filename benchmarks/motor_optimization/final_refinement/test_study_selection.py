@@ -178,12 +178,12 @@ class StudySelectionTests(unittest.TestCase):
         item=self.reader.manifest['inventory']['files'].pop(path)
         self.reader.manifest['inventory']['files'][path.replace('trace-1.','trace-2.')]=item
         with self.assertRaisesRegex(ValueError,'originating attempt'):self.assemble()
-    def scientific_capture(self):
+    def scientific_capture(self, *, build_name='build', owner_host=None, export=True):
         # Synthetic build/runtime and outcomes; real immutable physics definitions.
         # This exercises the public chain without claiming measured execution.
         root=self.reader.root/'roundtrip';root.mkdir()
-        base=test_capture_archive.fixture(root)
-        repo=root/'producer';main=root/'main';build=root/'build'
+        test_capture_archive.fixture(root,build_name=build_name,owner_host=owner_host,export=False)
+        repo=root/'producer';main=root/'main';build=root/build_name
         base_frozen=json.loads((main/'recovery-inputs.json').read_text())
         old=self.b.frozen;bindings=copy.deepcopy(self.b.original['bindings.json'])
         substitutions={self.source+'.recoveries':str(main)+'.recoveries',old['inputs']['binary']['path']:str(build/'icem_harness_eval'),
@@ -240,12 +240,15 @@ class StudySelectionTests(unittest.TestCase):
             'binary_sha256':digest(build/'icem_harness_eval'),'source_commit':self.b.commit}
         observations={'observed':frozen,'build_verification':proof,
             'binding_verification':{'verified':True,'schema':1,'can_launch':False}}
+        if not export:
+            return dict(root=root,repo=repo,main=main,build=build,frozen=frozen,verified=verified,bindings=observations)
         with producer_source.committed_modules(HERE.parents[2],self.b.commit,study_selection.capture_archive.PROCESS_MODULES):
             verifier=importlib.import_module('process_verification')
-            result=closed_capture._export(main,repo,root/'scientific_capture',frozen,verified,
-                chain_probe=lambda source,registry:closed_capture._chain(source,registry,HERE.parents[2],verified),
-                binding_probe=lambda:copy.deepcopy(observations),
-                process_probe=lambda chain,build:closed_capture._processes(chain,build,verifier))
+            with test_capture_archive.historical_exporter() as exporter:
+                result=exporter._export(main,repo,root/'scientific_capture',frozen,verified,
+                    chain_probe=lambda source,registry:exporter._chain(source,registry,HERE.parents[2],verified),
+                    binding_probe=lambda:copy.deepcopy(observations),
+                    process_probe=lambda chain,build:exporter._processes(chain,build,verifier))
         return root/'scientific_capture',result
 
     def test_public_capture_setup_validation_selection_chain(self):
