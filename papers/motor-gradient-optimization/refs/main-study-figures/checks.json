@@ -1,6 +1,14 @@
 {
   "scope": "Synthetic presentation checks only; no main-study outcomes or final manuscript approval.",
-  "producer_interface_commit": "19cc493ed9992885cefcc3192657255ef1eeddc2",
+  "producer_interface_commit": "c0dae78da625cac4bc9ea1af56d06f01408a2ecc",
+  "producer_interface_equivalence": {
+    "previous_commit": "19cc493ed9992885cefcc3192657255ef1eeddc2",
+    "unchanged_files": [
+      "benchmarks/motor_optimization/final_refinement/study_selection.py",
+      "benchmarks/motor_optimization/final_refinement/selection.py"
+    ],
+    "scope": "Exact Git blob equality; producer independently approved and merged as 50a637bfe01605e68870cd39b5905dd24e66ad35. Presentation review remains pending."
+  },
   "stdlib_test_command": "uv run --with numpy==2.5.4 --with matplotlib==3.11.2 python -I -m unittest discover -s papers/motor-gradient-optimization/refs/main-study-figures -p test_*.py",
   "synthetic_render": {
     "runs": 100,

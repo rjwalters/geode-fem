@@ -7,8 +7,10 @@ it does not authenticate the original capture or certify final refinement.
 No actual main-study outcome has been rendered during this preparation.
 
 The producer interface was checked against PR #1207 at
-`19cc493ed9992885cefcc3192657255ef1eeddc2`, which is still under independent
-review. Recheck compatibility after any producer revision. The tool also
+`c0dae78da625cac4bc9ea1af56d06f01408a2ecc`, independently approved and merged
+as `50a637bfe01605e68870cd39b5905dd24e66ad35`. Its `study_selection.py` and `selection.py` are byte-identical to the
+previous interface pin `19cc493ed9992885cefcc3192657255ef1eeddc2`.
+Recheck compatibility after any producer revision. The tool also
 accepted its existing synthetic full-pipeline selection (100 jobs, 300 target
 cells); that fixture is not measured optimization evidence.
 
