@@ -20,7 +20,7 @@ SUPPORT = ('trace_archive', 'recovery_evidence', 'producer_source')
 # CLI verification compiles its retained helper source, never timestamp .pyc.
 # Imports in unit tests use the ordinary modules, without changing their state.
 if __name__ == '__main__':
-    for name in SUPPORT:
+    for name in (*SUPPORT, 'reboot_attestation'):
         path = HERE/(name+'.py')
         module = types.ModuleType(name); module.__file__ = str(path)
         sys.modules[name] = module
@@ -28,6 +28,7 @@ if __name__ == '__main__':
 else:
     sys.path.insert(0, str(HERE))
 import producer_source
+import reboot_attestation
 from recovery_evidence import reconcile
 from trace_archive import _json, _sha
 
@@ -144,7 +145,7 @@ def _bindings(expected, repo, recovery_bindings, build_provenance):
     return {'observed':observed, 'binding_verification':verified, 'build_verification':proof}
 
 
-def _export(source, repo, out, expected, verified, *, chain_probe, binding_probe, process_probe):
+def _export(source, repo, out, expected, verified, *, chain_probe, binding_probe, process_probe, reboot=None):
     """Core snapshot transaction. Tests inject observations; CLI supplies live probes."""
     source, repo = directory(source), directory(repo)
     out = Path(os.path.abspath(out))
@@ -159,16 +160,25 @@ def _export(source, repo, out, expected, verified, *, chain_probe, binding_probe
     if len(roots) != 2+bool(registry):
         raise ValueError('build and study capture roots must be distinct')
     all_roots = [repo, *roots]
+    if reboot is not None:
+        reboot_attestation.require(reboot.p['producer_commit'] == verified['reviewed_commit'],
+                                   'policy changed reviewed producer')
+        all_roots.append(Path(reboot.p['inventory_root']))
     if any(out == p or p in out.parents for p in all_roots):
         raise ValueError('capture output must be outside producer and evidence source trees')
     if any(a == b or a in b.parents or b in a.parents for i,a in enumerate(roots) for b in list(roots)[i+1:]):
         raise ValueError('capture evidence roots overlap')
-    tool_hashes = {name+'.py':producer_source.digest(HERE/(name+'.py'))
-                   for name in ('closed_capture', *SUPPORT)}
+    tool_names = ('closed_capture', *SUPPORT, 'reboot_attestation')
+    tool_hashes = {name+'.py':producer_source.digest(HERE/(name+'.py')) for name in tool_names}
     start = time.time()
     chain_before = chain_probe(source, registry)
     binding_before = binding_probe()
     process_before = process_probe(chain_before, build_root)
+    file_mapping = {}
+    if reboot is not None:
+        observation = process_before['reboot_observation']
+        for name in observation['source_files']:
+            file_mapping[name] = reboot_attestation.archive_mapping(name, reboot.p['inventory_root'], roots)
     inventories = {root:census(root) for root in roots}
     # Original process journals, build inputs/logs/binary and all generated meshes
     # are included by complete tree copies. Frozen external inputs are copied too.
@@ -182,11 +192,25 @@ def _export(source, repo, out, expected, verified, *, chain_probe, binding_probe
     try:
         for root, relative in roots.items():
             _copy_tree(root, out/relative, inventories[root])
+        if reboot is not None:
+            for name in observation['source_directories']:
+                target = reboot_attestation.archive_mapping(name, reboot.p['inventory_root'], roots)
+                (out/target).mkdir(parents=True, exist_ok=True)
+            for name, target in file_mapping.items():
+                original = Path(reboot.p['inventory_root'])/name
+                if not (out/target).exists():
+                    _copy_file(original, out/target, observation['source_files'][name]['sha256'])
+                if producer_source.digest(out/target) != observation['source_files'][name]['sha256']:
+                    raise ValueError('full source inventory differs while exporting')
+            for target, original in reboot.paths.items():
+                _copy_file(original, out/target, reboot_attestation.sha(reboot.raw[target]))
         input_paths = {}
         for name, item in external.items():
             original = Path(item['path'])
             relative = next((dest/original.relative_to(root) for root,dest in roots.items()
                              if original == root or root in original.parents), None)
+            if relative is None and reboot is not None and Path(reboot.p['inventory_root']) in original.parents:
+                relative = Path(file_mapping[original.relative_to(reboot.p['inventory_root']).as_posix()])
             if relative is None:
                 relative = Path('inputs')/item['sha256']
                 if not (out/relative).exists():
@@ -203,6 +227,15 @@ def _export(source, repo, out, expected, verified, *, chain_probe, binding_probe
         chain_after = chain_probe(source, registry)
         binding_after = binding_probe()
         process_after = process_probe(chain_after, build_root)
+        if reboot is not None:
+            reboot.stable()
+            before, after = process_before['reboot_observation'], process_after['reboot_observation']
+            for key in ('source_files', 'source_directories', 'ended_boot_journals', 'ec2',
+                        'machine_id_text', 'machine_id_encoding', 'collector', 'session_exit_text'):
+                if before[key] != after[key]:
+                    raise ValueError('reboot proof changed during capture: ' + key)
+            if process_before['reboot_verdict'] != process_after['reboot_verdict']:
+                raise ValueError('reboot termination proof changed')
         if (chain_after != chain_before or binding_after != binding_before
                 or set(process_after['reports']) != set(process_before['reports'])
                 or process_after['host'] != process_before['host']):
@@ -223,7 +256,7 @@ def _export(source, repo, out, expected, verified, *, chain_probe, binding_probe
         _write(out/'processes-before.json', process_before)
         _write(out/'processes-after.json', process_after)
         _write(out/'reconciled-policy.json', chain_before['policy'])
-        record = {'schema':1, 'kind':'closed_main_study_capture', 'capture_started':start,
+        record = {'schema':2, 'process_mode':'same_boot', 'kind':'closed_main_study_capture', 'capture_started':start,
                   'capture_finished':time.time(), 'reviewed_commit':verified['reviewed_commit'],
                   'canonical':{'source':str(source),'registry':str(registry) if registry else None,
                                'repo':str(repo),'build':str(build_root)},
@@ -235,6 +268,12 @@ def _export(source, repo, out, expected, verified, *, chain_probe, binding_probe
                   'inventory':census(out), 'all_registered_jobs_resolved':True,
                   'can_select':False, 'can_launch':False,
                   'scope':'Witnessed time-bound local capture and producer/source/build/runtime equality. Not a signature or independent review; scientific validation and full design adaptation remain required.'}
+        if reboot is not None:
+            record.update(schema=2, process_mode='attested_reboot',
+                          reboot_policy_sha256=reboot.policy_sha256,
+                          inventory_root=reboot.p['inventory_root'], inventory_files=file_mapping,
+                          inventory_directories=observation['source_directories'],
+                          scope=reboot_attestation.SCOPE + ' Original source/runtime/input/build equality also required.')
         _write(out/'capture.json',record)
         return {'manifest':str(out/'capture.json'), 'sha256':producer_source.digest(out/'capture.json'),
                 'all_registered_jobs_resolved':True,'can_select':False,'can_launch':False}
@@ -243,14 +282,22 @@ def _export(source, repo, out, expected, verified, *, chain_probe, binding_probe
         raise
 
 
-def capture(source, repo, out, *, reviewed_commit):
+def capture(source, repo, out, *, reviewed_commit, reboot_policy=None, reboot_policy_sha256=None,
+            recovery_evidence=None, capture_ec2=None):
     if not sys.flags.isolated:
         raise ValueError('capture requires the original isolated numerical Python environment')
+    if reboot_policy is not None and not sys.dont_write_bytecode:
+        raise ValueError('reboot capture requires -B to disable bytecode writes')
     source, repo = directory(source), directory(repo)
     if Path.cwd().resolve() != repo:
         raise ValueError('run capture from the original producer working directory')
     expected = _json(producer_source.regular(source/'recovery-inputs.json').read_bytes())
     verified = producer_source.verify(repo, expected['source'], reviewed_commit=reviewed_commit)
+    options = (reboot_policy, reboot_policy_sha256, recovery_evidence, capture_ec2)
+    if any(value is not None for value in options) and not all(value is not None for value in options):
+        raise ValueError('reboot capture requires policy, independent policy digest, recovery evidence and EC2 observation')
+    reboot = (reboot_attestation.CaptureContext(reboot_policy, reboot_policy_sha256, recovery_evidence, capture_ec2)
+              if reboot_policy is not None else None)
     with producer_source.modules(repo, verified):
         import recovery_bindings
         import build_provenance
@@ -258,7 +305,9 @@ def capture(source, repo, out, *, reviewed_commit):
         return _export(source,repo,out,expected,verified,
                        chain_probe=lambda source,registry:_chain(source,registry,repo,verified),
                        binding_probe=lambda:_bindings(expected,repo,recovery_bindings,build_provenance),
-                       process_probe=lambda chain,build:_processes(chain,build,process_verification))
+                       process_probe=lambda chain,build:(reboot.processes(chain,build,process_verification,HERE/'closed_capture.py')
+                                                         if reboot else _processes(chain,build,process_verification)),
+                       reboot=reboot)
 
 
 def main():
@@ -267,8 +316,14 @@ def main():
     parser.add_argument('--repo',required=True,type=Path)
     parser.add_argument('--out',required=True,type=Path)
     parser.add_argument('--reviewed-commit',required=True)
+    parser.add_argument('--reboot-policy',type=Path)
+    parser.add_argument('--reboot-policy-sha256')
+    parser.add_argument('--recovery-evidence',type=Path)
+    parser.add_argument('--capture-ec2',type=Path)
     args=parser.parse_args()
-    result=capture(args.source,args.repo,args.out,reviewed_commit=args.reviewed_commit)
+    result=capture(args.source,args.repo,args.out,reviewed_commit=args.reviewed_commit,
+                   reboot_policy=args.reboot_policy,reboot_policy_sha256=args.reboot_policy_sha256,
+                   recovery_evidence=args.recovery_evidence,capture_ec2=args.capture_ec2)
     print(json.dumps(result,sort_keys=True))
 
 

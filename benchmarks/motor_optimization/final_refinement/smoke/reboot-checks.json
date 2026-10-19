@@ -1,0 +1,81 @@
+{
+  "scope": "Synthetic author regression evidence only. No actual main-study outcomes, cloud launch, FEM, optimization, or independent approval.",
+  "baseline_commit": "50a637bfe01605e68870cd39b5905dd24e66ad35",
+  "producer_commit": "9486a9da58beeca91968d4d3608f06b998abff45",
+  "full_suite": {
+    "command": "python3 -I -m unittest discover -s benchmarks/motor_optimization/final_refinement",
+    "tests": 281,
+    "exit_code": 0,
+    "log": "reboot-tests.log",
+    "sha256": "26dbafc630764ac8dace2e2170f97759394f3b6f647c3820dc26ffd662bf1d76",
+    "python": "3.15.0",
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O"
+  },
+  "mutations": {
+    "command": "python3 -I benchmarks/motor_optimization/final_refinement/reboot_mutations.py --out NEW_REPORT",
+    "injected": 23,
+    "killed": 23,
+    "report": "reboot-mutations.json",
+    "sha256": "99a10aacef4aba45427ad33ebb3151dad4930c9899bb4a55de3e2a4cee862f70"
+  },
+  "mesh_regeneration": {
+    "source_commit": "63b3e3d8bbc30504f845eebb5b78e8be6a2ee12f",
+    "files": [
+      {
+        "sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
+        "bytes": 3515287,
+        "scope": "Digest record only; regenerate with the source-bound command in REGENERATE.md.",
+        "file": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5"
+      },
+      {
+        "bytes": 3451717,
+        "sha256": "81d2bc01a931754ef36e7ab9894e9ff2da97ae3b275c0103c6f3c20ff1cf8afa",
+        "file": "81d2bc01a931754ef36e7ab9894e9ff2da97ae3b275c0103c6f3c20ff1cf8afa"
+      },
+      {
+        "bytes": 14149864,
+        "sha256": "614bf98c36e105adca2b6f811f09ebe4aa1c4d1c0a456eb8c3041bf81bdd584a",
+        "file": "614bf98c36e105adca2b6f811f09ebe4aa1c4d1c0a456eb8c3041bf81bdd584a"
+      },
+      {
+        "bytes": 3441776,
+        "sha256": "7a45800d11b777f7774d12ab28ee3cae6c802be45e0ae17a0ac675bca75d5318",
+        "file": "7a45800d11b777f7774d12ab28ee3cae6c802be45e0ae17a0ac675bca75d5318"
+      }
+    ],
+    "platform": {
+      "system": "Darwin",
+      "machine": "arm64"
+    },
+    "python": "3.12.13",
+    "scope": "Hash-matched regenerated meshes only. No numerical outputs regenerated."
+  },
+  "checks": {
+    "version_sync": "pass",
+    "ci_test_coverage": "pass",
+    "whitespace": "pass"
+  },
+  "files_sha256": {
+    "closed_capture.py": "ff2ccdbb0494db0c67ecda696f23d22ec5854b0e974a46bf30921136a9d62600",
+    "capture_archive.py": "f2fbd033401c9b8c088cddd32989da3285e1c07dcdf89a6cce170913283fd254",
+    "reboot_attestation.py": "84f074153f45d45bc37d06988600b80af48b4638d5d7f4a36d4e716d47ec2dc1",
+    "study_selection.py": "72ca0ab962576862530e36bded47a55edac6e80a92db414f03d87b35f34f97f3",
+    "refinement_bundle.py": "228b3b41caf346aa80aaa34bf71cb1bb80ae37b98ed336a51cd2165aa3442931",
+    "reboot_mutations.py": "da2a95c74737edfbeacca9be1de232530cbfe932f54d99a996a15d344a198b3e",
+    "test_capture_archive.py": "32dad1d698df8a1f433d9efcfacbef6cf419640ca68b4bfc5edbb376e49afc35",
+    "test_study_selection.py": "fa5684608f2ed20ade62762503704b4f19c435427788c2f9100c88ba003c159c",
+    "test_refinement_bundle.py": "f7690398fd253eef559cd5cb9e9dfe9847ec22c849de4e77a65034cab00217df",
+    "test_regenerate_platform.py": "8599df58745c1c91df595d01b044fca97c51540db8b5260de15601404c4f2aef",
+    "test_reboot_attestation.py": "5fb012cef546a9810509904378db05f357a23ed88a16ceee88283f1afce32ae7",
+    "test_reboot_capture.py": "7ec05a94e5dcc8433b39e74b86a05cf1fb3e16e03457288b42bb87d1152ee0b1",
+    "test_reboot_pipeline.py": "8bbc9e9e916ef44c557ebc3e1e10723c8119e74fbbffe472a14b557faa9acd00",
+    "README.md": "c8cedec076dd263e4ce529e98d18c9555b5a85e44476a52facd85e4c21ad6441",
+    "REBOOT_CAPTURE.md": "f2afc780915780dd389baeaf5632336d3771dcd861d5df1b3d783a309c96c158"
+  },
+  "remaining": [
+    "Independent Judge review and CI of exact PR head",
+    "Approval/merge before one bounded B2 capture boot",
+    "Validate actual preserved B1 inputs and collect B2 evidence; no actual capture attempted",
+    "Final refinements, results analysis and manuscript review/audit"
+  ]
+}

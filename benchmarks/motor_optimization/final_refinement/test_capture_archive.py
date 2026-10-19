@@ -5,6 +5,7 @@ used. All optimizer/build/runtime observations are fixtures; no FEM, compilation
 main-study closure, or scientific eligibility is asserted.
 """
 import copy
+from contextlib import contextmanager, nullcontext
 import hashlib
 import importlib
 import json
@@ -12,6 +13,7 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+import types
 import unittest
 
 HERE=Path(__file__).resolve().parent
@@ -27,13 +29,31 @@ PRODUCER='9486a9da58beeca91968d4d3608f06b998abff45'
 CAPTURE_TOOL='01350accb689c9dcb3a6add977e17f3d5e5be523'
 
 
-def fixture(root):
+@contextmanager
+def historical_exporter():
+    """Execute genuine pinned exporter bytes, never label new code as old code."""
+    with tempfile.TemporaryDirectory() as temporary:
+        directory=Path(temporary); old_path=list(sys.path)
+        for name in capture_archive.TOOL_FILES:
+            source=producer_source.git(REPO,'show',CAPTURE_TOOL+':'+capture_archive.TOOL_DIRECTORY+name)
+            (directory/name).write_bytes(source)
+            if name!='closed_capture.py':
+                assert (HERE/name).read_bytes()==source, 'legacy support changed; load its pinned implementation too'
+        module=types.ModuleType('historical_closed_capture');module.__file__=str(directory/'closed_capture.py')
+        try:
+            exec(compile((directory/'closed_capture.py').read_bytes(),module.__file__,'exec'),module.__dict__)
+            yield module
+        finally:
+            sys.path[:]=old_path
+
+
+def fixture(root, *, build_name='build', owner_host=None, export=True, exporter=None):
     repo=root/'producer';repo.mkdir()
     reference=repo/'benchmarks/motor_reference/reference_data.json';reference.parent.mkdir(parents=True)
     reference.write_bytes((REPO/'benchmarks/motor_reference/reference_data.json').read_bytes())
     files=producer_source.committed_files(REPO,PRODUCER)
     source={'repo':str(repo),'commit':PRODUCER,'tree_clean':True,'untracked_sources':[],'files':files}
-    build=root/'build';build.mkdir();(build/'owner.lock').touch()
+    build=root/build_name;build.mkdir();(build/'owner.lock').touch()
     binary=build/'icem_harness_eval';binary.write_bytes(b'synthetic unexecuted evaluator fixture');binary.chmod(0o555)
     setup={'source':source,'target_directory':str(repo/'target')}
     write(build/'inputs.json',setup)
@@ -59,7 +79,8 @@ def fixture(root):
     verified={'reviewed_commit':PRODUCER,'files':files}
     with producer_source.committed_modules(REPO,PRODUCER,capture_archive.PROCESS_MODULES):
         identity=importlib.import_module('process_identity');verifier=importlib.import_module('process_verification')
-        absent={'pid':2147483647,'pgid':2147483647,'start':'synthetic absent owner','host':identity.host()}
+        absent={'pid':2147483647,'pgid':2147483647,'start':'synthetic absent owner',
+                'host':identity.host() if owner_host is None else owner_host}
         f.events[0].update(process_tracking_schema=1,owner_identity=absent);f.save();finish(f,True)
         events=[dict(sequence=0,kind='session_created',process_tracking_schema=1,owner_identity=absent),
                 dict(sequence=1,kind='build_recorded',receipt={'file':'build-receipt.json','sha256':digest(build/'build-receipt.json')})]
@@ -68,10 +89,13 @@ def fixture(root):
                'binary_sha256':digest(binary),'source_commit':PRODUCER}
         bindings={'observed':frozen,'build_verification':proof,
                   'binding_verification':{'verified':True,'schema':1,'can_launch':False}}
-        result=closed_capture._export(f.root,repo,root/'capture',frozen,verified,
-              chain_probe=lambda source,registry:closed_capture._chain(source,registry,REPO,verified),
-              binding_probe=lambda:copy.deepcopy(bindings),
-              process_probe=lambda chain,build:closed_capture._processes(chain,build,verifier))
+        if not export:
+            return f,frozen,verified,bindings
+        with (historical_exporter() if exporter is None else nullcontext(exporter)) as exporter:
+            result=exporter._export(f.root,repo,root/'capture',frozen,verified,
+                  chain_probe=lambda source,registry:exporter._chain(source,registry,REPO,verified),
+                  binding_probe=lambda:copy.deepcopy(bindings),
+                  process_probe=lambda chain,build:exporter._processes(chain,build,verifier))
     return result
 
 

@@ -90,6 +90,9 @@ directory in a reviewed checkout, held fixed through execution and reporting.
    the entire registered queue, recoveries and diagnostics to be resolved and
    verifies sources, inputs, runtime, build receipts and stopped processes before
    and after copying. A live main session must not be exported as closed.
+   For the separately reviewed B0/B1/B2 exception, follow
+   [post-reboot capture](REBOOT_CAPTURE.md); an ordinary capture never assumes
+   that a changed boot proves process closure.
 
    ```sh
    "$CAPTURE_PYTHON" -I -B "$TOOLS/closed_capture.py" \

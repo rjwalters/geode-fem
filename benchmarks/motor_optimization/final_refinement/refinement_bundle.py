@@ -99,13 +99,14 @@ def _schedule(result,definitions,meshes):
 
 
 def prepare(capture_root, *, manifest_sha256, git_repo, reviewed_commit, capture_tool_commit,
-            mesh_evidence_commit, l3_mesh, out):
+            mesh_evidence_commit, l3_mesh, out, reboot_policy_sha256=None):
     root=directory(capture_root);repo=Path(git_repo).resolve(strict=True)
     out=Path(out).absolute();directory(out.parent)
     if out.exists() or out.is_symlink() or any(out==p or p in out.parents for p in (root,repo)):
         raise ValueError('bundle must be a new directory outside capture and repository')
     result=study_selection.load(root,manifest_sha256=manifest_sha256,git_repo=repo,
-                reviewed_commit=reviewed_commit,capture_tool_commit=capture_tool_commit)
+                reviewed_commit=reviewed_commit,capture_tool_commit=capture_tool_commit,
+                reboot_policy_sha256=reboot_policy_sha256)
     reader=capture_archive.Reader(root,manifest_sha256)
     inputs=reader.manifest['inputs']
     path=lambda name:reader.path(inputs[name]['file'])
@@ -134,6 +135,8 @@ def prepare(capture_root, *, manifest_sha256, git_repo, reviewed_commit, capture
             'geometry':[{k:v for k,v in row.items() if k!='request'} for row in geometry],
             'inventory':census(out),'can_launch':False,
             'scope':'Exact inputs for every frozen design/check and a separate geometry query. Executor build/runtime/process receipts and scientific reporting remain required.'}
+        if 'reboot_verification' in result:
+            metadata['reboot_verification']=copy.deepcopy(result['reboot_verification'])
         _write(out/'bundle.json',metadata)
         digest=producer_source.digest(out/'bundle.json')
         verify(out,manifest_sha256=digest)
@@ -158,6 +161,8 @@ def verify(root, *, manifest_sha256):
     observed=census(root);observed['files'].pop('bundle.json',None)
     if observed!=metadata['inventory']:raise ValueError('bundle file census changed')
     result=_json((root/'selection.json').read_bytes())
+    if metadata.get('reboot_verification') != result.get('reboot_verification'):
+        raise ValueError('bundle changed reboot verification scope')
     if (result.get('capture_manifest_sha256')!=metadata['capture_manifest_sha256']
             or result.get('source_commit')!=metadata['reviewed_producer_commit']
             or result.get('can_select') is not True or result.get('can_launch') is not False):
@@ -183,6 +188,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     for key in ('capture','manifest-sha256','git-repo','reviewed-commit','capture-tool-commit','mesh-evidence-commit','l3-mesh','out'):
         parser.add_argument('--'+key,required=True)
+    parser.add_argument('--reboot-policy-sha256')
     args=vars(parser.parse_args());root=args.pop('capture')
     print(json.dumps(prepare(root,**args)))
 

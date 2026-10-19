@@ -14,6 +14,7 @@ import tempfile
 
 from closed_capture import census, directory
 import producer_source
+import reboot_attestation
 from recovery_evidence import reconcile
 from trace_archive import _json, _sha, _events
 
@@ -48,12 +49,14 @@ class Reader:
             raise ValueError('capture differs from independently recorded manifest digest')
         self.manifest = _json((self.root/'capture.json').read_bytes())
         m = self.manifest
-        if (m.get('schema') != 1 or m.get('kind') != 'closed_main_study_capture'
+        if (type(m.get('schema')) is not int or m['schema'] not in (1,2) or m.get('kind') != 'closed_main_study_capture'
                 or m.get('all_registered_jobs_resolved') is not True
                 or m.get('can_select') is not False or m.get('can_launch') is not False
                 or not _finite(m.get('capture_started')) or not _finite(m.get('capture_finished'))
                 or m['capture_finished'] < m['capture_started']):
             raise ValueError('capture is not a terminal export')
+        if m['schema'] == 2 and m.get('process_mode') not in ('same_boot','attested_reboot'):
+            raise ValueError('unknown capture process proof mode')
         self.stable()
         canonical = m['canonical']
         if set(canonical) != {'source','registry','repo','build'}:
@@ -118,8 +121,9 @@ class Reader:
 def _tool(reader, git_repo, commit):
     if type(commit) is not str or len(commit) != 40 or any(c not in '0123456789abcdef' for c in commit):
         raise ValueError('reviewed capture-tool commit must be a full object ID')
+    names = (*TOOL_FILES, *(['reboot_attestation.py'] if reader.manifest['schema'] == 2 else []))
     expected = {name:hashlib.sha256(producer_source.git(git_repo,'show',commit+':'+TOOL_DIRECTORY+name)).hexdigest()
-                for name in TOOL_FILES}
+                for name in names}
     if reader.manifest['capture_tool_sha256'] != expected:
         raise ValueError('capture tool differs from independently reviewed revision')
     for name,digest in expected.items():
@@ -198,7 +202,76 @@ def _producer(reader, frozen, proof):
         raise ValueError('capture lacks production binding verification')
 
 
-def _processes(reader, git_repo, commit, sources):
+def _reboot(reader, policy_sha256):
+    m = reader.manifest
+    if m['schema'] == 1 or m['process_mode'] == 'same_boot':
+        if policy_sha256 is not None:
+            raise ValueError('same-boot capture does not use a reboot policy')
+        return None
+    if policy_sha256 is None or m.get('reboot_policy_sha256') != policy_sha256:
+        raise ValueError('reboot capture requires an independently supplied policy digest')
+    p = reboot_attestation.policy(reader.path('reboot/policy.json').read_bytes(), policy_sha256)
+    if p['producer_commit'] != m['reviewed_commit'] or p['inventory_root'] != m.get('inventory_root'):
+        raise ValueError('reboot policy changed producer or inventory root')
+    if (m['canonical']['source'] != p['inventory_root']+'/main'
+            or m['canonical']['build'] != p['inventory_root']+'/build-record'):
+        raise ValueError('reboot policy changed original study/build paths')
+    history = reboot_attestation.recovery(reader.path('reboot/recovery/witness.json').read_bytes(),
+        {name: reader.path('reboot/recovery/'+name).read_bytes() for name in reboot_attestation.WITNESS_FILES}, p)
+    mapping = {name: reboot_attestation.archive_mapping(name, p['inventory_root'], reader.directories)
+               for name in history['inventory']}
+    if m.get('inventory_files') != mapping:
+        raise ValueError('reboot capture omits or redirects original inventory members')
+    source_paths = {name for name in m['inventory']['files']
+                    if name.startswith('reboot-source/')
+                    or any(name.startswith(dest+'/') for dest in reader.directories.values())}
+    if source_paths != set(mapping.values()):
+        raise ValueError('reboot archive source census has missing or extra members')
+    phases = []
+    for phase in ('before', 'after'):
+        evidence = reader.json('processes-'+phase+'.json'); observed = evidence['reboot_observation']
+        if (evidence.get('reboot_policy_sha256') != policy_sha256
+                or observed.get('host') != evidence.get('host')
+                or observed.get('process_table') != evidence.get('table')
+                or observed.get('ec2') != reader.json('reboot/ec2-capture.json')):
+            raise ValueError('reboot observations changed their evidence bindings')
+        reboot_attestation.machine_observation(observed, p)
+        verdict = reboot_attestation.observations(p, history, observed)
+        reboot_attestation.quiet_processes(observed,
+            capture_script_sha256=m['capture_tool_sha256']['closed_capture.py'])
+        if (evidence.get('reboot_verdict') != verdict
+                or not m['capture_started'] <= observed['observed_time'] <= m['capture_finished']):
+            raise ValueError('reboot verdict or observation time differs')
+        dirs = observed.get('source_directories')
+        if (not isinstance(dirs, list) or len(dirs) != len(set(dirs))
+                or dirs != m.get('inventory_directories')):
+            raise ValueError('reboot source directory census differs')
+        for name in dirs:
+            directory(reader.root/reboot_attestation.archive_mapping(name, p['inventory_root'], reader.directories))
+        source_member=lambda name:(name=='reboot-source' or name.startswith('reboot-source/')
+            or any(name==dest or name.startswith(dest+'/') for dest in reader.directories.values()))
+        expected_dirs={reboot_attestation.archive_mapping(name,p['inventory_root'],reader.directories) for name in dirs}
+        if any(name.startswith('reboot-source/') for name in expected_dirs):expected_dirs.add('reboot-source')
+        actual_dirs={name for name in m['inventory']['directories'] if source_member(name)}
+        if actual_dirs!=expected_dirs:
+            raise ValueError('reboot archive directory census has missing or extra members')
+        for name, dest in mapping.items():
+            record = observed['source_files'][name]
+            actual = m['inventory']['files'][dest]
+            if actual != {k: record[k] for k in ('sha256', 'size', 'mode')}:
+                raise ValueError('archived original bytes/size/mode differ from reboot proof')
+            reader.path(dest)
+        if reader.path(mapping[p['session_exit_file']]).read_text() != observed['session_exit_text']:
+            raise ValueError('archived terminal exit differs from reboot proof')
+        phases.append(observed)
+    for key in ('source_files', 'source_directories', 'ended_boot_journals', 'ec2',
+                'machine_id_text', 'machine_id_encoding', 'collector', 'session_exit_text'):
+        if phases[0][key] != phases[1][key]:
+            raise ValueError('reboot proof changed between capture phases')
+    return {'policy': p, 'policy_sha256': policy_sha256, 'history': history}
+
+
+def _processes(reader, git_repo, commit, sources, reboot=None):
     m=reader.manifest;expected=set([*sources,m['canonical']['build']]);hosts=[]
     with producer_source.committed_modules(git_repo,commit,PROCESS_MODULES):
         verifier=importlib.import_module('process_verification')
@@ -212,17 +285,35 @@ def _processes(reader, git_repo, commit, sources):
                 if (recorded.get('source') != original or not _finite(observed_time)
                         or not m['capture_started'] <= observed_time <= m['capture_finished']):
                     raise ValueError('process observation changed its capture identity/time')
-                replay=verifier.verify(reader.mapped(original),observe=lambda:evidence['table'],host=lambda:evidence['host'])
+                if reboot is None:
+                    replay=verifier.verify(reader.mapped(original),observe=lambda:evidence['table'],host=lambda:evidence['host'])
+                else:
+                    original_report=recorded.get('original_verifier',{})
+                    if original_report.get('source')!=original or original_report.get('observed_time')!=observed_time:
+                        raise ValueError('retained producer refusal changed its source/time identity')
+                    replay=reboot_attestation.process_report(reader.mapped(original),verifier,
+                        host=evidence['host'],table=evidence['table'],p=reboot['policy'])
+                    reboot_attestation.require(evidence['reboot_observation']['observed_time'] <= observed_time,
+                                               'process report predates reboot observation')
                 if replay.get('processes_stopped') is not True or replay.get('issues'):
                     raise ValueError('captured process table does not establish tracked process absence')
-                comparable=lambda value:{k:v for k,v in value.items() if k not in ('source','observed_time')}
+                def comparable(value):
+                    value={k:v for k,v in value.items() if k not in ('source','observed_time')}
+                    if 'original_verifier' in value:
+                        value['original_verifier']={k:v for k,v in value['original_verifier'].items()
+                                                    if k not in ('source','observed_time')}
+                    return reader.canonicalize(value)
                 if comparable(replay) != comparable(recorded):
                     raise ValueError('recorded process report differs from reviewed verifier replay')
     if hosts[0] != hosts[1]:
         raise ValueError('capture changed process host/boot')
+    if reboot is not None:
+        events = _events(reader.path(m['source_directory']+'/events.jsonl').read_bytes())
+        observed = reader.json('processes-before.json')['reboot_observation']
+        reboot_attestation.terminal_exit(events,observed,reboot['policy'])
 
 
-def load(root, *, manifest_sha256, git_repo, reviewed_commit, capture_tool_commit):
+def load(root, *, manifest_sha256, git_repo, reviewed_commit, capture_tool_commit, reboot_policy_sha256=None):
     """Verify capture identity and provenance before scientific record adaptation.
 
     manifest_sha256 must come from the separately retained capture execution
@@ -234,6 +325,7 @@ def load(root, *, manifest_sha256, git_repo, reviewed_commit, capture_tool_commi
     if m['reviewed_commit'] != reviewed_commit:
         raise ValueError('capture chose a different producer revision')
     tool=_tool(reader,git_repo,capture_tool_commit)
+    reboot=_reboot(reader,reboot_policy_sha256)
     frozen=reader.json(m['source_directory']+'/recovery-inputs.json')
     source=producer_source.verify(git_repo,frozen['source'],reviewed_commit=reviewed_commit,check_worktree=False)
     if frozen['source'].get('repo') != m['canonical']['repo']:
@@ -255,11 +347,17 @@ def load(root, *, manifest_sha256, git_repo, reviewed_commit, capture_tool_commi
             or chain['source_directories'] != m['generation_sources']
             or reader.canonicalize(chain['policy']) != reader.json('reconciled-policy.json')):
         raise ValueError('copied recovery history differs from closed captured policy')
-    _processes(reader,git_repo,reviewed_commit,chain['source_directories'])
+    _processes(reader,git_repo,reviewed_commit,chain['source_directories'],reboot)
     reader.stable()
-    return {'schema':1,'manifest_sha256':manifest_sha256,'manifest':copy.deepcopy(m),
+    result={'schema':1,'manifest_sha256':manifest_sha256,'manifest':copy.deepcopy(m),
             'root':str(reader.root),'frozen':frozen,'chain':chain,
             'input_paths':{k:str(v) for k,v in inputs.items()},
             'source_verification':source,'build_verification':proof,'capture_tool_sha256':tool,
             'capture_verified':True,'can_select':False,'can_launch':False,
             'scope':'Offline verification of a separately witnessed terminal capture; original setup/calibration, scientific anchor, geometry, mesh, timing and full-design validation still required before selection.'}
+    if reboot is not None:
+        result['reboot_verification']={'policy_sha256':reboot_policy_sha256,
+            'inventory_sha256':reboot['policy']['inventory_sha256'],
+            'recovery_witness_sha256':reboot['policy']['recovery_witness_sha256'],
+            'termination_basis':'attested_reboot','scope':reboot_attestation.SCOPE}
+    return result
