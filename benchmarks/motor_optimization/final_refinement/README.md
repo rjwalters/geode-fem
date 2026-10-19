@@ -19,19 +19,27 @@ to their recorded source revisions; they are not the current suite total.
 From a full-history repository checkout:
 
 ```sh
+export GEODE_REFINEMENT_MESH_CACHE=/path/to/new-external-mesh-cache
+uv run --with numpy==2.5.4 --with gmsh==4.15.2 python -I \
+  benchmarks/motor_optimization/final_refinement/smoke/regenerate_meshes.py \
+  --out "$GEODE_REFINEMENT_MESH_CACHE"
 python3 -I -m unittest discover \
   -s benchmarks/motor_optimization/final_refinement -p 'test_*.py' -v
 ```
 
-The stdlib suite uses retained native outputs and controlled Python child
-processes. It does not compile or execute archived binaries. The dedicated CI job
-uses Python 3.12 and full Git history. The Rust `motor_final_refinement` integration
+The stdlib suite uses retained native outputs, hash-matched regenerated mesh
+inputs and controlled Python child processes. Mesh regeneration uses Gmsh 4.15.2
+and NumPy 2.5.4; it runs no FEM. It does not compile or execute archived binaries.
+The dedicated CI job uses Python 3.12 and full Git history. The Rust `motor_final_refinement` integration
 target is covered by the existing core integration workflow.
 
 Archived native checks cover primary, L3, g40, tight Newton tolerance, independent
 shifted solves, withheld currents and conforming-estimator restrictions. The
-paired release-build archive retains both executables, compiler inputs/logs,
-source census and process observations. The bounded runner archive retains one
+paired release-build archive retains executable digest/size records, compiler
+inputs/logs, source census and process observations. Its replay checks historical
+record consistency, not absent executable bytes. No derived meshes or compiled
+executables are stored in these archives; see [regeneration instructions](smoke/REGENERATE.md).
+The bounded runner archive retains one
 real geometry query and one primary check with 60 accepted torque samples. These
 are wiring/refinement checks; selection fixtures are explicitly synthetic. Full
 public run/finalize behavior uses controlled real processes with synthetic outputs.
@@ -91,8 +99,8 @@ directory in a reviewed checkout, held fixed through execution and reporting.
 
 2. **Prepare the exact cohort and all requests.** This reruns closed-capture,
    setup, ledger, scientific eligibility and selection verification. L3 bytes
-   come from independently reviewed retained construction evidence whose source
-   and initial geometry match the study. The bundle includes selection/rejection
+   are supplied explicitly and checked against an independently reviewed construction
+   report whose source and initial geometry match the study. The bundle includes selection/rejection
    provenance, reference/start data, L2/L3 meshes, native requests and separate
    geometry queries. Preparation launches no solver.
 
@@ -101,7 +109,8 @@ directory in a reviewed checkout, held fixed through execution and reporting.
      --capture "$NEW_CAPTURE" --manifest-sha256 "$CAPTURE_SHA256" \
      --git-repo "$GIT_REPO" --reviewed-commit "$PRODUCER_COMMIT" \
      --capture-tool-commit "$CAPTURE_TOOL_COMMIT" \
-     --mesh-evidence-commit "$MESH_EVIDENCE_COMMIT" --out "$NEW_BUNDLE"
+     --mesh-evidence-commit "$MESH_EVIDENCE_COMMIT" \
+     --l3-mesh "$REGENERATED_L3_MESH" --out "$NEW_BUNDLE"
    ```
 
    `study_selection.py` also exposes the standalone selection manifest, using

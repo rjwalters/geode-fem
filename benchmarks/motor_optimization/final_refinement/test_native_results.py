@@ -1,12 +1,13 @@
 """Replay real native outputs with a synthetic selection context; no new FEM.
 
-Archived waveforms, requests, geometry and meshes remain unchanged. The two lhs1
+Archived waveforms, requests and geometry remain unchanged. Meshes are regenerated
+from pinned source and checked against the original byte digests. The two lhs1
 points are put into the cohort with invented feasible selection values solely to
 exercise reporting of their actual, infeasible final-check outcomes. This fixture
 is neither a closed main study nor evidence of optimizer success.
 """
 import copy
-import gzip
+from mesh_test_support import mesh_bytes, hydrate
 import json
 from pathlib import Path
 import shutil
@@ -30,13 +31,14 @@ class NativeResultsTests(unittest.TestCase):
         cls.definitions = definitions()
         for name, target in [('native_refinement_63b3e3d8.tar.gz', 'native'),
                              ('native_matrix_63b3e3d8.tar.gz', 'matrix')]:
-            pinned = {'native_refinement_63b3e3d8.tar.gz':'eac07e2ce0a71d45b77e7c7c33cf856206563272f9d63515d36690c5209698bc',
-                      'native_matrix_63b3e3d8.tar.gz':'1c4242794fd7056a17fd4a62e063661875a779451dfe41c240f73b8ead03f337'}
+            pinned = {'native_refinement_63b3e3d8.tar.gz':'38b579ae8a76bf49617572afd4e0e145c8cdecc549b018a9a7837f6399a3970a',
+                      'native_matrix_63b3e3d8.tar.gz':'f2d40092edce01a8227cdbb27ab92a534ecfc04174a4d21f2dc88c0d5bf6948a'}
             assert digest(HERE/'smoke'/name) == pinned[name]
             with tarfile.open(HERE/'smoke'/name) as archive:
                 archive.extractall(cls.root/target, filter='data')
+            hydrate(cls.root/target)
         l2 = cls.root/'L2.msh'
-        l2.write_bytes(gzip.decompress((HERE/'smoke/native_binding_L2.msh.gz').read_bytes()))
+        l2.write_bytes(mesh_bytes('00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5'))
         assert digest(l2) == '00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5'
         l3 = cls.root/'matrix/l3-mesh/icem_initial_sector_L3.msh'
         cls.meshes = {2: {'path':l2, 'sha256':digest(l2)}, 3: {'path':l3, 'sha256':digest(l3)}}

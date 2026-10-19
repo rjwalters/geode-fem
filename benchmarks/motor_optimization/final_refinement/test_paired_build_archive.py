@@ -9,13 +9,15 @@ import tempfile
 import unittest
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0,str(HERE))
+import refinement_build
 
 
 class PairedBuildArchiveTests(unittest.TestCase):
     def test_copied_real_build_and_archived_process_evidence(self):
         archive = HERE / 'smoke/paired_build_1c6784e7.tar.gz'
         self.assertEqual(hashlib.sha256(archive.read_bytes()).hexdigest(),
-                         'bcda844984de44312be6c2655285f11f24a37127f0603f79da056d57049b4063')
+                         'dcfa18714a6a45339fce049ef398ab0094bb1f4acd12368c1b67c370c50706c4')
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             with tarfile.open(archive) as tar:
@@ -28,8 +30,10 @@ class PairedBuildArchiveTests(unittest.TestCase):
                     self.assertFalse(path.is_absolute())
                     self.assertNotIn('..', path.parts)
                     self.assertIn(member.mode, (0o644, 0o555))
-                # Preserve the retained 0555 binary modes checked by the census.
                 tar.extractall(root, filter='tar')
+            metadata=json.loads((root/'executors/executors.json').read_text())
+            with self.assertRaisesRegex(ValueError,'paired build census changed'):
+                refinement_build._verify(root/'executors',metadata,{},metadata['function_source_sha256'])
             replay = subprocess.run(
                 [sys.executable, '-I', str(root / 'replay.py'), str(HERE.parents[2])],
                 text=True, capture_output=True)
@@ -45,6 +49,7 @@ class PairedBuildArchiveTests(unittest.TestCase):
                 'icem_harness_eval': 'e6ccc3d6ba11d5e4711bd0275bc8e0a80fbe3247f06aeefa81923437436d8f34',
                 'icem_final_refinement': 'a96ab99cf18540a3028d463e6cd171c06959a6fada4d10e215aeebc376ec4f11'})
             self.assertFalse(result['can_launch'])
+            self.assertFalse(result['binary_bytes_verified'])
 
 
 if __name__ == '__main__':

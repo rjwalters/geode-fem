@@ -35,7 +35,7 @@ GEOMETRY_SOURCES=('benchmarks/motor_reference/geometry/build_sector_mesh.py',
 def _digest(raw):return hashlib.sha256(raw).hexdigest()
 
 
-def _l3(repo, commit, *, producer_commit, reference):
+def _l3(repo, commit, *, producer_commit, reference, l3_mesh):
     if type(commit) is not str or re.fullmatch('[0-9a-f]{40}',commit) is None:
         raise ValueError('independently reviewed full mesh-evidence commit required')
     hashes={}
@@ -47,10 +47,13 @@ def _l3(repo, commit, *, producer_commit, reference):
     raw=producer_source.git(repo,'show',commit+':'+ARCHIVE)
     with tarfile.open(fileobj=io.BytesIO(raw),mode='r:gz') as archive:
         contents={}
-        for name in (MESH,REPORT):
+        for name in (REPORT,):
             members=[m for m in archive.getmembers() if m.name==name]
             if len(members)!=1 or not members[0].isfile():raise ValueError('missing or redirected reviewed L3 evidence')
             contents[name]=archive.extractfile(members[0]).read()
+    mesh_path=Path(l3_mesh)
+    if mesh_path.is_symlink() or not mesh_path.is_file():raise ValueError('missing or redirected external L3 mesh')
+    contents[MESH]=mesh_path.read_bytes()
     report=_json(contents[REPORT]);provenance=report['provenance']
     sources=_json(producer_source.git(repo,'show',commit+':benchmarks/motor_reference/sources.json'))
     exports={f['path']:f['sha256'] for f in sources['files']}
@@ -65,7 +68,7 @@ def _l3(repo, commit, *, producer_commit, reference):
     evidence={'commit':commit,'archive':ARCHIVE,'archive_sha256':_digest(raw),
               'construction_source_sha256':hashes,'mesh_sha256':_digest(contents[MESH]),
               'report_sha256':_digest(contents[REPORT]),
-              'scope':'Bytes from independently reviewed retained L3 construction evidence; no new mesh construction performed.'}
+              'scope':'External mesh bytes checked against independently reviewed L3 construction report and unchanged study geometry sources.'}
     return contents[MESH],contents[REPORT],evidence
 
 
@@ -96,7 +99,7 @@ def _schedule(result,definitions,meshes):
 
 
 def prepare(capture_root, *, manifest_sha256, git_repo, reviewed_commit, capture_tool_commit,
-            mesh_evidence_commit, out):
+            mesh_evidence_commit, l3_mesh, out):
     root=directory(capture_root);repo=Path(git_repo).resolve(strict=True)
     out=Path(out).absolute();directory(out.parent)
     if out.exists() or out.is_symlink() or any(out==p or p in out.parents for p in (root,repo)):
@@ -109,7 +112,7 @@ def prepare(capture_root, *, manifest_sha256, git_repo, reviewed_commit, capture
     definitions=RegisteredDesigns.load(path('reference_data'),path('starts'),
         reference_sha256=inputs['reference_data']['sha256'],starts_sha256=inputs['starts']['sha256'])
     l3,report,evidence=_l3(repo,mesh_evidence_commit,producer_commit=reviewed_commit,
-                         reference=_json(path('reference_data').read_bytes()))
+                         reference=_json(path('reference_data').read_bytes()),l3_mesh=l3_mesh)
     out.mkdir();(out/'inputs').mkdir()
     try:
         for source,dest in (('reference_data','reference_data.json'),('starts','starts.json'),('validation_mesh','L2.msh')):
@@ -178,7 +181,7 @@ def verify(root, *, manifest_sha256):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    for key in ('capture','manifest-sha256','git-repo','reviewed-commit','capture-tool-commit','mesh-evidence-commit','out'):
+    for key in ('capture','manifest-sha256','git-repo','reviewed-commit','capture-tool-commit','mesh-evidence-commit','l3-mesh','out'):
         parser.add_argument('--'+key,required=True)
     args=vars(parser.parse_args());root=args.pop('capture')
     print(json.dumps(prepare(root,**args)))

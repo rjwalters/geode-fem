@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import signal
+import shutil
 import sys
 import tempfile
 import time
@@ -128,6 +129,29 @@ class RefinementRunTests(unittest.TestCase):
         next(e for e in events if e['kind']=='owned_process_reaped')['receipt']['returncode']=9
         with self.assertRaisesRegex(ValueError,'journaled process outcome'):
             run._verify_rows(self.root/'execution',self.manifest,self.config['bundle'],events)
+
+    def test_finalize_rejects_same_length_changed_schedule_identity(self):
+        # Rehash execution.json so each mutation reaches the frozen identity
+        # comparison, rather than merely tripping the outer receipt hash.
+        for kind in ('reorder', 'design', 'check', 'directory'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp).resolve(); execution=root/'execution'
+                shutil.copytree(self.root/'execution',execution)
+                changed=copy.deepcopy(self.manifest)
+                rows=changed['rows']
+                if kind=='reorder':rows[0],rows[1]=rows[1],rows[0]
+                elif kind=='design':rows[0]['key']='another-design'
+                elif kind=='check':rows[2]['key']='a/different-check'
+                else:rows[2]['output_directory']=rows[3]['output_directory']
+                path=execution/'execution.json';path.write_text(json.dumps(changed)+'\n')
+                sha=hashlib.sha256(path.read_bytes()).hexdigest()
+                with (mock.patch.object(run.refinement_environment,'verify',return_value=self.config['environment']),
+                      mock.patch.object(run.refinement_bundle,'verify',return_value=self.config['bundle'])):
+                    with self.assertRaisesRegex(ValueError,'complete frozen schedule'):
+                        run.finalize(execution,sha256=sha,
+                            environment_path=self.root/'environment.json',
+                            environment_sha256=self.config['environment_sha256'],
+                            out=root/'finalized.json',**self.config['arguments'])
 
     def test_changed_evidence_digest_and_extra_output_refused(self):
         with self.assertRaisesRegex(ValueError,'retained receipt'):

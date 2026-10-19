@@ -15,7 +15,7 @@ class RunnerNativeArchiveTests(unittest.TestCase):
     def test_relocated_native_archive_process_and_scientific_adapter_replay(self):
         archive = HERE / 'smoke/runner_native_1885192d.tar.gz'
         self.assertEqual(hashlib.sha256(archive.read_bytes()).hexdigest(),
-                         '664c9a2facce6e2b41c0e37970a967805096baf86f0cd82e2fa8d4dfceb5afbd')
+                         '2e00036fa95ae152ecdd21b7243c6c739cf550842148bc381606c71163e4003b')
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             with tarfile.open(archive) as tar:

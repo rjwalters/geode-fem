@@ -19,7 +19,7 @@ class MainTraceSchemaTests(unittest.TestCase):
     def test_actual_l0_trace_preserves_all_six_validations_and_ledger_prefixes(self):
         archive=HERE/'smoke/main_first_terminal_schema.tar.gz'
         self.assertEqual(hashlib.sha256(archive.read_bytes()).hexdigest(),
-                         '6acb09661166cfd849f661fe71ec26b38f3d60da0d1c944c0dceb4ee02bbf126')
+                         '9118169062c2825185e14e9bdd25d8c5163b2442b7fabef8aab920ee50b2ce62')
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp).resolve()
             with tarfile.open(archive) as tar:tar.extractall(root,filter='data')

@@ -920,12 +920,12 @@ jobs:
               -s benchmarks/motor_optimization/harness -p 'test_*.py' -v
 
   motor-final-refinement:
-    # Stdlib-only selection, archived native evidence, and controlled child
+    # Selection, archived native records, regenerated meshes and controlled child
     # processes. Historical Git objects are required for source/receipt replay;
     # this job does not compile or execute an archived native binary.
     name: motor final refinement tests (python, linux)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -937,6 +937,13 @@ jobs:
           python-version: '3.12'
 
       - name: Complete final-refinement regression suite
+        env:
+          GEODE_REFINEMENT_MESH_CACHE: /tmp/final-refinement-meshes
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libglu1-mesa
+          python -m pip install numpy==2.5.4 gmsh==4.15.2
+          python -I benchmarks/motor_optimization/final_refinement/smoke/regenerate_meshes.py \
+              --out "$GEODE_REFINEMENT_MESH_CACHE"
           python -I -m unittest discover \
               -s benchmarks/motor_optimization/final_refinement -p 'test_*.py' -v

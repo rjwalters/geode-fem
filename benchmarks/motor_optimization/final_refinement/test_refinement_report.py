@@ -66,7 +66,7 @@ class RefinementReportTests(unittest.TestCase):
         cls.metadata = {'rows': rows}
         witness = cls.base / 'witness'
         archive = HERE / 'smoke/runner_native_1885192d.tar.gz'
-        assert reporting.producer_source.digest(archive) == '664c9a2facce6e2b41c0e37970a967805096baf86f0cd82e2fa8d4dfceb5afbd'
+        assert reporting.producer_source.digest(archive) == '2e00036fa95ae152ecdd21b7243c6c739cf550842148bc381606c71163e4003b'
         with tarfile.open(archive) as tar:
             tar.extractall(witness, filter='data')
         shutil.copyfile(witness/'environment-current.json', witness/'execution/environment-original.json')

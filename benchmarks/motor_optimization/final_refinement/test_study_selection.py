@@ -6,7 +6,7 @@ evidence. Neither is a closed main study or measured optimization result.
 """
 import copy
 import hashlib
-import gzip
+from mesh_test_support import mesh_bytes
 import importlib
 import json
 import math
@@ -209,7 +209,7 @@ class StudySelectionTests(unittest.TestCase):
             path=Path(item['path']);path.parent.mkdir(parents=True,exist_ok=True)
             if name in ('binary','build_receipt'):continue
             if name.startswith('training_'):content=('synthetic mesh '+name[-2:]).encode()
-            elif name=='validation_mesh':content=gzip.decompress((HERE/'smoke/native_binding_L2.msh.gz').read_bytes())
+            elif name=='validation_mesh':content=mesh_bytes('00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5')
             elif name in ('anchor','starts'):content=self.b.inputs[name].read_bytes()
             else:raise AssertionError('unhandled input '+name)
             path.write_bytes(content);assert digest(path)==item['sha256'],name

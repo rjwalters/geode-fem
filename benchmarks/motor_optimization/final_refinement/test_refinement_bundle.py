@@ -13,6 +13,7 @@ from unittest import mock
 
 HERE=Path(__file__).resolve().parent;REPO=HERE.parents[2];sys.path.insert(0,str(HERE))
 import refinement_bundle as bundle
+from mesh_test_support import CACHE, hydrate
 from closed_capture import census
 
 MESH_COMMIT='df83693b6a7af6badb5a8e18dcd4b27393d17c14'
@@ -23,13 +24,14 @@ class RefinementBundleTests(unittest.TestCase):
     def setUpClass(cls):
         cls.temp=tempfile.TemporaryDirectory();cls.base=Path(cls.temp.name).resolve()
         archive=HERE/'smoke/synthetic_scientific_selection.tar.gz'
-        assert hashlib.sha256(archive.read_bytes()).hexdigest()=='1586dcb76f8e53fe3bbdd2cd59bd512e1f45d70d69d38d783985812041760e79'
+        assert hashlib.sha256(archive.read_bytes()).hexdigest()=='c08325dc9e1ab75e3739aab08a266330023dbac1d75b35eebf7b3ab8eb6b41a2'
         with tarfile.open(archive) as tar:
             assert all(m.isfile() and not Path(m.name).is_absolute() and '..' not in Path(m.name).parts and not m.mode&0o7000 for m in tar.getmembers())
             tar.extractall(cls.base/'fixture',filter='tar')
+        hydrate(cls.base/'fixture')
         cls.capture=cls.base/'fixture/capture'
         ids=json.loads((cls.base/'fixture/identities.json').read_text());ids.pop('scope')
-        cls.args={**ids,'git_repo':REPO,'mesh_evidence_commit':MESH_COMMIT}
+        cls.args={**ids,'git_repo':REPO,'mesh_evidence_commit':MESH_COMMIT,'l3_mesh':CACHE/'614bf98c36e105adca2b6f811f09ebe4aa1c4d1c0a456eb8c3041bf81bdd584a'}
         cls.before=census(cls.capture)
         cls.receipt=bundle.prepare(cls.capture,out=cls.base/'prepared',**cls.args)
         assert census(cls.capture)==cls.before
@@ -79,7 +81,7 @@ class RefinementBundleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'new directory'):bundle.prepare(self.capture,out=self.capture/'new',**self.args)
     def test_mesh_evidence_revision_is_independently_pinned(self):
         with self.assertRaisesRegex(ValueError,'full mesh-evidence commit'):
-            bundle._l3(REPO,'HEAD',producer_commit=self.args['reviewed_commit'],reference={})
+            bundle._l3(REPO,'HEAD',producer_commit=self.args['reviewed_commit'],reference={},l3_mesh=self.args['l3_mesh'])
     def test_changed_l3_construction_source_refused(self):
         original=bundle.producer_source.git
         def altered(repo,*args):
@@ -88,11 +90,32 @@ class RefinementBundleTests(unittest.TestCase):
             return raw
         with mock.patch.object(bundle.producer_source,'git',side_effect=altered):
             with self.assertRaisesRegex(ValueError,'construction sources differ'):
-                bundle._l3(REPO,MESH_COMMIT,producer_commit=self.args['reviewed_commit'],reference={})
+                bundle._l3(REPO,MESH_COMMIT,producer_commit=self.args['reviewed_commit'],reference={},l3_mesh=self.args['l3_mesh'])
 
     def test_l3_report_must_match_study_upstream_reference(self):
         with self.assertRaisesRegex(ValueError,'initial geometry/provenance'):
-            bundle._l3(REPO,MESH_COMMIT,producer_commit=self.args['reviewed_commit'],reference={'source_commit':'0'*40})
+            bundle._l3(REPO,MESH_COMMIT,producer_commit=self.args['reviewed_commit'],reference={'source_commit':'0'*40},l3_mesh=self.args['l3_mesh'])
+
+    def test_external_l3_mesh_must_match_reviewed_report_bytes(self):
+        reference=json.loads((REPO/'benchmarks/motor_reference/reference_data.json').read_text())
+        bad=Path(self.temp.name)/'bad.msh';bad.write_bytes(b'not the reviewed mesh')
+        with self.assertRaisesRegex(ValueError,'initial geometry/provenance'):
+            bundle._l3(REPO,MESH_COMMIT,producer_commit=self.args['reviewed_commit'],reference=reference,l3_mesh=bad)
+        link=Path(self.temp.name)/'linked.msh';link.symlink_to(self.args['l3_mesh'])
+        with self.assertRaisesRegex(ValueError,'redirected external L3 mesh'):
+            bundle._l3(REPO,MESH_COMMIT,producer_commit=self.args['reviewed_commit'],reference=reference,l3_mesh=link)
+
+    def test_report_only_archive_binds_supplied_external_mesh(self):
+        original=bundle.producer_source.git
+        def stripped(repo,*args):
+            if args==('show',MESH_COMMIT+':'+bundle.ARCHIVE):return (REPO/bundle.ARCHIVE).read_bytes()
+            return original(repo,*args)
+        reference=json.loads((REPO/'benchmarks/motor_reference/reference_data.json').read_text())
+        with mock.patch.object(bundle.producer_source,'git',side_effect=stripped):
+            mesh,_,evidence=bundle._l3(REPO,MESH_COMMIT,producer_commit=self.args['reviewed_commit'],
+                reference=reference,l3_mesh=self.args['l3_mesh'])
+        self.assertEqual(hashlib.sha256(mesh).hexdigest(),evidence['mesh_sha256'])
+        self.assertEqual(evidence['archive_sha256'],hashlib.sha256((REPO/bundle.ARCHIVE).read_bytes()).hexdigest())
 
     def test_cli_builds_same_request_bundle(self):
         out=Path(self.temp.name).resolve()/'cli'

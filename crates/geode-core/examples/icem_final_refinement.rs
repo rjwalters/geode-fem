@@ -19,7 +19,7 @@ mod refinement;
 #[path = "../tests/common/motor_resources.rs"]
 mod resources;
 use icem_experiment2::{FrozenSpace, sha256_hex, space_a, space_b};
-use icem_remesh::{CpSpace, ScalarSpace, Space};
+use icem_remesh::Space;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
