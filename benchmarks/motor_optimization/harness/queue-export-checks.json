@@ -1,0 +1,50 @@
+{
+  "scope": "Private queue-export and affected scheduling tests; no native build or FEM/main execution",
+  "sources": {
+    "main_schedule.py": "68d3e421bd1405bc6238134f6de24bf3fbef39961b024232f2f5785ce9cd5443",
+    "export_queue.py": "c8c1fdb9534bd0cac175238eab70ada45b14145845bb7e1f896171231d2ffee3",
+    "session.py": "89d9875a27f77d9b3f1a0485d3d69996db065aed519f738660636d6dd32a4957",
+    "test_queue_export.py": "e5f35c50421dd684f46d1981b1a7b2e75d3f7a5e3ccbd22f9747c0a316cadbc8",
+    "test_session_journal.py": "89d7880c8bd48eae25138100e08289a7317fad23465a505b66b8a347c535ae07",
+    "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8",
+    "test_baseline_wiring.py": "822d009c09260270c3db7f3598aa27cfa434978df31d8255925bd1762ca28d78"
+  },
+  "tests": [
+    {
+      "command": [
+        "benchmarks/motor_optimization/harness/pyrun.sh",
+        "benchmarks/motor_optimization/harness/test_queue_export.py"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "....\n----------------------------------------------------------------------\nRan 4 tests in 1.377s\n\nOK\n"
+    },
+    {
+      "command": [
+        "benchmarks/motor_optimization/harness/pyrun.sh",
+        "benchmarks/motor_optimization/harness/test_main_preparation.py"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "............\n----------------------------------------------------------------------\nRan 12 tests in 0.246s\n\nOK\n"
+    },
+    {
+      "command": [
+        "benchmarks/motor_optimization/harness/pyrun.sh",
+        "benchmarks/motor_optimization/harness/test_session_journal.py"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "test_attempt_started_and_finished_are_durable_and_trace_cannot_be_overwritten (__main__.JournalTests.test_attempt_started_and_finished_are_durable_and_trace_cannot_be_overwritten) ... ok\ntest_immutable_calibration_is_archived_before_rejection (__main__.JournalTests.test_immutable_calibration_is_archived_before_rejection) ... ok\ntest_load_samples_are_saved_before_monitor_stop (__main__.JournalTests.test_load_samples_are_saved_before_monitor_stop) ... ok\ntest_main_freezes_full_queue_and_transient_deferral_is_not_an_unresolved_job (__main__.JournalTests.test_main_freezes_full_queue_and_transient_deferral_is_not_an_unresolved_job) ... ok\ntest_parallel_appends_survive_close_and_refuse_reuse (__main__.JournalTests.test_parallel_appends_survive_close_and_refuse_reuse) ... ok\ntest_rejected_primary_or_secondary_calibration_cannot_dispatch (__main__.JournalTests.test_rejected_primary_or_secondary_calibration_cannot_dispatch) ... ok\ntest_torn_final_event_never_becomes_a_completed_attempt (__main__.JournalTests.test_torn_final_event_never_becomes_a_completed_attempt) ... ok\ntest_worker_exception_is_not_lost_from_scheduler_results (__main__.JournalTests.test_worker_exception_is_not_lost_from_scheduler_results) ... ok\n\n----------------------------------------------------------------------\nRan 8 tests in 0.789s\n\nOK\n"
+    },
+    {
+      "command": [
+        "benchmarks/motor_optimization/harness/pyrun.sh",
+        "benchmarks/motor_optimization/harness/test_baseline_wiring.py"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "test_bad_common_units_are_refused (__main__.BaselineWiringTests.test_bad_common_units_are_refused) ... ok\ntest_l0_cannot_silently_use_a_legacy_or_mislabelled_model (__main__.BaselineWiringTests.test_l0_cannot_silently_use_a_legacy_or_mislabelled_model) ... ok\ntest_l0_weights_use_common_unit_despite_different_local_validation_timing (__main__.BaselineWiringTests.test_l0_weights_use_common_unit_despite_different_local_validation_timing) ... ok\ntest_main_registry_builds_all_paired_jobs_and_retains_pilot_order (__main__.BaselineWiringTests.test_main_registry_builds_all_paired_jobs_and_retains_pilot_order) ... ok\ntest_shared_optimizer_paths_and_slsqp_restart_record (__main__.BaselineWiringTests.test_shared_optimizer_paths_and_slsqp_restart_record) ... ok\ntest_training_selection_keeps_one_validator_and_anchor (__main__.BaselineWiringTests.test_training_selection_keeps_one_validator_and_anchor) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.001s\n\nOK\n"
+    }
+  ]
+}

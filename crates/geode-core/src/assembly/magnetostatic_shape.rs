@@ -65,7 +65,25 @@
 //!   sum written with the centroid `c` (`r B_r B_θ = (B·c)(B·c^⊥)/|c|`). It
 //!   depends on `X` explicitly through `|T|`, `B` and `c`; those terms are
 //!   included, so a velocity that moves band nodes off the coupling circle
-//!   is handled exactly too.
+//!   is handled exactly too. The value is the air-gap torque only while
+//!   each band region is the annulus it is normalised by. A design that
+//!   moves a band boundary far (the free-form rotor offsets of the Opt120
+//!   design move the rotor surface from 44.0 to about 42.6 mm) breaks that.
+//!   [`SectorShapeProblem::solve`] and
+//!   [`SectorShapeProblem::torque_gradient`] therefore both return
+//!   [`SectorError::InvalidInput`] when a band's mesh area is more than
+//!   [`ARKKIO_BAND_AREA_TOL`] away from its annulus
+//!   ([`arkkio_band_areas`]). They do not switch band silently: the
+//!   objective would change definition mid-optimization. The caller picks
+//!   a band that keeps its annulus or the coupling torque (issue #1183).
+//!   Under the **rotor** offsets the outer band (coupling circle to stator
+//!   bore) keeps its annulus. Under the stator offsets it does not: at
+//!   their bounds `CPS1..3` put it 0.535/0.233/0.239 off. With stator
+//!   offsets in conforming mode neither Arkkio functional is valid. An
+//!   accepted band can still be sheared: on a moved mesh with `SW2` off
+//!   nominal the outer-band Arkkio is about 1% below the coupling torque at
+//!   every mesh level. It is a consistent, exactly differentiated
+//!   functional, but not a calibrated torque.
 //! * [`ShapeTorque::Coupling`]: the harmonic coupling torque
 //!   `T = −L λᵀ D A` of [`SlidingBand::harmonic_coupling_torque`]
 //!   (`D = ∂(Gᵀ A)/∂β`). `D` lives on the coupling circle, so `T` has no
@@ -150,6 +168,101 @@ pub struct ArkkioTerm {
     pub r_inner: f64,
     /// Outer radius of the normalising annulus (m).
     pub r_outer: f64,
+}
+
+/// Relative tolerance of the Arkkio band-area check
+/// ([`arkkio_band_areas`]): the mesh area behind an annulus may differ from
+/// the annulus by at most this fraction. On the ICEM initial-design L0 mesh
+/// the departure (P1 chords) is `3.7e-5` for the 44.0-45.0 mm both-band group
+/// and `8.4e-5` for the outer band. On the initial-design meshes it shrinks
+/// with refinement; on a moved mesh it is set by the design, not the level.
+/// The free-form Opt120 rotor surface makes the both-band group `1.615`
+/// times its annulus (the inner band `2.237` times its own). Opt120's offsets
+/// scaled by 0.001 / 0.003 / 0.01 give `5.9e-4` (accepted) / `1.8e-3` /
+/// `6.2e-3` (rejected), which `tests/motor_arkkio_band_guard.rs` pins
+/// (issue #1183).
+pub const ARKKIO_BAND_AREA_TOL: f64 = 1e-3;
+
+/// The triangles behind one Arkkio normalising annulus, against that
+/// annulus (see [`arkkio_band_areas`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArkkioBandArea {
+    /// Inner radius of the annulus (m).
+    pub r_inner: f64,
+    /// Outer radius of the annulus (m).
+    pub r_outer: f64,
+    /// Tags of the [`ArkkioTerm`]s normalised by this annulus, in order.
+    pub tags: Vec<i32>,
+    /// Summed mesh area of those terms' triangles (m²).
+    pub mesh_area: f64,
+    /// `(sector_angle / 2) (r_outer² − r_inner²)` (m²).
+    pub annulus_area: f64,
+}
+
+impl ArkkioBandArea {
+    /// `mesh_area / annulus_area`.
+    pub fn ratio(&self) -> f64 {
+        self.mesh_area / self.annulus_area
+    }
+
+    /// Whether the ratio is within [`ARKKIO_BAND_AREA_TOL`] of 1.
+    pub fn is_valid(&self) -> bool {
+        (self.ratio() - 1.0).abs() <= ARKKIO_BAND_AREA_TOL
+    }
+}
+
+/// Band areas behind each Arkkio annulus of `terms` on `mesh`, a sector of
+/// angle `sector_angle` (rad; `2π` for a full disk).
+///
+/// The Arkkio torque `L/(μ₀(r_o − r_i)) ∫ r B_r B_θ dA` is the air-gap
+/// torque only if the integration region **is** the annulus
+/// `[r_i, r_o]`. Terms that share an annulus (bitwise-equal radii) are
+/// pieces of it and are grouped, so the two-band ICEM functional (tags 4
+/// and 5, both normalised by 44.0–45.0 mm) is one group. When a design moves
+/// a band boundary (the free-form rotor offsets move the rotor surface to
+/// about 42.6 mm), the band triangles cover more than the annulus. The
+/// `1/(r_o − r_i)` factor then no longer averages over the band, and the
+/// value is wrong (Opt120: 2.30 N m against about 1.31 N m, issue #1183).
+/// Groups are returned in first-appearance order.
+pub fn arkkio_band_areas(
+    mesh: &TriMesh,
+    tags: &[i32],
+    terms: &[ArkkioTerm],
+    sector_angle: f64,
+) -> Vec<ArkkioBandArea> {
+    let mut out: Vec<ArkkioBandArea> = Vec::new();
+    for term in terms {
+        let area: f64 = mesh
+            .tris
+            .iter()
+            .zip(tags)
+            .filter(|(_, t)| **t == term.tag)
+            .map(|(tri, _)| {
+                let [p, q, r] = tri.map(|i| mesh.nodes[i as usize]);
+                0.5 * ((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])).abs()
+            })
+            .sum();
+        let same = |b: &ArkkioBandArea| {
+            b.r_inner.to_bits() == term.r_inner.to_bits()
+                && b.r_outer.to_bits() == term.r_outer.to_bits()
+        };
+        match out.iter_mut().find(|b| same(b)) {
+            Some(b) => {
+                b.tags.push(term.tag);
+                b.mesh_area += area;
+            }
+            None => out.push(ArkkioBandArea {
+                r_inner: term.r_inner,
+                r_outer: term.r_outer,
+                tags: vec![term.tag],
+                mesh_area: area,
+                annulus_area: 0.5
+                    * sector_angle
+                    * (term.r_outer * term.r_outer - term.r_inner * term.r_inner),
+            }),
+        }
+    }
+    out
 }
 
 /// The torque functional to differentiate.
@@ -465,6 +578,22 @@ impl SectorShapeProblem {
         Ok(())
     }
 
+    /// [`arkkio_band_areas`] of `terms` on this design's mesh (the sector of
+    /// the band). [`solve`](Self::solve) and
+    /// [`torque_gradient`](Self::torque_gradient) reject a
+    /// [`ShapeTorque::Arkkio`] whose groups are not all
+    /// [`valid`](ArkkioBandArea::is_valid), so the forward torque and its
+    /// gradient are refused together; a caller can query this first to pick
+    /// a valid band.
+    pub fn arkkio_band_areas(&self, terms: &[ArkkioTerm]) -> Vec<ArkkioBandArea> {
+        arkkio_band_areas(
+            self.band.mesh(),
+            self.band.tri_tags(),
+            terms,
+            self.band.sector_angle(),
+        )
+    }
+
     /// Winding-group areas `A_g` (m²) in use: the mesh areas at the current
     /// node positions, or the fixed ones.
     pub fn group_areas(&self) -> Vec<f64> {
@@ -594,6 +723,21 @@ impl SectorShapeProblem {
                     t.r_outer.partial_cmp(&t.r_inner) != Some(std::cmp::Ordering::Greater)
                 }) {
                     return Err(invalid(format!("Arkkio band {t:?}: r_outer <= r_inner")));
+                }
+                if let Some(b) = self.arkkio_band_areas(terms).iter().find(|b| !b.is_valid()) {
+                    return Err(invalid(format!(
+                        "Arkkio annulus [{:e}, {:e}] m (tags {:?}): the band triangles' area \
+                         {:.9e} m² is {:.6} times the annulus area {:.9e} m² (tolerance \
+                         {ARKKIO_BAND_AREA_TOL:e}), so the 1/(r_o - r_i) normalisation does not \
+                         hold; the design has moved a band boundary. Use an Arkkio term over a \
+                         band that keeps its annulus, or the coupling torque (issue #1183)",
+                        b.r_inner,
+                        b.r_outer,
+                        b.tags,
+                        b.mesh_area,
+                        b.ratio(),
+                        b.annulus_area
+                    )));
                 }
                 Ok(())
             }
@@ -1252,6 +1396,57 @@ mod tests {
                 [4, 8, 7],
             ],
         }
+    }
+
+    /// Issue #1183: terms sharing an annulus are grouped, the area of a band
+    /// that is its annulus passes, and a band whose inner boundary moves
+    /// inward is flagged while the untouched band still passes.
+    #[test]
+    fn arkkio_band_areas_group_and_flag_a_moved_boundary() {
+        use crate::analytic::waveguide::{RadialGrading, disk_tri_mesh_bands};
+        let (mut mesh, tags) = disk_tri_mesh_bands(
+            &[0.0, 0.8, 0.9, 1.0],
+            512,
+            &[2, 2, 2],
+            &[RadialGrading::Uniform; 3],
+        );
+        let term = |tag, r_inner, r_outer| ArkkioTerm {
+            tag,
+            r_inner,
+            r_outer,
+        };
+        let tau = std::f64::consts::TAU;
+        let both = [term(1, 0.8, 1.0), term(2, 0.8, 1.0)];
+        let halves = [term(1, 0.8, 0.9), term(2, 0.9, 1.0)];
+        let g = arkkio_band_areas(&mesh, &tags, &both, tau);
+        assert_eq!(g.len(), 1);
+        assert_eq!(g[0].tags, vec![1, 2]);
+        assert!((g[0].annulus_area - 0.5 * tau * 0.36).abs() < 1e-15);
+        assert!(
+            g[0].is_valid() && (g[0].ratio() - 1.0).abs() < 1e-4,
+            "{g:?}"
+        );
+        let g = arkkio_band_areas(&mesh, &tags, &halves, tau);
+        assert_eq!(g.len(), 2);
+        assert!(g.iter().all(ArkkioBandArea::is_valid), "{g:?}");
+        // A repeated band counts twice.
+        let g = arkkio_band_areas(&mesh, &tags, &[term(2, 0.9, 1.0), term(2, 0.9, 1.0)], tau);
+        assert!(!g[0].is_valid() && (g[0].ratio() - 2.0).abs() < 1e-3);
+
+        // Move the 0.8 circle to 0.7: band 1 now covers 0.7-0.9.
+        for p in mesh.nodes.iter_mut() {
+            let r = p[0].hypot(p[1]);
+            if (r - 0.8).abs() < 1e-9 {
+                p[0] *= 0.875;
+                p[1] *= 0.875;
+            }
+        }
+        let g = arkkio_band_areas(&mesh, &tags, &halves, tau);
+        let expect = (0.81 - 0.49) / (0.81 - 0.64);
+        assert!((g[0].ratio() - expect).abs() < 1e-3 && !g[0].is_valid());
+        assert!(g[1].is_valid(), "{g:?}");
+        let g = arkkio_band_areas(&mesh, &tags, &both, tau);
+        assert!(!g[0].is_valid(), "{g:?}");
     }
 
     #[test]

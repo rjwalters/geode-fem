@@ -1,0 +1,4 @@
+L1 N=240 nodes=9937 tris=19163 minang=13.20 qmin=0.379 worst|dA/A|=1.00e-03 bytes=938761
+L2 N=480 nodes=36083 tris=70757 minang=13.20 qmin=0.378 worst|dA/A|=2.93e-04 bytes=3515287
+L3 N=960 nodes=139268 tris=275736 minang=13.20 qmin=0.383 worst|dA/A|=7.21e-05 bytes=14149864
+wall_s 11.972

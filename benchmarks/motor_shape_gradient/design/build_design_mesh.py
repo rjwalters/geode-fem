@@ -9,7 +9,8 @@ The remeshed cross-check of the design gradients needs meshes of the
 geometry at ``theta0 +- h e_k``, which no upstream export provides. This
 builder meshes the construction of ``geode_core::mesh::icem_parametric``
 directly: ``PLAN.json`` (``icem_design_gradient plan``) lists, per design,
-every material interface and boundary as an exact line or circular arc.
+every material interface and boundary as an exact line or circular arc
+(or, for the control-point plans of issue #1179, an exact rational B-spline).
 Each region is a plane surface bounded by a closed loop of those curves;
 rotor and stator are disjoint parts that meet on two coincident coupling
 arcs, as in ``../../motor_reference/geometry/build_sector_mesh.py``, whose
@@ -47,6 +48,11 @@ STATOR_FRAME0 = 13.0 * math.pi / 36.0
 SLOT_PITCH = math.pi / 18.0
 
 
+#: Exit status and stderr marker of a gmsh meshing failure (issue #1201).
+MESH_FAILURE_EXIT = 3
+MESH_FAILURE_MARKER = "MESH_FAILURE"
+
+
 def require(cond, msg):
     if not cond:
         raise SystemExit(f"FAIL: {msg}")
@@ -76,6 +82,22 @@ class Part:
         require(va != vb, f"{name}: degenerate curve")
         if c["kind"] == "line":
             tag = self.occ.addLine(va, vb)
+        elif c["kind"] == "nurbs":
+            # Free-form control-point plans (issue #1179): an exact rational
+            # B-spline; its end points are the shared vertices, the interior
+            # control points are temporary.
+            inner = [self.occ.addPoint(float(x), float(y), 0.0) for x, y in c["cps"][1:-1]]
+            knots, mults = [], []
+            for k in c["knots"]:
+                if knots and k == knots[-1]:
+                    mults[-1] += 1
+                else:
+                    knots.append(float(k))
+                    mults.append(1)
+            tag = self.occ.addBSpline([va] + inner + [vb], degree=int(c["degree"]),
+                                      weights=[float(w) for w in c["weights"]],
+                                      knots=knots, multiplicities=mults)
+            self.occ.remove([(0, t) for t in inner])
         else:
             centre = self.occ.addPoint(float(c["c"][0]), float(c["c"][1]), 0.0)
             tag = self.occ.addCircleArc(va, centre, vb)
@@ -140,7 +162,11 @@ def winding_tags(curves0):
     return out
 
 
-def build(design, level, n_base, out_dir, wtags):
+def build(design, level, n_base, out_dir, wtags, options=()):
+    """Mesh one design at one level. `options` are (name, value) gmsh
+    options set after the defaults below (the mesh-repair attempts of
+    #1185 amendment 7 §3); gmsh is initialized afresh for every mesh, so
+    nothing carries over from an earlier call."""
     import gmsh
 
     curves = {c["name"]: c for c in design["curves"]}
@@ -156,11 +182,18 @@ def build(design, level, n_base, out_dir, wtags):
     stator = Part(occ, "stator", dict(curves))
 
     # ---- rotor: radial edges split at the rotor surface
-    surf = curves["rotor.surface"]
-    for side, end in (("lo", "a"), ("hi", "b")):
-        e = curves[f"rotor.edge_{side}"]
-        rotor.line(f"rotor.edge_{side}_iron", e["a"], surf[end])
-        rotor.line(f"rotor.edge_{side}_gap", surf[end], e["b"])
+    if "rotor.surface" in curves:
+        surface = ["rotor.surface"]
+        surf = curves["rotor.surface"]
+        for side, end in (("lo", "a"), ("hi", "b")):
+            e = curves[f"rotor.edge_{side}"]
+            rotor.line(f"rotor.edge_{side}_iron", e["a"], surf[end])
+            rotor.line(f"rotor.edge_{side}_gap", surf[end], e["b"])
+    else:
+        # Control-point plans (issue #1179): the surface comes in NURBS
+        # pieces and the radial edges are already split at it.
+        surface = [n for n in curves if n.startswith("rotor.surface_")]
+        require(len(surface) == 5, f"expected 5 rotor surface pieces, got {surface}")
     rotor.curves["rotor.coupling"] = dict(curves["coupling"])
     surfaces = {}
     r = "rotor."
@@ -169,10 +202,10 @@ def build(design, level, n_base, out_dir, wtags):
     surfaces["rotor_air"] = [
         rotor.surface([r + f"pocket_{s}_inner", r + f"magnet_side_{s}",
                        r + f"pocket_{s}_outer", r + f"pocket_{s}_bridge"]) for s in ("lo", "hi")]
-    surfaces["airgap_inner"] = [rotor.surface([r + "surface", r + "edge_lo_gap",
-                                               r + "coupling", r + "edge_hi_gap"])]
+    surfaces["airgap_inner"] = [rotor.surface(surface + [r + "edge_lo_gap",
+                                                         r + "coupling", r + "edge_hi_gap"])]
     surfaces["rotor_iron"] = [rotor.surface(
-        [r + "shaft", r + "edge_lo_iron", r + "surface", r + "edge_hi_iron"],
+        [r + "shaft", r + "edge_lo_iron"] + surface + [r + "edge_hi_iron"],
         [[r + "magnet_inner", r + "pocket_lo_inner", r + "pocket_lo_bridge",
           r + "pocket_lo_outer", r + "magnet_outer", r + "pocket_hi_outer",
           r + "pocket_hi_bridge", r + "pocket_hi_inner"]])]
@@ -258,6 +291,8 @@ def build(design, level, n_base, out_dir, wtags):
     gmsh.option.setNumber("Mesh.MshFileVersion", 4.1)
     gmsh.option.setNumber("Mesh.Binary", 0)
     gmsh.option.setNumber("Mesh.SaveAll", 0)
+    for oname, value in options:
+        gmsh.option.setNumber(oname, value)
     gmsh.model.mesh.generate(2)
 
     node_tags, coords, _ = gmsh.model.mesh.getNodes()
@@ -284,6 +319,16 @@ def build(design, level, n_base, out_dir, wtags):
             "min_angle_deg": float(ang.min())}
 
 
+def parse_options(items):
+    """`NAME=VALUE` strings to (name, float) pairs; only `Mesh.` options."""
+    out = []
+    for it in items:
+        name, sep, value = it.partition("=")
+        require(sep == "=" and name.startswith("Mesh."), f"bad --option {it!r}")
+        out.append((name, float(value)))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -293,7 +338,10 @@ def main():
     ap.add_argument("--designs", nargs="*", default=None)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--summary", type=Path, default=None)
+    ap.add_argument("--option", action="append", default=[], metavar="NAME=VALUE",
+                    help="a gmsh option on top of the defaults (repeatable; issue #1201)")
     args = ap.parse_args()
+    options = parse_options(args.option)
     plan = json.loads(args.plan.read_text())
     designs = plan["designs"]
     if args.designs:
@@ -301,9 +349,25 @@ def main():
     theta0 = next(d for d in plan["designs"] if d["name"] == "theta0")
     wtags = winding_tags({c["name"]: c for c in theta0["curves"]})
     rows = []
+    import gmsh  # an import or environment error is not a meshing failure
     for level in args.levels:
         for d in designs:
-            rep = build(d, level, args.n_base, args.out, wtags)
+            try:
+                rep = build(d, level, args.n_base, args.out, wtags, options)
+            except SystemExit:
+                raise
+            except Exception as e:  # noqa: BLE001
+                # gmsh's own failure on this design (issue #1201): a
+                # distinct exit status and marker, so that the caller can
+                # tell a meshing failure (design-dependent) from an
+                # infrastructure one (any other non-zero exit).
+                try:
+                    gmsh.finalize()
+                except Exception:  # noqa: BLE001
+                    pass
+                print(f"{MESH_FAILURE_MARKER}: {d['name']} L{level}: {e}", file=sys.stderr,
+                      flush=True)
+                sys.exit(MESH_FAILURE_EXIT)
             rows.append(rep)
             print(f"{rep['file']}: nodes {rep['nodes']} tris {rep['triangles']} "
                   f"min angle {rep['min_angle_deg']:.2f} deg", flush=True)

@@ -1,0 +1,7 @@
+space b L1 default interior dir h 1.000000e-03: dF/dt reply -4.857373362e-03 FD -4.857426356e-03 rel 1.09e-05; dmean(1)/dt reply 4.851246987e-01 FD 4.851244103e-01 rel 5.94e-07
+space b L1 default interior dir h 1.000000e-04: dF/dt reply -4.857373362e-03 FD -4.857358245e-03 rel 3.11e-06; dmean(1)/dt reply 4.851246987e-01 FD 4.851246947e-01 rel 8.33e-09
+space b L1 default MAG h 1.000000e-06: dF reply -6.511799110e-01 FD -6.511823282e-01 rel 3.71e-06; dmean(1) reply -6.754611572e+01 FD -6.754611372e+01 rel 2.96e-08
+space b L1 default SW2 h 1.000000e-06: dF reply 8.396714552e+00 FD 8.396717353e+00 rel 3.34e-07; dmean(1) reply -4.062003568e+01 FD -4.062003864e+01 rel 7.28e-08
+space b L1 default CPR1 h 1.000000e-06: dF reply -4.021696354e+00 FD -4.021697039e+00 rel 1.70e-07; dmean(1) reply 3.568285532e+01 FD 3.568286490e+01 rel 2.68e-07
+space b L1 default CPS1 h 1.000000e-06: dF reply 2.000552611e+01 FD 2.000551104e+01 rel 7.53e-07; dmean(1) reply -2.126992084e+02 FD -2.126993148e+02 rel 5.00e-07
+exit 0

@@ -40,6 +40,11 @@ reference's, and every other input is the #1168 set-up unchanged.
   reference is 11% below ours. That points the same way but does not
   bound the reference's error. The reference rerun at finer subdivisions
   (Part B of #1170) was skipped: Octave is not installed here.
+- **Update (#1189): the reference's discretization accounts for the cogging
+  gap.** Rerun under Octave with finer subdivisions per patch, the
+  reference's cogging std is 0.01071, 0.01220, 0.01212 and 0.01208 N m at
+  3x3, 6x6, 12x12 and 24x24, against 0.01209 here at L3. See
+  [`../reference_refinement/`](../reference_refinement/README.md).
 
 ![conforming vs harmonic vs reference](icem_harmonic_torque.png)
 

@@ -41,7 +41,10 @@ The full tables are in [`tables.md`](tables.md), condensed in
 [`summary.md`](summary.md); the raw data are in `study.json`. The design
 gradients of the reference's 12 parameters, which combine this adjoint with
 the node motion of #1173, are validated in [`design/`](design/README.md)
-(issue #1177).
+(issue #1177). The guard that rejects an Arkkio functional whose band no
+longer covers its annulus is described in
+[`band_guard/`](band_guard/README.md) (issue #1183). The free-form rotor
+offsets of Opt120 trigger it for the both-band Arkkio.
 
 ## Method
 

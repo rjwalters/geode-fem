@@ -1,0 +1,35 @@
+{
+  "issue": 1177,
+  "winding_tags": {
+    "slot0_outer": 11,
+    "slot0_inner": 12,
+    "slot1_inner": 13,
+    "slot5_outer": 14,
+    "slot1_outer": 15,
+    "slot2_outer": 16,
+    "slot2_inner": 17,
+    "slot3_inner": 18,
+    "slot3_outer": 19,
+    "slot4_inner": 20,
+    "slot4_outer": 21,
+    "slot5_inner": 22
+  },
+  "meshes": [
+    {
+      "design": "theta0",
+      "level": 1,
+      "file": "icem_remesh_theta0_L1.msh",
+      "nodes": 9506,
+      "triangles": 18306,
+      "min_angle_deg": 20.5000000000001
+    },
+    {
+      "design": "opt120",
+      "level": 1,
+      "file": "icem_remesh_opt120_L1.msh",
+      "nodes": 9233,
+      "triangles": 17768,
+      "min_angle_deg": 28.154346164910503
+    }
+  ]
+}

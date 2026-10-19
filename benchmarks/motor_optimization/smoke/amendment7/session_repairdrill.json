@@ -1,0 +1,123 @@
+{
+ "issue": 1201,
+ "label": "smoke",
+ "session_id": "smoke-20261018T125328Z",
+ "budget_fe": 20.0,
+ "checkpoint_fe": 60.0,
+ "unit_seconds": 3.318281604,
+ "weights": {
+  "validation_eval": 1.0,
+  "train_forward_eval": 0.7806954196947054,
+  "adjoint_eval": 0.1750375728509147,
+  "validation_solve": 0.016666666666666666,
+  "train_forward_solve": 0.013011590328245089,
+  "adjoint_solve": 0.0029172928808485783,
+  "validation_solves_per_eval": 60,
+  "train_solves_per_eval": 60
+ },
+ "theta0_train": {
+  "F": 0.008584802316481453,
+  "fractions": [
+   0.0,
+   0.5,
+   1.0
+  ],
+  "mean_full": 1.4475011967377915,
+  "means": [
+   -1.2762695866793371e-06,
+   0.6647621484399652,
+   1.4475011967377915
+  ],
+  "stds": [
+   0.010143707533009428,
+   0.0405590283375799,
+   0.08268538404263241
+  ],
+  "x": [
+   0.007,
+   0.007,
+   0.019,
+   0.004,
+   0.0023,
+   0.001,
+   0.00825,
+   0.001
+  ]
+ },
+ "models": {
+  "L0": {
+   "train_mesh": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh",
+   "train_level": 0,
+   "train_mesh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "theta0_train": {
+    "F": 0.008584802316481453,
+    "fractions": [
+     0.0,
+     0.5,
+     1.0
+    ],
+    "mean_full": 1.4475011967377915,
+    "means": [
+     -1.2762695866793371e-06,
+     0.6647621484399652,
+     1.4475011967377915
+    ],
+    "stds": [
+     0.010143707533009428,
+     0.0405590283375799,
+     0.08268538404263241
+    ],
+    "x": [
+     0.007,
+     0.007,
+     0.019,
+     0.004,
+     0.0023,
+     0.001,
+     0.00825,
+     0.001
+    ]
+   },
+   "weights": {
+    "validation_eval": 1.0,
+    "train_forward_eval": 0.7806954196947054,
+    "adjoint_eval": 0.1750375728509147,
+    "validation_solve": 0.016666666666666666,
+    "train_forward_solve": 0.013011590328245089,
+    "adjoint_solve": 0.0029172928808485783,
+    "validation_solves_per_eval": 60,
+    "train_solves_per_eval": 60
+   }
+  }
+ },
+ "primary_model": "L0",
+ "evaluator": {
+  "binary": "/Volumes/Stripe/cargo-target-1201/release/examples/icem_harness_eval",
+  "train_mesh": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh",
+  "val_mesh": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh",
+  "anchor": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/anchor_L0_smoke.json",
+  "train_level": 0,
+  "val_level": 0,
+  "extra_args": [
+   "--drill-mesher-fails",
+   "1"
+  ]
+ },
+ "starts": "/Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/smoke/amendment7/starts_smoke.json",
+ "procs": 6,
+ "linear_algebra": {
+  "system": "Darwin",
+  "machine": "arm64",
+  "numpy": "2.5.4",
+  "scipy": "1.18.1",
+  "numpy_blas": "accelerate",
+  "numpy_blas_version": "unknown",
+  "numpy_lapack": "accelerate",
+  "numpy_lapack_version": "unknown",
+  "scipy_blas": "Accelerate",
+  "scipy_blas_version": "unknown",
+  "scipy_lapack": "Accelerate",
+  "scipy_lapack_version": "unknown"
+ },
+ "drill": "the first 1 mesher attempts fail"
+}

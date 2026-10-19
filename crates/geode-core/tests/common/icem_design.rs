@@ -169,44 +169,77 @@ impl CurrentRule {
     }
 }
 
+/// Harmonic orders of the validation coupling, n = 3:6:93 (experiment 2,
+/// #1185: twice the reference's n_max = 45).
+pub fn validation_harmonics() -> Vec<usize> {
+    (3..=93).step_by(6).collect()
+}
+
 /// Coupling and torque estimator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     /// Harmonic coupling n = 3:6:45 (the reference model), coupling torque.
+    /// The training model of experiment 2 (#1185).
     H45,
-    /// Conforming band, Arkkio torque over both gap bands.
+    /// Harmonic coupling n = 3:6:93, coupling torque. The validation model
+    /// of experiment 2 (#1185, amendment 1).
+    H93,
+    /// Conforming band, Arkkio torque over both gap bands. Not a valid
+    /// estimator once free-form offsets move a band boundary (#1183).
     Conforming,
+    /// Conforming band, Arkkio torque over the outer gap band only
+    /// (`icem_shape::outer_arkkio_spec`: tag 5, normalised by 44.5-45.0 mm,
+    /// `IcemModel::arkkio(_, 1)`), refused by the band-area guard of
+    /// `SectorShapeProblem::solve` (#1183) if the band left its annulus. The
+    /// conforming spot check of experiment 2: fresh meshes only, designs
+    /// with zero stator offsets only (#1185 amendment 1).
+    ConformingOuter,
 }
 
 impl Mode {
     pub fn key(self) -> &'static str {
         match self {
             Mode::H45 => "h45",
+            Mode::H93 => "h93",
             Mode::Conforming => "conforming",
+            Mode::ConformingOuter => "conforming-outer",
         }
     }
 
     pub fn name(self) -> &'static str {
         match self {
             Mode::H45 => "h45/coupling",
+            Mode::H93 => "h93/coupling",
             Mode::Conforming => "conforming/Arkkio",
+            Mode::ConformingOuter => "conforming/outer-band Arkkio",
         }
     }
 
     pub fn coupling(self) -> CouplingMode {
         match self {
             Mode::H45 => CouplingMode::Harmonic(icem::REFERENCE_HARMONICS.to_vec()),
-            Mode::Conforming => CouplingMode::Conforming,
+            Mode::H93 => CouplingMode::Harmonic(validation_harmonics()),
+            Mode::Conforming | Mode::ConformingOuter => CouplingMode::Conforming,
         }
+    }
+
+    /// Whether the torque is an Arkkio functional (needs a conforming or
+    /// harmonic field, valid only while its band is the annulus).
+    pub fn is_arkkio(self) -> bool {
+        matches!(self, Mode::Conforming | Mode::ConformingOuter)
     }
 
     /// The torque functional at axial length `l_axial`.
     pub fn torque(self, l_axial: f64) -> ShapeTorque {
         match (self, icem_shape::arkkio_spec()) {
-            (Mode::H45, _) => ShapeTorque::Coupling { l_axial },
+            (Mode::H45 | Mode::H93, _) => ShapeTorque::Coupling { l_axial },
             (Mode::Conforming, ShapeTorque::Arkkio { terms, .. }) => {
                 ShapeTorque::Arkkio { terms, l_axial }
             }
+            (Mode::ConformingOuter, _) => match icem_shape::outer_arkkio_spec() {
+                ShapeTorque::Arkkio { terms, .. } => ShapeTorque::Arkkio { terms, l_axial },
+                ShapeTorque::Coupling { .. } => unreachable!("outer_arkkio_spec is Arkkio"),
+            },
             _ => unreachable!("arkkio_spec is an Arkkio functional"),
         }
     }
@@ -214,7 +247,9 @@ impl Mode {
     pub fn parse(s: &str) -> Self {
         match s {
             "h45" => Mode::H45,
+            "h93" => Mode::H93,
             "conforming" => Mode::Conforming,
+            "conforming-outer" => Mode::ConformingOuter,
             o => panic!("unknown mode {o}"),
         }
     }
@@ -227,6 +262,10 @@ pub struct DesignSetup {
     /// The shape problem at the mesh's own node positions (`θ0`).
     pub problem0: SectorShapeProblem,
     pub mode: Mode,
+    /// Rotor angles of the angle set (integer mechanical degrees). Default
+    /// [`OPT_DEGREES`], the reference's 10-angle grid; the pre-registered
+    /// experiment-2 grid g20 is `0..20` (#1185).
+    pub degrees: Vec<i64>,
     /// Wall time of the map's attachment and factorization (s).
     pub map_seconds: f64,
 }
@@ -253,6 +292,7 @@ impl DesignSetup {
             map,
             problem0,
             mode,
+            degrees: OPT_DEGREES.to_vec(),
             map_seconds,
         })
     }
@@ -287,7 +327,7 @@ impl DesignSetup {
     /// The operating points of the optimization grid at `dp`, peak current
     /// `i_peak`.
     pub fn operating_points(&self, dp: &DesignPoint, i_peak: f64) -> Vec<OperatingPoint> {
-        icem_shape::operating_points(&self.model, i_peak, dp.phi0_deg * PI / 180.0, &OPT_DEGREES)
+        icem_shape::operating_points(&self.model, i_peak, dp.phi0_deg * PI / 180.0, &self.degrees)
     }
 }
 
@@ -401,7 +441,7 @@ pub struct DesignGradient {
 }
 
 /// `dI_g/dφ0` (A·turns per rad) at an operating angle `beta` (rad).
-fn d_current_d_phi0(i_peak: f64, phi0: f64, beta: f64) -> Vec<f64> {
+pub fn d_current_d_phi0(i_peak: f64, phi0: f64, beta: f64) -> Vec<f64> {
     WINDING_GROUPS
         .iter()
         .map(|&(ph, sign)| i_peak * (phi0 + POLE_PAIRS * beta + ph.offset()).cos() * TURNS * sign)
@@ -409,7 +449,7 @@ fn d_current_d_phi0(i_peak: f64, phi0: f64, beta: f64) -> Vec<f64> {
 }
 
 /// Mean/std derivatives from per-point scalar derivatives, scaled by `s2`.
-fn objective_pair(t: &[f64], dt: &[f64]) -> [f64; 2] {
+pub fn objective_pair(t: &[f64], dt: &[f64]) -> [f64; 2] {
     let (m, s) = mean_std_parameter_gradient(t, dt);
     [m, s]
 }
@@ -422,12 +462,25 @@ pub fn design_gradient(
     i_peak: f64,
     cfg: &NewtonConfig,
 ) -> Result<(DesignGradient, Evaluation), SectorError> {
+    design_gradient_from(setup, dp, i_peak, cfg, None)
+}
+
+/// [`design_gradient`] with the forward solves warm-started from
+/// `initials` (one `A_z` per operating point; `None` is the cold start of
+/// [`design_gradient`]).
+pub fn design_gradient_from(
+    setup: &DesignSetup,
+    dp: &DesignPoint,
+    i_peak: f64,
+    cfg: &NewtonConfig,
+    initials: Option<&[Vec<f64>]>,
+) -> Result<(DesignGradient, Evaluation), SectorError> {
     let cb = CurrentBase {
         i_base: i_peak,
         a1_base: 1.0,
         s_base: dp.scale_r,
     };
-    let ev = evaluate(setup, dp, CurrentRule::Prescribed, &cb, cfg, None)?;
+    let ev = evaluate(setup, dp, CurrentRule::Prescribed, &cb, cfg, initials)?;
     let p = &ev.problem;
     let torque = setup.mode.torque(dp.length);
     let t0 = Instant::now();
@@ -459,7 +512,7 @@ pub fn design_gradient(
     let dt_dphi: Vec<f64> = ops
         .iter()
         .zip(&g.group_current_grads)
-        .zip(&OPT_DEGREES)
+        .zip(&setup.degrees)
         .map(|((_, gcg), &deg)| {
             let di = d_current_d_phi0(i_peak, phi0, deg as f64 * PI / 180.0);
             s2 * gcg.iter().zip(&di).map(|(a, b)| a * b).sum::<f64>()

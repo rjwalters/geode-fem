@@ -1,0 +1,11 @@
+verified commit b145aaf4ab1a6424828bc941eaf172f48fa0d458 and 23 manifest hashes
+classes/MotorSimulation.m: 5 x 'obj.Materials(iMat).Material.getType() == "nonlinear"' -> 'strcmp(obj.Materials(iMat).Material.getType(), "nonlinear")'
+material/Mat_Magnetic.m: 1 x 'any(type == ["linear", "nonlinear"])' -> 'any(strcmp(type, {"linear", "nonlinear"}))'
+material/Mat_Magnetic.m: 2 x 'obj.getType() == "linear"' -> 'strcmp(obj.getType(), "linear")'
+geometries/PSMS/PMSM_rotor1.m: 1 x 'Type == "linear"' -> 'strcmp(Type, "linear")'
+geometries/PSMS/PMSM_rotor1.m: 1 x 'Type == "nonlinear"' -> 'strcmp(Type, "nonlinear")'
+{
+ "classes/MotorSimulation.m": "8dec7d16c3213111da3319229c3f3567cf107c214fe60e1b55396c199cc55734",
+ "geometries/PSMS/PMSM_rotor1.m": "3b5d6ee8c9f0a0b01b397bd8c37ca14168932a210e6fa30a3949bf494a00cc5a",
+ "material/Mat_Magnetic.m": "49140f78a10d9188ef730536df2e0544b14b600ff948e37ec617feca99bfe273"
+}

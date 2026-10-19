@@ -219,6 +219,9 @@ fn cmd_curves(a: &Args, reference: &Value) {
                     fmt_pt(a),
                     fmt_pt(b)
                 ),
+                CurveShape::Spline { .. } => {
+                    unreachable!("the 9-parameter construction has no splines")
+                }
             };
             let _ = write!(
                 s,

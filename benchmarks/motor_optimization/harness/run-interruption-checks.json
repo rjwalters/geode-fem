@@ -1,0 +1,97 @@
+{
+  "python": "3.12.13 (main, May 10 2026, 19:20:41) [Clang 22.1.3 ]",
+  "baseline_source_sha256": {
+    "test_baseline_wiring.py": "822d009c09260270c3db7f3598aa27cfa434978df31d8255925bd1762ca28d78",
+    "test_run_interruption.py": "779daa40f7bae89175b1851fee0327cc2cee5e632b37c68fa90a0d379989fee5",
+    "test_session_journal.py": "ceb3742bdeaa10294fa2bcf3b8d2db37f561c42e22ae7622697137f4390fb1d4",
+    "physical_diagnostic.py": "bc3ad1fd113fc8f9661856e795cfe18db516fa495eac30a4c80d2a189a4761f2",
+    "run.py": "dc672bc99865ce961d460874ee3980ef072f6791074c0546b0b987518012a171",
+    "resource_usage.py": "38d7c3ef6522766d15a08defe9668d5b6298b2ac52c86f82578a54d0fa6cb368",
+    "test_harness.py": "163758206f1a5ec6f8e7879ca4c964688931300ba0d425038d800f571a4c0075",
+    "run_interruption_mutations.py": "e6ade09c532bdd305e0e603e324180dc902128716e4d2b603d487cbfb2babb11",
+    "mixed_model_smoke.py": "eb729482e01bd521f4a198a7c95e7aa676713502921921c2c9b5da12ae9d6a47",
+    "acceptance.py": "a224695f0c10082ac2b1ebf8473d11c050f25e5edb669bd9d4db283072346db6",
+    "test_physical_diagnostic.py": "afe702cc6c198a208f113c5bfb97d10c2ef39570f53abf25820f5e4181d540cd",
+    "session_durability_mutations.py": "9008b630f21637d7f82f3756d64300d872b70f15cfe18402c363882d9aef477f",
+    "summarize_pilot.py": "35103a2b70f19cfbc39c82a97ed39e4b0ff5b31f97a01b6d820aa6d3d41794b0",
+    "summarize_session.py": "5eb96346eed517f0db1fb96f7cdb5632dbd6775d9ef6778477e93fdb99bfc20e",
+    "recovery_inventory.py": "3fcf81227c5c28cfb9ead999f050cb06e03817a08055c1329e0610cd6c295373",
+    "test_start_preflight.py": "74b9263fd4c0d6ff37198c0edeb28a2d103696a7e8f2a03f5c19b7ec805fbc68",
+    "ledger.py": "f9e30323b718944c7519b33aff8aa5b30bf7531008656130dc5adfb5b6dd3ea0",
+    "session.py": "c155debc64a34cb878a42a00242508042ae22895576d0ca94546e4e1c329cec9",
+    "l0_gradient_check.py": "d0c496480eae43018f6fa9efb71280622378acd3d3f9764c13bb51100ddbec9c",
+    "test_recovery_inventory.py": "0fd103126dba556becc517f1b155a6a2de5bd0e218990242c0af1c3242e1369a",
+    "test_safeguards.py": "1889c43a9cf89ab405fbf0ccd07028a3f84db6abea1ee5156d6de8e4b1709e7e",
+    "resource_lifecycle_mutations.py": "66fcdd3d92f12debb1bcff9b6a38f796fe04a8af673770b101b2c0394d2b8f2e",
+    "fd_check.py": "995ba489aa00916c13121f718665cef9ae9f461ee89c978215915be416c627b0",
+    "lhs.py": "3a3e85b34dfbec5742fbb9a9c0e7ed106e3a929f75c098a7ba3d1b155707badc",
+    "main_preparation_mutations.py": "b2e5056473a556aa27fe385e8e00e83b64d0a3f0545c27fecacccb85a71f5f33",
+    "session_journal.py": "5c530bd015af45bf472f054895a0b732b13721b85fd4e528f0ee3ff0de78f77f",
+    "surrogate.py": "b893ce4665be2a96bd9341b67cd5b10edb9402d7f93d7a502ac581489af895c8",
+    "setup_validation_mutations.py": "01c7ac1707c6df3276da3a27d1484905e3fe10f4f887a5fabc4f87f03b5acbe2",
+    "resource_wiring_smoke.py": "e5009b861ab65b11b560e9efbd86ac21764d107b1e948a2bfd354f53076c9a7c",
+    "main_schedule.py": "40d7b61d963b6f9315afedde1d86665ec86f2370b084df98836a0c908877b84d",
+    "driver.py": "da3bb9405150bee20a102e1fa4f30c44a1804410564a93dc53416ea5587037be",
+    "mutation_checks.py": "979e0c7ac61cb9ff4163a85c3f161dbf38319448d457f95fa2bf4edbca901454",
+    "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8",
+    "interruption.py": "2925fe13ec7d3526495ad5fa446c3f2e30a56f43ec58dea86c56ee01e76069d1",
+    "baseline_wiring_mutations.py": "af2d6af9e32f8f381382551420dd2b39b13427eca9d2a504f817237768aaead8",
+    "recover_pilot_failures.py": "1e97e9aabd162081bbc8d3becd86a9abfc6f735c656408c18104af79b4b0dbfd",
+    "make_starts.py": "930f903c2d43f5d540d0f30c0be77e566fe08b498501881472553cbccd00540a",
+    "evaluator.py": "089d605677fd6bd7c02342feb983fd995dad186582cca3dfd22b399222b4e83f",
+    "physical_diagnostic_mutations.py": "ab8d6e872e5dcdb283a7b4f1f2345034fe33fe6bdb98c1ef3e7711cb09e81eca",
+    "test_l0_gradient_check.py": "2e4346f03717437a1a172fe933ad2c6c9f21988030b4c205bbc02f5b89a0c5eb",
+    "start_preflight.py": "7cb842bfa66eb92afdfbcd78c96e54173c471af81892146c994e29efbe7613cc",
+    "test_evaluator_resources.py": "9b64c0be9d05c7c152c8052396f11986bb2e4c6a1cda439e54f00cf5b0c4c15a"
+  },
+  "checks": [
+    {
+      "name": "baseline",
+      "expected_result": true,
+      "exit_code": 0,
+      "mutated_file": null,
+      "test": null,
+      "stderr": "test_diagnostic_interrupt_does_not_replace_optimizer_outcome (__main__.InterruptionTests.test_diagnostic_interrupt_does_not_replace_optimizer_outcome) ... ok\ntest_interrupted_optimizer_preserves_prefix_and_does_not_run_diagnostic (__main__.InterruptionTests.test_interrupted_optimizer_preserves_prefix_and_does_not_run_diagnostic) ... ok\ntest_real_signals_stop_owned_evaluator_and_its_child (__main__.InterruptionTests.test_real_signals_stop_owned_evaluator_and_its_child) ... ok\ntest_scientific_error_retains_completed_validations_as_terminal_outcome (__main__.InterruptionTests.test_scientific_error_retains_completed_validations_as_terminal_outcome) ... ok\ntest_signal_during_evidence_phase_is_deferred_and_handler_is_restored (__main__.InterruptionTests.test_signal_during_evidence_phase_is_deferred_and_handler_is_restored) ... ok\ntest_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger (__main__.InterruptionTests.test_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger) ... ok\ntest_stopped_snapshot_exists_before_diagnostic_and_cannot_be_overwritten (__main__.InterruptionTests.test_stopped_snapshot_exists_before_diagnostic_and_cannot_be_overwritten) ... ok\n\n----------------------------------------------------------------------\nRan 7 tests in 1.247s\n\nOK\n"
+    },
+    {
+      "name": "completed_optimizer_lost",
+      "expected_result": true,
+      "exit_code": 1,
+      "mutated_file": "run.py",
+      "test": "InterruptionTests.test_stopped_snapshot_exists_before_diagnostic_and_cannot_be_overwritten",
+      "stderr": "test_stopped_snapshot_exists_before_diagnostic_and_cannot_be_overwritten (__main__.InterruptionTests.test_stopped_snapshot_exists_before_diagnostic_and_cannot_be_overwritten) ... FAIL\n\n======================================================================\nFAIL: test_stopped_snapshot_exists_before_diagnostic_and_cannot_be_overwritten (__main__.InterruptionTests.test_stopped_snapshot_exists_before_diagnostic_and_cannot_be_overwritten)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-run-interruption-tkp1u6bc/test_run_interruption.py\", line 58, in test_stopped_snapshot_exists_before_diagnostic_and_cannot_be_overwritten\n    self.assertEqual(trace[\"diagnostic_status\"], \"ok\")\nAssertionError: 'failed' != 'ok'\n- failed\n+ ok\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.010s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "diagnostic_on_interrupted_optimizer",
+      "expected_result": true,
+      "exit_code": 1,
+      "mutated_file": "run.py",
+      "test": "InterruptionTests.test_interrupted_optimizer_preserves_prefix_and_does_not_run_diagnostic",
+      "stderr": "test_interrupted_optimizer_preserves_prefix_and_does_not_run_diagnostic (__main__.InterruptionTests.test_interrupted_optimizer_preserves_prefix_and_does_not_run_diagnostic) ... FAIL\n\n======================================================================\nFAIL: test_interrupted_optimizer_preserves_prefix_and_does_not_run_diagnostic (__main__.InterruptionTests.test_interrupted_optimizer_preserves_prefix_and_does_not_run_diagnostic)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-run-interruption-ho4opal8/test_run_interruption.py\", line 85, in test_interrupted_optimizer_preserves_prefix_and_does_not_run_diagnostic\n    self.assertEqual(t[\"diagnostic_status\"], \"not_requested\")\nAssertionError: 'failed' != 'not_requested'\n- failed\n+ not_requested\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.007s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "pending_signal_ignored",
+      "expected_result": true,
+      "exit_code": 1,
+      "mutated_file": "interruption.py",
+      "test": "InterruptionTests.test_signal_during_evidence_phase_is_deferred_and_handler_is_restored",
+      "stderr": "test_signal_during_evidence_phase_is_deferred_and_handler_is_restored (__main__.InterruptionTests.test_signal_during_evidence_phase_is_deferred_and_handler_is_restored) ... FAIL\n\n======================================================================\nFAIL: test_signal_during_evidence_phase_is_deferred_and_handler_is_restored (__main__.InterruptionTests.test_signal_during_evidence_phase_is_deferred_and_handler_is_restored)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-run-interruption-yv06slpq/test_run_interruption.py\", line 169, in test_signal_during_evidence_phase_is_deferred_and_handler_is_restored\n    self.fail(\"pending interruption must prevent computation\")\nAssertionError: pending interruption must prevent computation\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "changed_diagnostic_selection_accepted",
+      "expected_result": true,
+      "exit_code": 1,
+      "mutated_file": "run.py",
+      "test": "InterruptionTests.test_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger",
+      "stderr": "test_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger (__main__.InterruptionTests.test_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger) ... \n  test_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger (__main__.InterruptionTests.test_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger) (method='cobyqa_l0') ... FAIL\n  test_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger (__main__.InterruptionTests.test_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger) (method='slsqp_l0') ... FAIL\n\n======================================================================\nFAIL: test_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger (__main__.InterruptionTests.test_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger) (method='cobyqa_l0')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-run-interruption-xqoyq58j/test_run_interruption.py\", line 159, in test_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger\n    with self.assertRaises(ValueError):\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ValueError not raised\n\n======================================================================\nFAIL: test_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger (__main__.InterruptionTests.test_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger) (method='slsqp_l0')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-run-interruption-xqoyq58j/test_run_interruption.py\", line 159, in test_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger\n    with self.assertRaises(ValueError):\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ValueError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.066s\n\nFAILED (failures=2)\n"
+    },
+    {
+      "name": "changed_optimizer_result_accepted",
+      "expected_result": true,
+      "exit_code": 1,
+      "mutated_file": "recovery_inventory.py",
+      "test": "RecoveryInventoryTests.test_completed_optimizer_with_interrupted_diagnostic_is_never_a_rerun_candidate",
+      "stderr": "test_completed_optimizer_with_interrupted_diagnostic_is_never_a_rerun_candidate (__main__.RecoveryInventoryTests.test_completed_optimizer_with_interrupted_diagnostic_is_never_a_rerun_candidate) ... \n  test_completed_optimizer_with_interrupted_diagnostic_is_never_a_rerun_candidate (__main__.RecoveryInventoryTests.test_completed_optimizer_with_interrupted_diagnostic_is_never_a_rerun_candidate) (tamper=True) ... FAIL\n\n======================================================================\nFAIL: test_completed_optimizer_with_interrupted_diagnostic_is_never_a_rerun_candidate (__main__.RecoveryInventoryTests.test_completed_optimizer_with_interrupted_diagnostic_is_never_a_rerun_candidate) (tamper=True)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-run-interruption-77vce_y1/test_recovery_inventory.py\", line 101, in test_completed_optimizer_with_interrupted_diagnostic_is_never_a_rerun_candidate\n    with self.assertRaisesRegex(ValueError, \"stopped optimizer result changed\"):\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ValueError not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.007s\n\nFAILED (failures=1)\n"
+    }
+  ]
+}

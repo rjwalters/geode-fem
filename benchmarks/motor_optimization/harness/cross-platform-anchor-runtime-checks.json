@@ -1,0 +1,86 @@
+{
+  "status": "PASS",
+  "source_commit": "728b38b2c2c2d1f8bc1ff035b3aa7b1d2075c396",
+  "scope": "Cross-platform gate and affected native/Python integration; no main optimization result",
+  "python_tests": {
+    "passed": 230,
+    "commit": "d54c66b2",
+    "following_change": "test-only early-FEM refusal assertion; three focused tests passed at728b38b2"
+  },
+  "affected_mutations": [
+    {
+      "group": "anchor_preflight_mutations",
+      "mutants_detected": 8,
+      "sha256": "53585b63be39f8923ae978d48a6a8f96c7dea86771ab311ddf1a659b1d53086f"
+    },
+    {
+      "group": "session_durability_mutations",
+      "mutants_detected": 7,
+      "sha256": "7edf0f297411a42b6ee1e3536d17c0cf1c2c74d933bde02273cc20e15f1dc0c6"
+    },
+    {
+      "group": "baseline_wiring_mutations",
+      "mutants_detected": 5,
+      "sha256": "4b7bbd2e18d8de38daa16c2b091bab97efef1d4549327f963bf6f73db301dcc5"
+    },
+    {
+      "group": "setup-validation-fixed",
+      "mutants_detected": 6,
+      "sha256": "738ad0c98d5de2acf8ebbefb153ab32ec561ff78133f4e3477486ca9ea9635f9"
+    },
+    {
+      "group": "session_cancellation_mutations",
+      "mutants_detected": 5,
+      "sha256": "9b74b6bbbcfa6c7d4457947ac890482c0ae478158aed8adf59f87a75024debfb"
+    }
+  ],
+  "anchor_comparisons": [
+    {
+      "space": "a",
+      "relative_F_error": 0.0,
+      "relative_mean_error": 0.0,
+      "max_absolute_torque_error_Nm": 0.0
+    },
+    {
+      "space": "b",
+      "relative_F_error": 0.0,
+      "relative_mean_error": 0.0,
+      "max_absolute_torque_error_Nm": 0.0
+    }
+  ],
+  "same_host_bitwise": true,
+  "mixed_model_spaces": [
+    "a",
+    "b"
+  ],
+  "unchanged_prior_gradient_sources": true,
+  "prior_numeric_binary_matches": true,
+  "historical_failures_retained": [
+    "anchor-mutations-initial.json: two fixture error paths subsequently converted to meaningful assertions",
+    "setup_validation_mutations.log: old test fixture reached missing anchor file under mutation; now asserts no anchor FEM"
+  ],
+  "build_receipt_sha256": "3ca62e35e05892c7bec85b7111d0d063160a95d0afc803626986ba6e9fbe42e1",
+  "artifact_sha256": {
+    "anchor-mutations-initial.json": "d344cc58cab9236044df772698dec93a7829937d96bda17e9be77f0491a8043d",
+    "anchor-mutations.json": "82b7a1a33f78ffe640986fe2566ad5970faff2858a9a053b1e13409dd2ea2df9",
+    "mixed-model-a.json": "7d6bf4e86bba0460b834629f027931d792de7209927abc05435a8b455e703b0c",
+    "mixed-model-b.json": "8a28ac5f5882bb3b92c6c1a53feec798a566f86b1b95acd617b3ebbcf0bffcd1",
+    "native-anchor-preflight.json": "43a20b8c11691e12cdd5a81741b2f113c13ca2122779ba8f3d012b2d48faf716",
+    "python-tests-initial-receipt.json": "348995b49df5f670b078e3b1afe5659275cceea16a6b0afa24132a5381056c1c",
+    "verification-resumed.json": "91d77ab2802e634354defefd95137b65cbb57c5c1d65b5b8fe6ee1f799004d57",
+    "verification.json": "705b5bb2c5e027253751c2f1e1aa4adcee7724d53d0ad53b65ffd63c04d736e5"
+  },
+  "rule": "https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6252347196",
+  "raw_archive": {
+    "file": "benchmarks/motor_optimization/smoke/cross_platform_anchor_728b38b2.tar.gz",
+    "sha256": "6a1aafdf874bbce8ad6c6b56845867af46f754519e73bcedb21accce3a2a74be",
+    "bytes": 224045,
+    "files": 31,
+    "manifest_sha256": "e17ebe81225142d643ae16f9ace7168329b7f75f121c4355a6a1eaca811eb050"
+  },
+  "limitations": [
+    "Native gate exercised on Mac; final cloud-host preflight remains mandatory after reviewed merge",
+    "Probe medians do not replace main calibration",
+    "No optimizer or speedup result"
+  ]
+}
