@@ -1,5 +1,5 @@
 {
-  "scope": "Synthetic author regression evidence only. No actual main-study outcomes, cloud launch, FEM, optimization, or independent approval.",
+  "scope": "Author regression evidence and separately identified live rehearsal fixture; no actual main-study outcomes, B2 capture, FEM, optimization or independent approval.",
   "baseline_commit": "50a637bfe01605e68870cd39b5905dd24e66ad35",
   "producer_commit": "9486a9da58beeca91968d4d3608f06b998abff45",
   "full_suite": {
@@ -11,14 +11,15 @@
     "python": "3.15.0",
     "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
     "at_commit": "1f85a145edd64903ef2ca53084553a562d5499fd",
-    "scope": "Historical full suite at prior head. Current Doctor58 delta uses targeted tests; full remote CI on the new head is required."
+    "scope": "Historical full suite at prior head. Current rehearsal-only Doctor60 delta uses targeted tests; remote CI on the new head is required."
   },
   "mutations": {
     "command": "python3 -I benchmarks/motor_optimization/final_refinement/reboot_mutations.py --out NEW_REPORT",
     "injected": 66,
     "killed": 66,
     "report": "reboot-mutations.json",
-    "sha256": "8d9f519a7cab27936b34ba42d66d45340d4a591e677e6bc7e8647e9881e0c026"
+    "sha256": "8d9f519a7cab27936b34ba42d66d45340d4a591e677e6bc7e8647e9881e0c026",
+    "at_commit": "e6e7e3aea93041d08cbc61f27d6b89aa53ff178f"
   },
   "mesh_regeneration": {
     "source_commit": "63b3e3d8bbc30504f845eebb5b78e8be6a2ee12f",
@@ -72,15 +73,19 @@
     "test_reboot_capture.py": "44aef6313c726884e475a3f04d807981a26afb7040f972f73c666d482693413c",
     "test_reboot_pipeline.py": "8bbc9e9e916ef44c557ebc3e1e10723c8119e74fbbffe472a14b557faa9acd00",
     "README.md": "c8cedec076dd263e4ce529e98d18c9555b5a85e44476a52facd85e4c21ad6441",
-    "REBOOT_CAPTURE.md": "a80003c9cac0f4370ec5fad36de902445555b11419dfbf4da8cea21087e9fe4c",
+    "REBOOT_CAPTURE.md": "1e8507bd91520910517855e7d20a28866530ebd64efe90881e43055baf204a3f",
     "test_reboot_quiet.py": "e2b50b60be7b40365b49409bd82e1f6b60f87f3162a98e9b4ed2da5c41ff60c0",
     "smoke/doctor56-system-daemons.json": "484eca23b4f7318cb0ee84813c8125543193b4750b8d471b76fad6612567d899",
-    "quiet_rehearsal.py": "bd1692d72e38dad67d404985dba091676ba42c247b5233a30c12c6f7114079df",
-    "test_reboot_rehearsal.py": "cacbe5da4591afc047986f54dbcb4fd58555d7aaa2bc0c5f4818ff6cf0ebf316"
+    "quiet_rehearsal.py": "9476e5845be3ee37fd6133b5c4a1d2a06eebd2a6e712a606d99676679c0eea29",
+    "test_reboot_rehearsal.py": "38dba5db93686d31fa58e614e077d775564423ffd02fd92f02ce934169a860ab",
+    "run_quiet_rehearsal.sh": "b60179a0857619653c7f984b6ce030495fe82a302e5e34f3f3d404b131252453",
+    "test_reboot_launcher.py": "ef756127ab3da005f46130a2a9f0d72dc6c0074af7b260848990d1a905999a10",
+    "test_reboot_live_fixture.py": "8f67ba00ab621fcb2e4afc153d285750eeb625efe2f768defc2cee936bada1d9",
+    "smoke/quiet-rehearsal-e6e7e3ae.json": "956f5530cbe7b0a03ac8ce8dd77ab5f48e7a78490630863136d28f4620aeed16",
+    "smoke/quiet-rehearsal-e6e7e3ae-provenance.json": "e554a31c618bf454ceac03c91c6785149a52d5bfa964e6a876fcb9d9b1942407"
   },
   "remaining": [
-    "Independent Judge and CI of exact current head",
-    "Operator-authorized same-AMI rehearsal, clean live fixture and independent review",
+    "Independent narrow Judge and CI of exact current head",
     "Approval/merge and explicit room go before single B2 capture",
     "Actual capture verification, final refinements, results analysis and manuscript review/audit"
   ],
@@ -104,7 +109,9 @@
     "tests": 77,
     "exit_code": 0,
     "log": "doctor58-tests.log",
-    "sha256": "8ddfdef1a80189239d2e95a68f0c13d68eb9a743bfff0fc6254e1931e39eefeb"
+    "sha256": "8ddfdef1a80189239d2e95a68f0c13d68eb9a743bfff0fc6254e1931e39eefeb",
+    "at_commit": "e6e7e3aea93041d08cbc61f27d6b89aa53ff178f",
+    "scope": "Historical Doctor58 tests; current rehearsal delta recorded under doctor60."
   },
   "doctor56": {
     "reviewed_base": "1f85a145edd64903ef2ca53084553a562d5499fd",
@@ -135,8 +142,37 @@
       "live_fixture_committed": false,
       "requirement": "After operator authorization, same AMI/type throwaway instance with fresh root and no study volume; clean report and independent review required before B2.",
       "source_ami": "ami-02a9cdd4e98bc3c78",
-      "source_instance_type": "c7a.4xlarge"
+      "source_instance_type": "c7a.4xlarge",
+      "scope": "Historical preparation state at Doctor58, before the separately authorized live rehearsal."
     },
     "limits": "Retry history is self-reported; independent operator log and manifest receipt remain required. No B2, outcomes, evaluator or cloud start."
+  },
+  "doctor60": {
+    "reviewed_base": "e6e7e3aea93041d08cbc61f27d6b89aa53ff178f",
+    "scope": "Rehearsal-only launcher, launch shutdown behavior, regression tests, runbook and verified live fixture. closed_capture.py, reboot_attestation.py and capture_archive.py unchanged from the reviewed base. No cloud API or SSH executed during this fix; launcher tests use fake commands.",
+    "tests": 13,
+    "log": "doctor60-tests.log",
+    "log_sha256": "3ca6c18b280e75d9996a7dbe5d41ef8bcc2b948c56269183dd5d1094f78c9c77",
+    "command": "python3.12 -I -B -m unittest discover -s benchmarks/motor_optimization/final_refinement -p PATTERN -v (each of test_reboot_rehearsal.py, test_reboot_launcher.py, test_reboot_live_fixture.py)",
+    "surviving_judge_mutations_now_killed": [
+      "R6",
+      "R9",
+      "R16",
+      "R17",
+      "R18",
+      "R19",
+      "R20"
+    ],
+    "mutation_report": "doctor60-mutations.json",
+    "mutation_report_sha256": "87c015c69b54c65f608ed4f03d8f94100f86bde9eb546d224092541cd180b46d",
+    "shellcheck": "PASS",
+    "live_fixture": "quiet-rehearsal-e6e7e3ae.json",
+    "live_fixture_provenance": "quiet-rehearsal-e6e7e3ae-provenance.json",
+    "prior_independent_judge": {
+      "tests_passed": 323,
+      "ci_checks_passed": 15,
+      "at_commit": "e6e7e3aea93041d08cbc61f27d6b89aa53ff178f"
+    },
+    "limits": "The live report was collected at e6e7e3ae with Claude's operator-authorized controller. This new canonical launcher was tested with fake commands only. The pre-SSH interval still relies on controller cleanup."
   }
 }

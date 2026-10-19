@@ -86,14 +86,25 @@ the study volume. This preparation is not evidence that a rehearsal ran.
 The noble AMI's two optional ephemeral mappings are explicitly suppressed using
 the AWS [`NoDevice` mapping](https://docs.aws.amazon.com/cli/latest/reference/ec2/run-instances.html).
 
-After authorization, arrange a termination trap for the uniquely tagged
-throwaway instance before running `aws ec2 run-instances --cli-input-json
-file://.../launch.json`. Retain the launch response and verify the actual AMI,
-type and attached volumes against the preparation, including disjointness from
-`forbidden_volumes`, before transferring `payload.tar.gz`. The project/Name tags
-support `scripts/aws/geode-worker.sh ssh paper3-rehearsal-...` with Instance
-Connect. Do not run that helper's `launch` or `bootstrap`: those choose or change
-the image/environment. Extract into a new directory and run `sh run-remote.sh`.
+After operator authorization, use the canonical bounded launcher:
+
+```sh
+bash benchmarks/motor_optimization/final_refinement/run_quiet_rehearsal.sh \
+  --execute-authorized-rehearsal "$NEW_REHEARSAL_PREPARATION" "$NEW_REHEARSAL_OUTPUT"
+```
+
+It pins `geode-fem-bench` and `us-east-1` on every AWS call, verifies the package
+hashes, launch request and study exclusions before launch, and checks the actual
+AMI, type and fresh volume before transfer. The plan sets
+`InstanceInitiatedShutdownBehavior: terminate`. The launcher uses Instance
+Connect, arms `sudo shutdown -P +75` before transfer, and traps exit and signals
+to terminate its new instance and wait for termination and root-volume deletion.
+A cleanup failure is reported as a failure; inspect its retained controller
+records. The remote cap is established after SSH becomes reachable, so a lost
+controller before that point still requires operator cleanup using the launch
+record. Do not run a worker helper's `launch` or `bootstrap`, which changes the
+image or environment. The launcher extracts into a new directory and runs
+`bash run-remote.sh`.
 It invokes the exact `closed_capture.py --quiet-rehearsal` entry, using the
 producer's hash-pinned `process_identity.py`, waits out cloud-init and package
 services, then calls the actual collector's `process_snapshot`,
@@ -109,6 +120,9 @@ committing it as the live fixture. Require `clean_pass: true`, matching prepared
 source hashes, independent review of the fixture, and explicit room go before
 B2. A synthetic report does not satisfy this gate. A refused rehearsal is a
 finding to fix and review, not permission to relax the B2 classifier.
+`cloud-init status --wait` exit 2 (degraded) is also a refusal: inspect
+`cloud-init status --long` and resolve or review the finding; do not relax the
+successful-exit requirement.
 
 ## One bounded capture boot
 

@@ -1,22 +1,25 @@
 """Report-only rehearsal, redaction and fresh-volume launch-plan regressions."""
 import copy
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 import quiet_rehearsal as rehearsal
 import reboot_attestation as proof
+import closed_capture
 from test_reboot_attestation import fixture
 from test_reboot_quiet import process
 
 
 class RehearsalTests(unittest.TestCase):
     def test_plan_matches_source_ami_type_and_never_reuses_study_volume(self):
-        instance={'ImageId':'ami-123','InstanceType':'r8g.4xlarge','SubnetId':'subnet-123',
+        instance={'InstanceId':'i-study','ImageId':'ami-123','InstanceType':'r8g.4xlarge','SubnetId':'subnet-123',
                   'SecurityGroups':[{'GroupId':'sg-123'}],
                   'BlockDeviceMappings':[{'DeviceName':'/dev/sda1','Ebs':{'VolumeId':'vol-study'}}]}
         image={'ImageId':'ami-123','RootDeviceName':'/dev/sda1','BlockDeviceMappings':[
@@ -25,9 +28,14 @@ class RehearsalTests(unittest.TestCase):
         self.assertEqual(plan['ImageId'],instance['ImageId'])
         self.assertEqual(plan['InstanceType'],instance['InstanceType'])
         self.assertEqual((plan['MinCount'],plan['MaxCount']),(1,1))
+        self.assertEqual(plan['InstanceInitiatedShutdownBehavior'],'terminate')
+        self.assertEqual({r['ResourceType'] for r in plan['TagSpecifications']},{'instance','volume'})
+        for row in plan['TagSpecifications']:
+            self.assertIn({'Key':'project','Value':'geode-fem'},row['Tags'])
         self.assertEqual(plan['BlockDeviceMappings'],[{'DeviceName':'/dev/sda1','Ebs':{
             'SnapshotId':'snap-abc','VolumeSize':8,'VolumeType':'gp3','DeleteOnTermination':True}}])
         self.assertNotIn('vol-study',json.dumps(plan))
+        self.assertNotIn('i-study',json.dumps(plan))
         self.assertNotIn('IamInstanceProfile',plan)
         # The actual noble AMI also advertises ephemeral0/1; suppress them.
         extended=copy.deepcopy(image)
@@ -48,7 +56,7 @@ class RehearsalTests(unittest.TestCase):
         argv=['@dbus-daemon','--system','--address=systemd:','--nofork',
               '--nopidfile','--systemd-activation','--syslog-only']
         process(observed,'dbus-daemon',argv,uid=101)
-        process(observed,'worker',['/home/private/python3','/home/private/task.py','secret-session-id'],pid=701,uid=1000)
+        process(observed,'worker',['/home/private/python3','/home/private/task.py','--seed=42'],pid=701,uid=1000,parent=9876)
         rows=rehearsal.classifications(observed,'d'*64)
         daemon=next(r for r in rows if r['comm']=='dbus-daemon')
         self.assertEqual(daemon,{'comm':'dbus-daemon','argv_shape':argv,'ppid':1,
@@ -56,6 +64,7 @@ class RehearsalTests(unittest.TestCase):
         worker=next(r for r in rows if r['comm']=='worker')
         self.assertEqual(worker['verdict'],'refuse');self.assertEqual(worker['uid_class'],'user')
         self.assertEqual(worker['argv_shape'],['python3','<arg>','<arg>'])
+        self.assertEqual(worker['ppid'],'other')
         self.assertNotIn('private',json.dumps(rows));self.assertNotIn('secret-session-id',json.dumps(rows))
 
     def test_collect_uses_actual_snapshot_and_quiet_check(self):
@@ -95,6 +104,50 @@ class RehearsalTests(unittest.TestCase):
             return SimpleNamespace(returncode=0,stdout=b'failed')
         with self.assertRaisesRegex(ValueError,'failed or has unknown state'):
             rehearsal.wait_boot(run=failed,sleep=lambda _:None)
+
+    def test_identity_hash_is_checked_before_loading_or_collecting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);(root/'process_identity.py').write_text('raise AssertionError("untrusted code executed")')
+            with mock.patch.object(rehearsal,'HERE',root), mock.patch.object(sys,'platform','linux'), \
+                 mock.patch.object(sys,'argv',['capture','--quiet-rehearsal','--identity-sha256','0'*64,'--out',str(root/'report')]), \
+                 mock.patch.object(rehearsal,'wait_boot') as boot, mock.patch.object(rehearsal,'collect') as collect:
+                with self.assertRaisesRegex(ValueError,'identity source changed'):
+                    rehearsal.collect_main(root/'closed_capture.py')
+                boot.assert_not_called();collect.assert_not_called()
+
+    def test_report_created_during_collection_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp).resolve();raw=b'# synthetic identity\n';(root/'process_identity.py').write_bytes(raw)
+            out=root/'report'
+            def race(*args):
+                out.write_text('concurrent evidence');return {'clean_pass':True}
+            with mock.patch.object(rehearsal,'HERE',root), mock.patch.object(sys,'platform','linux'), \
+                 mock.patch.object(sys,'argv',['capture','--quiet-rehearsal','--identity-sha256',hashlib.sha256(raw).hexdigest(),'--out',str(out)]), \
+                 mock.patch.object(rehearsal,'wait_boot'), mock.patch.object(rehearsal,'collect',side_effect=race):
+                with self.assertRaises(FileExistsError):rehearsal.collect_main(root/'closed_capture.py')
+            self.assertEqual(out.read_text(),'concurrent evidence')
+
+    def test_dirty_checkout_cannot_prepare(self):
+        def git_response(repo,*args):
+            if args[0]=='status':return b' M dirty.py\n'
+            if args[0]=='rev-parse':return ('b'*40+'\n').encode()
+            return b'# synthetic committed file\n'
+        instance={'InstanceId':'i-study','BlockDeviceMappings':[],
+                  'ImageId':'ami-123','InstanceType':'c7a.4xlarge'}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(rehearsal,'launch_plan',return_value={}), \
+             mock.patch.object(proof.producer_source,'git',side_effect=git_response) as git:
+            out=Path(tmp)/'package'
+            with self.assertRaisesRegex(ValueError,'checkout must be clean'):
+                rehearsal.prepare(instance, {}, 'paper3-rehearsal-test',Path(tmp),'a'*40,out)
+            self.assertFalse(out.exists())
+            git.assert_called_once_with(Path(tmp),'status','--porcelain')
+
+    def test_normal_capture_cli_does_not_dispatch_rehearsal(self):
+        argv=['capture','--source','/source','--repo','/repo','--out','/out','--reviewed-commit','a'*40]
+        with mock.patch.object(sys,'argv',argv), mock.patch.object(closed_capture,'capture',return_value={}) as capture, \
+             mock.patch.object(Path,'read_bytes',side_effect=AssertionError('rehearsal dispatched')), mock.patch('builtins.print'):
+            closed_capture.main()
+        capture.assert_called_once()
 
 
 if __name__=='__main__':unittest.main()

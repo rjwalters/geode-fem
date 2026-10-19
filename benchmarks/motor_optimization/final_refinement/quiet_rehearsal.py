@@ -124,6 +124,7 @@ def launch_plan(instance,image,name):
     root_ebs=roots[0]['Ebs']
     if not re.fullmatch(r'snap-[a-f0-9]+',root_ebs['SnapshotId']):raise ValueError('invalid AMI root snapshot')
     return {'ImageId':instance['ImageId'],'InstanceType':instance['InstanceType'],
+            'InstanceInitiatedShutdownBehavior':'terminate',
             'MinCount':1,'MaxCount':1,'SubnetId':instance['SubnetId'],
             'SecurityGroupIds':[g['GroupId'] for g in instance['SecurityGroups']],
             'BlockDeviceMappings':[{'DeviceName':root,'Ebs':{'SnapshotId':root_ebs['SnapshotId'],
