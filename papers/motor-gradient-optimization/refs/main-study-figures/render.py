@@ -12,7 +12,7 @@ from matplotlib.lines import Line2D
 
 from prepare import METHODS, TARGETS, load
 
-COLORS = {'A': '#0072B2', 'E': '#0072B2', 'B': '#D55E00', 'D': '#D55E00', 'C': '#555555'}
+COLORS = {'A': '#0072B2', 'E': '#009E73', 'B': '#D55E00', 'D': '#CC79A7', 'C': '#555555'}
 STYLES = {'A': '-', 'B': '-', 'C': '-', 'D': '--', 'E': '--'}
 
 
@@ -26,7 +26,22 @@ def endpoint(stop):
     return 'o'
 
 
+def panel_rows(data, start, space, repeat):
+    rows = [r for r in data['runs'] if (r['start_index'], r['space'], r['repeat']) == (start, space, repeat)]
+    if len(rows) != 5 or {r['method'] for r in rows} != set(METHODS):
+        raise ValueError('panel must contain all five methods from exactly one repeat')
+    return sorted(rows, key=lambda r: r['method'])
+
+
+def missing_label(row):
+    return {'unavailable': 'Validation unavailable',
+            'unavailable_and_rejected': 'Unavailable / rejected',
+            'rejected': 'No feasible validation',
+            'not_observed': 'No validation observed'}[row['validation_state']]
+
+
 def render(data, out, *, synthetic=False):
+    synthetic = synthetic or data.get('synthetic') is True
     out.mkdir(parents=True, exist_ok=False)
     plt.rcParams.update({'font.size': 9, 'axes.titlesize': 10,
                          'axes.spines.top': False, 'axes.spines.right': False,
@@ -36,13 +51,13 @@ def render(data, out, *, synthetic=False):
     upper = max(1.2, max(ratios) * 1.2) if ratios else 1.2
     for repeat in (1, 2):
         fig, axes = plt.subplots(5, 2, figsize=(8.2, 10.6), sharex=True, sharey=True)
-        fig.subplots_adjust(left=.12, right=.975, bottom=.13, top=.855, hspace=.38, wspace=.13)
+        fig.subplots_adjust(left=.12, right=.94, bottom=.13, top=.855, hspace=.38, wspace=.28)
         title = 'SYNTHETIC LAYOUT CHECK — NOT EXPERIMENTAL RESULTS' if synthetic else 'Common-validated ripple by starting design'
         fig.suptitle(title, y=.987, fontsize=11 if synthetic else 13)
         fig.text(.5, .963, f'Timing repeat {repeat} · five matched starts · final refinement reported separately',
                  ha='center', fontsize=9)
         handles = [Line2D([], [], color=COLORS[m], linestyle=STYLES[m],
-                          label=METHODS[m][1], lw=1.6) for m in ('A', 'E', 'B', 'D', 'C')]
+                          label=m + ': ' + METHODS[m][1], lw=1.6) for m in ('A', 'E', 'B', 'D', 'C')]
         fig.legend(handles=handles, loc='upper center', bbox_to_anchor=(.5, .948),
                    ncol=3, frameon=False, fontsize=9)
         for start in range(5):
@@ -53,16 +68,18 @@ def render(data, out, *, synthetic=False):
                 ax.axvline(60, color='#888888', lw=.8, linestyle=':', zorder=0)
                 for name, fraction in TARGETS.items():
                     ax.axhline(fraction, color='#BBBBBB', lw=.7, linestyle=(0, (3, 3)), zorder=0)
-                    ax.text(121, fraction, name, ha='right', va='bottom', fontsize=7, color='#666666')
-                rows = [r for r in data['runs'] if (r['start_index'], r['space'], r['repeat']) == (start, space, repeat)]
+                    ax.text(1.01, fraction, name, transform=ax.get_yaxis_transform(),
+                            ha='left', va='center', fontsize=7, color='#666666')
+                rows = panel_rows(data, start, space, repeat)
                 missing = []
                 for r in rows:
                     if not r['points']:
-                        missing.append(r['method']); continue
+                        missing.append(r); continue
                     x, y = zip(*r['points']); m = r['method']
-                    ax.step(x, y, where='post', color=COLORS[m], linestyle=STYLES[m], lw=1.25)
+                    ax.step(x, y, where='post', color=COLORS[m], linestyle=STYLES[m], lw=1.25, label=r['run_id'])
                     ax.plot(x[-1], y[-1], marker=endpoint(r['stop']), linestyle='none',
-                            color=COLORS[m], ms=6, markerfacecolor='none', markeredgewidth=1.1)
+                            color=COLORS[m], ms=5 + 2 * list(METHODS).index(m),
+                            markerfacecolor='none', markeredgewidth=1.1)
                 ax.set_title('Initial design' if start == 0 else f'Matched start {start}', loc='left')
                 if start == 0:
                     ax.text(.5, 1.28, 'A: 8 scalars' if space == 'a' else 'B: 8 scalars + 10 offsets',
@@ -71,16 +88,17 @@ def render(data, out, *, synthetic=False):
                     ax.set_ylabel(r'Best feasible $(F+\delta_F)/F_0$', fontsize=8)
                 if missing:
                     # Avoid five method names overflowing a narrow panel.
-                    text = 'No feasible validation:\n' + '\n'.join(
-                        ', '.join(METHODS[m][1] for m in missing[i:i+2]) for i in range(0, len(missing), 2))
-                    ax.text(.02, .04, text, transform=ax.transAxes, fontsize=6.5, va='bottom',
+                    labels = {}
+                    for r in missing: labels.setdefault(missing_label(r), []).append(r['method'])
+                    text = '\n'.join(label + ': ' + ', '.join(methods) for label, methods in labels.items())
+                    ax.text(.03, .9, text, transform=ax.transAxes, fontsize=6.5, va='top',
                             bbox={'facecolor': 'white', 'edgecolor': 'none', 'alpha': .9})
         stops = [('x', 'Failed'), ('|', 'Budget stop'), ('*', 'T99 stop'), ('o', 'Other recorded stop')]
         fig.legend(handles=[Line2D([], [], marker=m, color='#333333', linestyle='none',
                                    markerfacecolor='none', label=l) for m, l in stops],
                    loc='lower center', bbox_to_anchor=(.5, .057), ncol=4, frameon=False, fontsize=8)
         fig.text(.55, .099, 'Charged validation-forward wall-time units (FE)', ha='center', fontsize=9)
-        fig.text(.5, .043, 'Color: optimizer. Solid: L1 training; dashed: L0 training. Dotted vertical: 60-FE checkpoint.',
+        fig.text(.5, .043, 'Color: method. Solid: L1 training; dashed: L0 training. Dotted vertical: 60-FE checkpoint.',
                  ha='center', fontsize=7.5)
         fig.text(.5, .027, 'Curves end at actual stops. Repeats are timing trials, not independent designs.', ha='center', fontsize=8)
         fig.text(.5, .011, 'Spaces use different motion maps; their contrast does not isolate the added offsets.', ha='center', fontsize=8)

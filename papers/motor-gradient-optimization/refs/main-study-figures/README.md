@@ -30,7 +30,7 @@ uv run --with numpy==2.5.4 --with matplotlib==3.11.2 python \
 The output directory must not exist. Outputs are:
 
 - `quality-by-start-repeat1.pdf` and `.png`: five starts × two spaces, with
-  all five methods. Color identifies the optimizer and line style identifies
+  all five methods. Color identifies the method and line style identifies
   training resolution. The 60-FE checkpoint is marked on the 120-FE axis.
 - `quality-by-start-repeat2.pdf` and `.png`: the second timing repeat in the
   same layout and axis limits, suitable for a supplement. Repeats are not
@@ -40,7 +40,7 @@ The output directory must not exist. Outputs are:
   and charged duration remain explicit. A failed or early-stopped run is
   not assigned 120 FE of observed search or a fabricated speedup ratio.
 - `plot-data.json`: input/output/source hashes, plotting version, exact
-  series, 60/120-FE checkpoint values, validation decisions and excluded
+  series, 60/120-FE checkpoint values and `checkpoint_reached` flags, validation decisions and excluded
   attempts. Excluded attempts remain separate from selected-run curves.
 
 Curves use the best feasible `(F + delta_F) / F0`, only after completed,
@@ -49,6 +49,12 @@ eligible crossings survive later scientific failure; no feasible observation
 is a missing curve, never zero. All target-table entries and plotted points
 come from the same prepared records. Ledger/unit, cohort, validation census,
 trace identity, feasibility flags and target arithmetic are checked again.
+Unavailable-validation events and counts remain in each run; the CSV includes
+the count and validation state. Missing curves distinguish unavailable,
+rejected and unobserved validations. An early stop carries its last value
+forward to later checkpoint summaries with `checkpoint_reached=false`; the
+curve itself still ends at the actual stop.
+
 The upstream verifier remains responsible for raw source/runtime/mesh and
 waveform authentication. A consistent forged summary is outside this
 presentation adapter's verification scope.
@@ -63,7 +69,7 @@ their contrast does not isolate the ten added offsets.
 ## Checks and synthetic layout preview
 
 ```sh
-python3 -I -m unittest discover \
+uv run --with numpy==2.5.4 --with matplotlib==3.11.2 python -I -m unittest discover \
   -s papers/motor-gradient-optimization/refs/main-study-figures -p 'test_*.py'
 ```
 
@@ -75,7 +81,8 @@ They launch no FEM or optimizer processes.
 To inspect the layout, serialize `test_prepare.preview_fixture()` to a new
 scratch JSON file and render it with unit 2 and **`--synthetic`**. The fixture
 deliberately varies five artificial paths and includes failures and missing
-curves. Both pages must visibly say **SYNTHETIC LAYOUT CHECK — NOT EXPERIMENTAL
+curves. Synthetic run IDs or placeholder provenance hashes automatically enable the
+watermark even without `--synthetic`. Both pages must visibly say **SYNTHETIC LAYOUT CHECK — NOT EXPERIMENTAL
 RESULTS**. Keep these previews outside the manuscript and its evidence data.
 The plots still need visual review with the actual completed data, at the
 final manuscript's printed size; synthetic legibility is not that review.

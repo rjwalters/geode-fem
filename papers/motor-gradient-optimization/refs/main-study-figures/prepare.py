@@ -4,6 +4,7 @@ This is a downstream presentation adapter, not a replacement for the closed
 capture/scientific verification that produces its input. It reads no live traces.
 """
 import hashlib
+import copy
 import json
 import math
 
@@ -83,6 +84,7 @@ def prepare(data, unit_seconds):
         key = f'{rid}:{ordinal}'
         require(key not in records, 'duplicate validation')
         records[key] = audit; by_run[rid].append(audit)
+        require(type(audit['eligible']) is bool, 'validation eligibility must be boolean')
         attempt = attempts[rid]; job = attempt['job']
         require(record['source_sha256'] == attempt['trace_sha256'], 'trace identity mismatch')
         for rk, jk in [('method', 'method_letter'), ('space', 'space'),
@@ -122,7 +124,7 @@ def prepare(data, unit_seconds):
         points = []; best = None; first = {}; previous = -math.inf
         checkpoints = {'60': None, '120': None}
         for audit in rows:
-            if not audit['eligible']:
+            if audit['eligible'] is not True:
                 continue
             r = audit['record']; seconds = r['elapsed_seconds']; fe = seconds / unit_seconds
             require(seconds >= previous, 'validation chronology mismatch'); previous = seconds
@@ -130,7 +132,7 @@ def prepare(data, unit_seconds):
             if best is None or upper < best:
                 best = upper; points.append([fe, best / f0])
             for checkpoint in (60, 120):
-                if fe <= checkpoint:
+                if seconds <= checkpoint * unit_seconds:
                     checkpoints[str(checkpoint)] = best / f0
             for name in TARGETS:
                 if audit['attains'][name] and name not in first:
@@ -139,21 +141,36 @@ def prepare(data, unit_seconds):
         end = attempt['ledger']['total_fe']
         if points and points[-1][0] < end:
             points.append([end, points[-1][1]])
+        unavailable = copy.deepcopy(attempt['validation_unavailable_events'])
+        require(type(unavailable) is list and all(type(e) is dict and
+                e.get('kind') == 'validation_unavailable' for e in unavailable),
+                'invalid unavailable-validation events')
+        validation_state = ('feasible' if points else
+                            'unavailable_and_rejected' if unavailable and rows else
+                            'unavailable' if unavailable else
+                            'rejected' if rows else 'not_observed')
         run = {'run_id': attempt['run_id'], 'method': method, 'space': space, 'start_index': start,
                'repeat': repeat, 'stop': attempt['status'], 'stop_fe': end,
                'stop_seconds': attempt['ledger']['total_seconds'], 'points': points,
                'checkpoint_upper_ratio': checkpoints, 'first_attainment': first,
+               'checkpoint_reached': {str(c): attempt['ledger']['total_seconds'] >= c * unit_seconds for c in (60, 120)},
+               'validation_state': validation_state, 'validation_unavailable_events': unavailable,
+               'validation_unavailable_count': len(unavailable),
                'trace_sha256': attempt['trace_sha256']}
         runs.append(run)
         for name in TARGETS:
             hit = first.get(name)
             table.append({k: run[k] for k in ('run_id', 'method', 'space', 'start_index', 'repeat',
-                                              'stop', 'stop_fe', 'stop_seconds', 'trace_sha256')} |
+                                              'stop', 'stop_fe', 'stop_seconds', 'trace_sha256',
+                                              'validation_state', 'validation_unavailable_count')} |
                          {'target': name, 'status': 'attained' if hit else 'not_attained',
                           'attainment_fe': hit['fe'] if hit else None,
                           'attainment_seconds': hit['seconds'] if hit else None,
                           'record_id': hit['record_id'] if hit else None})
-    return {'schema': 1, 'capture_manifest_sha256': data['capture_manifest_sha256'],
+    synthetic = (data.get('synthetic') is True or
+                 any(str(a['run_id']).startswith('synthetic/') for a in attempts.values()) or
+                 any(len(set(data[k])) == 1 for k in ('capture_manifest_sha256', 'source_commit')))
+    return {'schema': 1, 'synthetic': synthetic, 'capture_manifest_sha256': data['capture_manifest_sha256'],
             'source_commit': data['source_commit'], 'unit_seconds': unit_seconds,
             'runs': runs, 'attainment': table, 'excluded_attempts': excluded,
             'validation_decisions': selection['records'],

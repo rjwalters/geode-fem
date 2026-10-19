@@ -25,7 +25,7 @@ def fixture():
                         'space': space, 'start_index': start, 'start': 'theta0' if start == 0 else f'lhs{start}',
                         'repeat': repeat}, 'selected_completion': True, 'terminal_bound': True,
                         'host_contaminated': False, 'trace_sha256': 'a' * 64, 'status': stop,
-                        'ledger': {'total_fe': end, 'total_seconds': end * 2., 'solve_fe': end}, 'validations': []}
+                        'ledger': {'total_fe': end, 'total_seconds': end * 2., 'solve_fe': end}, 'validations': [], 'validation_unavailable_events': []}
                     attempts.append(attempt)
                     if start == 4:
                         continue
@@ -35,17 +35,17 @@ def fixture():
                             fe *= .9
                         r = {'run_id': rid, 'source_sha256': 'a' * 64, 'method': method, 'space': space,
                              'start_index': start, 'repeat': repeat, 'ordinal': ordinal,
-                             'elapsed_seconds': fe * 2., 'budget_seconds': 240., 'f_val': f, 'mean_full': 1.1,
+                             'elapsed_seconds': fe * 2., 'budget_seconds': 240., 'f_val': f * 2., 'mean_full': 1.1,
                              'eligible_run': True, 'host_contaminated': False, 'completed': True,
                              'geometry_admissible': True, 'discrete_pass': True, 'mesh_pass': True}
-                        upper = f + max(.1 * f, 2.5e-7)
+                        upper = 2 * f + max(.2 * f, 2.5e-7)
                         records.append({'record': r, 'eligible': True, 'rejection_reasons': [], 'f_upper': upper,
-                                        'attains': {n: upper <= fraction for n, fraction in TARGETS.items()}})
+                                        'attains': {n: upper <= 2 * fraction for n, fraction in TARGETS.items()}})
                         attempt['validations'].append({'record_id': f'{rid}:{ordinal}'})
     return {'schema': 1, 'can_select': True, 'capture_manifest_sha256': 'b' * 64,
             'source_commit': 'c' * 40, 'attempts': attempts,
-            'selection': {'f0': 1., 'mean0': 1., 'mean_floor': 1.0025,
-                          'targets': dict(TARGETS), 'records': records}}
+            'selection': {'f0': 2., 'mean0': 1., 'mean_floor': 1.0025,
+                          'targets': {n: 2 * f for n, f in TARGETS.items()}, 'records': records}}
 
 
 def preview_fixture():
@@ -58,7 +58,7 @@ def preview_fixture():
         r['f_val'] *= quality; r['elapsed_seconds'] *= time
         upper = r['f_val'] + max(.1 * r['f_val'], 2.5e-7)
         audit['f_upper'] = upper
-        audit['attains'] = {n: upper <= fraction for n, fraction in TARGETS.items()}
+        audit['attains'] = {n: upper <= 2 * fraction for n, fraction in TARGETS.items()}
     return data
 
 
@@ -141,6 +141,51 @@ class PresentationTests(unittest.TestCase):
         first = [r for r in out['runs'] if (r['space'], r['start_index'], r['repeat']) == ('a', 0, 1)]
         self.assertEqual(len({json.dumps(r['points']) for r in first}), 5)
         self.assertTrue(all(r['run_id'].startswith('synthetic/') for r in out['runs']))
+
+    def test_unavailable_events_and_mixed_rejections_are_retained(self):
+        data=fixture(); attempt=next(a for a in data['attempts'] if a['job']['start_index']==4)
+        event={'kind':'validation_unavailable','error':'synthetic solver failure'}
+        attempt['validation_unavailable_events']=[event]
+        out=prepare(data,2.); run=next(r for r in out['runs'] if r['run_id']==attempt['run_id'])
+        self.assertEqual(run['validation_state'],'unavailable')
+        self.assertEqual(run['validation_unavailable_events'],[event])
+        cells=[r for r in out['attainment'] if r['run_id']==attempt['run_id']]
+        self.assertEqual(len(cells),3)
+        self.assertTrue(all(r['validation_unavailable_count']==1 and r['validation_state']=='unavailable' for r in cells))
+        self.assertEqual(run['points'],[])
+
+    def test_truthy_nonboolean_eligibility_is_refused(self):
+        for value in (1,'true'):
+            data=fixture();data['selection']['records'][0]['eligible']=value
+            with self.subTest(value=value),self.assertRaisesRegex(ValueError,'eligibility must be boolean'):
+                prepare(data,2.)
+
+    def test_ledger_unit_gate_is_isolated_from_validation_budget(self):
+        data=fixture();data['attempts'][0]['ledger']['total_seconds']+=1.
+        with self.assertRaisesRegex(ValueError,'calibration/ledger mismatch'):prepare(data,2.)
+
+    def test_validation_after_stop_inside_budget_is_refused(self):
+        data=fixture()
+        row=next(r for r in data['selection']['records'] if r['record']['start_index']==2)
+        row['record']['elapsed_seconds']=61.
+        with self.assertRaisesRegex(ValueError,'validation after run stop'):prepare(data,2.)
+
+    def test_decreasing_validation_times_inside_budget_are_refused(self):
+        data=fixture();data['selection']['records'][1]['record']['elapsed_seconds']=19.
+        with self.assertRaisesRegex(ValueError,'chronology mismatch'):prepare(data,2.)
+
+    def test_early_stop_checkpoint_values_are_explicitly_carried_forward(self):
+        rows=prepare(fixture(),2.)['runs']
+        early=next(r for r in rows if r['start_index']==2)
+        self.assertEqual(early['checkpoint_reached'],{'60':False,'120':False})
+        self.assertEqual(early['checkpoint_upper_ratio'],{'60':.088,'120':.088})
+        self.assertEqual(rows[0]['checkpoint_reached'],{'60':True,'120':True})
+
+    def test_nonunit_anchor_controls_attainment(self):
+        data=fixture();row=data['selection']['records'][0]
+        self.assertEqual(data['selection']['f0'],2.)
+        self.assertTrue(.5 < row['f_upper'] < 1.)
+        self.assertTrue(prepare(data,2.)['runs'][0]['first_attainment']['T50'])
 
 
 if __name__ == '__main__':
