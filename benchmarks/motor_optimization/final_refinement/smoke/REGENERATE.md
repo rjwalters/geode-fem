@@ -29,6 +29,9 @@ a different triangulation (L2 36,069 rather than 36,083 nodes), so it cannot
 regenerate these exact historical bytes. CI regenerates on macOS arm64, passes
 the digest-named files as a one-day Actions artifact, and runs the full stdlib
 replay suite on Linux. No platform-specific digest is substituted.
+The regeneration receipt records the operating system, architecture and Python
+version. The generator refuses other platforms before creating output; replay
+on Linux uses the verified cache without invoking Gmsh.
 No optimizer or FEM solve runs. Tests require this cache and copy bytes only
 after hash verification; no missing-evidence tests are skipped.
 

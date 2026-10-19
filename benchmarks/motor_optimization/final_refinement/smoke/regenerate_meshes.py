@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import platform
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,10 @@ REPO = HERE.parents[3]
 
 
 def regenerate(out):
+    host={'system':platform.system(),'machine':platform.machine()}
+    if host!={'system':'Darwin','machine':'arm64'}:
+        raise ValueError('Historical fixture regeneration requires macOS arm64; '
+                         'use its hash-verified cache for replay on other platforms')
     out=Path(out).resolve();out.mkdir(parents=True,exist_ok=False)
     with tempfile.TemporaryDirectory() as tmp:
         root=Path(tmp)
@@ -58,6 +63,7 @@ def regenerate(out):
                 if 'l3-mesh/icem_initial_sector_L3.msh' in omissions:
                     retain(initial/'icem_initial_sector_L3.msh',omissions['l3-mesh/icem_initial_sector_L3.msh'])
         (out/'regeneration.json').write_text(json.dumps({'source_commit':SOURCE,'files':records,
+            'platform':host,'python':platform.python_version(),
             'scope':'Hash-matched regenerated meshes only. No numerical outputs regenerated.'},indent=2)+'\n')
         print(json.dumps({'mesh_files':len(records),'directory':str(out),'source_commit':SOURCE}))
 
