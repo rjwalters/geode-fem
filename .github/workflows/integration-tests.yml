@@ -919,11 +919,38 @@ jobs:
           /tmp/harness-venv/bin/python -I -m unittest discover \
               -s benchmarks/motor_optimization/harness -p 'test_*.py' -v
 
+  motor-final-refinement-meshes:
+    # Historical byte digests were produced by macOS arm64 Gmsh. Linux Gmsh
+    # makes a different triangulation, so regenerate on the source platform;
+    # Linux still runs the entire replay suite against hash-checked artifacts.
+    name: regenerate motor refinement meshes (macOS arm64)
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Regenerate exact historical mesh bytes
+        run: |
+          python -m pip install numpy==2.5.4 gmsh==4.15.2
+          python -I benchmarks/motor_optimization/final_refinement/smoke/regenerate_meshes.py \
+              --out /tmp/final-refinement-meshes
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-refinement-meshes
+          path: /tmp/final-refinement-meshes
+          if-no-files-found: error
+          retention-days: 1
+
   motor-final-refinement:
     # Selection, archived native records, regenerated meshes and controlled child
     # processes. Historical Git objects are required for source/receipt replay;
     # this job does not compile or execute an archived native binary.
     name: motor final refinement tests (python, linux)
+    needs: motor-final-refinement-meshes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -936,14 +963,14 @@ jobs:
         with:
           python-version: '3.12'
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: final-refinement-meshes
+          path: /tmp/final-refinement-meshes
+
       - name: Complete final-refinement regression suite
         env:
           GEODE_REFINEMENT_MESH_CACHE: /tmp/final-refinement-meshes
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libglu1-mesa
-          python -m pip install numpy==2.5.4 gmsh==4.15.2
-          python -I benchmarks/motor_optimization/final_refinement/smoke/regenerate_meshes.py \
-              --out "$GEODE_REFINEMENT_MESH_CACHE"
           python -I -m unittest discover \
               -s benchmarks/motor_optimization/final_refinement -p 'test_*.py' -v

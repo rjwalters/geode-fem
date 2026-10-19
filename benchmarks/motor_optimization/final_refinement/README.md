@@ -28,9 +28,9 @@ python3 -I -m unittest discover \
 ```
 
 The stdlib suite uses retained native outputs, hash-matched regenerated mesh
-inputs and controlled Python child processes. Mesh regeneration uses Gmsh 4.15.2
+inputs and controlled Python child processes. Mesh regeneration uses macOS arm64, Gmsh 4.15.2
 and NumPy 2.5.4; it runs no FEM. It does not compile or execute archived binaries.
-The dedicated CI job uses Python 3.12 and full Git history. The Rust `motor_final_refinement` integration
+CI regenerates on macOS arm64, then replays on Linux using Python 3.12 and full Git history. The Rust `motor_final_refinement` integration
 target is covered by the existing core integration workflow.
 
 Archived native checks cover primary, L3, g40, tight Newton tolerance, independent

@@ -8,7 +8,8 @@ not a complete runtime artifact. The synthetic capture likewise requires mesh
 hydration before its full capture replay. The 38-byte synthetic build fixture
 is text, not a compiled executable or numerical evidence.
 
-Regenerate the four historical meshes from the exact source commit
+Regenerate on **macOS arm64** with the pinned Gmsh wheel. The four historical
+meshes come from the exact source commit
 `63b3e3d8bbc30504f845eebb5b78e8be6a2ee12f`:
 
 ```sh
@@ -23,7 +24,11 @@ or downloads only the two hash-pinned upstream NURBS exports and executes
 `build_sector_mesh.py --levels 2 3` and `build_design_mesh.py --levels 2`
 with the archived conforming and scalar/offset repair plans. Each resulting
 file must match its original size and SHA-256; a platform difference fails,
-never silently updates a golden hash. Linux needs `libglu1-mesa` for Gmsh.
+never silently updates a golden hash. Linux Gmsh 4.15.2 was observed to produce
+a different triangulation (L2 36,069 rather than 36,083 nodes), so it cannot
+regenerate these exact historical bytes. CI regenerates on macOS arm64, passes
+the digest-named files as a one-day Actions artifact, and runs the full stdlib
+replay suite on Linux. No platform-specific digest is substituted.
 No optimizer or FEM solve runs. Tests require this cache and copy bytes only
 after hash verification; no missing-evidence tests are skipped.
 
