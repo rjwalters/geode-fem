@@ -262,6 +262,36 @@ class AttestationTests(unittest.TestCase):
         self.observed['process_commands'].append({'pid':2,'comm':'kthreadd','argv':[],'disappeared':False})
         self.assertTrue(proof.quiet_processes(self.observed,capture_script_sha256='d'*64))
 
+    def test_recovery_kprobe_kernel_worker_requires_exact_name_and_kernel_parent(self):
+        original = json.loads(self.files['host-before-stop.json'])
+        for comm, parent, accepted in [('kprobe-optimizer', 2, True),
+                                      ('kprobe-optimizer', 1, False),
+                                      ('optimizer', 2, False),
+                                      ('kprobe-optimizer-extra', 2, False)]:
+            with self.subTest(comm=comm, parent=parent):
+                host = dict(original, process_table=original['process_table'] + f'20 {parent} {comm}\n')
+                self.files['host-before-stop.json'] = raw(host)
+                if accepted:
+                    self.history()
+                else:
+                    with self.assertRaisesRegex(ValueError, 'B1 work process'): self.history()
+
+    def test_capture_kprobe_kernel_worker_requires_parent_group_and_empty_command(self):
+        for change in ({}, {'ppid': 1}, {'pgid': 20}, {'argv': ['optimizer']},
+                       {'comm': 'optimizer'}, {'comm': 'kprobe-optimizer-extra'}):
+            with self.subTest(change=change):
+                obs = copy.deepcopy(self.observed)
+                row = {'pid': 20, 'ppid': 2, 'pgid': 0, 'start': 'kernel boot', 'state': 'S'}
+                command = {'pid': 20, 'comm': 'kprobe-optimizer', 'argv': [], 'disappeared': False}
+                row.update({k: v for k, v in change.items() if k in row})
+                command.update({k: v for k, v in change.items() if k in command})
+                obs['process_table'].append(row); obs['process_commands'].append(command)
+                if not change:
+                    self.assertTrue(proof.quiet_processes(obs, capture_script_sha256='d'*64))
+                else:
+                    with self.assertRaisesRegex(ValueError, 'live evaluator'):
+                        proof.quiet_processes(obs, capture_script_sha256='d'*64)
+
     def test_collector_exception_is_source_identity_and_command_bound(self):
         for kind in ('hash', 'pid', 'script', 'argv', 'missing', 'duplicate', 'bytecode'):
             with self.subTest(kind=kind):

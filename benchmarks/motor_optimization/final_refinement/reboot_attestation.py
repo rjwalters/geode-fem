@@ -179,8 +179,11 @@ def recovery(witness_raw, files, p):
     python = [r for r in processes if r[2].startswith('python')]
     require(len(python) == 1 and any(r[1] == python[0][0] and r[2] == 'ps' for r in processes),
             'B1 Python process is not the documented read-only collector')
+    # Linux's kprobe optimizer is a kernel worker parented by kthreadd (PID 2),
+    # not an optimization experiment. The saved B1 table has only PID/PPID/comm.
     require(not any(re.search(r'icem|tmux|octave|matlab|julia|cargo|uv|session|optimizer|capture|analysis',
-                              r[2], re.I) for r in processes), 'B1 work process present')
+                              r[2], re.I) and not (r[1] == 2 and r[2] == 'kprobe-optimizer')
+                    for r in processes), 'B1 work process present')
     before = _json(files['ec2-observation.json']); stopped = _json(files['ec2-stopped-transition.json'])
     launch = ec2(before, p, 'running')
     require(ec2(stopped, p, 'stopped') == launch, 'B1 EC2 launch changed')
@@ -343,6 +346,11 @@ def quiet_processes(observed, *, capture_script_sha256):
                     'collector command differs (requires isolated Python with bytecode writes disabled)')
         elif not row['disappeared'] and not by_pid[row['pid']]['state'].startswith('Z'):
             name = row['comm']
+            # B2 has stronger observations than B1: require kernel parent,
+            # process group zero and no userspace command line as well.
+            if (name == 'kprobe-optimizer' and by_pid[row['pid']].get('ppid') == 2
+                    and by_pid[row['pid']]['pgid'] == 0 and row['argv'] == []):
+                continue
             require(not re.search(r'python|icem|tmux|octave|matlab|julia|cargo|optimizer|capture|analysis|jupyter',
                                   name, re.I) and name not in ('uv', 'R', 'Rscript'),
                     'live evaluator/session/analysis worker: ' + name)

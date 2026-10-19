@@ -67,7 +67,9 @@ def main():
     mesh_test='test_refinement_bundle.RefinementBundleTests.test_external_l3_mesh_must_match_reviewed_report_bytes'
     platform_test='test_regenerate_platform.RegenerationPlatformTests.test_unsupported_platform_refuses_before_creating_output_or_running_commands'
     boot_test=UNIT+'test_missing_extra_intermediate_reused_and_unobserved_boots_refused'
-    baseline=run(sorted(set([case[2] for case in CASES]+[mesh_test,platform_test,boot_test])))
+    kernel_b1=UNIT+'test_recovery_kprobe_kernel_worker_requires_exact_name_and_kernel_parent'
+    kernel_b2=UNIT+'test_capture_kprobe_kernel_worker_requires_parent_group_and_empty_command'
+    baseline=run(sorted(set([case[2] for case in CASES]+[mesh_test,platform_test,boot_test,kernel_b1,kernel_b2])))
     if not baseline['successful']:raise RuntimeError('mutation baseline failed:\n'+baseline['output'])
     rows=[];original=proof.require
     for label,prefix,test in CASES:
@@ -89,6 +91,15 @@ def main():
     altered=changed_function(module,'regenerate',"if host!={'system':'Darwin','machine':'arm64'}:",'if False:')
     with mock.patch.object(module,'regenerate',altered):result=run([platform_test])
     rows.append({'mutation':'remove historical regeneration platform guard','killed':not result['successful'],**result})
+    for label,function,before,after,test in [
+        ('allow B1 userspace kprobe name','recovery',"r[1] == 2 and r[2] == 'kprobe-optimizer'","r[2] == 'kprobe-optimizer'",kernel_b1),
+        ('ignore B2 kernel parent','quiet_processes',"and by_pid[row['pid']].get('ppid') == 2",'',kernel_b2),
+        ('ignore B2 kernel group','quiet_processes',"and by_pid[row['pid']]['pgid'] == 0",'',kernel_b2),
+        ('ignore B2 kernel command','quiet_processes',"and row['argv'] == []",'',kernel_b2),
+    ]:
+        altered=changed_function(proof,function,before,after)
+        with mock.patch.object(proof,function,altered):result=run([test])
+        rows.append({'mutation':label,'killed':not result['successful'],**result})
     sources={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in
              [HERE/'reboot_attestation.py',HERE/'refinement_bundle.py',HERE/'reboot_mutations.py',
               HERE/'smoke/regenerate_meshes.py',HERE/'test_reboot_attestation.py',

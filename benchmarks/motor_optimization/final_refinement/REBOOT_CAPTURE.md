@@ -103,7 +103,10 @@ Current process identities and command observations must exclude live evaluator,
 session, analysis and other study-capable interpreter workers. Only the exact
 current exporter identity, source hash and `-I -B` command are excepted. Process
 observations remain time-bound. No environment values are collected. The
-machine-id observation records whether the saved B1 digest included the final
+Linux `kprobe-optimizer` kernel worker is recognized by its exact name and
+kernel parent (PID 2) in B1; B2 additionally requires process group zero and
+an empty command line. A similarly named userspace process still refuses.
+The machine-id observation records whether the saved B1 digest included the final
 newline; both supported encodings identify the same 32 hexadecimal digits.
 
 Failure leaves a visible partial capture and, once copying has begun, a failure
