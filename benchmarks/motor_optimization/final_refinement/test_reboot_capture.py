@@ -130,6 +130,26 @@ class RebootCaptureTests(unittest.TestCase):
         for phase in ('before', 'after'):
             self.mutate('processes-'+phase+'.json', lambda e: change(e['reboot_observation']))
 
+    def with_quiet_history(self):
+        def add(obs):
+            snapshot={k:copy.deepcopy(obs[k]) for k in proof.PROCESS_FIELDS}
+            obs['quiet_checks']=[{'attempt':1,'elapsed_seconds':0,'issues':[],'snapshot':snapshot}]
+        self.change_observations(add)
+
+    def test_replay_accepts_bound_quiet_history(self):
+        self.with_quiet_history()
+        self.assertTrue(self.load()['capture_verified'])
+
+    def test_replay_rechecks_quiet_refusal_history_after_repin(self):
+        self.with_quiet_history()
+        self.mutate('processes-before.json',lambda e:e['reboot_observation']['quiet_checks'][0].update(issues=[{'fake':True}]))
+        with self.assertRaisesRegex(ValueError,'quiet check refusal log differs'):self.load()
+
+    def test_replay_binds_quiet_history_to_final_process_snapshot(self):
+        self.with_quiet_history()
+        self.mutate('processes-before.json',lambda e:e['reboot_observation']['quiet_checks'][0]['snapshot']['process_commands'][0].update(uid=9))
+        with self.assertRaisesRegex(ValueError,'quiet check final snapshot differs'):self.load()
+
     def test_replay_rechecks_boot_chain_after_archive_repin(self):
         def extra(obs):
             rows=proof.boot_list(obs['journal_boot_list'])

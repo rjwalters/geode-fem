@@ -54,6 +54,13 @@ separate recovery-evidence directory. All file hashes/sizes are verified before
 semantic checks. The saved B1 statement explicitly limits the observation to
 copy-only recovery; its process table is not a complete boot process history.
 The only recorded Python process must be the collector parenting `ps`.
+B1 retains PID, PPID and command name only. It cannot identify an interpreter
+hidden behind a script's command name, distinguish system/session D-Bus, or
+establish a complete process history. The saved Paper 3 B1 snapshot contains
+`networkd-dispat`, `unattended-upgr`, `dbus-daemon` and `amazon-ssm-agen` under
+PID 1; it contains no `ssm-session-worker`. Available B0 monitoring tails are
+filtered observations, not a full daemon census. See the operational evidence
+in `smoke/doctor56-system-daemons.json`; none of it is a study outcome.
 
 ## One bounded capture boot
 
@@ -62,6 +69,18 @@ success and failure stop the instance, retain its volume, restore the idle
 alarm's actions, and retain the final state receipts. Do not leave the instance
 running while waiting for review or analysis. Do not restart after a refusal to
 try a different boot chain; preserve the failure for review.
+
+Within that **same boot**, each before/after process observation may make up to
+ten read-only quiet checks, sixty seconds apart, with a 600-second elapsed-time
+limit. Every attempt prints its number, elapsed seconds and complete blocking
+process list (PID, command name, argv and UID) to the operator log, including the
+final failed attempt. A clean pass proceeds immediately. An exhausted check
+fails capture and triggers the operator's shutdown cleanup. Malformed evidence,
+a changed host/boot or an observation error fails immediately; these are not
+transient work. No service is stopped, original record changed, or reboot retried.
+Successful captures also retain every snapshot and refusal list in their
+before/after evidence; portable replay verifies their ordering, refusals,
+same-boot identity and equality of the final snapshot to the capture observation.
 
 Immediately after B2 starts, retain a fresh EC2 observation containing
 `InstanceId`, the string `State`, `LaunchTime`, `PrivateDnsName`, and the full
@@ -104,7 +123,21 @@ session, analysis and other study-capable interpreter workers. Only the exact
 current exporter identity, source hash and `-I -B` command are excepted. Process
 names use one shared B1/B2 classifier. B2 also checks the basenames of its first
 two command arguments, so an interpreter cannot hide behind a script's process
-name. Observations remain time-bound. No environment values are collected. The
+name. Bounded system-daemon exceptions require an exact command name and entire
+argv, an integer effective UID in `[0,1000)`, and integer PPID 1. The enumerated
+Ubuntu commands are `/usr/bin/python3` with either
+`/usr/share/unattended-upgrades/unattended-upgrade-shutdown --wait-for-signal` or
+`/usr/bin/networkd-dispatcher --run-startup-triggers`. D-Bus accepts only
+`/usr/bin/dbus-daemon --system|--session --address=systemd: --nofork --nopidfile
+--systemd-activation --syslog-only` (one exact mode argument). The truncated
+`ssm-session-wor` command accepts only `/usr/bin/ssm-session-worker` with **no**
+arguments. This does not allow an active SSM session's document/session arguments,
+alternate snap paths, or arbitrary user sessions. Unknown variants, extra flags,
+different scripts, user UIDs, and lookalike identities remain refusals. These
+checks bind process observations, not executable signatures or malicious-root
+resistance. Historical captures without retry logs remain readable.
+
+Observations remain time-bound. No environment values are collected. The
 Linux `kprobe-optimizer` kernel worker is recognized by its exact name and
 kernel parent (PID 2) in B1; B2 additionally requires process group zero and
 an empty command line. A similarly named userspace process still refuses.

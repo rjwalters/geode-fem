@@ -239,6 +239,7 @@ def _reboot(reader, policy_sha256):
         verdict = reboot_attestation.observations(p, history, observed)
         reboot_attestation.quiet_processes(observed,
             capture_script_sha256=m['capture_tool_sha256']['closed_capture.py'])
+        reboot_attestation.quiet_history(observed, m['capture_tool_sha256']['closed_capture.py'])
         if (evidence.get('reboot_verdict') != verdict
                 or not m['capture_started'] <= observed['observed_time'] <= m['capture_finished']):
             raise ValueError('reboot verdict or observation time differs')

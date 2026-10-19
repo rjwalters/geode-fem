@@ -203,7 +203,10 @@ class AttestationTests(unittest.TestCase):
             script=HERE/'closed_capture.py';pid=os.getpid()
             row=dict(self.observed['process_table'][0],pid=pid,pgid=pid)
             identity=SimpleNamespace(host=lambda:self.observed['host'],table=lambda:[row])
-            read_bytes=Path.read_bytes;read_text=Path.read_text
+            read_bytes=Path.read_bytes;read_text=Path.read_text;stat=Path.stat
+            def stat_at(path,*args,**kwargs):
+                if path==Path('/proc')/str(pid):return SimpleNamespace(st_uid=1000)
+                return stat(path,*args,**kwargs)
             def bytes_at(path):
                 if path==Path('/etc/machine-id'):return machine
                 if path==Path('/proc')/str(pid)/'cmdline':
@@ -218,13 +221,15 @@ class AttestationTests(unittest.TestCase):
                 if '--list-boots' in args:return self.observed['journal_boot_list']
                 return self.observed['ended_boot_journals'][args[2]]
             with mock.patch.object(Path,'read_bytes',bytes_at),mock.patch.object(Path,'read_text',text_at), \
-                 mock.patch.object(proof,'_command',side_effect=command):
+                 mock.patch.object(proof,'_command',side_effect=command),mock.patch.object(Path,'stat',stat_at):
                 observed=proof.live_observation(p,self.observed['ec2'],identity,script)
             self.assertEqual(commands,[['journalctl','--list-boots','--no-pager','--utc'],
                 ['journalctl','-b',B0,'-o','json','--no-pager','--utc'],
                 ['journalctl','-b',B1,'-o','json','--no-pager','--utc']])
             self.assertEqual(observed['source_files']['session_exit.txt']['mtime_ns'],(root/'session_exit.txt').stat().st_mtime_ns)
             self.assertEqual(observed['collector']['identity']['pid'],pid)
+            self.assertEqual(observed['process_commands'][0]['uid'],1000)
+            proof.quiet_history(observed,proof.sha(script.read_bytes()))
             proof.machine_observation(observed,p)
             self.assertTrue(proof.quiet_processes(observed,capture_script_sha256=proof.sha(script.read_bytes())))
 
@@ -296,7 +301,7 @@ class AttestationTests(unittest.TestCase):
                 with self.assertRaises(ValueError): self.history()
 
     def test_live_study_interpreters_and_workers_refused(self):
-        for comm in ('python3', 'icem_harness_ev', 'tmux', 'octave', 'Rscript', 'jupyter', 'uv'):
+        for comm in ('python3', 'icem_harness_ev', 'tmux', 'octave', 'Rscript', 'jupyter', 'uv', 'Python3', 'CARGO'):
             with self.subTest(comm=comm):
                 obs = copy.deepcopy(self.observed)
                 obs['process_table'].append(dict(obs['process_table'][0], pid=700, pgid=700))
@@ -323,7 +328,7 @@ class AttestationTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, 'B1 work process'): self.history()
 
     def test_capture_kprobe_kernel_worker_requires_parent_group_and_empty_command(self):
-        for change in ({}, {'ppid': 1}, {'pgid': 20}, {'argv': ['optimizer']},
+        for change in ({}, {'ppid': 1}, {'ppid': 3}, {'ppid': None}, {'pgid': 20}, {'argv': ['optimizer']},
                        {'comm': 'optimizer'}, {'comm': 'kprobe-optimizer-extra'}):
             with self.subTest(change=change):
                 obs = copy.deepcopy(self.observed)

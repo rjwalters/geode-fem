@@ -71,6 +71,30 @@ REPLAY_CASES=[
      ARCHIVE+'test_replay_rehashes_machine_identity_bytes'),
 ]
 
+QUIET='test_reboot_quiet.QuietTests.'
+QUIET_CASES=[
+    ('allow non-system UID','system_daemon','uid < 1000','uid < 10000',QUIET+'test_daemon_lookalikes_never_gain_exception'),
+    ('allow negative UID','system_daemon','0 <= uid','-100 <= uid',QUIET+'test_daemon_lookalikes_never_gain_exception'),
+    ('allow bool UID','system_daemon','type(uid) is int','isinstance(uid, int)',QUIET+'test_daemon_lookalikes_never_gain_exception'),
+    ('omit daemon parent','system_daemon',"and row.get('ppid') == 1",'',QUIET+'test_daemon_lookalikes_never_gain_exception'),
+    ('allow bool parent','system_daemon',"type(row.get('ppid')) is int","isinstance(row.get('ppid'), int)",QUIET+'test_daemon_lookalikes_never_gain_exception'),
+    ('allow arbitrary daemon command','system_daemon',"tuple(command['argv']) in SYSTEM_DAEMONS.get(command['comm'], ())",'True',QUIET+'test_daemon_lookalikes_never_gain_exception'),
+    ('ignore exact daemon comm','system_daemon',"SYSTEM_DAEMONS.get(command['comm'], ())",'tuple(shape for shapes in SYSTEM_DAEMONS.values() for shape in shapes)',QUIET+'test_daemon_lookalikes_never_gain_exception'),
+    ('capture before quiet','wait_for_quiet','if not issues:','if True:',QUIET+'test_busy_then_quiet_retries_inside_same_boot'),
+    ('omit refusal log','wait_for_quiet','log(message)','pass',QUIET+'test_ten_busy_checks_log_all_refusals_then_fail'),
+    ('stop before tenth quiet check','wait_for_quiet','range(1, 11)','range(1, 10)',QUIET+'test_tenth_clean_check_can_succeed'),
+    ('K14 kernel parent not one','quiet_processes',"by_pid[row['pid']].get('ppid') == 2","by_pid[row['pid']].get('ppid') != 1",UNIT+'test_capture_kprobe_kernel_worker_requires_parent_group_and_empty_command'),
+    ('K23 case-sensitive classifier','work_process','name, re.I','name, 0',UNIT+'test_live_study_interpreters_and_workers_refused'),
+    ('omit archive quiet history','_reboot',"reboot_attestation.quiet_history(observed, m['capture_tool_sha256']['closed_capture.py'])",'pass',ARCHIVE+'test_replay_rechecks_quiet_refusal_history_after_repin'),
+]
+CASES += [
+    ('omit quiet boot equality','host/boot changed while waiting for quiet',QUIET+'test_changed_boot_aborts_without_retrying_new_boot'),
+    ('omit quiet time budget','quiet check time budget exhausted',QUIET+'test_time_budget_is_bounded'),
+    ('omit retry ordering','invalid quiet check ordering',QUIET+'test_history_replays_refusals_order_host_and_final_snapshot'),
+    ('omit retry refusal equality','quiet check refusal log differs',QUIET+'test_history_replays_refusals_order_host_and_final_snapshot'),
+    ('omit retry final equality','quiet check final snapshot differs',QUIET+'test_history_replays_refusals_order_host_and_final_snapshot'),
+]
+
 
 def run(names):
     stream=io.StringIO()
@@ -98,7 +122,7 @@ def main():
     kernel_b1=UNIT+'test_recovery_kprobe_kernel_worker_requires_exact_name_and_kernel_parent'
     kernel_b2=UNIT+'test_capture_kprobe_kernel_worker_requires_parent_group_and_empty_command'
     argv_test=UNIT+'test_interpreter_argv_cannot_hide_behind_a_script_process_name'
-    baseline=run(sorted(set([case[2] for case in CASES]+[case[4] for case in REPLAY_CASES]+
+    baseline=run(sorted(set([case[2] for case in CASES]+[case[4] for case in REPLAY_CASES+QUIET_CASES]+
                             [mesh_test,platform_test,boot_test,kernel_b1,kernel_b2,argv_test])))
     if not baseline['successful']:raise RuntimeError('mutation baseline failed:\n'+baseline['output'])
     rows=[];original=proof.require
@@ -137,8 +161,13 @@ def main():
         altered=changed_function(proof,function,before,after)
         with mock.patch.object(proof,function,altered):result=run([test])
         rows.append({'mutation':label,'killed':not result['successful'],**result})
+    for label,function,before,after,test in QUIET_CASES:
+        module=capture_archive if function=='_reboot' else proof
+        altered=changed_function(module,function,before,after)
+        with mock.patch.object(module,function,altered):result=run([test])
+        rows.append({'mutation':label,'killed':not result['successful'],**result})
     sources={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in
-             [HERE/'reboot_attestation.py',HERE/'capture_archive.py',HERE/'test_reboot_capture.py',
+             [HERE/'test_reboot_quiet.py',HERE/'reboot_attestation.py',HERE/'capture_archive.py',HERE/'test_reboot_capture.py',
               HERE/'refinement_bundle.py',HERE/'reboot_mutations.py',
               HERE/'smoke/regenerate_meshes.py',HERE/'test_reboot_attestation.py',
               HERE/'test_refinement_bundle.py',HERE/'test_regenerate_platform.py']}

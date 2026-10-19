@@ -4,14 +4,17 @@ Original identities and journals remain unchanged. The producer verifier must
 still refuse under the real B2 host; this layer supplements only its enumerated
 boot-mismatch refusals. It grants no recovery or scientific launch permission.
 """
+import copy
 import hashlib
 import importlib
+import json
 import math
 import os
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
+import sys
 import time
 
 import producer_source
@@ -320,6 +323,27 @@ def process_report(root, verifier, *, host, table, p):
             'termination_basis': 'attested_reboot', 'original_verifier': original, 'scope': SCOPE}
 
 
+SYSTEM_DAEMONS = {
+    'unattended-upgr': (
+        ('/usr/bin/python3', '/usr/share/unattended-upgrades/unattended-upgrade-shutdown', '--wait-for-signal'),),
+    'networkd-dispat': (
+        ('/usr/bin/python3', '/usr/bin/networkd-dispatcher', '--run-startup-triggers'),),
+    'dbus-daemon': (
+        ('/usr/bin/dbus-daemon', '--system', '--address=systemd:', '--nofork', '--nopidfile',
+         '--systemd-activation', '--syslog-only'),
+        ('/usr/bin/dbus-daemon', '--session', '--address=systemd:', '--nofork', '--nopidfile',
+         '--systemd-activation', '--syslog-only'),),
+    # No session ID, document, shell or other argument is admitted here.
+    'ssm-session-wor': (('/usr/bin/ssm-session-worker',),),
+}
+
+
+def system_daemon(row, command):
+    uid = command.get('uid')
+    return (type(uid) is int and 0 <= uid < 1000 and type(row.get('ppid')) is int and row.get('ppid') == 1
+            and tuple(command['argv']) in SYSTEM_DAEMONS.get(command['comm'], ()))
+
+
 def quiet_processes(observed, *, capture_script_sha256):
     """Only the exact current exporter may be a live study-capable interpreter."""
     table = observed['process_table']; commands = observed['process_commands']
@@ -342,6 +366,7 @@ def quiet_processes(observed, *, capture_script_sha256):
     script = collector.get('script')
     require(isinstance(script, str) and PurePosixPath(script).is_absolute()
             and PurePosixPath(script).name == 'closed_capture.py', 'unbound collector script')
+    busy = []
     for row in commands:
         require(isinstance(row.get('comm'), str) and isinstance(row.get('argv'), list)
                 and all(isinstance(a, str) for a in row['argv'])
@@ -358,9 +383,75 @@ def quiet_processes(observed, *, capture_script_sha256):
             if (name == 'kprobe-optimizer' and by_pid[row['pid']].get('ppid') == 2
                     and by_pid[row['pid']]['pgid'] == 0 and row['argv'] == []):
                 continue
-            require(not any(work_process(candidate) for candidate in (name, *row['argv'][:2])),
-                    'live evaluator/session/analysis worker: ' + name)
+            if system_daemon(by_pid[row['pid']], row):
+                continue
+            daemon_program = bool(row['argv']) and PurePosixPath(row['argv'][0]).name in {'dbus-daemon', 'ssm-session-worker'}
+            if name in SYSTEM_DAEMONS or daemon_program or any(work_process(candidate) for candidate in (name, *row['argv'][:2])):
+                busy.append({k: row.get(k) for k in ('pid', 'comm', 'argv', 'uid')})
+    require(not busy, 'live evaluator/session/analysis worker: ' + json.dumps(busy, sort_keys=True))
     return True
+
+
+def quiet_refusals(observed, digest):
+    try:
+        quiet_processes(observed, capture_script_sha256=digest)
+    except ValueError as error:
+        prefix = 'reboot attestation: live evaluator/session/analysis worker: '
+        if not str(error).startswith(prefix):
+            raise  # Malformed or unbound observations are not transient work.
+        return json.loads(str(error)[len(prefix):])
+    return []
+
+
+PROCESS_FIELDS = ('host', 'process_table', 'process_commands', 'collector')
+
+
+def wait_for_quiet(observe, digest, *, sleep=time.sleep, clock=time.monotonic, log=None):
+    """At most ten read-only snapshots within 600 seconds, without a new boot."""
+    started = clock(); attempts = []; host = None
+    for number in range(1, 11):
+        snapshot = observe()
+        elapsed = clock() - started
+        host = snapshot['host'] if host is None else host
+        require(snapshot['host'] == host, 'host/boot changed while waiting for quiet')
+        require(0 <= elapsed <= 600, 'quiet check time budget exhausted')
+        issues = quiet_refusals(snapshot, digest)
+        record = {'attempt': number, 'elapsed_seconds': elapsed, 'issues': issues,
+                  'snapshot': copy.deepcopy({k: snapshot[k] for k in PROCESS_FIELDS})}
+        attempts.append(record)
+        # Printed even on final refusal, before a capture archive can exist.
+        message = dict(kind='reboot_quiet_check', **{k: record[k] for k in record if k != 'snapshot'})
+        if log is None:
+            print(json.dumps(message, sort_keys=True), file=sys.stderr, flush=True)
+        else:
+            log(message)
+        if not issues:
+            return dict(snapshot, quiet_checks=attempts)
+        if number == 10 or elapsed + 60 > 600:
+            break
+        sleep(60)
+    require(False, 'quiet check exhausted: ' + json.dumps(attempts[-1]['issues'], sort_keys=True))
+
+
+def quiet_history(observed, digest):
+    """Replay retained attempts; historical schema-2 captures had no retry log."""
+    if 'quiet_checks' not in observed:
+        return
+    records = observed['quiet_checks']
+    require(isinstance(records, list) and 1 <= len(records) <= 10, 'invalid quiet check history')
+    previous = None
+    for number, record in enumerate(records, 1):
+        elapsed = record.get('elapsed_seconds'); snapshot = record.get('snapshot', {})
+        require(record.get('attempt') == number and type(elapsed) in (int, float)
+                and math.isfinite(elapsed) and 0 <= elapsed <= 600
+                and (previous is None or elapsed >= previous + 60), 'invalid quiet check ordering')
+        require(snapshot.get('host') == observed['host'], 'quiet check host/boot changed')
+        issues = quiet_refusals(snapshot, digest)
+        require(record.get('issues') == issues and bool(issues) == (number < len(records)),
+                'quiet check refusal log differs')
+        previous = elapsed
+    require(records[-1]['snapshot'] == {k: observed[k] for k in PROCESS_FIELDS},
+            'quiet check final snapshot differs')
 
 
 def source_census(root):
@@ -402,6 +493,27 @@ def _command(args):
     return result.stdout.decode('utf-8')
 
 
+def process_snapshot(identity, script):
+    """Read process names, argv and effective owner; never environment values."""
+    host, table = identity.host(), identity.table()
+    own = next((r for r in table if r['pid'] == os.getpid()), None)
+    require(own is not None, 'collector absent from process table')
+    commands = []
+    for row in table:
+        proc = Path('/proc')/str(row['pid'])
+        try:
+            comm = (proc/'comm').read_text().strip()
+            argv = (proc/'cmdline').read_bytes().split(b'\0')
+            argv = [arg.decode('utf-8') for arg in argv if arg]
+            commands.append({'pid': row['pid'], 'comm': comm, 'argv': argv,
+                             'uid': proc.stat().st_uid, 'disappeared': False})
+        except FileNotFoundError:
+            commands.append({'pid': row['pid'], 'comm': '', 'argv': [], 'disappeared': True})
+    return {'host': host, 'process_table': table, 'process_commands': commands,
+            'collector': {'identity': dict(own, host=host), 'script': str(script),
+                          'script_sha256': producer_source.digest(script)}}
+
+
 def live_observation(p, ec2_record, identity, script):
     """Linux read-only collection; no evaluators, recovery, builds or journal writes."""
     files, directories = source_census(p['inventory_root'])
@@ -416,27 +528,12 @@ def live_observation(p, ec2_record, identity, script):
     encoding = next((name for name, value in [('file_bytes', machine), ('hex_digits', machine.strip())]
                      if sha(value) == p['machine_id_sha256']), None)
     require(encoding is not None, 'actual machine identity changed')
-    host, table = identity.host(), identity.table()
-    own = next((r for r in table if r['pid'] == os.getpid()), None)
-    require(own is not None, 'collector absent from process table')
-    commands = []
-    for row in table:
-        proc = Path('/proc')/str(row['pid'])
-        try:
-            comm = (proc/'comm').read_text().strip()
-            argv = (proc/'cmdline').read_bytes().split(b'\0')
-            argv = [arg.decode('utf-8') for arg in argv if arg]
-            commands.append({'pid': row['pid'], 'comm': comm, 'argv': argv, 'disappeared': False})
-        except FileNotFoundError:
-            commands.append({'pid': row['pid'], 'comm': '', 'argv': [], 'disappeared': True})
-    return {'host': host, 'machine_id_sha256': p['machine_id_sha256'],
+    snapshot = wait_for_quiet(lambda: process_snapshot(identity, script), producer_source.digest(script))
+    return {**snapshot, 'machine_id_sha256': p['machine_id_sha256'],
             'machine_id_text': machine.decode(), 'machine_id_encoding': encoding,
             'journal_boot_list': boots, 'ended_boot_journals': journals, 'ec2': ec2_record,
             'source_files': files, 'source_directories': directories,
             'session_exit_text': producer_source.regular(Path(p['inventory_root'])/p['session_exit_file']).read_text(),
-            'process_table': table, 'process_commands': commands,
-            'collector': {'identity': dict(own, host=host), 'script': str(script),
-                          'script_sha256': producer_source.digest(script)},
             'observed_time': time.time()}
 
 
@@ -495,6 +592,7 @@ class CaptureContext:
         machine_observation(observed, self.p)
         verdict = observations(self.p, self.history, observed)
         quiet_processes(observed, capture_script_sha256=producer_source.digest(script))
+        quiet_history(observed, producer_source.digest(script))
         reports = {path: process_report(path, verifier, host=observed['host'],
                                        table=observed['process_table'], p=self.p)
                    for path in [*chain['source_directories'], str(build_root)]}

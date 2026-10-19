@@ -9,14 +9,16 @@
     "log": "reboot-tests.log",
     "sha256": "f5f290e0ca0a5a06e9f12fbae5504936e85f8e7fa996726a6ba28e3475830fe1",
     "python": "3.15.0",
-    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O"
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "at_commit": "1f85a145edd64903ef2ca53084553a562d5499fd",
+    "scope": "Historical full suite at prior head. Current Doctor56 delta uses the targeted suite below; remote full-suite CI is required."
   },
   "mutations": {
     "command": "python3 -I benchmarks/motor_optimization/final_refinement/reboot_mutations.py --out NEW_REPORT",
-    "injected": 40,
-    "killed": 40,
+    "injected": 58,
+    "killed": 58,
     "report": "reboot-mutations.json",
-    "sha256": "68a8dfbffeafa2261179839837fcc37caf3aeb1ed13f58544dc0fc2e286dcfaa"
+    "sha256": "a5bed029695d3f7a544ca41551c323b17b69bd4f7f9d061ba077184105aaa588"
   },
   "mesh_regeneration": {
     "source_commit": "63b3e3d8bbc30504f845eebb5b78e8be6a2ee12f",
@@ -57,20 +59,22 @@
   },
   "files_sha256": {
     "closed_capture.py": "ff2ccdbb0494db0c67ecda696f23d22ec5854b0e974a46bf30921136a9d62600",
-    "capture_archive.py": "f2fbd033401c9b8c088cddd32989da3285e1c07dcdf89a6cce170913283fd254",
-    "reboot_attestation.py": "6f1513b306b57cae27184e1ab6dafd80056c9155fc348a8ac6c2480165ae6581",
+    "capture_archive.py": "e1d6d7783f4ff5566b5af3e05007e39cd88fc72db39a33a0badeadb1ad8acd7a",
+    "reboot_attestation.py": "349c781a74abdab948faef9dc872977ccfbcb7be38ff0248e6771530edd8751f",
     "study_selection.py": "72ca0ab962576862530e36bded47a55edac6e80a92db414f03d87b35f34f97f3",
     "refinement_bundle.py": "228b3b41caf346aa80aaa34bf71cb1bb80ae37b98ed336a51cd2165aa3442931",
-    "reboot_mutations.py": "13609a5e974c3ab11e16f285c0235ffce970efc2daf8e91ef07063d52ce8b245",
+    "reboot_mutations.py": "e064d7a8aacbabc54b7e45b901c93498f7e3d0c0f5f544d5122950878ad31f6c",
     "test_capture_archive.py": "32dad1d698df8a1f433d9efcfacbef6cf419640ca68b4bfc5edbb376e49afc35",
     "test_study_selection.py": "fa5684608f2ed20ade62762503704b4f19c435427788c2f9100c88ba003c159c",
     "test_refinement_bundle.py": "f7690398fd253eef559cd5cb9e9dfe9847ec22c849de4e77a65034cab00217df",
     "test_regenerate_platform.py": "8599df58745c1c91df595d01b044fca97c51540db8b5260de15601404c4f2aef",
-    "test_reboot_attestation.py": "5a112d32f2a3760220276ae214e75fd7f5e2cc5b9c0de7ae2cd68968c9442c54",
-    "test_reboot_capture.py": "c5a1b0cdb50cfeea2e0380fcd3fea8ec79bfd7853392238b1b52693ffebc2ea3",
+    "test_reboot_attestation.py": "c300ebde40355fdd12abd392a55eb36111109ecd226e78b5cd182694e5c50c0b",
+    "test_reboot_capture.py": "34ffe00430f02ed3e925e6d41d32a6a81f11d51da3831ec98892eaea611f9fb2",
     "test_reboot_pipeline.py": "8bbc9e9e916ef44c557ebc3e1e10723c8119e74fbbffe472a14b557faa9acd00",
     "README.md": "c8cedec076dd263e4ce529e98d18c9555b5a85e44476a52facd85e4c21ad6441",
-    "REBOOT_CAPTURE.md": "e223fe1b7c34d372532b400051200e90f5477765a1c65a2751c19602cafea2ce"
+    "REBOOT_CAPTURE.md": "ce89499b02431765d274f3d68b8220d2482ad7e875ace95d8567a70c3ab3a42b",
+    "test_reboot_quiet.py": "58bd14c4e124a88d874d23cc1d902ab6fceb5b28ab67e672fc77d855d87690ae",
+    "smoke/doctor56-system-daemons.json": "484eca23b4f7318cb0ee84813c8125543193b4750b8d471b76fad6612567d899"
   },
   "remaining": [
     "Independent Judge review and CI of exact PR head",
@@ -92,5 +96,19 @@
       "J22",
       "J23"
     ]
+  },
+  "targeted_suite": {
+    "command": "python3 -I -m unittest discover -s benchmarks/motor_optimization/final_refinement -p 'test_reboot_*.py'",
+    "tests": 67,
+    "exit_code": 0,
+    "log": "doctor56-tests.log",
+    "sha256": "714db712be1cf0390e2e555f7a4b54c30f7fff493cf8d7eda4663f37244ab47f"
+  },
+  "doctor56": {
+    "reviewed_base": "1f85a145edd64903ef2ca53084553a562d5499fd",
+    "scope": "Exact daemon comm/entire argv/system effective UID/PPID1 exceptions; read-only same-boot quiet retry bounded to10checks/600seconds per phase; full refusal logs and portable history replay. K14/K23 tests added. Historical B1 name-only limit documented.",
+    "operations_evidence": "doctor56-system-daemons.json",
+    "real_B1_policy_recovery": "PASS, issues=[], original policy and witness digests unchanged; no B2 or outcomes",
+    "new_tests": 14
   }
 }
