@@ -220,9 +220,16 @@ class AttestationTests(unittest.TestCase):
                 commands.append(args)
                 if '--list-boots' in args:return self.observed['journal_boot_list']
                 return self.observed['ended_boot_journals'][args[2]]
+            ordering=[];original_wait=proof.wait_for_quiet;original_census=proof.source_census
+            def wait(*args,**kwargs):
+                result=original_wait(*args,**kwargs);ordering.append('quiet');return result
+            def census(*args,**kwargs):
+                ordering.append('census');return original_census(*args,**kwargs)
             with mock.patch.object(Path,'read_bytes',bytes_at),mock.patch.object(Path,'read_text',text_at), \
-                 mock.patch.object(proof,'_command',side_effect=command),mock.patch.object(Path,'stat',stat_at):
+                 mock.patch.object(proof,'_command',side_effect=command),mock.patch.object(Path,'stat',stat_at), \
+                 mock.patch.object(proof,'wait_for_quiet',side_effect=wait),mock.patch.object(proof,'source_census',side_effect=census):
                 observed=proof.live_observation(p,self.observed['ec2'],identity,script)
+            self.assertEqual(ordering,['quiet','census'])
             self.assertEqual(commands,[['journalctl','--list-boots','--no-pager','--utc'],
                 ['journalctl','-b',B0,'-o','json','--no-pager','--utc'],
                 ['journalctl','-b',B1,'-o','json','--no-pager','--utc']])

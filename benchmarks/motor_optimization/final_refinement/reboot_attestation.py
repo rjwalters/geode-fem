@@ -329,6 +329,9 @@ SYSTEM_DAEMONS = {
     'networkd-dispat': (
         ('/usr/bin/python3', '/usr/bin/networkd-dispatcher', '--run-startup-triggers'),),
     'dbus-daemon': (
+        # Ubuntu noble dbus.service:13 uses ExecStart=@... @dbus-daemon.
+        ('@dbus-daemon', '--system', '--address=systemd:', '--nofork', '--nopidfile',
+         '--systemd-activation', '--syslog-only'),
         ('/usr/bin/dbus-daemon', '--system', '--address=systemd:', '--nofork', '--nopidfile',
          '--systemd-activation', '--syslog-only'),
         ('/usr/bin/dbus-daemon', '--session', '--address=systemd:', '--nofork', '--nopidfile',
@@ -385,7 +388,7 @@ def quiet_processes(observed, *, capture_script_sha256):
                 continue
             if system_daemon(by_pid[row['pid']], row):
                 continue
-            daemon_program = bool(row['argv']) and PurePosixPath(row['argv'][0]).name in {'dbus-daemon', 'ssm-session-worker'}
+            daemon_program = bool(row['argv']) and PurePosixPath(row['argv'][0]).name in {'dbus-daemon', '@dbus-daemon', 'ssm-session-worker'}
             if name in SYSTEM_DAEMONS or daemon_program or any(work_process(candidate) for candidate in (name, *row['argv'][:2])):
                 busy.append({k: row.get(k) for k in ('pid', 'comm', 'argv', 'uid')})
     require(not busy, 'live evaluator/session/analysis worker: ' + json.dumps(busy, sort_keys=True))
@@ -433,9 +436,10 @@ def wait_for_quiet(observe, digest, *, sleep=time.sleep, clock=time.monotonic, l
     require(False, 'quiet check exhausted: ' + json.dumps(attempts[-1]['issues'], sort_keys=True))
 
 
-def quiet_history(observed, digest):
-    """Replay retained attempts; historical schema-2 captures had no retry log."""
+def quiet_history(observed, digest, *, required=True):
+    """Replay every attempt; only independently pinned pre-retry tools may omit it."""
     if 'quiet_checks' not in observed:
+        require(not required, 'missing quiet check history')
         return
     records = observed['quiet_checks']
     require(isinstance(records, list) and 1 <= len(records) <= 10, 'invalid quiet check history')
@@ -445,6 +449,7 @@ def quiet_history(observed, digest):
         require(record.get('attempt') == number and type(elapsed) in (int, float)
                 and math.isfinite(elapsed) and 0 <= elapsed <= 600
                 and (previous is None or elapsed >= previous + 60), 'invalid quiet check ordering')
+        require(number != 1 or elapsed < 60, 'quiet check history starts after first interval')
         require(snapshot.get('host') == observed['host'], 'quiet check host/boot changed')
         issues = quiet_refusals(snapshot, digest)
         require(record.get('issues') == issues and bool(issues) == (number < len(records)),
@@ -516,7 +521,6 @@ def process_snapshot(identity, script):
 
 def live_observation(p, ec2_record, identity, script):
     """Linux read-only collection; no evaluators, recovery, builds or journal writes."""
-    files, directories = source_census(p['inventory_root'])
     boots = _command(['journalctl', '--list-boots', '--no-pager', '--utc'])
     journals = {boot: _command(['journalctl', '-b', boot, '-o', 'json', '--no-pager', '--utc'])
                 for boot in (p['study_boot'], p['recovery_boot'])}
@@ -529,6 +533,7 @@ def live_observation(p, ec2_record, identity, script):
                      if sha(value) == p['machine_id_sha256']), None)
     require(encoding is not None, 'actual machine identity changed')
     snapshot = wait_for_quiet(lambda: process_snapshot(identity, script), producer_source.digest(script))
+    files, directories = source_census(p['inventory_root'])
     return {**snapshot, 'machine_id_sha256': p['machine_id_sha256'],
             'machine_id_text': machine.decode(), 'machine_id_encoding': encoding,
             'journal_boot_list': boots, 'ended_boot_journals': journals, 'ec2': ec2_record,

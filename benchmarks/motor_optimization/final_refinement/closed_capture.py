@@ -311,6 +311,11 @@ def capture(source, repo, out, *, reviewed_commit, reboot_policy=None, reboot_po
 
 
 def main():
+    if sys.argv[1:2] == ['--quiet-rehearsal']:
+        path=HERE/'quiet_rehearsal.py'
+        module=types.ModuleType('quiet_rehearsal');module.__file__=str(path)
+        exec(compile(path.read_bytes(),str(path),'exec'),module.__dict__)
+        return module.collect_main(HERE/'closed_capture.py')
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source',required=True,type=Path)
     parser.add_argument('--repo',required=True,type=Path)

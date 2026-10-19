@@ -80,6 +80,8 @@ def exported_fixture(base, *, alter_observation=None, prepared=None):
         result['session_exit_text']=(root/'session_exit.txt').read_text()
         result['collector']['script']=str(script);result['collector']['script_sha256']=producer_source.digest(script)
         result['process_commands'][0]['argv'][3]=str(script)
+        result['quiet_checks']=[{'attempt':1,'elapsed_seconds':0,'issues':[],
+            'snapshot':{k:copy.deepcopy(result[k]) for k in proof.PROCESS_FIELDS}}]
         calls.append(True)
         if alter_observation:alter_observation(result,len(calls))
         return result
@@ -139,6 +141,24 @@ class RebootCaptureTests(unittest.TestCase):
     def test_replay_accepts_bound_quiet_history(self):
         self.with_quiet_history()
         self.assertTrue(self.load()['capture_verified'])
+
+    def test_replay_refuses_removed_history_after_repin(self):
+        self.mutate('processes-before.json',lambda e:e['reboot_observation'].pop('quiet_checks'))
+        with self.assertRaisesRegex(ValueError,'missing quiet check history'):self.load()
+
+    def test_replay_refuses_truncated_renumbered_history_after_repin(self):
+        def truncate(e):
+            obs=e['reboot_observation']
+            clean=copy.deepcopy(obs['quiet_checks'][0]);clean.update(attempt=2,elapsed_seconds=60)
+            busy=copy.deepcopy(obs['quiet_checks'][0])
+            from test_reboot_quiet import process
+            process(busy['snapshot'],'python3',['python3','/tmp/work'])
+            busy['issues']=proof.quiet_refusals(busy['snapshot'],obs['collector']['script_sha256'])
+            obs['quiet_checks']=[busy,clean]
+            proof.quiet_history(obs,obs['collector']['script_sha256'])
+            obs['quiet_checks'].pop(0);obs['quiet_checks'][0]['attempt']=1
+        self.mutate('processes-before.json',truncate)
+        with self.assertRaisesRegex(ValueError,'history starts after first interval'):self.load()
 
     def test_replay_rechecks_quiet_refusal_history_after_repin(self):
         self.with_quiet_history()

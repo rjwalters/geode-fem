@@ -62,6 +62,52 @@ PID 1; it contains no `ssm-session-worker`. Available B0 monitoring tails are
 filtered observations, not a full daemon census. See the operational evidence
 in `smoke/doctor56-system-daemons.json`; none of it is a study outcome.
 
+## Same-AMI rehearsal before the capture boot
+
+Review 58 requires a throwaway rehearsal before B2. Prepare it without starting
+the study instance. `quiet_rehearsal.py` only writes a launch request and a
+payload from clean, committed source; it makes no cloud calls. Supply the full
+`describe-instances` JSON for the stopped study instance and `describe-images`
+JSON for that instance's **exact** AMI, not the latest Ubuntu image:
+
+```sh
+python3 -I -B benchmarks/motor_optimization/final_refinement/quiet_rehearsal.py \
+  --instance-json "$SOURCE_INSTANCE_JSON" --image-json "$SOURCE_AMI_JSON" \
+  --name paper3-rehearsal-UNIQUE --repo "$CAPTURE_TOOL_REPO" \
+  --producer-commit "$PRODUCER_COMMIT" --out "$NEW_REHEARSAL_PREPARATION"
+```
+
+Use a lowercase unique suffix. Review `launch.json` and `preparation.json`
+before obtaining the operator's cloud-start authorization. The launch request
+uses the same AMI and instance type, one fresh AMI root volume with deletion on
+termination, and a distinct tagged instance. It contains no existing volume ID,
+study data, instance profile, bootstrap, evaluator, or user data. Never attach
+the study volume. This preparation is not evidence that a rehearsal ran.
+
+After authorization, arrange a termination trap for the uniquely tagged
+throwaway instance before running `aws ec2 run-instances --cli-input-json
+file://.../launch.json`. Retain the launch response and verify the actual AMI,
+type and attached volumes against the preparation, including disjointness from
+`forbidden_volumes`, before transferring `payload.tar.gz`. The project/Name tags
+support `scripts/aws/geode-worker.sh ssh paper3-rehearsal-...` with Instance
+Connect. Do not run that helper's `launch` or `bootstrap`: those choose or change
+the image/environment. Extract into a new directory and run `sh run-remote.sh`.
+It invokes the exact `closed_capture.py --quiet-rehearsal` entry, using the
+producer's hash-pinned `process_identity.py`, waits out cloud-init and package
+services, then calls the actual collector's `process_snapshot`,
+`wait_for_quiet`, `quiet_processes` and `quiet_history`. It reads no study files.
+
+Copy out `rehearsal-report.json` and retain its separately printed digest before
+terminating the throwaway instance. Verify termination and root-volume cleanup
+even on failure. The report binds all tool hashes and classifies each observed
+process **before** redaction; it retains comm, argv shape, UID class, parent
+class and verdict, omitting host/boot/PID identities and unknown argument values.
+Review its remaining program names and published daemon argv for privacy before
+committing it as the live fixture. Require `clean_pass: true`, matching prepared
+source hashes, independent review of the fixture, and explicit room go before
+B2. A synthetic report does not satisfy this gate. A refused rehearsal is a
+finding to fix and review, not permission to relax the B2 classifier.
+
 ## One bounded capture boot
 
 After approval and merge, arrange cleanup in the same operator session: on both
@@ -78,6 +124,14 @@ final failed attempt. A clean pass proceeds immediately. An exhausted check
 fails capture and triggers the operator's shutdown cleanup. Malformed evidence,
 a changed host/boot or an observation error fails immediately; these are not
 transient work. No service is stopped, original record changed, or reboot retried.
+
+Drive B2 over SSH/Instance Connect, **not SSM**. Do not activate a user D-Bus
+session. Before starting the collector, wait for `cloud-init status --wait` to
+finish successfully and for both `apt-daily.service` and
+`apt-daily-upgrade.service` to report `ActiveState=inactive`. A failed service
+or unbounded boot task is a refusal, not a reason to stop/mask it. The rehearsal
+implements this wait; apply the same preflight to B2. Each source census now
+starts only after that phase's quiet pass.
 Successful captures also retain every snapshot and refusal list in their
 before/after evidence; portable replay verifies their ordering, refusals,
 same-boot identity and equality of the final snapshot to the capture observation.
@@ -124,10 +178,14 @@ current exporter identity, source hash and `-I -B` command are excepted. Process
 names use one shared B1/B2 classifier. B2 also checks the basenames of its first
 two command arguments, so an interpreter cannot hide behind a script's process
 name. Bounded system-daemon exceptions require an exact command name and entire
-argv, an integer effective UID in `[0,1000)`, and integer PPID 1. The enumerated
+argv, an integer `/proc/<pid>` owner UID in `[0,1000)`, and integer PPID 1. The enumerated
 Ubuntu commands are `/usr/bin/python3` with either
 `/usr/share/unattended-upgrades/unattended-upgrade-shutdown --wait-for-signal` or
-`/usr/bin/networkd-dispatcher --run-startup-triggers`. D-Bus accepts only
+`/usr/bin/networkd-dispatcher --run-startup-triggers`. The noble system-bus unit
+(`dbus` 1.14.10-4ubuntu4 and 4ubuntu4.1, `dbus.service:13`) uses
+`ExecStart=@/usr/bin/dbus-daemon @dbus-daemon --system ...`; its observed argv is
+`@dbus-daemon --system --address=systemd: --nofork --nopidfile
+--systemd-activation --syslog-only`. That exact shape is accepted. D-Bus also enumerates
 `/usr/bin/dbus-daemon --system|--session --address=systemd: --nofork --nopidfile
 --systemd-activation --syslog-only` (one exact mode argument). The truncated
 `ssm-session-wor` command accepts only `/usr/bin/ssm-session-worker` with **no**
@@ -135,7 +193,21 @@ arguments. This does not allow an active SSM session's document/session argument
 alternate snap paths, or arbitrary user sessions. Unknown variants, extra flags,
 different scripts, user UIDs, and lookalike identities remain refusals. These
 checks bind process observations, not executable signatures or malicious-root
-resistance. Historical captures without retry logs remain readable.
+resistance. `/proc/<pid>` ownership normally reflects effective UID, but Linux
+can expose owner UID 0 for a non-dumpable process; this observation is not proof
+of credentials against an adversarial process. Actual user D-Bus (user UID and
+user-systemd parent) and active SSM workers (session args and agent parent) still
+refuse. Rehearsal must reconcile the live process shapes before B2.
+
+Replay requires a retry history for current collectors and for 237b9fcc; a
+repinned archive cannot remove it. The one explicit compatibility exception is
+the exact pre-retry `reboot_attestation.py` source digest from 1f85a145, independently
+verified against the supplied tool commit. Unknown source digests require history.
+Attempt 1 must occur before the first 60-second interval, so dropping a busy
+prefix and merely renumbering the retained attempts refuses. Histories remain
+self-reported: coordinated rewriting of both history and elapsed times cannot
+be disproved by the archive alone. Retain the independent operator log and
+manifest receipt; repinning is a regression test, not the production trust path.
 
 Observations remain time-bound. No environment values are collected. The
 Linux `kprobe-optimizer` kernel worker is recognized by its exact name and

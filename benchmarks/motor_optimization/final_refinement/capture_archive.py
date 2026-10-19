@@ -239,7 +239,12 @@ def _reboot(reader, policy_sha256):
         verdict = reboot_attestation.observations(p, history, observed)
         reboot_attestation.quiet_processes(observed,
             capture_script_sha256=m['capture_tool_sha256']['closed_capture.py'])
-        reboot_attestation.quiet_history(observed, m['capture_tool_sha256']['closed_capture.py'])
+        # Exact pre-retry source at reviewed 1f85a145; every other tool must
+        # retain its history. This digest is checked against external Git above,
+        # so stripping a log and repinning the archive cannot downgrade it.
+        legacy_no_retry = '6f1513b306b57cae27184e1ab6dafd80056c9155fc348a8ac6c2480165ae6581'
+        reboot_attestation.quiet_history(observed, m['capture_tool_sha256']['closed_capture.py'],
+            required=m['capture_tool_sha256']['reboot_attestation.py'] != legacy_no_retry)
         if (evidence.get('reboot_verdict') != verdict
                 or not m['capture_started'] <= observed['observed_time'] <= m['capture_finished']):
             raise ValueError('reboot verdict or observation time differs')

@@ -37,6 +37,18 @@ class QuietTests(unittest.TestCase):
         self.assertTrue(self.quiet(process(copy.deepcopy(self.observed), 'networkd-dispat',
             ['/usr/bin/python3', '/usr/bin/networkd-dispatcher', '--run-startup-triggers'])))
 
+    def test_noble_system_bus_unit_argv0_override(self):
+        # dbus 1.14.10-4ubuntu4 and 4ubuntu4.1:
+        # /usr/lib/systemd/system/dbus.service:13
+        # ExecStart=@/usr/bin/dbus-daemon @dbus-daemon --system ...
+        argv=['@dbus-daemon','--system','--address=systemd:','--nofork',
+              '--nopidfile','--systemd-activation','--syslog-only']
+        self.assertTrue(self.quiet(process(copy.deepcopy(self.observed),'dbus-daemon',argv,uid=101)))
+        for change in (lambda a:a.__setitem__(1,'--session'),lambda a:a.append('--extra')):
+            bad=argv.copy();change(bad)
+            with self.assertRaisesRegex(ValueError,'live evaluator'):
+                self.quiet(process(copy.deepcopy(self.observed),'dbus-daemon',bad,uid=101))
+
     def test_daemon_lookalikes_never_gain_exception(self):
         for name, shapes in proof.SYSTEM_DAEMONS.items():
             for shape in shapes:
@@ -143,6 +155,34 @@ class QuietTests(unittest.TestCase):
             with self.subTest(message=message):
                 r=copy.deepcopy(original);change(r)
                 with self.assertRaisesRegex(ValueError,message):proof.quiet_history(r,self.digest)
+
+    def test_history_refuses_independent_replay_forgeries(self):
+        busy=process(copy.deepcopy(self.observed),'python3',['python3'])
+        original=self.wait([busy,self.observed],[0,0,60])[0]
+        too_long=self.wait([busy]*9+[self.observed],[0]+list(range(0,600,60)))[0]
+        last=too_long['quiet_checks'][-1]
+        too_long['quiet_checks'].insert(-1,copy.deepcopy(too_long['quiet_checks'][-2]))
+        too_long['quiet_checks'][-2].update(attempt=10,elapsed_seconds=540)
+        last.update(attempt=11,elapsed_seconds=600)
+        for change,message in [
+            (lambda r:r['quiet_checks'][0].update(issues=[{'different':'nonempty'}]),'refusal log differs'),
+            (lambda r:r.update(quiet_checks=too_long['quiet_checks']),'invalid quiet check history'),
+            (lambda r:r['quiet_checks'][1].update(elapsed_seconds=601),'ordering'),
+            (lambda r:r['quiet_checks'][1].update(attempt=3),'ordering'),
+            (lambda r:r.pop('quiet_checks'),'missing quiet check history'),
+        ]:
+            with self.subTest(message=message):
+                r=copy.deepcopy(original);change(r)
+                with self.assertRaisesRegex(ValueError,message):proof.quiet_history(r,self.digest)
+
+    def test_history_refuses_failing_final_or_clean_nonfinal_attempt(self):
+        busy=process(copy.deepcopy(self.observed),'python3',['python3'])
+        original=self.wait([busy,self.observed],[0,0,60])[0]
+        for index,snapshot in ((0,self.observed),(1,busy)):
+            r=copy.deepcopy(original);record=r['quiet_checks'][index]
+            record['snapshot']={k:copy.deepcopy(snapshot[k]) for k in proof.PROCESS_FIELDS}
+            record['issues']=proof.quiet_refusals(snapshot,self.digest)
+            with self.assertRaisesRegex(ValueError,'refusal log differs'):proof.quiet_history(r,self.digest)
 
 
 if __name__=='__main__':unittest.main()

@@ -73,6 +73,14 @@ REPLAY_CASES=[
 
 QUIET='test_reboot_quiet.QuietTests.'
 QUIET_CASES=[
+    ('N9a trust recorded retry issues','quiet_history',"issues = quiet_refusals(snapshot, digest)","issues = record.get('issues')",QUIET+'test_history_refuses_independent_replay_forgeries'),
+    ('N9f remove history length cap','quiet_history','1 <= len(records) <= 10','1 <= len(records)',QUIET+'test_history_refuses_independent_replay_forgeries'),
+    ('N9g remove history elapsed cap','quiet_history','0 <= elapsed <= 600','0 <= elapsed',QUIET+'test_history_refuses_independent_replay_forgeries'),
+    ('N9h remove attempt numbering','quiet_history',"record.get('attempt') == number and ",'',QUIET+'test_history_refuses_independent_replay_forgeries'),
+    ('allow stripped history','quiet_history',"require(not required, 'missing quiet check history')",'pass',ARCHIVE+'test_replay_refuses_removed_history_after_repin'),
+    ('allow truncated retry prefix','quiet_history',"require(number != 1 or elapsed < 60, 'quiet check history starts after first interval')",'pass',ARCHIVE+'test_replay_refuses_truncated_renumbered_history_after_repin'),
+    ('N8a allow failing final attempt','quiet_history','bool(issues) == (number < len(records))','(number == len(records) or bool(issues))',QUIET+'test_history_refuses_failing_final_or_clean_nonfinal_attempt'),
+    ('N8b allow clean nonfinal attempt','quiet_history','bool(issues) == (number < len(records))','(number < len(records) or not issues)',QUIET+'test_history_refuses_failing_final_or_clean_nonfinal_attempt'),
     ('allow non-system UID','system_daemon','uid < 1000','uid < 10000',QUIET+'test_daemon_lookalikes_never_gain_exception'),
     ('allow negative UID','system_daemon','0 <= uid','-100 <= uid',QUIET+'test_daemon_lookalikes_never_gain_exception'),
     ('allow bool UID','system_daemon','type(uid) is int','isinstance(uid, int)',QUIET+'test_daemon_lookalikes_never_gain_exception'),
@@ -85,7 +93,7 @@ QUIET_CASES=[
     ('stop before tenth quiet check','wait_for_quiet','range(1, 11)','range(1, 10)',QUIET+'test_tenth_clean_check_can_succeed'),
     ('K14 kernel parent not one','quiet_processes',"by_pid[row['pid']].get('ppid') == 2","by_pid[row['pid']].get('ppid') != 1",UNIT+'test_capture_kprobe_kernel_worker_requires_parent_group_and_empty_command'),
     ('K23 case-sensitive classifier','work_process','name, re.I','name, 0',UNIT+'test_live_study_interpreters_and_workers_refused'),
-    ('omit archive quiet history','_reboot',"reboot_attestation.quiet_history(observed, m['capture_tool_sha256']['closed_capture.py'])",'pass',ARCHIVE+'test_replay_rechecks_quiet_refusal_history_after_repin'),
+    ('omit archive quiet history','_reboot',"reboot_attestation.quiet_history(observed, m['capture_tool_sha256']['closed_capture.py'],\n            required=m['capture_tool_sha256']['reboot_attestation.py'] != legacy_no_retry)",'pass' ,ARCHIVE+'test_replay_rechecks_quiet_refusal_history_after_repin'),
 ]
 CASES += [
     ('omit quiet boot equality','host/boot changed while waiting for quiet',QUIET+'test_changed_boot_aborts_without_retrying_new_boot'),
