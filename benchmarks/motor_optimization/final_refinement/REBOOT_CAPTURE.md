@@ -83,6 +83,8 @@ uses the same AMI and instance type, one fresh AMI root volume with deletion on
 termination, and a distinct tagged instance. It contains no existing volume ID,
 study data, instance profile, bootstrap, evaluator, or user data. Never attach
 the study volume. This preparation is not evidence that a rehearsal ran.
+The noble AMI's two optional ephemeral mappings are explicitly suppressed using
+the AWS [`NoDevice` mapping](https://docs.aws.amazon.com/cli/latest/reference/ec2/run-instances.html).
 
 After authorization, arrange a termination trap for the uniquely tagged
 throwaway instance before running `aws ec2 run-instances --cli-input-json

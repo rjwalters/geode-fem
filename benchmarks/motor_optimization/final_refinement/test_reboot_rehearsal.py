@@ -29,6 +29,13 @@ class RehearsalTests(unittest.TestCase):
             'SnapshotId':'snap-abc','VolumeSize':8,'VolumeType':'gp3','DeleteOnTermination':True}}])
         self.assertNotIn('vol-study',json.dumps(plan))
         self.assertNotIn('IamInstanceProfile',plan)
+        # The actual noble AMI also advertises ephemeral0/1; suppress them.
+        extended=copy.deepcopy(image)
+        extended['BlockDeviceMappings'] += [{'DeviceName':'/dev/sdb','VirtualName':'ephemeral0'},
+                                           {'DeviceName':'/dev/sdc','VirtualName':'ephemeral1'}]
+        with_ephemeral=rehearsal.launch_plan(instance,extended,'paper3-rehearsal-test')
+        self.assertEqual(with_ephemeral['BlockDeviceMappings'],plan['BlockDeviceMappings']+
+                         [{'DeviceName':'/dev/sdb','NoDevice':''},{'DeviceName':'/dev/sdc','NoDevice':''}])
         for change in (lambda i:i.update(ImageId='ami-other'),
                        lambda i:i['BlockDeviceMappings'].append({'DeviceName':'/dev/sdb'})):
             bad=copy.deepcopy(image);change(bad)

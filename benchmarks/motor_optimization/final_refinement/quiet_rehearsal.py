@@ -116,14 +116,19 @@ def launch_plan(instance,image,name):
     if not re.fullmatch(r'paper3-rehearsal-[a-z0-9-]+',name):raise ValueError('use a unique rehearsal name')
     if image['ImageId']!=instance['ImageId']:raise ValueError('AMI mismatch')
     devices=image['BlockDeviceMappings'];root=image['RootDeviceName']
-    if len(devices)!=1 or devices[0]['DeviceName']!=root or 'Ebs' not in devices[0]:
+    roots=[d for d in devices if d['DeviceName']==root and 'Ebs' in d]
+    extra=[d for d in devices if d['DeviceName']!=root]
+    if (len(roots)!=1 or len({d['DeviceName'] for d in devices})!=len(devices)
+            or any(set(d)!={'DeviceName','VirtualName'} or not re.fullmatch(r'ephemeral[0-9]+',d['VirtualName']) for d in extra)):
         raise ValueError('rehearsal requires an AMI with one fresh root volume')
-    if not re.fullmatch(r'snap-[a-f0-9]+',devices[0]['Ebs']['SnapshotId']):raise ValueError('invalid AMI root snapshot')
+    root_ebs=roots[0]['Ebs']
+    if not re.fullmatch(r'snap-[a-f0-9]+',root_ebs['SnapshotId']):raise ValueError('invalid AMI root snapshot')
     return {'ImageId':instance['ImageId'],'InstanceType':instance['InstanceType'],
             'MinCount':1,'MaxCount':1,'SubnetId':instance['SubnetId'],
             'SecurityGroupIds':[g['GroupId'] for g in instance['SecurityGroups']],
-            'BlockDeviceMappings':[{'DeviceName':root,'Ebs':{'SnapshotId':devices[0]['Ebs']['SnapshotId'],
-                'DeleteOnTermination':True,'VolumeType':'gp3','VolumeSize':devices[0]['Ebs']['VolumeSize']}}],
+            'BlockDeviceMappings':[{'DeviceName':root,'Ebs':{'SnapshotId':root_ebs['SnapshotId'],
+                'DeleteOnTermination':True,'VolumeType':'gp3','VolumeSize':root_ebs['VolumeSize']}},
+                *[{'DeviceName':d['DeviceName'],'NoDevice':''} for d in extra]],
             'TagSpecifications':[{'ResourceType':resource,'Tags':[{'Key':'project','Value':'geode-fem'},
                 {'Key':'Name','Value':'geode-worker-'+name},{'Key':'purpose','Value':'paper3-quiet-rehearsal'}]}
                 for resource in ('instance','volume')]}

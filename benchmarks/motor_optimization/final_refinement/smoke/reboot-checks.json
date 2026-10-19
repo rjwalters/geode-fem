@@ -72,11 +72,11 @@
     "test_reboot_capture.py": "44aef6313c726884e475a3f04d807981a26afb7040f972f73c666d482693413c",
     "test_reboot_pipeline.py": "8bbc9e9e916ef44c557ebc3e1e10723c8119e74fbbffe472a14b557faa9acd00",
     "README.md": "c8cedec076dd263e4ce529e98d18c9555b5a85e44476a52facd85e4c21ad6441",
-    "REBOOT_CAPTURE.md": "15033252ae0e8ffdbc2fb2384ab6aefb588e0d8a664597307d28547d5dfa8e68",
+    "REBOOT_CAPTURE.md": "a80003c9cac0f4370ec5fad36de902445555b11419dfbf4da8cea21087e9fe4c",
     "test_reboot_quiet.py": "e2b50b60be7b40365b49409bd82e1f6b60f87f3162a98e9b4ed2da5c41ff60c0",
     "smoke/doctor56-system-daemons.json": "484eca23b4f7318cb0ee84813c8125543193b4750b8d471b76fad6612567d899",
-    "quiet_rehearsal.py": "7e29b470557eada57542222738b6fbaa3ed2517c67be6d4f6483f7bcd5f5c289",
-    "test_reboot_rehearsal.py": "b2fb5c4ca8c3b694caca720f3cb8372e7f66f003f743e732856f80c4c7601ab4"
+    "quiet_rehearsal.py": "bd1692d72e38dad67d404985dba091676ba42c247b5233a30c12c6f7114079df",
+    "test_reboot_rehearsal.py": "cacbe5da4591afc047986f54dbcb4fd58555d7aaa2bc0c5f4818ff6cf0ebf316"
   },
   "remaining": [
     "Independent Judge and CI of exact current head",
@@ -104,7 +104,7 @@
     "tests": 77,
     "exit_code": 0,
     "log": "doctor58-tests.log",
-    "sha256": "af5a9690456dd292b16a629ae8fd3078c7e28f0400606d9e15edf6da83ebe687"
+    "sha256": "8ddfdef1a80189239d2e95a68f0c13d68eb9a743bfff0fc6254e1931e39eefeb"
   },
   "doctor56": {
     "reviewed_base": "1f85a145edd64903ef2ca53084553a562d5499fd",
