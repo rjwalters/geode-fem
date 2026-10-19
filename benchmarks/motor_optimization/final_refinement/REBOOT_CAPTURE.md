@@ -102,7 +102,9 @@ the reboot proof does not turn an interrupted study into a closed one.
 Current process identities and command observations must exclude live evaluator,
 session, analysis and other study-capable interpreter workers. Only the exact
 current exporter identity, source hash and `-I -B` command are excepted. Process
-observations remain time-bound. No environment values are collected. The
+names use one shared B1/B2 classifier. B2 also checks the basenames of its first
+two command arguments, so an interpreter cannot hide behind a script's process
+name. Observations remain time-bound. No environment values are collected. The
 Linux `kprobe-optimizer` kernel worker is recognized by its exact name and
 kernel parent (PID 2) in B1; B2 additionally requires process group zero and
 an empty command line. A similarly named userspace process still refuses.

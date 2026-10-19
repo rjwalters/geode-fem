@@ -4,19 +4,19 @@
   "producer_commit": "9486a9da58beeca91968d4d3608f06b998abff45",
   "full_suite": {
     "command": "python3 -I -m unittest discover -s benchmarks/motor_optimization/final_refinement",
-    "tests": 283,
+    "tests": 299,
     "exit_code": 0,
     "log": "reboot-tests.log",
-    "sha256": "958103d20e37f406543411e0e760e5dd484347b4382c86ab63ec245c62e9b7af",
+    "sha256": "f5f290e0ca0a5a06e9f12fbae5504936e85f8e7fa996726a6ba28e3475830fe1",
     "python": "3.15.0",
     "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O"
   },
   "mutations": {
     "command": "python3 -I benchmarks/motor_optimization/final_refinement/reboot_mutations.py --out NEW_REPORT",
-    "injected": 27,
-    "killed": 27,
+    "injected": 40,
+    "killed": 40,
     "report": "reboot-mutations.json",
-    "sha256": "33d5bd8e10ef4f1c2a8403fdb02b18c34c47845ab5a5ddbf7e3bd73ae55fc306"
+    "sha256": "68a8dfbffeafa2261179839837fcc37caf3aeb1ed13f58544dc0fc2e286dcfaa"
   },
   "mesh_regeneration": {
     "source_commit": "63b3e3d8bbc30504f845eebb5b78e8be6a2ee12f",
@@ -58,24 +58,39 @@
   "files_sha256": {
     "closed_capture.py": "ff2ccdbb0494db0c67ecda696f23d22ec5854b0e974a46bf30921136a9d62600",
     "capture_archive.py": "f2fbd033401c9b8c088cddd32989da3285e1c07dcdf89a6cce170913283fd254",
-    "reboot_attestation.py": "830aa606b17a8353fe8135b5e408ca99adac978d323fe3aa4eda6cf105ddfffb",
+    "reboot_attestation.py": "6f1513b306b57cae27184e1ab6dafd80056c9155fc348a8ac6c2480165ae6581",
     "study_selection.py": "72ca0ab962576862530e36bded47a55edac6e80a92db414f03d87b35f34f97f3",
     "refinement_bundle.py": "228b3b41caf346aa80aaa34bf71cb1bb80ae37b98ed336a51cd2165aa3442931",
-    "reboot_mutations.py": "a46487231d6df1f136b485a4d374df0b02a830c61ab76405fb0c7879ef2ab265",
+    "reboot_mutations.py": "13609a5e974c3ab11e16f285c0235ffce970efc2daf8e91ef07063d52ce8b245",
     "test_capture_archive.py": "32dad1d698df8a1f433d9efcfacbef6cf419640ca68b4bfc5edbb376e49afc35",
     "test_study_selection.py": "fa5684608f2ed20ade62762503704b4f19c435427788c2f9100c88ba003c159c",
     "test_refinement_bundle.py": "f7690398fd253eef559cd5cb9e9dfe9847ec22c849de4e77a65034cab00217df",
     "test_regenerate_platform.py": "8599df58745c1c91df595d01b044fca97c51540db8b5260de15601404c4f2aef",
-    "test_reboot_attestation.py": "eec7aa99f259ebf417049e95090328065884f155406e0fbca91be20c2530442f",
-    "test_reboot_capture.py": "7ec05a94e5dcc8433b39e74b86a05cf1fb3e16e03457288b42bb87d1152ee0b1",
+    "test_reboot_attestation.py": "5a112d32f2a3760220276ae214e75fd7f5e2cc5b9c0de7ae2cd68968c9442c54",
+    "test_reboot_capture.py": "c5a1b0cdb50cfeea2e0380fcd3fea8ec79bfd7853392238b1b52693ffebc2ea3",
     "test_reboot_pipeline.py": "8bbc9e9e916ef44c557ebc3e1e10723c8119e74fbbffe472a14b557faa9acd00",
     "README.md": "c8cedec076dd263e4ce529e98d18c9555b5a85e44476a52facd85e4c21ad6441",
-    "REBOOT_CAPTURE.md": "7de3a50e77b973e5dab61cf716d6d0bbf8873eaf799189488309f6899fa1f789"
+    "REBOOT_CAPTURE.md": "e223fe1b7c34d372532b400051200e90f5477765a1c65a2751c19602cafea2ce"
   },
   "remaining": [
     "Independent Judge review and CI of exact PR head",
     "Approval/merge before one bounded B2 capture boot",
     "Collect B2 evidence after approval/merge; preserved B1 metadata passes with kernel-worker classification fix; no actual capture attempted",
     "Final refinements, results analysis and manuscript review/audit"
-  ]
+  ],
+  "doctor54": {
+    "reviewed_base": "1728470cd1d0ee8fee93af794253014425febe99",
+    "new_replay_tests": 10,
+    "scope": "Re-pinned invalid archives target boot/shutdown/mtime/machine/tool/verdict/process/phase/session-order guards. Production archive replay unchanged. Process classifier shared across B1/B2 and inspects B2 argv[0:2]. Kprobe kernel-only exception remains separately tested.",
+    "surviving_judge_mutations_now_killed": [
+      "J13",
+      "J15",
+      "J16",
+      "J18",
+      "J19",
+      "J21",
+      "J22",
+      "J23"
+    ]
+  }
 }

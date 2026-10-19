@@ -103,6 +103,52 @@ class AttestationTests(unittest.TestCase):
         self.p['recovery_witness_sha256'] = proof.sha(raw(self.w))
         return proof.recovery(raw(self.w), self.files, self.p)
 
+    def test_b1_launch_must_follow_b0_end_in_both_cloud_records(self):
+        for name in ('ec2-observation.json','ec2-stopped-transition.json'):
+            record=json.loads(self.files[name]);record['LaunchTime']=utc(150);self.files[name]=raw(record)
+        with self.assertRaisesRegex(ValueError,'B1 launch does not fit boot history'):self.history()
+
+    def test_b1_snapshot_cannot_hide_an_intermediate_boot(self):
+        host=json.loads(self.files['host-before-stop.json'])
+        host['journal_boot_list']=listing([(B0,100,200),(EXTRA,250,260),(B1,300,390)])
+        self.files['host-before-stop.json']=raw(host)
+        with self.assertRaisesRegex(ValueError,'B1 snapshot omitted or inserted a boot'):self.history()
+
+    def test_b2_requires_unchanged_older_boot_history(self):
+        history=self.history()
+        history['boots'].insert(0,{'index':-2,'boot':proof.boot_id(EXTRA),'first':10.,'last':20.})
+        with self.assertRaisesRegex(ValueError,'boot history changed since recovery'):
+            proof.observations(self.p,history,self.observed)
+
+    def test_work_process_names_are_shared_by_recovery_and_capture(self):
+        original=json.loads(self.files['host-before-stop.json'])
+        for comm in ('jupyter','R','Rscript','session','uv','python3','icem_harness_ev'):
+            with self.subTest(comm=comm):
+                host=dict(original,process_table=original['process_table']+f'700 1 {comm}\n')
+                self.files['host-before-stop.json']=raw(host)
+                message='B1 Python process' if comm=='python3' else 'B1 work process'
+                with self.assertRaisesRegex(ValueError,message):self.history()
+                obs=copy.deepcopy(self.observed)
+                obs['process_table'].append(dict(obs['process_table'][0],pid=700,pgid=700))
+                obs['process_commands'].append({'pid':700,'comm':comm,'argv':[comm],'disappeared':False})
+                with self.assertRaisesRegex(ValueError,'live evaluator'):proof.quiet_processes(obs,capture_script_sha256='d'*64)
+
+    def test_interpreter_argv_cannot_hide_behind_a_script_process_name(self):
+        for argv in (['/usr/bin/python3','/tmp/worker'],['/usr/bin/env','python3','/tmp/worker'],
+                     ['/usr/local/bin/jupyter','lab'],['/usr/bin/Rscript','/tmp/worker'],['/usr/bin/R','--vanilla']):
+            with self.subTest(argv=argv):
+                obs=copy.deepcopy(self.observed)
+                obs['process_table'].append(dict(obs['process_table'][0],pid=700,pgid=700))
+                obs['process_commands'].append({'pid':700,'comm':'worker','argv':argv,'disappeared':False})
+                with self.assertRaisesRegex(ValueError,'live evaluator'):proof.quiet_processes(obs,capture_script_sha256='d'*64)
+
+    def test_b2_tail_check_has_its_own_refusal(self):
+        history=self.history()
+        history['boots'].insert(1,{'index':-1,'boot':proof.boot_id(EXTRA),'first':250.,'last':260.})
+        self.observed['journal_boot_list']=listing([(B0,100,200),(EXTRA,250,260),(B1,300,410),(B2,505,550)])
+        with self.assertRaisesRegex(ValueError,'missing, extra or unobserved intermediate boot'):
+            proof.observations(self.p,history,self.observed)
+
     def test_complete_three_boot_proof_preserves_exact_microsecond_boundary(self):
         p = proof.policy(raw(self.p), proof.sha(raw(self.p)))
         verdict = proof.observations(p, self.history(), self.observed)
@@ -118,7 +164,7 @@ class AttestationTests(unittest.TestCase):
                      [(B0, 100, 200), (B1, 300, 410), (B2, 505, 550), (EXTRA, 600, 610)]):
             with self.subTest(rows=rows):
                 obs = copy.deepcopy(self.observed); obs['journal_boot_list'] = listing(rows)
-                with self.assertRaises(ValueError): proof.observations(self.p, self.history(), obs)
+                with self.assertRaisesRegex(ValueError, "duplicate boot" if len({r[0] for r in rows}) != len(rows) else "missing, extra or unobserved intermediate boot"): proof.observations(self.p, self.history(), obs)
 
     def test_one_nanosecond_after_study_end_refused(self):
         self.observed['source_files']['main/events.jsonl']['mtime_ns'] += 1
@@ -339,7 +385,7 @@ class ProcessAdapterTests(unittest.TestCase):
                            ('host', dict(self.identity['host'], boot=B1))]:
             with self.subTest(key=key, value=value):
                 self.setUp(); self.events[0]['owner_identity'][key] = value
-                with self.assertRaises(ValueError): self.verify()
+                with self.assertRaisesRegex(ValueError, "malformed or changed original process identity"): self.verify()
 
     def test_unfinished_spawn_missing_receipt_and_torn_journal_refused(self):
         for kind in ('no_reap', 'missing_receipt', 'bad_receipt', 'intent_only', 'torn', 'sequence',
@@ -356,7 +402,8 @@ class ProcessAdapterTests(unittest.TestCase):
                 elif kind == 'duplicate_receipt':self.events.append(dict(self.events[-1],sequence=4))
                 elif kind == 'bad_group':self.events[2]['identity']['pgid']=999
                 elif kind == 'missing_child':self.events[1]['role']='run';self.events[1]['child_journal']='missing'
-                with self.assertRaises(ValueError): self.verify(b'{' if kind == 'torn' else b'')
+                message = {'torn':'open/torn process journal','no_reap':'unfinished tracked spawn','missing_receipt':'missing or malformed exit receipt','bad_receipt':'missing or malformed exit receipt'}.get(kind,'producer refusal is not exclusively the attested boot change')
+                with self.assertRaisesRegex(ValueError,message): self.verify(b'{' if kind == 'torn' else b'')
 
     def test_owner_lock_must_be_unheld_despite_reboot(self):
         with (self.root/'owner.lock').open('rb') as owner:

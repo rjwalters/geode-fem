@@ -16,11 +16,17 @@ from unittest import mock
 HERE=Path(__file__).resolve().parent;sys.path.insert(0,str(HERE))
 import reboot_attestation as proof
 import refinement_bundle
+import capture_archive
 import test_regenerate_platform
 
 UNIT='test_reboot_attestation.AttestationTests.'
 PROCESS='test_reboot_attestation.ProcessAdapterTests.'
 CASES=[
+    ('omit B1 launch boundary','B1 launch does not fit boot history',UNIT+'test_b1_launch_must_follow_b0_end_in_both_cloud_records'),
+    ('omit B1 boot tail','B1 snapshot omitted or inserted a boot',UNIT+'test_b1_snapshot_cannot_hide_an_intermediate_boot'),
+    ('omit B2 boot tail','missing, extra or unobserved intermediate boot',UNIT+'test_b2_tail_check_has_its_own_refusal'),
+    ('omit older boot history equality','boot history changed since recovery',UNIT+'test_b2_requires_unchanged_older_boot_history'),
+    ('omit torn journal guard','open/torn process journal',PROCESS+'test_unfinished_spawn_missing_receipt_and_torn_journal_refused'),
     ('ignore external policy digest','policy differs from independent digest',UNIT+'test_independent_policy_witness_and_inventory_digests_required'),
     ('ignore original inventory digest','inventory differs from independent digest',UNIT+'test_independent_policy_witness_and_inventory_digests_required'),
     ('ignore independent B1 witness','changed B1 witness',UNIT+'test_independent_policy_witness_and_inventory_digests_required'),
@@ -41,6 +47,28 @@ CASES=[
     ('allow receipt before session completion','launcher receipt predates session completion',UNIT+'test_terminal_order_uses_receipt_file_precision_not_truncated_text'),
     ('omit terminal shutdown evidence','no terminal shutdown evidence',UNIT+'test_missing_malformed_and_changed_shutdown_evidence_refused'),
     ('ignore instance/state identity','changed EC2 instance/state',UNIT+'test_host_machine_instance_volume_and_launch_changes_refused'),
+]
+
+ARCHIVE='test_reboot_capture.RebootCaptureTests.'
+REPLAY_CASES=[
+    ('J15 trust recorded boot verdict','_reboot',
+     'verdict = reboot_attestation.observations(p, history, observed)',"verdict = evidence.get('reboot_verdict')",
+     ARCHIVE+'test_replay_rechecks_boot_chain_after_archive_repin'),
+    ('J16 skip copied helper digest','_tool',
+     "if producer_source.digest(reader.path('capture-tool/'+name)) != digest:",
+     "if name != 'reboot_attestation.py' and producer_source.digest(reader.path('capture-tool/'+name)) != digest:",
+     ARCHIVE+'test_replay_rehashes_copied_reboot_tool_after_repin'),
+    ('J18 ignore recorded verdict','_reboot',"evidence.get('reboot_verdict') != verdict",'False',
+     ARCHIVE+'test_replay_compares_recorded_reboot_verdict'),
+    ('J19 ignore recorded process report','_processes','if comparable(replay) != comparable(recorded):','if False:',
+     ARCHIVE+'test_replay_compares_process_reports'),
+    ('J21 ignore phase stability','_reboot','if phases[0][key] != phases[1][key]:','if False:',
+     ARCHIVE+'test_replay_compares_otherwise_valid_shutdown_observations_between_phases'),
+    ('J22 ignore session exit ordering','_processes',
+     "reboot_attestation.terminal_exit(events,observed,reboot['policy'])",'pass',
+     ARCHIVE+'test_replay_checks_changed_session_finished_time_after_fixture_repin'),
+    ('J23 ignore machine identity replay','_reboot','reboot_attestation.machine_observation(observed, p)','pass',
+     ARCHIVE+'test_replay_rehashes_machine_identity_bytes'),
 ]
 
 
@@ -69,7 +97,9 @@ def main():
     boot_test=UNIT+'test_missing_extra_intermediate_reused_and_unobserved_boots_refused'
     kernel_b1=UNIT+'test_recovery_kprobe_kernel_worker_requires_exact_name_and_kernel_parent'
     kernel_b2=UNIT+'test_capture_kprobe_kernel_worker_requires_parent_group_and_empty_command'
-    baseline=run(sorted(set([case[2] for case in CASES]+[mesh_test,platform_test,boot_test,kernel_b1,kernel_b2])))
+    argv_test=UNIT+'test_interpreter_argv_cannot_hide_behind_a_script_process_name'
+    baseline=run(sorted(set([case[2] for case in CASES]+[case[4] for case in REPLAY_CASES]+
+                            [mesh_test,platform_test,boot_test,kernel_b1,kernel_b2,argv_test])))
     if not baseline['successful']:raise RuntimeError('mutation baseline failed:\n'+baseline['output'])
     rows=[];original=proof.require
     for label,prefix,test in CASES:
@@ -77,6 +107,13 @@ def main():
             if not message.startswith(prefix):original(condition,message)
         with mock.patch.object(proof,'require',side_effect=omit):result=run([test])
         rows.append({'mutation':label,'killed':not result['successful'],**result})
+    for label,function,before,after,test in REPLAY_CASES:
+        altered=changed_function(capture_archive,function,before,after)
+        with mock.patch.object(capture_archive,function,altered):result=run([test])
+        rows.append({'mutation':label,'killed':not result['successful'],**result})
+    altered=changed_function(proof,'quiet_processes',"(name, *row['argv'][:2])",'(name,)')
+    with mock.patch.object(proof,'quiet_processes',altered):result=run([argv_test])
+    rows.append({'mutation':'ignore interpreter argv','killed':not result['successful'],**result})
     from test_reboot_attestation import B0,B1,B2
     original_boots=proof.boot_list
     def filter_boots(raw):
@@ -101,7 +138,8 @@ def main():
         with mock.patch.object(proof,function,altered):result=run([test])
         rows.append({'mutation':label,'killed':not result['successful'],**result})
     sources={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in
-             [HERE/'reboot_attestation.py',HERE/'refinement_bundle.py',HERE/'reboot_mutations.py',
+             [HERE/'reboot_attestation.py',HERE/'capture_archive.py',HERE/'test_reboot_capture.py',
+              HERE/'refinement_bundle.py',HERE/'reboot_mutations.py',
               HERE/'smoke/regenerate_meshes.py',HERE/'test_reboot_attestation.py',
               HERE/'test_refinement_bundle.py',HERE/'test_regenerate_platform.py']}
     record={'scope':'Author synthetic guard-deletion/replacement mutations; no cloud or scientific outcomes.',

@@ -126,6 +126,88 @@ class RebootCaptureTests(unittest.TestCase):
     def mutate(self,name,change):
         path=self.root/name;value=json.loads(path.read_bytes());change(value);path.write_bytes(raw(value));self.repin()
 
+    def change_observations(self, change):
+        for phase in ('before', 'after'):
+            self.mutate('processes-'+phase+'.json', lambda e: change(e['reboot_observation']))
+
+    def test_replay_rechecks_boot_chain_after_archive_repin(self):
+        def extra(obs):
+            rows=proof.boot_list(obs['journal_boot_list'])
+            tuples=[(r['boot'][:8]+'-'+r['boot'][8:12]+'-'+r['boot'][12:16]+'-'+r['boot'][16:20]+'-'+r['boot'][20:],r['first'],r['last']) for r in rows]
+            tuples.insert(2,('00000004-0000-0000-0000-000000000000',450,460))
+            from test_reboot_attestation import listing
+            obs['journal_boot_list']=listing(tuples)
+        self.change_observations(extra)
+        with self.assertRaisesRegex(ValueError,'missing, extra or unobserved intermediate boot'):self.load()
+
+    def test_replay_requires_both_shutdown_journals_after_repin(self):
+        self.change_observations(lambda o:o['ended_boot_journals'].pop(B0))
+        with self.assertRaisesRegex(ValueError,'missing/extra shutdown journal'):self.load()
+
+    def test_replay_rejects_source_mtime_one_nanosecond_after_b0(self):
+        self.change_observations(lambda o:o['source_files']['setup/retained.txt'].update(mtime_ns=200_123_456_001))
+        with self.assertRaisesRegex(ValueError,'source file is malformed or newer than study boot end'):self.load()
+
+    def test_replay_rehashes_machine_identity_bytes(self):
+        self.change_observations(lambda o:o.update(machine_id_text='d'*32+'\n'))
+        with self.assertRaisesRegex(ValueError,'recorded machine identity changed'):self.load()
+
+    def test_replay_compares_recorded_reboot_verdict(self):
+        self.mutate('processes-before.json',lambda e:e['reboot_verdict'].update(study_end_us=0))
+        with self.assertRaisesRegex(ValueError,'reboot verdict or observation time differs'):self.load()
+
+    def test_replay_rehashes_copied_reboot_tool_after_repin(self):
+        path=self.root/'capture-tool/reboot_attestation.py';path.write_bytes(path.read_bytes()+b'\n# tampered\n');self.repin()
+        with self.assertRaisesRegex(ValueError,'captured tool source differs from reviewed Git bytes'):self.load()
+
+    def test_replay_compares_process_reports(self):
+        self.mutate('processes-before.json',lambda e:next(iter(e['reports'].values())).update(termination_basis='unwitnessed'))
+        with self.assertRaisesRegex(ValueError,'recorded process report differs from reviewed verifier replay'):self.load()
+
+    def test_replay_compares_otherwise_valid_shutdown_observations_between_phases(self):
+        def change(e):
+            # Message is semantically valid shutdown evidence in each phase,
+            # but the immutable completed-boot record cannot change mid-capture.
+            raw_journal=e['reboot_observation']['ended_boot_journals'][B0]
+            e['reboot_observation']['ended_boot_journals'][B0]=raw_journal.replace('Syncing filesystems','Syncing filesystems again')
+        self.mutate('processes-after.json',change)
+        with self.assertRaisesRegex(ValueError,'reboot proof changed between capture phases'):self.load()
+
+    def test_replay_checks_session_completion_precedes_launcher_receipt(self):
+        self.change_observations(lambda o:o['source_files']['session_exit.txt'].update(mtime_ns=197_000_000_000))
+        with self.assertRaisesRegex(ValueError,'launcher receipt predates session completion'):self.load()
+
+    def test_replay_checks_changed_session_finished_time_after_fixture_repin(self):
+        # Rebind every fixture trust anchor to reach temporal replay, not an
+        # earlier byte-integrity guard. Production callers never accept these
+        # newly invented digests as the independently retained policy.
+        path=self.root/'study/main/events.jsonl'
+        events=[json.loads(line) for line in path.read_bytes().splitlines()]
+        for event in events:
+            if event['kind']=='session_finished':event['time']=199.5
+        path.write_bytes(b''.join(raw(event) for event in events));digest=proof.sha(path.read_bytes())
+        recovery=self.root/'reboot/recovery'
+        inventory=(recovery/'remote-sha256-before.txt').read_text()
+        inventory=''.join((digest+line[64:] if line[66:].endswith('/main/events.jsonl') else line)+'\n' for line in inventory.splitlines())
+        for name in ('remote-sha256-before.txt','remote-sha256-after.txt'):(recovery/name).write_text(inventory)
+        host=json.loads((recovery/'host-before-stop.json').read_bytes())
+        host['records']['main']['journal_sha256']=digest;(recovery/'host-before-stop.json').write_bytes(raw(host))
+        witness=json.loads((recovery/'witness.json').read_bytes())
+        witness['original_inventory_sha256']=proof.sha(inventory.encode())
+        witness['files']={name:{'sha256':proof.sha((recovery/name).read_bytes()),'bytes':(recovery/name).stat().st_size} for name in proof.WITNESS_FILES}
+        (recovery/'witness.json').write_bytes(raw(witness))
+        policy=json.loads((self.root/'reboot/policy.json').read_bytes())
+        policy.update(inventory_sha256=proof.sha(inventory.encode()),recovery_witness_sha256=proof.sha(raw(witness)))
+        (self.root/'reboot/policy.json').write_bytes(raw(policy));self.policy_sha=proof.sha(raw(policy))
+        def change(e):
+            e['reboot_policy_sha256']=self.policy_sha
+            e['reboot_observation']['source_files']['main/events.jsonl'].update(sha256=digest,size=path.stat().st_size)
+            report=next(v for k,v in e['reports'].items() if k.endswith('/main'))
+            report['original_verifier']['journals']['.']['sha256']=digest
+        for phase in ('before','after'):self.mutate('processes-'+phase+'.json',change)
+        self.mutate('capture.json',lambda m:m.update(reboot_policy_sha256=self.policy_sha))
+        with self.assertRaisesRegex(ValueError,'launcher receipt predates session completion'):self.load()
+
     def test_complete_portable_replay_retains_original_refusals_and_all_inventory_bytes(self):
         before={p.relative_to(self.root).as_posix():(p.read_bytes(),p.stat().st_mtime_ns)
                 for p in self.root.rglob('*') if p.is_file()}

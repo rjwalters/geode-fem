@@ -35,6 +35,13 @@ def require(condition, message):
         raise ValueError('reboot attestation: ' + message)
 
 
+def work_process(name):
+    """Shared B1/B2 classifier, also applied to observed interpreter argv."""
+    name = PurePosixPath(name).name
+    return bool(re.search(r'python|icem|tmux|octave|matlab|julia|cargo|uv|session|optimizer|capture|analysis|jupyter',
+                          name, re.I)) or name in ('R', 'Rscript')
+
+
 def sha(raw):
     return hashlib.sha256(raw).hexdigest()
 
@@ -181,8 +188,8 @@ def recovery(witness_raw, files, p):
             'B1 Python process is not the documented read-only collector')
     # Linux's kprobe optimizer is a kernel worker parented by kthreadd (PID 2),
     # not an optimization experiment. The saved B1 table has only PID/PPID/comm.
-    require(not any(re.search(r'icem|tmux|octave|matlab|julia|cargo|uv|session|optimizer|capture|analysis',
-                              r[2], re.I) and not (r[1] == 2 and r[2] == 'kprobe-optimizer')
+    require(not any(work_process(r[2]) and not r[2].startswith('python')
+                    and not (r[1] == 2 and r[2] == 'kprobe-optimizer')
                     for r in processes), 'B1 work process present')
     before = _json(files['ec2-observation.json']); stopped = _json(files['ec2-stopped-transition.json'])
     launch = ec2(before, p, 'running')
@@ -351,8 +358,7 @@ def quiet_processes(observed, *, capture_script_sha256):
             if (name == 'kprobe-optimizer' and by_pid[row['pid']].get('ppid') == 2
                     and by_pid[row['pid']]['pgid'] == 0 and row['argv'] == []):
                 continue
-            require(not re.search(r'python|icem|tmux|octave|matlab|julia|cargo|optimizer|capture|analysis|jupyter',
-                                  name, re.I) and name not in ('uv', 'R', 'Rscript'),
+            require(not any(work_process(candidate) for candidate in (name, *row['argv'][:2])),
                     'live evaluator/session/analysis worker: ' + name)
     return True
 
