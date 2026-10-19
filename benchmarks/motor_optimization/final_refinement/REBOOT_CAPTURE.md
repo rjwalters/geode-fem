@@ -86,24 +86,16 @@ the study volume. This preparation is not evidence that a rehearsal ran.
 The noble AMI's two optional ephemeral mappings are explicitly suppressed using
 the AWS [`NoDevice` mapping](https://docs.aws.amazon.com/cli/latest/reference/ec2/run-instances.html).
 
-After operator authorization, use the canonical bounded launcher:
-
-```sh
-bash benchmarks/motor_optimization/final_refinement/run_quiet_rehearsal.sh \
-  --execute-authorized-rehearsal "$NEW_REHEARSAL_PREPARATION" "$NEW_REHEARSAL_OUTPUT"
-```
-
-It pins `geode-fem-bench` and `us-east-1` on every AWS call, verifies the package
-hashes, launch request and study exclusions before launch, and checks the actual
-AMI, type and fresh volume before transfer. The plan sets
-`InstanceInitiatedShutdownBehavior: terminate`. The launcher uses Instance
-Connect, arms `sudo shutdown -P +75` before transfer, and traps exit and signals
-to terminate its new instance and wait for termination and root-volume deletion.
-A cleanup failure is reported as a failure; inspect its retained controller
-records. The remote cap is established after SSH becomes reachable, so a lost
-controller before that point still requires operator cleanup using the launch
-record. Do not run a worker helper's `launch` or `bootstrap`, which changes the
-image or environment. The launcher extracts into a new directory and runs
+The one required rehearsal has already run. On 2026-10-19 (instance
+i-0b52f97fa16292747, launched 20:38:31Z and terminated by its controller) an
+operator-authorized controller launched `launch.json` from the e6e7e3ae
+preparation with `--instance-initiated-shutdown-behavior terminate`, the
+`geode-fem-bench` profile, Instance Connect, an on-host `shutdown -P +75` cap
+and an exit trap that terminated the instance. Its clean report is the committed
+live fixture `smoke/quiet-rehearsal-e6e7e3ae.json`. A canonical, tested launcher
+for any future rehearsal is deliberately not part of this revision; it follows
+in a separate pull request. Do not launch a rehearsal by hand from this
+revision. The remote payload extracts into a new directory and runs
 `bash run-remote.sh`.
 It invokes the exact `closed_capture.py --quiet-rehearsal` entry, using the
 producer's hash-pinned `process_identity.py`, waits out cloud-init and package
