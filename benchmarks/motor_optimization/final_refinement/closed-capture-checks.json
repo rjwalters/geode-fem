@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "source_commit": "01350accb689c9dcb3a6add977e17f3d5e5be523",
+  "scope": "Local capture transaction/source tests and live frozen-input declaration/Git comparison. No completed main capture, scientific selection or optimizer performance evidence.",
+  "source_sha256": {
+    "closed_capture.py": "bc699c853e58a600f2a93c89cb673a269b567342fbde6d407138bc9e39da31d9",
+    "producer_source.py": "953d0bc2e0c5f576f5b74f2c42f0f458182d2808671839885afed7b1625c86b4",
+    "test_closed_capture.py": "a9d8ff28eeeb579886564de95cb616339de251f5c52ebc5773e00728f5811033",
+    "test_producer_source.py": "46c20080bbefa60ddd5f03c5e832a57d89f25fe7b42fc87545eff4e6a2c71d90",
+    "trace_archive.py": "fcebf5fdc02e373045f1f994fce64b189d3839d1f3650ff3f90949e75a200f03",
+    "recovery_evidence.py": "434f455f11730e319743fc752ff82efabc87f6ce4779949524164bdab3be861c"
+  },
+  "tests": {
+    "command": "python3 -m unittest discover -s benchmarks/motor_optimization/final_refinement -p 'test_*.py'",
+    "exit_code": 0,
+    "passed": 148,
+    "new_tests": 16
+  },
+  "live_source_map": {
+    "status": "PASS",
+    "scope": "Live frozen source declaration matches every reviewed Git source blob. Not current remote source/runtime verification or closed-capture evidence.",
+    "observed_utc": "2026-10-18T18:37:06.789669+00:00",
+    "reviewed_commit": "9486a9da58beeca91968d4d3608f06b998abff45",
+    "source_files": 1419,
+    "bindings_sha256": "4dac96a80c22c6ff35981124afdbd268b8049231682e6ab1d3da32cb66815d89",
+    "recovery_inputs_sha256": "edae11688f472f22eae8a063c311abcef5b45a2614dfb3e537d25bd10471386e",
+    "elapsed_seconds": 0.26842162501998246,
+    "producer_repo": "/home/ubuntu/geode-fem",
+    "build_receipt": "/home/ubuntu/exp2-main/build-record/build-receipt.json"
+  },
+  "archive": {
+    "file": "smoke/closed_capture_frozen_inputs_01350acc.tar.gz",
+    "sha256": "8945f512dfef134c429ce2ebe5b205c288c0911ff7ac2f3314727b3ee7ef53c0",
+    "files": 7
+  },
+  "limitations": [
+    "Capture copy/binding orchestration tests use explicit synthetic fixtures; default runtime/build probes have not run on a closed main study.",
+    "Live frozen declaration equality does not prove current remote source/runtime state or process absence.",
+    "Offline capture verification, scientific candidate-selection integration, independent review and final cohort execution remain pending."
+  ]
+}

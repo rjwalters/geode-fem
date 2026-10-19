@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "source_commit": "980e04247be513798601dc7bd94133b38285251f",
+  "scope": "Read-only recovery-chain dispositions, using pinned production policy; no scientific selection or native refinement.",
+  "unit_tests": 17,
+  "mutations_detected": 9,
+  "mutations": [
+    "last_clean_completion_wins",
+    "host_verdict_ignored",
+    "reserved_action_not_checked",
+    "unauthorized_optimizer_allowed",
+    "diagnostic_binding_not_checked",
+    "snapshot_path_ignored",
+    "policy_pin_ignored",
+    "unsealed_chain_claimed_closed",
+    "reader_grants_scientific_selection"
+  ],
+  "source_sha256": {
+    "recovery_evidence.py": "434f455f11730e319743fc752ff82efabc87f6ce4779949524164bdab3be861c",
+    "test_recovery_evidence.py": "7c3750d19476bcb41343db04232efe3623b2e96fd1f32c0bb98b741ea86a63b2",
+    "recovery_schema_probe.py": "dfd4fd3581765ebbc21854281e8c0e83e109ec9f42190de004567d37c7b602c6",
+    "trace_archive.py": "fcebf5fdc02e373045f1f994fce64b189d3839d1f3650ff3f90949e75a200f03",
+    "test_trace_archive.py": "23209ea5606d6920957c9c61037623b74698c944e3f3a6c80d2dc21bf595b424",
+    "recovery_mutations.py": "c1dffd41befd104fb21ed3d5f0baf2586aef2af1f93c58ec01c4cb869d11f793"
+  },
+  "production_registry_schema_probe": {
+    "scope": "Synthetic traces with actual Registry, inventory and policy; no FEM or optimizer execution",
+    "policy_matches_production": true,
+    "archive_bytes_and_mtimes_unchanged": true,
+    "all_registered_jobs_resolved": true,
+    "retained_attempts": 101,
+    "selected_completions": 100,
+    "replacement_job_count": 1,
+    "can_select": false,
+    "can_launch": false,
+    "harness_source_sha256": {
+      "process_identity.py": "189f2add1591fbdbf979dec251b78e71c8ac6e1d8ca22ca72c2fc0c30098f729",
+      "session_journal.py": "dd2fa15a7b9bd764e61e2a6d55d68e83e814ae47a77f359d9796b11bbfa630f7",
+      "recovery_inventory.py": "f432e326868ccf52196275b1526025a236f27939335540df2e2068d3db7ec32d",
+      "recovery_registry.py": "da3c3ef58a3cc08d36c066883e74a91d3161bb6e2a523cd4d8c4917a82295752",
+      "recovery_policy.py": "78688b65fc4221501eb7a676183ce949be31270abb75daada3b6b4d8b5b8b7db"
+    }
+  },
+  "archive": {
+    "file": "recovery_evidence_980e0424.tar.gz",
+    "sha256": "b4b8fd3b12b1164e424f446d3f0d758427a1162a72eb6b7845f8a410c6cd4140",
+    "files": 130,
+    "each_member_verified": true
+  },
+  "limitations": [
+    "Tests use synthetic traces, not main-study optimization or refinement data.",
+    "Capture completeness and remote process absence cannot be established from copied files.",
+    "External interruption causes require independently reviewed attestations; the reader checks evidence binding.",
+    "Complete source/runtime/canonical-anchor, geometry/settings and mesh-byte provenance remain caller obligations.",
+    "Reconcile against the reviewed dependency merge; native refinement and independent review remain pending."
+  ]
+}

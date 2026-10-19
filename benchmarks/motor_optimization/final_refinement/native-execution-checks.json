@@ -1,0 +1,185 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "source_commit": "63b3e3d8bbc30504f845eebb5b78e8be6a2ee12f",
+  "scope": "Native exact-coordinate post-run executor wiring only; no main cohort, optimizer or speedup result.",
+  "source_sha256": {
+    "crates/geode-core/examples/icem_final_refinement.rs": "eedf8ffda72761282320c7406bb414aa91ca2d876b8f66aa6ddc0422c7a32166",
+    "crates/geode-core/tests/common/icem_final_refinement.rs": "53ad02e442c987237e9bc939b588c0fa38af77685afa4a7fec2e53d5d82c70a3",
+    "crates/geode-core/tests/common/icem_experiment2.rs": "05d5ec5b89c9bede73a04e21e9fdf579c175c98a1e8e6c74119debfc14a591d2",
+    "crates/geode-core/tests/common/motor_resources.rs": "0c2e4a5e2132e0913ec3c1560e9998c152f502431f59663d386364556e84c64a",
+    "crates/geode-core/tests/motor_final_refinement.rs": "e4f45349a4293af15d3e47436c91489b03f45d0e0ae7486143811187c6696256"
+  },
+  "unit_tests": {
+    "passed": 6,
+    "command": "CARGO_TARGET_DIR=/Volumes/Stripe/geode-fem/codex-issue-1203-selector/target cargo test -p geode-core --test motor_final_refinement --no-default-features",
+    "scope": "Registered matrix, exact coordinates/maps/frozen expansion, input hashes, unknown overrides, conforming zero-stator/rotation gate, remesh history on forward failure and reset."
+  },
+  "format_check": "cargo fmt --all -- --check: PASS",
+  "ci_target_coverage": "python3 scripts/ci-test-coverage.py: PASS (225/226 targets, one previously allowlisted)",
+  "build": {
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "-p",
+      "geode-core",
+      "--example",
+      "icem_final_refinement",
+      "--no-default-features",
+      "--message-format=json"
+    ],
+    "source_commit": "63b3e3d8bbc30504f845eebb5b78e8be6a2ee12f",
+    "binary_sha256": "d7ef1210d29c78cac7949bd3f07472090861fc0ca108c0e2e93089d5b28318fe",
+    "environment_overrides": {
+      "CARGO_TARGET_DIR": "/Volumes/Stripe/geode-fem/codex-issue-1203-selector/target",
+      "CARGO_PROFILE_DEV_OPT_LEVEL": "3"
+    },
+    "elapsed_seconds": 42.14308920793701,
+    "source_unchanged": true
+  },
+  "native_checks": {
+    "scope": "Bounded post-merge native wiring at theta0, with retained native ready/schema and exact full-design adaptation. No optimizer, main cohort or speedup result. Local debug-profile optimized build; costs are not benchmark performance.",
+    "build_receipt_sha256": "f89cfeaa695c77b2238f7a8e940db560264fa78368145c915cbff0f48bfbb062",
+    "input_mesh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
+    "cases": [
+      {
+        "name": "wrong-point",
+        "command": [
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/icem_final_refinement",
+          "--request",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/wrong-point.request.json",
+          "--mesh",
+          "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+          "--out",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/wrong-point"
+        ],
+        "exit_code": 2,
+        "wall_seconds": 0.007384666008874774,
+        "status": "refused",
+        "result_sha256": "78d8a9592df48bae23528ae25b61caa343e8e195e4f6c9594f824969061a09f8"
+      },
+      {
+        "name": "wrong-mesh",
+        "command": [
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/icem_final_refinement",
+          "--request",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/wrong-mesh.request.json",
+          "--mesh",
+          "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+          "--out",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/wrong-mesh"
+        ],
+        "exit_code": 2,
+        "wall_seconds": 0.01448383298702538,
+        "status": "refused",
+        "result_sha256": "9be27e99d669c4c3b2eceb540cac661610eb337dd81d101f6fd73aab8122f72d"
+      },
+      {
+        "name": "nonzero-stator",
+        "command": [
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/icem_final_refinement",
+          "--request",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/nonzero-stator.request.json",
+          "--mesh",
+          "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+          "--out",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/nonzero-stator"
+        ],
+        "exit_code": 2,
+        "wall_seconds": 0.015152666019275784,
+        "status": "unavailable",
+        "result_sha256": "cd027330821b18d0ac07163c01c421b94839b50272d2dc69ed825b4042929526"
+      },
+      {
+        "name": "a-primary",
+        "command": [
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/icem_final_refinement",
+          "--request",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/a-primary.request.json",
+          "--mesh",
+          "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+          "--out",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/a-primary"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 69.04440354090184,
+        "status": "complete",
+        "result_sha256": "f5c50b4e3d578fe3a801dc4005fac837aad026ada01f0b8d9e5b2f84865b0a00",
+        "max_anchor_torque_difference": 0.0,
+        "waveform_samples": 60
+      },
+      {
+        "name": "b-primary",
+        "command": [
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/icem_final_refinement",
+          "--request",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/b-primary.request.json",
+          "--mesh",
+          "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+          "--out",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/b-primary"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 68.61582950002048,
+        "status": "complete",
+        "result_sha256": "6262b5ae1cc630af936f1171d105c370735071a31c3c2384875f5c083af168bd",
+        "max_anchor_torque_difference": 0.0,
+        "waveform_samples": 60
+      },
+      {
+        "name": "a-shifted",
+        "command": [
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/icem_final_refinement",
+          "--request",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/a-shifted.request.json",
+          "--mesh",
+          "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+          "--out",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/a-shifted"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 69.16829091706313,
+        "status": "complete",
+        "result_sha256": "b692ea1ed6306b9247851f492086406c10779fca8500131fe3b439e08ccbc422",
+        "waveform_samples": 60
+      }
+    ],
+    "status": "PASS",
+    "limitations": [
+      "L3, g40, tight, withheld and successful fresh conforming execution not yet exercised by this bounded smoke.",
+      "Full closed-study driver, runtime/source/capture authentication, cohort execution and independent review remain pending."
+    ]
+  },
+  "fresh_conforming": {
+    "scope": "Real fresh conforming theta0 wiring; no optimizer or speedup result.",
+    "command": [
+      "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/icem_final_refinement",
+      "--request",
+      "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/a-conforming.request.json",
+      "--mesh",
+      "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+      "--out",
+      "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/a-conforming"
+    ],
+    "returncode": 0,
+    "wall_seconds": 53.77974591695238,
+    "result_sha256": "90d9173abaf5c9d4d4d8fe56d861639b3526493c8a8d9cc89b4bfeebadac7556",
+    "status": "PASS",
+    "mesh_attempts": 1,
+    "waveform_samples": 60
+  },
+  "raw_waveform_samples": 240,
+  "archive": {
+    "file": "smoke/native_refinement_63b3e3d8.tar.gz",
+    "sha256": "eac07e2ce0a71d45b77e7c7c33cf856206563272f9d63515d36690c5209698bc",
+    "files": 49,
+    "each_payload_member_verified": true
+  },
+  "remaining": [
+    "Native L3/g40/tight/withheld and moved candidate execution are not covered by this bounded smoke.",
+    "Complete closed-study capture/source/runtime authentication and frozen-cohort driver remain pending.",
+    "Independent review is required before scientific interpretation.",
+    "Full main study, final refinement results, manuscript and audit remain pending."
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "source_commit": "b61cc5a16c040df78bd0fda7060abf8664364930",
+  "scope": "Retained native harmonic/conforming outputs in a synthetic selection context; no main cohort, new FEM or optimization performance evidence.",
+  "files_sha256": {
+    "check_plan.py": "e5b8d3bf558e572fc066d12620e78306b8d1c93dc276625286f41cabf2ecc0c0",
+    "comparison.py": "f61ae74a6bda6bb4a80ff293e4bb97fd29803a4545dc734a9e15876c907be754",
+    "native_results.py": "05d3f4c1c4a46f3e60bc49799b7fa02ba0e4e9a44b8e04238c92eec690e2934c",
+    "test_conforming_results.py": "bc2e688a3da8fae65cfdf606c0534897de61baa98c40e5ef57c529d20fbaebbe",
+    "test_native_results.py": "689d0ff2ea077e025dc5b66ff2e25245b465d74824b66e41703f21fa8cb4d034",
+    "smoke/native_binding_L2.msh.gz": "304ef1595bc9005bfcfb6190e2655203d2dda12878f4c3c5f36cae6aaeb988ab",
+    "smoke/native_refinement_63b3e3d8.tar.gz": "eac07e2ce0a71d45b77e7c7c33cf856206563272f9d63515d36690c5209698bc",
+    "smoke/native_matrix_63b3e3d8.tar.gz": "1c4242794fd7056a17fd4a62e063661875a779451dfe41c240f73b8ead03f337",
+    "smoke/conforming_binding_report.json.gz": "01b37a5efa19b84eff12c81594555a29c4c868c9f45213c92bb6dd486d1d0a0b"
+  },
+  "verification": {
+    "command": "python3 -m unittest discover -s benchmarks/motor_optimization/final_refinement -p 'test_*.py'",
+    "tests_passed": 132,
+    "exit_code": 0,
+    "new_conforming_tests": 6
+  },
+  "replay": {
+    "completed_checks": 10,
+    "missing_checks": 18,
+    "torque_samples": 640,
+    "conforming_F": 0.009802199099022359,
+    "conforming_minus_primary_F": 0.00019879495136895624,
+    "real_nonzero_stator_unavailable_tested": true,
+    "can_select": false,
+    "can_launch": false
+  },
+  "remaining": [
+    "Complete closed-study capture authentication and archive-to-selection driver.",
+    "Independent review and final selected-cohort execution.",
+    "Main-study performance evidence."
+  ]
+}

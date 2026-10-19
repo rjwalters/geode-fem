@@ -1,0 +1,78 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "source_commit": "4329d4e84338f02b40b961ac42f25e348d5d581b",
+  "scope": "Hash-bound registered parameter mapping and observed common-validator settings. Not complete source/runtime/capture authentication or native refinement.",
+  "unit_tests": 11,
+  "mutations_detected": 10,
+  "mutations": [
+    "rounded_coordinates",
+    "frozen_length_changed",
+    "motion_maps_conflated",
+    "training_resolution_enters_identity",
+    "definition_hash_ignored",
+    "observed_space_ignored",
+    "common_validator_unchecked",
+    "box_unchecked",
+    "coordinate_order_reversed",
+    "coordinate_bits_ignored"
+  ],
+  "source_sha256": {
+    "design_evidence.py": "32c61c41d3aca111651c72f58138249ee41388061c771d35dc93402a614c1e7b",
+    "test_design_evidence.py": "0738d4928eb546dc9c663d143c87e4472697167971db373b98b34334939d2a70",
+    "selection.py": "08e8c0f3d7729972701e567d44f118d57b33e843008a4cbd470c9c46705035f4",
+    "check_plan.py": "95325bb113641180bc59aee39dfb9548b665a5289242545bbfb6498e87d7e656",
+    "trace_archive.py": "fcebf5fdc02e373045f1f994fce64b189d3839d1f3650ff3f90949e75a200f03",
+    "design_mutations.py": "72ec41a3f3f8185e387328ae424ad469936c8ef5a70f8b88de51f0e1ebcc6384"
+  },
+  "native_geometry_probe": {
+    "status": "PASS",
+    "scope": "Real evaluator readiness and geometry-only requests at the five frozen starts in both spaces; zero FEM or optimizer solves. Source/capture authentication for a main study remains separate.",
+    "new_FEM_solves": 0,
+    "native_sessions": 2,
+    "coordinates_checked": 10,
+    "parameters_per_design": 22,
+    "source_commit": "848fa480a3c7c54773afca036b47af9ceced3eab",
+    "binary_sha256": "c62c2e4e5249c399b4c073142123b7a23c70bb5e827ca423fd69ee55a4dfd272",
+    "source_sha256": {
+      "design_evidence.py": "32c61c41d3aca111651c72f58138249ee41388061c771d35dc93402a614c1e7b",
+      "selection.py": "08e8c0f3d7729972701e567d44f118d57b33e843008a4cbd470c9c46705035f4",
+      "trace_archive.py": "fcebf5fdc02e373045f1f994fce64b189d3839d1f3650ff3f90949e75a200f03"
+    },
+    "input_sha256": {
+      "/Volumes/Stripe/geode-fem/codex-issue-1202/target/build-pr-head-848fa480/icem_harness_eval": "c62c2e4e5249c399b4c073142123b7a23c70bb5e827ca423fd69ee55a4dfd272",
+      "/Volumes/Stripe/geode-fem/codex-issue-1202/target/build-pr-head-848fa480/build-receipt.json": "42a30f7632829b358dc14a6abfd8b17ff9ad8c6e223726e5d935569df34b1bfb",
+      "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/reference_data.json": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3",
+      "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_optimization/harness/starts.json": "d4840d876b35e8dffe775c109e3d195a2fa3d980224738213b9d22c01128f759",
+      "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+      "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
+      "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_optimization/anchor.json": "715ed8334a48dbed701acfd56f1c738a4574033309240bdea825316ccf4b1f3f"
+    },
+    "native_source_files_checked": 624,
+    "same_theta0_parameters_distinct_map_identity": true,
+    "retained_build_receipt_sha256": "42a30f7632829b358dc14a6abfd8b17ff9ad8c6e223726e5d935569df34b1bfb",
+    "python": "3.12.13 (main, May 10 2026, 19:20:41) [Clang 22.1.3 ]"
+  },
+  "composed_replay": {
+    "status": "PASS",
+    "scope": "Compose retained native theta0 values and coordinates with real ready replies, full design mapping, validation checks, selector and reference plan. Time/run/host context remains synthetic, so no main-study eligibility or refinement result.",
+    "rejection_reasons": [
+      "mean_floor_not_met"
+    ],
+    "theta0_references": 2,
+    "planned_checks": 12
+  },
+  "archive": {
+    "file": "design_evidence_4329d4e8.tar.gz",
+    "sha256": "cd13483ad921cba30bd79572ab1d63b781ac13ac55806560d56b2e07ad6fbd2c",
+    "files": 14,
+    "each_member_verified": true
+  },
+  "limitations": [
+    "This expands all registered parameters but does not reconstruct curves or mesh nodes.",
+    "Global source/build/runtime provenance and capture completeness remain caller obligations.",
+    "The reused native binary has an earlier witnessed build; native source/input hashes were checked, not a new final-source build.",
+    "The composed replay uses retained native values; its run/host/timing context remains synthetic.",
+    "Actual native refinement, conforming gates, complete main-data integration and independent review remain pending."
+  ]
+}

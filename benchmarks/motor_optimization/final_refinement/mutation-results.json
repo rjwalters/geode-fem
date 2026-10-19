@@ -1,0 +1,150 @@
+{
+  "source_sha256": "9a158afc1f5b5e07d6715cfea1eb3968b9d3db452b46bc89428b2d35adc12e2b",
+  "tests_sha256": "d0e0b5942b32346bc9dec02b558dcc4a3af5ec600964409f52b9f4df2fb0caa3",
+  "checks": [
+    {
+      "name": "baseline",
+      "expected_result": true,
+      "exit_code": 0,
+      "source_sha256": "9a158afc1f5b5e07d6715cfea1eb3968b9d3db452b46bc89428b2d35adc12e2b",
+      "stdout": "",
+      "stderr": "..................\n----------------------------------------------------------------------\nRan 18 tests in 0.004s\n\nOK\n"
+    },
+    {
+      "name": "mix_disjoint_rerun_ordinals",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "a747010bfd59cb50ead65ebed2ad6ed637baf7f15196617df021b23135f7e864",
+      "stdout": "",
+      "stderr": "..F...............\n======================================================================\nFAIL: test_disjoint_validation_ordinals_cannot_mix_two_eligible_attempts (__main__.SelectionTests.test_disjoint_validation_ordinals_cannot_mix_two_eligible_attempts)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-6jtcna35/test_selection.py\", line 165, in test_disjoint_validation_ordinals_cannot_mix_two_eligible_attempts\n    with self.assertRaisesRegex(ValueError, \"ambiguous eligible reruns\"):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: ValueError not raised\n\n----------------------------------------------------------------------\nRan 18 tests in 0.004s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "omit_mean_floor",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "7ce7a3aa0c85ec4169c131b902ae5c8e9e6c17fc497eac1e830b2d4c0c6f5558",
+      "stdout": "",
+      "stderr": "......E...........\n======================================================================\nERROR: test_every_eligibility_gate_rejects_an_apparently_better_candidate (__main__.SelectionTests.test_every_eligibility_gate_rejects_an_apparently_better_candidate) (changes={'mean_full': 1.0024})\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-mz48m6ue/test_selection.py\", line 55, in test_every_eligibility_gate_rejects_an_apparently_better_candidate\n    out = selection([bad, record()])\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-mz48m6ue/test_selection.py\", line 29, in selection\n    return select(rows, **dict(f0=1.0, mean0=1.0, theta0=design(), **changes))\n  File \"/private/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-mz48m6ue/selection.py\", line 153, in select\n    raise ValueError(\"ambiguous eligible reruns: resolve run eligibility first\")\nValueError: ambiguous eligible reruns: resolve run eligibility first\n\n----------------------------------------------------------------------\nRan 18 tests in 0.004s\n\nFAILED (errors=1)\n"
+    },
+    {
+      "name": "omit_geometry",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "801e79b693bf409817adc070b9669e5356e651546504424b1c8b451fb571052e",
+      "stdout": "",
+      "stderr": "......EE...........\n======================================================================\nERROR: test_every_eligibility_gate_rejects_an_apparently_better_candidate (__main__.SelectionTests.test_every_eligibility_gate_rejects_an_apparently_better_candidate) (changes={'geometry_admissible': False})\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-92rizkm_/test_selection.py\", line 55, in test_every_eligibility_gate_rejects_an_apparently_better_candidate\n    out = selection([bad, record()])\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-92rizkm_/test_selection.py\", line 29, in selection\n    return select(rows, **dict(f0=1.0, mean0=1.0, theta0=design(), **changes))\n  File \"/private/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-92rizkm_/selection.py\", line 153, in select\n    raise ValueError(\"ambiguous eligible reruns: resolve run eligibility first\")\nValueError: ambiguous eligible reruns: resolve run eligibility first\n\n======================================================================\nERROR: test_every_eligibility_gate_rejects_an_apparently_better_candidate (__main__.SelectionTests.test_every_eligibility_gate_rejects_an_apparently_better_candidate) (changes={'geometry_admissible': 1})\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-92rizkm_/test_selection.py\", line 55, in test_every_eligibility_gate_rejects_an_apparently_better_candidate\n    out = selection([bad, record()])\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-92rizkm_/test_selection.py\", line 29, in selection\n    return select(rows, **dict(f0=1.0, mean0=1.0, theta0=design(), **changes))\n  File \"/private/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-92rizkm_/selection.py\", line 153, in select\n    raise ValueError(\"ambiguous eligible reruns: resolve run eligibility first\")\nValueError: ambiguous eligible reruns: resolve run eligibility first\n\n----------------------------------------------------------------------\nRan 18 tests in 0.004s\n\nFAILED (errors=2)\n"
+    },
+    {
+      "name": "omit_mesh_policy",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "1c41135b58f418fb6bae129530c5745c6d5dd35c0f2b3c8ac7a18a861f999b87",
+      "stdout": "",
+      "stderr": "F.....E...........\n======================================================================\nERROR: test_every_eligibility_gate_rejects_an_apparently_better_candidate (__main__.SelectionTests.test_every_eligibility_gate_rejects_an_apparently_better_candidate) (changes={'mesh_pass': False})\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-357k2zbn/test_selection.py\", line 55, in test_every_eligibility_gate_rejects_an_apparently_better_candidate\n    out = selection([bad, record()])\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-357k2zbn/test_selection.py\", line 29, in selection\n    return select(rows, **dict(f0=1.0, mean0=1.0, theta0=design(), **changes))\n  File \"/private/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-357k2zbn/selection.py\", line 153, in select\n    raise ValueError(\"ambiguous eligible reruns: resolve run eligibility first\")\nValueError: ambiguous eligible reruns: resolve run eligibility first\n\n======================================================================\nFAIL: test_all_rejection_reasons_are_retained (__main__.SelectionTests.test_all_rejection_reasons_are_retained)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-357k2zbn/test_selection.py\", line 64, in test_all_rejection_reasons_are_retained\n    self.assertEqual(set(out[\"records\"][0][\"rejection_reasons\"]),\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n                     {\"validation_not_completed\", \"mean_floor_not_met\", \"invalid_objective\",\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n                      \"mesh_policy_not_passed\"})\n                      ^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Items in the second set but not the first:\n'mesh_policy_not_passed'\n\n----------------------------------------------------------------------\nRan 18 tests in 0.004s\n\nFAILED (failures=1, errors=1)\n"
+    },
+    {
+      "name": "omit_discrete_guard",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "0bc042540029af4e8013a55fe5a0b6d42613398c671bdb38bfa744cb917cbb9f",
+      "stdout": "",
+      "stderr": "......E...........\n======================================================================\nERROR: test_every_eligibility_gate_rejects_an_apparently_better_candidate (__main__.SelectionTests.test_every_eligibility_gate_rejects_an_apparently_better_candidate) (changes={'discrete_pass': False})\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-fxbeai6j/test_selection.py\", line 55, in test_every_eligibility_gate_rejects_an_apparently_better_candidate\n    out = selection([bad, record()])\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-fxbeai6j/test_selection.py\", line 29, in selection\n    return select(rows, **dict(f0=1.0, mean0=1.0, theta0=design(), **changes))\n  File \"/private/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-fxbeai6j/selection.py\", line 153, in select\n    raise ValueError(\"ambiguous eligible reruns: resolve run eligibility first\")\nValueError: ambiguous eligible reruns: resolve run eligibility first\n\n----------------------------------------------------------------------\nRan 18 tests in 0.005s\n\nFAILED (errors=1)\n"
+    },
+    {
+      "name": "omit_contamination",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "71bb1499763e56c613c4d98a0883587f020628c678069cb380f0e9a8383aee59",
+      "stdout": "",
+      "stderr": "..EE..E...........\n======================================================================\nERROR: test_disjoint_validation_ordinals_cannot_mix_two_eligible_attempts (__main__.SelectionTests.test_disjoint_validation_ordinals_cannot_mix_two_eligible_attempts)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-74h0712w/test_selection.py\", line 170, in test_disjoint_validation_ordinals_cannot_mix_two_eligible_attempts\n    out = selection([replace(original, host_contaminated=True), rerun])\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-74h0712w/test_selection.py\", line 29, in selection\n    return select(rows, **dict(f0=1.0, mean0=1.0, theta0=design(), **changes))\n  File \"/private/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-74h0712w/selection.py\", line 153, in select\n    raise ValueError(\"ambiguous eligible reruns: resolve run eligibility first\")\nValueError: ambiguous eligible reruns: resolve run eligibility first\n\n======================================================================\nERROR: test_duplicate_identity_and_ambiguous_clean_reruns_fail_closed (__main__.SelectionTests.test_duplicate_identity_and_ambiguous_clean_reruns_fail_closed)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-74h0712w/test_selection.py\", line 158, in test_duplicate_identity_and_ambiguous_clean_reruns_fail_closed\n    out = selection([record(host_contaminated=True), record(run_id=\"rerun\")])\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-74h0712w/test_selection.py\", line 29, in selection\n    return select(rows, **dict(f0=1.0, mean0=1.0, theta0=design(), **changes))\n  File \"/private/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-74h0712w/selection.py\", line 153, in select\n    raise ValueError(\"ambiguous eligible reruns: resolve run eligibility first\")\nValueError: ambiguous eligible reruns: resolve run eligibility first\n\n======================================================================\nERROR: test_every_eligibility_gate_rejects_an_apparently_better_candidate (__main__.SelectionTests.test_every_eligibility_gate_rejects_an_apparently_better_candidate) (changes={'host_contaminated': True})\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-74h0712w/test_selection.py\", line 55, in test_every_eligibility_gate_rejects_an_apparently_better_candidate\n    out = selection([bad, record()])\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-74h0712w/test_selection.py\", line 29, in selection\n    return select(rows, **dict(f0=1.0, mean0=1.0, theta0=design(), **changes))\n  File \"/private/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-74h0712w/selection.py\", line 153, in select\n    raise ValueError(\"ambiguous eligible reruns: resolve run eligibility first\")\nValueError: ambiguous eligible reruns: resolve run eligibility first\n\n----------------------------------------------------------------------\nRan 18 tests in 0.005s\n\nFAILED (errors=3)\n"
+    },
+    {
+      "name": "omit_completed",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "547c297a94f7dbf9743ca495a023a9ac7ccd51b0a73e6dff164abd3b5925908b",
+      "stdout": "",
+      "stderr": "F.....E...........\n======================================================================\nERROR: test_every_eligibility_gate_rejects_an_apparently_better_candidate (__main__.SelectionTests.test_every_eligibility_gate_rejects_an_apparently_better_candidate) (changes={'completed': False})\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-lvjwnc7g/test_selection.py\", line 55, in test_every_eligibility_gate_rejects_an_apparently_better_candidate\n    out = selection([bad, record()])\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-lvjwnc7g/test_selection.py\", line 29, in selection\n    return select(rows, **dict(f0=1.0, mean0=1.0, theta0=design(), **changes))\n  File \"/private/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-lvjwnc7g/selection.py\", line 153, in select\n    raise ValueError(\"ambiguous eligible reruns: resolve run eligibility first\")\nValueError: ambiguous eligible reruns: resolve run eligibility first\n\n======================================================================\nFAIL: test_all_rejection_reasons_are_retained (__main__.SelectionTests.test_all_rejection_reasons_are_retained)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-lvjwnc7g/test_selection.py\", line 64, in test_all_rejection_reasons_are_retained\n    self.assertEqual(set(out[\"records\"][0][\"rejection_reasons\"]),\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n                     {\"validation_not_completed\", \"mean_floor_not_met\", \"invalid_objective\",\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n                      \"mesh_policy_not_passed\"})\n                      ^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Items in the second set but not the first:\n'validation_not_completed'\n\n----------------------------------------------------------------------\nRan 18 tests in 0.005s\n\nFAILED (failures=1, errors=1)\n"
+    },
+    {
+      "name": "credit_after_budget",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "6780d14105d1f9cf6f3f5073705fd1ca5b73b0dc5ec06b3c8e22a5038e20bc07",
+      "stdout": "",
+      "stderr": "......E...........\n======================================================================\nERROR: test_every_eligibility_gate_rejects_an_apparently_better_candidate (__main__.SelectionTests.test_every_eligibility_gate_rejects_an_apparently_better_candidate) (changes={'elapsed_seconds': 120.00000000000001})\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-6d9f3p6d/test_selection.py\", line 55, in test_every_eligibility_gate_rejects_an_apparently_better_candidate\n    out = selection([bad, record()])\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-6d9f3p6d/test_selection.py\", line 29, in selection\n    return select(rows, **dict(f0=1.0, mean0=1.0, theta0=design(), **changes))\n  File \"/private/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-6d9f3p6d/selection.py\", line 153, in select\n    raise ValueError(\"ambiguous eligible reruns: resolve run eligibility first\")\nValueError: ambiguous eligible reruns: resolve run eligibility first\n\n----------------------------------------------------------------------\nRan 18 tests in 0.004s\n\nFAILED (errors=1)\n"
+    },
+    {
+      "name": "exclude_exact_budget",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "2f68c9ef245368ba7e6739bb407af3ad26567754b897ba16d70b32bd78fc513c",
+      "stdout": "",
+      "stderr": ".........F........\n======================================================================\nFAIL: test_mean_and_budget_boundaries_are_inclusive_and_failed_runs_are_retained (__main__.SelectionTests.test_mean_and_budget_boundaries_are_inclusive_and_failed_runs_are_retained)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-e8v_u3ho/test_selection.py\", line 76, in test_mean_and_budget_boundaries_are_inclusive_and_failed_runs_are_retained\n    self.assertEqual(cell(out)[\"status\"], \"selected\")\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'unavailable' != 'selected'\n- unavailable\n+ selected\n\n\n----------------------------------------------------------------------\nRan 18 tests in 0.004s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "repeat2_substitution",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "8cc7f3013d67ea23817396e140d98bb92d9c6cb4336c49ff42c2510f1e08dc19",
+      "stdout": "",
+      "stderr": ".............E....\n======================================================================\nERROR: test_repeat2_can_be_representative_but_never_substitutes_for_crossing (__main__.SelectionTests.test_repeat2_can_be_representative_but_never_substitutes_for_crossing)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-cjfq7dqk/test_selection.py\", line 92, in test_repeat2_can_be_representative_but_never_substitutes_for_crossing\n    self.assertEqual(c[\"reason\"], \"no_repeat1_crossing\")\n                     ~^^^^^^^^^^\nKeyError: 'reason'\n\n----------------------------------------------------------------------\nRan 18 tests in 0.004s\n\nFAILED (errors=1)\n"
+    },
+    {
+      "name": "omit_error_margin",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "fbfbac62b76153635ce222e204fbe205554f75dc700227ea049c77e78c923961",
+      "stdout": "",
+      "stderr": ".................F\n======================================================================\nFAIL: test_target_credit_includes_relative_and_absolute_error_margins (__main__.SelectionTests.test_target_credit_includes_relative_and_absolute_error_margins)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-zginvm1w/test_selection.py\", line 81, in test_target_credit_includes_relative_and_absolute_error_margins\n    self.assertEqual(cell(out, \"A/a/T50\")[\"status\"], \"unavailable\")\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'selected' != 'unavailable'\n- selected\n+ unavailable\n\n\n----------------------------------------------------------------------\nRan 18 tests in 0.004s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "omit_absolute_margin",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "e12531e4436be9cbb62984ec29cdc4a416b85ef79cca2ddf060555e0e6950065",
+      "stdout": "",
+      "stderr": ".................F\n======================================================================\nFAIL: test_target_credit_includes_relative_and_absolute_error_margins (__main__.SelectionTests.test_target_credit_includes_relative_and_absolute_error_margins)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-cec_sjnh/test_selection.py\", line 84, in test_target_credit_includes_relative_and_absolute_error_margins\n    self.assertEqual(cell(out, \"A/a/T90\")[\"status\"], \"unavailable\")\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'selected' != 'unavailable'\n- selected\n+ unavailable\n\n\n----------------------------------------------------------------------\nRan 18 tests in 0.004s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "crossing_by_objective",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "205ec35d1d16bafc6103aa0fc41929523ecf6d1336a54a3439f443966b166a10",
+      "stdout": "",
+      "stderr": "..........F...F...\n======================================================================\nFAIL: test_multiple_validations_from_one_attempt_remain_eligible (__main__.SelectionTests.test_multiple_validations_from_one_attempt_remain_eligible)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-_dbkf_oi/test_selection.py\", line 178, in test_multiple_validations_from_one_attempt_remain_eligible\n    self.assertEqual(cell(out, \"A/a/T99\")[\"record_id\"], \"run-0:3\")\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'run-0:7' != 'run-0:3'\n- run-0:7\n?       ^\n+ run-0:3\n?       ^\n\n\n======================================================================\nFAIL: test_representative_uses_objective_crossing_uses_elapsed_time (__main__.SelectionTests.test_representative_uses_objective_crossing_uses_elapsed_time)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-_dbkf_oi/test_selection.py\", line 99, in test_representative_uses_objective_crossing_uses_elapsed_time\n    self.assertEqual(cell(out, \"A/a/T99\")[\"record_id\"], \"fast:0\")\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'best:0' != 'fast:0'\n- best:0\n+ fast:0\n\n\n----------------------------------------------------------------------\nRan 18 tests in 0.004s\n\nFAILED (failures=2)\n"
+    },
+    {
+      "name": "representative_by_time",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "bff96ee48adf8f24d20e20f99bc5a6c631448f195dfcaa67c9df2cd3ec8c9f0e",
+      "stdout": "",
+      "stderr": "..........F...F...\n======================================================================\nFAIL: test_multiple_validations_from_one_attempt_remain_eligible (__main__.SelectionTests.test_multiple_validations_from_one_attempt_remain_eligible)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-s_nmebtt/test_selection.py\", line 177, in test_multiple_validations_from_one_attempt_remain_eligible\n    self.assertEqual(cell(out)[\"record_id\"], \"run-0:7\")\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'run-0:3' != 'run-0:7'\n- run-0:3\n?       ^\n+ run-0:7\n?       ^\n\n\n======================================================================\nFAIL: test_representative_uses_objective_crossing_uses_elapsed_time (__main__.SelectionTests.test_representative_uses_objective_crossing_uses_elapsed_time)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-s_nmebtt/test_selection.py\", line 98, in test_representative_uses_objective_crossing_uses_elapsed_time\n    self.assertEqual(cell(out)[\"record_id\"], \"best:0\")\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'fast:0' != 'best:0'\n- fast:0\n+ best:0\n\n\n----------------------------------------------------------------------\nRan 18 tests in 0.004s\n\nFAILED (failures=2)\n"
+    },
+    {
+      "name": "repeat_before_start",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "45c9e93c9fb655299dee68fb736db7e8f458843bcc671ba5e8adf57375129524",
+      "stdout": "",
+      "stderr": "................F.\n======================================================================\nFAIL: test_start_precedes_repeat_in_representative_tie (__main__.SelectionTests.test_start_precedes_repeat_in_representative_tie)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-jvpxf245/test_selection.py\", line 128, in test_start_precedes_repeat_in_representative_tie\n    self.assertEqual(cell(out)[\"record_id\"], \"start0repeat2:0\")\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'start1repeat1:0' != 'start0repeat2:0'\n- start1repeat1:0\n?      ^      ^\n+ start0repeat2:0\n?      ^      ^\n\n\n----------------------------------------------------------------------\nRan 18 tests in 0.004s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "drop_earlier_failed_run",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "20d69279e54a590a7294388d5e20f189f216acce99e776fcb79efb53c91436d9",
+      "stdout": "",
+      "stderr": ".........F........\n======================================================================\nFAIL: test_mean_and_budget_boundaries_are_inclusive_and_failed_runs_are_retained (__main__.SelectionTests.test_mean_and_budget_boundaries_are_inclusive_and_failed_runs_are_retained)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-gwztti2s/test_selection.py\", line 76, in test_mean_and_budget_boundaries_are_inclusive_and_failed_runs_are_retained\n    self.assertEqual(cell(out)[\"status\"], \"selected\")\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'unavailable' != 'selected'\n- unavailable\n+ selected\n\n\n----------------------------------------------------------------------\nRan 18 tests in 0.004s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "rounded_geometry",
+      "expected_result": true,
+      "exit_code": 1,
+      "source_sha256": "46c244812be886ca412a884d4a70319ce9a62c9feed7f4e05a88f3a9b895650c",
+      "stdout": "",
+      "stderr": "...........F......\n======================================================================\nFAIL: test_nearby_geometry_changed_settings_and_signed_zero_never_alias (__main__.SelectionTests.test_nearby_geometry_changed_settings_and_signed_zero_never_alias)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/0h/l9gwswj97wb82mh27zyw305r0000gn/T/motor-selector-0bfap0a0/test_selection.py\", line 147, in test_nearby_geometry_changed_settings_and_signed_zero_never_alias\n    self.assertEqual(len({d.key for d in designs}), len(designs))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 5 != 6\n\n----------------------------------------------------------------------\nRan 18 tests in 0.004s\n\nFAILED (failures=1)\n"
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "code_commit": "318c23ad6a19769672fae13da3e7400d81bed3a7",
+  "source_sha256": {
+    "refinement_environment.py": "970dd0c8b8f32fe1e15b44bb2c4810c8d41bcd12d7532a67fab5b9b7df3ff234",
+    "test_refinement_environment.py": "fcf6b776cfb5d23fab62847e14e6be04633b011112787b2b2693a72a53660a3a"
+  },
+  "tests": {
+    "command": "python3 -I -m unittest discover -s benchmarks/motor_optimization/final_refinement -p 'test_*.py'",
+    "passed": 218,
+    "new_tests": 10,
+    "seconds": 26.397,
+    "exit_code": 0
+  },
+  "actual_local_check": {
+    "status": "PASS",
+    "environment_sha256": "4f1b86aebafd19f267d9b98469279d44b62350fff29312a884dbc52e9e0f9a78",
+    "source_commit": "1c6784e7e1fc8fe0564b1d793a6c4061588028f5",
+    "bundle_sha256": "130b18a1d6a6c54dc511dce1eff9b3d455158ddc1cd33e7cf7874de72d7ffc7a",
+    "versions": {
+      "gmsh": "4.15.2",
+      "numpy": "2.5.4"
+    },
+    "controls": {
+      "RAYON_NUM_THREADS": "1",
+      "GEODE_NUM_THREADS": "1",
+      "UV_OFFLINE": "1"
+    },
+    "build_processes_stopped": true,
+    "scope": "Real local runtime/build/source/process evidence against synthetic prepared selection; no FEM or native geometry query, no main cohort.",
+    "can_launch": false
+  },
+  "archive": {
+    "path": "smoke/environment_318c23ad.tar.gz",
+    "files": 9,
+    "sha256": "8e3af4652ccc50e012aa50115745284e369a35078edc2c9f6f38259fee1a4029",
+    "bytes": 294803
+  },
+  "executor_build_manifest_sha256": "62a4592a4e1a7f53acde1ff7bdd8aacdd7b3650ebdc5b684b62710a93a93baed",
+  "initial_refusal": "The exact offline probe refused because numpy==2.5.4 was not cached for the executor checkout. Warming the exact native uv command succeeded; record and separate verify then passed offline.",
+  "reproduction": "The retained scripts prepare the existing hash-pinned synthetic capture, use the real pinned executor worktree/build receipts, record environment evidence, and independently recapture it. Original paths are explicit. This is not a portable runtime archive.",
+  "scope": "Actual local build/source/runtime/process equality with synthetic prepared inputs. No FEM, geometry query, main selection, execution receipt, independent review or scientific performance claim.",
+  "remaining": [
+    "Independent review of the environment gate.",
+    "Journaled final-check runner, output/request bindings and report integration.",
+    "Closed main capture and final cohort evaluation, full performance analysis and publication audit."
+  ],
+  "can_launch": false
+}
