@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1182",
-  "loom_commit": "7125604509414c61ff08be83d187cd7726ae6ed3",
+  "loom_version": "0.19.1191",
+  "loom_commit": "6ef0734479f403ef172747c2efc14792cd0113a7",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -288,11 +288,6 @@
     ".loom/scripts/detect-unlabeled-epics.sh",
     ".loom/scripts/docs-guide-lock.sh",
     ".loom/scripts/docs-worktree.sh",
-    ".loom/scripts/experiments/judge-fanout-corpus-runner.sh",
-    ".loom/scripts/experiments/judge-fanout-experiment.sh",
-    ".loom/scripts/experiments/judge-fanout-results-template.md",
-    ".loom/scripts/experiments/judge-fanout-workflow.js",
-    ".loom/scripts/experiments/README.md",
     ".loom/scripts/extract-capability-markers.sh",
     ".loom/scripts/fleet-check.sh",
     ".loom/scripts/fleet-send.sh",
@@ -514,7 +509,6 @@
     ".loom/scripts/tests/test-install-sync-labels.sh",
     ".loom/scripts/tests/test-jq-reserved-word-args.sh",
     ".loom/scripts/tests/test-judge-fallback-cap.sh",
-    ".loom/scripts/tests/test-judge-fanout-experiment.sh",
     ".loom/scripts/tests/test-judge-payload-drop-guard.sh",
     ".loom/scripts/tests/test-judge-tdd-merge-base.sh",
     ".loom/scripts/tests/test-land-resync-commit.sh",
@@ -777,8 +771,13 @@
     ".loom/scripts/tests/test-judge-spec-reconcile.sh",
     ".loom/scripts/tests/test-merge-pr-feature-branch-close.sh",
     ".loom/docs/work-docs-archive.md",
-    ".loom/scripts/tests/test-champion-ci-workflow-blast.sh"
+    ".loom/scripts/tests/test-champion-ci-workflow-blast.sh",
+    ".agents/skills/loom-orphan-stack-replacement/SKILL.md",
+    ".claude/commands/loom/orphan-stack-replacement.md",
+    ".loom/roles/orphan-stack-replacement.md",
+    ".loom/scripts/tests/test-champion-out-of-band-ac-gate-switch.sh",
+    ".loom/scripts/tests/test-guide-work-log-rotation.sh"
   ],
-  "last_resync": "2026-10-17",
+  "last_resync": "2026-10-19",
   "requires_daemon": "0.19.1088"
 }
