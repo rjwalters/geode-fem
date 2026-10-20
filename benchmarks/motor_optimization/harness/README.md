@@ -1239,9 +1239,11 @@ ordinary charged request of the run.
   without remeshing and reports whether the remesh policy fires. A stencil
   point that would remesh is never solved. A stencil reply off the base's
   generation, or with a remesh event, is a `WiringError`.
-- **Backward step.** A forward step that leaves the box, is not admissible
-  (`geometry`: every h_i ≥ 0 and every discrete guard), or would remesh is
-  replaced by the backward step for that component. When both fail, the
+- **Backward step.** A forward step that leaves the box, is not buildable
+  (what A's `train` requires), or would remesh is replaced by the backward
+  step for that component. Admissibility (h ≥ 0) is not required, so F
+  differences wherever A gets an adjoint gradient (protocol-freeze ruling 1
+  on #1218). When both fail, the
   gradient is refused on A's `derivative_undefined` path. Nothing more is
   returned at that point, and restoration starts from the last admissible
   evaluated point *before* it, because the refused point has a value.

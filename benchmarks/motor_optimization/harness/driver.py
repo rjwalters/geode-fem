@@ -410,14 +410,16 @@ class Run:
 
     def fd_step_unusable(self, xs, k):
         """Why method F may not use the stencil point xs (#1218 protocol
-        §1), or None: outside the box in component k, not admissible, or its
-        moved training mesh would fire the remesh policy (the evaluator's
-        `check`: the current reference moved to xs, no remesh, no solve)."""
+        §1 and freeze ruling 1), or None: outside the box in component k, not
+        buildable (the condition A's `train` requires; h < 0 is allowed), or
+        its moved training mesh would fire the remesh policy (the
+        evaluator's `check`: the current reference moved to xs, no remesh,
+        no solve), i.e. it would leave the base's mesh generation."""
         if k is not None and not self.problem.lower[k] <= xs[k] <= self.problem.upper[k]:
             return "outside_box"
         g = self.geometry_at(xs)
-        if not g["admissible"]:
-            return "inadmissible"
+        if not g["buildable"]:
+            return "not_buildable"
         r = self._request("check", "mesh_motion", x_bits=to_bits(xs))
         if r.get("motion_error") is not None or r.get("geometry_ok") is False:
             return "motion_failed"
@@ -770,11 +772,14 @@ def fd_gradient(run, u):
       whether the remesh policy fires; a step whose point would remesh is
       never solved. Each stencil reply must be on the base's generation with
       no remesh event (else `WiringError`).
-    - A step is unusable when its point leaves the box, is not admissible
-      (`geometry`: every h_i >= 0 and every discrete guard; amendment 7 §1),
-      or would remesh. Then component k takes the backward step
-      x_k - FD_STEP. When both are unusable, the gradient is refused at u on
-      the `derivative_undefined` path (A's restore-and-restart).
+    - A step is unusable when its point leaves the box, is not buildable
+      (`geometry`; amendment 7 §1), or would remesh. Admissibility (h >= 0)
+      is not required: it stays a property of accepted iterates and of
+      validation, as for A, so F differences wherever A would get an adjoint
+      gradient (#1218 protocol-freeze ruling 1). Then component k takes the
+      backward step x_k - FD_STEP. When both are unusable, the gradient is
+      refused at u on the `derivative_undefined` path (A's
+      restore-and-restart).
     - Every request here (geometry, check and the solves) is an ordinary
       charged request of the run; the solves are `forward`.
     - If the base value is not on the evaluator's current generation (a

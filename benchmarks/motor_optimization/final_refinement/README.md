@@ -200,3 +200,22 @@ as a measured process-tree peak. Historical process replay makes no claim about
 current process state. These receipts are local witnessed evidence, not signatures
 or independent scientific approval; full-study analysis and manuscript review
 remain publication requirements.
+
+## The #1218 FD-ablation cohort
+
+`selection.select(..., cohort="fd_ablation")` selects the post-hoc {A′, F}
+session (#1218 protocol §6) under the same amendment-8 rules. Representatives
+are taken per arm (A′, F) and per space, earliest crossings come from repeat 1
+only, and θ0 is always included. Roles are labelled by arm
+(`A_prime/a/representative`, `F/b/T90`) so they never collide with the main
+cohort's roles. The output records `cohort`, `arms` and the post-hoc status.
+`check_plan.make_plan` takes the result unchanged. The default `main` cohort
+(A–E) is byte-identical to its pre-#1218 output, which `test_selection.py`
+pins on a synthetic 100-run cohort. `mutation_checks.py` (run in CI) covers
+both cohorts.
+
+The closed-capture loader (`study_selection.load`, `capture_archive`,
+`trace_archive`) remains bound to the 100-run main queue. The ablation
+session has no closed capture (operator ruling, 2026-10-20), so its records
+reach `select` through an adapter over the verified copy.
+

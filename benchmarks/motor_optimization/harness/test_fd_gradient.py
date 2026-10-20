@@ -161,53 +161,102 @@ class FdGradientTests(unittest.TestCase):
         dF, _ = exact_gradients(run, u)
         np.testing.assert_allclose(g["dF"], dF, rtol=1e-4, atol=1e-12)
 
-    def test_backward_step_when_the_forward_step_is_inadmissible(self):
-        # Guard 1: h_1 = (wall - u_0 - u_3) / s_1 - 0.05, s_1 = wall - 0.3;
-        # at wall 1.5 the base has h_1 = 1e-7 and +h in u_0 or u_3 is < 0.
+    def test_an_inadmissible_but_buildable_step_is_used(self):
+        """Freeze ruling 1: a stencil point need only be buildable, as A's
+        `train` requires. Guard 1: h_1 = (wall - u_0 - u_3) / s_1 - 0.05,
+        s_1 = wall - 0.3; at wall 1.5 the base has h_1 = 1e-7 and +h in u_0
+        or u_3 gives h_1 < 0, still buildable: the forward step is used."""
         run, fake, _, _ = fd_run(wall=1.5)
         u3 = 1.5 - 0.5 - (0.05 + 1e-7) * 1.2
         u = np.array([0.5, 0.5, 0.5, u3])
         self.assertTrue(run.geometry(u)["admissible"])
         run.train(u, gradient=False)
-        driver.fd_gradient(run, u)
-        sides = [c["side"] for c in run.fd_gradients[-1]["components"]]
-        self.assertEqual(sides, ["backward", "forward", "forward", "backward"])
+        g = driver.fd_gradient(run, u)
+        rec = run.fd_gradients[-1]
+        self.assertEqual([c["side"] for c in rec["components"]], ["forward"] * N)
+        x = run.problem.x_of(u)
         for k in (0, 3):
-            self.assertEqual(run.fd_gradients[-1]["components"][k]["attempts"][0]["unusable"],
-                             "inadmissible")
-        for f in trains(fake):
-            self.assertTrue(run.geometry_at(np.array(from_bits(f["x_bits"])))["admissible"])
+            xs = x.copy()
+            xs[k] += FD_STEP
+            geo = run.geometry_at(xs)
+            self.assertTrue(geo["buildable"])
+            self.assertFalse(geo["admissible"])
+        dF, dm = exact_gradients(run, u)
+        np.testing.assert_allclose(g["dF"], dF, rtol=1e-4, atol=1e-12)
 
-    def test_both_steps_unusable_is_refused_as_derivative_undefined(self):
-        """[#1218] A buildable base with h < 0: every stencil point is
-        inadmissible, so the gradient is refused on A's
-        `derivative_undefined` path; no stencil point is solved."""
+    def test_an_inadmissible_base_gets_a_gradient_where_a_does(self):
+        """Freeze ruling 1: at a buildable base with h < 0 (SLSQP iterates
+        can reach one) A gets an adjoint gradient, and so must F: no
+        refusal, every stencil point buildable but inadmissible."""
         run, fake, _, _ = fd_run(wall=1.5)
-        good = np.array([0.3, 0.5, 0.5, 0.3])
-        run.train(good, gradient=False)
         u = np.array([0.5, 0.5, 0.5, 1.5 - 0.5 - 0.04 * 1.2])
-        g = run.geometry(u)
-        self.assertTrue(g["buildable"])
-        self.assertFalse(g["admissible"])
+        g0 = run.geometry(u)
+        self.assertTrue(g0["buildable"])
+        self.assertFalse(g0["admissible"])
         fun, jac, con, con_jac, geo, geo_jac, callback = driver.slsqp_callables(run)
         fun(u)
-        np.testing.assert_allclose(run.anchor_u, good, rtol=0, atol=1e-15)
+        grad = jac(u) / (run.problem.width / run.problem.f_ref)
+        dF, dm = exact_gradients(run, u)
+        np.testing.assert_allclose(grad, dF, rtol=1e-4, atol=1e-12)
+        np.testing.assert_allclose(con_jac(u) / (run.problem.width / run.problem.mean_ref), dm,
+                                   rtol=1e-6, atol=1e-12)
+        rec = run.fd_gradients[-1]
+        self.assertFalse(rec["refused"])
+        self.assertEqual(rec["solves"], N)
+        self.assertEqual(run.refusals, [])
+        stencil = [np.array(e["x"]) for e in run.events if e["kind"] == "fd_train"]
+        self.assertEqual(len(stencil), N)
+        self.assertFalse(any(run.geometry_at(x)["admissible"] for x in stencil))
+        # A at the same point: an adjoint gradient, no refusal either.
+        a, _, _, _ = make_run(wall=1.5)
+        self.assertIsNotNone(a.train(u, gradient=True)["dF"])
+
+    def test_backward_step_when_the_forward_step_is_not_buildable(self):
+        # Guard 1 at wall 1.0: m_1 = 1 - u_0 - u_3; the base has m_1 = 5e-7
+        # (buildable, h < 0), so +h in u_3 makes m_1 < 0.
+        run, fake, _, _ = fd_run(wall=1.0)
+        u = np.array([0.4, 0.5, 0.5, 0.6 - 5e-7])
+        run.train(u, gradient=False)
+        driver.fd_gradient(run, u)
+        c = run.fd_gradients[-1]["components"]
+        for k in (0, 3):
+            self.assertEqual(c[k]["side"], "backward")
+            self.assertEqual(c[k]["attempts"][0]["unusable"], "not_buildable")
+        for f in trains(fake):
+            self.assertTrue(run.geometry_at(np.array(from_bits(f["x_bits"])))["buildable"])
+
+    def test_both_steps_unusable_is_refused_as_derivative_undefined(self):
+        """[#1218] Component 3 on its lower bound (backward leaves the box)
+        with m_1 ~ 5e-7 (forward is not buildable): refused on A's
+        `derivative_undefined` path, and that stencil point is never
+        solved."""
+        run, fake, _, _ = fd_run(wall=0.9 + 5e-7)
+        good = np.array([0.3, 0.5, 0.5, 0.1])
+        run.train(good, gradient=False)
+        u = np.array([0.9, 0.5, 0.5, 0.0])
+        self.assertTrue(run.geometry(u)["buildable"])
+        fun, jac, con, con_jac, geo, geo_jac, callback = driver.slsqp_callables(run)
+        fun(u)
         n = len(trains(fake))
         with self.assertRaises(Refused) as cm:
             jac(u)
         self.assertEqual(cm.exception.kind, "derivative_undefined")
-        self.assertEqual(len(trains(fake)), n)
+        # Components 0-2 were differenced; 3 was not solved either way.
+        self.assertEqual(len(trains(fake)), n + 3)
+        attempts = run.refusals[-1]["fd"]["attempts"]
         self.assertEqual(run.refusals[-1]["kind"], "derivative_undefined")
-        self.assertEqual(run.refusals[-1]["fd"]["attempts"][0]["unusable"], "inadmissible")
+        self.assertEqual(run.refusals[-1]["fd"]["component"], "p3")
+        self.assertEqual([a["unusable"] for a in attempts], ["not_buildable", "outside_box"])
         self.assertTrue(run.fd_gradients[-1]["refused"])
         # Nothing more is returned at the refused point.
         for f in (fun, con, jac, con_jac):
             with self.assertRaises(Refused):
                 f(u)
-        self.assertEqual(len(trains(fake)), n)
+        self.assertEqual(len(trains(fake)), n + 3)
         # Restoration starts from the last admissible point before it.
+        np.testing.assert_allclose(run.anchor_u, good, rtol=0, atol=1e-15)
         y = run.restore(cm.exception, need_jacobian=True)
-        np.testing.assert_allclose(y, good + 0.5 * (u - good))
+        self.assertNotEqual(run.problem.x_of(y).tobytes(), run.problem.x_of(u).tobytes())
 
     def test_refused_base_is_not_its_own_restoration_anchor(self):
         run, fake, _, _ = fd_run(wall=1.5)
