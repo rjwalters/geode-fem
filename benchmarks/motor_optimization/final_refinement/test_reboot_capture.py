@@ -38,7 +38,7 @@ def committed_test_tool(root):
     return repo,commit
 
 
-def exported_fixture(base, *, alter_observation=None, prepared=None):
+def exported_fixture(base, *, alter_observation=None, prepared=None, extend=None):
     p,w,files,observed=proof_fixture()
     owner={'host':p['host'],'platform':'linux','boot':B0}
     if prepared is None:
@@ -66,6 +66,8 @@ def exported_fixture(base, *, alter_observation=None, prepared=None):
     w['original_inventory_sha256']=p['inventory_sha256']
     w['files']={name:{'sha256':proof.sha(data),'bytes':len(data)} for name,data in files.items()}
     p['recovery_witness_sha256']=proof.sha(raw(w))
+    # Optional four-boot hook: writes refused-B2 evidence and moves capture to B3.
+    failed_directory=extend(p,observed,base) if extend else None
     evidence=base/'evidence';evidence.mkdir()
     for name,data in files.items():(evidence/name).write_bytes(data)
     (evidence/'recovery-witness.json').write_bytes(raw(w))
@@ -85,7 +87,8 @@ def exported_fixture(base, *, alter_observation=None, prepared=None):
         calls.append(True)
         if alter_observation:alter_observation(result,len(calls))
         return result
-    context=proof.CaptureContext(evidence/'policy.json',policy_sha,evidence,evidence/'ec2.json',observe=observe)
+    context=proof.CaptureContext(evidence/'policy.json',policy_sha,evidence,evidence/'ec2.json',
+                                 failed_directory=failed_directory,observe=observe)
     before=proof.source_census(root)
     with producer_source.committed_modules(REPO,PRODUCER,capture_archive.PROCESS_MODULES):
         verifier=importlib.import_module('process_verification')
@@ -195,6 +198,13 @@ class RebootCaptureTests(unittest.TestCase):
     def test_replay_compares_recorded_reboot_verdict(self):
         self.mutate('processes-before.json',lambda e:e['reboot_verdict'].update(study_end_us=0))
         with self.assertRaisesRegex(ValueError,'reboot verdict or observation time differs'):self.load()
+
+    def test_three_boot_replay_refuses_failed_capture_evidence(self):
+        target=self.root/'reboot/failed-capture';target.mkdir()
+        (target/'capture.log').write_text('injected\n');self.repin()
+        with self.assertRaisesRegex(ValueError,'three-boot capture carries failed-capture evidence'):self.load()
+        (target/'capture.log').unlink();self.repin()
+        with self.assertRaisesRegex(ValueError,'three-boot capture carries failed-capture evidence'):self.load()
 
     def test_replay_rehashes_copied_reboot_tool_after_repin(self):
         path=self.root/'capture-tool/reboot_attestation.py';path.write_bytes(path.read_bytes()+b'\n# tampered\n');self.repin()

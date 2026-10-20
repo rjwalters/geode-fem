@@ -273,7 +273,7 @@ def _export(source, repo, out, expected, verified, *, chain_probe, binding_probe
                           reboot_policy_sha256=reboot.policy_sha256,
                           inventory_root=reboot.p['inventory_root'], inventory_files=file_mapping,
                           inventory_directories=observation['source_directories'],
-                          scope=reboot_attestation.SCOPE + ' Original source/runtime/input/build equality also required.')
+                          scope=reboot.scope + ' Original source/runtime/input/build equality also required.')
         _write(out/'capture.json',record)
         return {'manifest':str(out/'capture.json'), 'sha256':producer_source.digest(out/'capture.json'),
                 'all_registered_jobs_resolved':True,'can_select':False,'can_launch':False}
@@ -283,9 +283,11 @@ def _export(source, repo, out, expected, verified, *, chain_probe, binding_probe
 
 
 def capture(source, repo, out, *, reviewed_commit, reboot_policy=None, reboot_policy_sha256=None,
-            recovery_evidence=None, capture_ec2=None):
+            recovery_evidence=None, capture_ec2=None, failed_capture_evidence=None):
     if not sys.flags.isolated:
         raise ValueError('capture requires the original isolated numerical Python environment')
+    if failed_capture_evidence is not None and reboot_policy is None:
+        raise ValueError('failed-capture evidence requires a four-boot reboot policy')
     if reboot_policy is not None and not sys.dont_write_bytecode:
         raise ValueError('reboot capture requires -B to disable bytecode writes')
     source, repo = directory(source), directory(repo)
@@ -296,7 +298,9 @@ def capture(source, repo, out, *, reviewed_commit, reboot_policy=None, reboot_po
     options = (reboot_policy, reboot_policy_sha256, recovery_evidence, capture_ec2)
     if any(value is not None for value in options) and not all(value is not None for value in options):
         raise ValueError('reboot capture requires policy, independent policy digest, recovery evidence and EC2 observation')
-    reboot = (reboot_attestation.CaptureContext(reboot_policy, reboot_policy_sha256, recovery_evidence, capture_ec2)
+    # The policy kind decides: four-boot requires, three-boot refuses, B2 evidence.
+    reboot = (reboot_attestation.CaptureContext(reboot_policy, reboot_policy_sha256, recovery_evidence, capture_ec2,
+                                                failed_directory=failed_capture_evidence)
               if reboot_policy is not None else None)
     with producer_source.modules(repo, verified):
         import recovery_bindings
@@ -325,10 +329,13 @@ def main():
     parser.add_argument('--reboot-policy-sha256')
     parser.add_argument('--recovery-evidence',type=Path)
     parser.add_argument('--capture-ec2',type=Path)
+    parser.add_argument('--failed-capture-evidence',type=Path,
+                        help='refused B2 witness directory; required by, and only by, a four-boot policy')
     args=parser.parse_args()
     result=capture(args.source,args.repo,args.out,reviewed_commit=args.reviewed_commit,
                    reboot_policy=args.reboot_policy,reboot_policy_sha256=args.reboot_policy_sha256,
-                   recovery_evidence=args.recovery_evidence,capture_ec2=args.capture_ec2)
+                   recovery_evidence=args.recovery_evidence,capture_ec2=args.capture_ec2,
+                   failed_capture_evidence=args.failed_capture_evidence)
     print(json.dumps(result,sort_keys=True))
 
 

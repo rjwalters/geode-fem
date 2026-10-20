@@ -6,6 +6,10 @@ capture boot B2. It does not permit recovery, optimization, or modification of
 the original records. The producer's same-boot process verifier still refuses;
 the archive retains that refusal alongside a separate termination proof.
 
+The real Paper 3 B2 refused before observation. Its continuation is the
+[four-boot chain](#four-boot-chain-after-the-refused-b2) below: the refused B2
+is witnessed, and one new capture boot B3 follows.
+
 The Paper 3 ruling is Squad review 50. The capture code must be independently
 approved and merged before B2 starts. Keep the instance stopped while preparing
 inputs. A passing synthetic test is not permission to inspect real outcomes.
@@ -227,6 +231,79 @@ newline; both supported encodings identify the same 32 hexadecimal digits.
 Failure leaves a visible partial capture and, once copying has begun, a failure
 receipt. Never treat it as complete, overwrite it, rewrite the producer journal,
 change its boot IDs, or relax runtime equality to force acceptance.
+
+## Four-boot chain after the refused B2
+
+**Root cause.** The real capture boot B2 (`2d91abf3-f032-4482-b459-db009aa3b1bf`,
+EC2 launch 2026-10-19T23:25:20Z, journal 23:25:25–23:28:47Z) refused before any
+quiet check or source census. The e1814128 `live_observation` passed the
+policy's hyphenated UUIDs to `journalctl -b`. systemd 255 (255.4-1ubuntu8.18)
+rejects that form with exit code 1 and `Failed to add match '<uuid>': Invalid
+argument`. The plain 32-hex ID works for B0, B1 and the earlier pre-study boot,
+both as root and as `ubuntu`; this was confirmed on a snapshot copy. `_command`
+discarded the exit code and stderr. The collector now passes `boot_id(x)`, the
+32-hex form. A failed read-only command reports its exit code and at most five
+stderr lines, never stdout or environment values. Tests run the real argv
+through a synthetic `journalctl` that applies the systemd 255 parsing rule.
+
+**Policy.** `four_boot_closed_capture_policy` has every three-boot field plus
+`failed_capture_boot` (the B2 UUID, with hyphens) and
+`failed_capture_witness_sha256`. All three earlier boots must differ.
+`three_boot_closed_capture_policy` is unchanged and still replays historical
+captures. A three-boot policy refuses failed-capture evidence, and a four-boot
+policy requires it.
+
+**B2 witness.** `failed_capture_witness.py --source RETAINED_B2_RECORDS --out
+NEW_DIR ...` copies the sixteen B2 operator records into a new directory. It
+writes `failed-capture-witness.json` (schema 1, kind
+`paper3_failed_capture_boot_witness`) and prints its digest, which you retain
+independently in the policy. The records are `refusal-summary.json`,
+`capture.log`, `start.json`, `before-start.json`, `ec2-capture.json`,
+`stop-response.json`, `final-instance.json`, `final-alarm.json`, `operator.log`,
+`transfer.log`, `cloud-transfer.log`, `copy.log`, `capture-copy-status.txt`,
+`operator-exit.txt`, `operator-sources.json` and `allow-ip.log`. They are
+operational only and contain no study outcomes. Every file's SHA-256 and size is
+verified before any semantic check. The witness binds the instance, volume, all
+three earlier boots and the B1 witness digest. Its statement begins `B2 was a
+refused capture boot; no quiet check, census, archive, evaluator or study
+writes.` The verifier then checks the following:
+
+- The start request goes from stopped to pending, and the stop request from running to stopping, on the policy instance.
+- `before-start.json` is still in the witnessed B1 stop, with the same B1 launch and stop time.
+- `ec2-capture.json` shows the same instance, volume, host and attachment, with a launch strictly after the B1 stop.
+- `final-instance.json` keeps that launch and attachment, and records a user-initiated stop after the launch.
+- `capture.log` ends with exactly `ValueError: reboot attestation: read-only observation command failed: journalctl`, after `live_observation` and `_command` frames. Apart from the exact tool-hash `OK` lines, no line may mention a quiet check or census.
+- `refusal-summary.json` has `quiet_attempts` 0, `source_census_started` false, `capture_archive_created` false, one start request, no boot retry, a stop, the same launch time and the same capture-log digest.
+
+**B3 gate.** Pass `--failed-capture-evidence NEW_DIR` together with the other
+reboot arguments. The capture observation requires `boots[-4:] == [B0, B1, B2,
+B3]`, with nothing else after B0. B3 must be a new ID. The older history must
+equal the B1 snapshot, and B1's tail may only grow. B0, B1 and B2 each need a
+complete shutdown journal under the existing `ended_boot` rules. The ordering
+must be: B1 stop ≤ B1 journal end < B2 launch ≤ B2 first entry; B2 stop ≤ B2
+journal end < B3 launch ≤ B3 first entry ≤ now. Every B2 journal entry's
+`_COMM`, `_EXE` basename and *every* `_CMDLINE` word go through the shared
+classifier. A match refuses, with only these exceptions:
+
+- the exact `SYSTEM_DAEMONS` argv under a system `_UID`, with the matching executable;
+- `cloud-init` or `unattended-upgrade` under a system UID, run as `/usr/bin/python3 /usr/bin/<tool>`;
+- the documented collector `python* -I -B /abs/.../closed_capture.py`, followed only by its documented `--option value` pairs.
+
+sshd, sudo, apt and kernel entries pass only while none of their words match the
+classifier. Fields that are not text refuse. The B0 mtime cutoff, census
+equality with the pinned `0650f4ee…` inventory, the quiet checks and every other
+check above are unchanged. Replay re-verifies all of this from
+`reboot/failed-capture/` in the archive. A three-boot archive carrying that
+directory refuses.
+
+B3 is **one** boot. It may start only after this change is reviewed and merged
+and the operator gives an explicit go. The cleanup, retry and no-restart rules
+of the bounded capture boot apply unchanged. A B3 refusal is a finding to
+review, not permission for another boot. Before the go, the operator may run
+`reboot_attestation.failed_boot_activity` over B2's JSON journal from a
+read-only snapshot copy. An unexpected B2 entry is then reviewed before B3
+instead of refusing on B3. `test_reboot_four_boot.py` covers each four-boot
+guard; `reboot_mutations.py` deletes each one.
 
 ## Offline replay and downstream preparation
 
