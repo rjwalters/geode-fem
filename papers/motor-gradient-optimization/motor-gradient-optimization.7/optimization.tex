@@ -1,0 +1,227 @@
+\section{Matched optimization study}\label{sec:optimization}
+The preceding sections establish that the gradients are accurate for the
+model they differentiate. This section tests whether they shorten the time
+needed to reach a common validated ripple target. The protocol, its
+amendments and every later deviation are recorded in the
+\href{https://github.com/rjwalters/geode-fem/issues/1185}{preregistration}
+and were fixed before any main-run outcome was observed.
+
+\subsection{Protocol}
+\paragraph{Methods.}
+Five methods form an optimizer-by-resolution comparison plus one
+surrogate (Table~\ref{tab:methods}). A and E are safeguarded SLSQP \citep{kraft1988} using
+the field adjoints of Section~\ref{sec:gradients}; B and D are COBYQA
+\citep{ragonneau2022}, both through SciPy 1.18.1 \citep{virtanen2020scipy}, with $2n+1$ interpolation points and unit-box trust
+radii $0.1$ to $10^{-6}$; C is an empirical cubic radial-basis trust-region
+surrogate fitted to L1 evaluations. A/B and E/D vary the optimizer at fixed
+training resolution, and A/E and B/D vary resolution at fixed optimizer.
+The optimizer contrast includes differences in search strategy, so it does
+not isolate gradient access as the only causal difference. Training uses
+order-45 coupling torque on 20 angles at current fractions $0$, $\tfrac12$
+and $1$ of the fixed peak current $9.6777\,\mathrm{A}$; L0 and L1 differ only
+in spatial resolution, and neither is fitted or corrected against validation.
+
+\begin{table}[H]\centering\small
+\caption{Methods. D and E solve the coarse nonlinear field equations; they
+are neither fitted magnetic circuits nor reduced-basis models.}
+\label{tab:methods}
+\begin{tabular}{lll}\toprule
+Method & Optimizer or search model & Training mesh\\\midrule
+A & Safeguarded SLSQP, field adjoints & L1\\
+B & COBYQA, forward evaluations & L1\\
+C & Empirical cubic-RBF trust region & L1\\
+D & COBYQA, forward evaluations & L0\\
+E & Safeguarded SLSQP, field adjoints & L0\\\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Design spaces and constraints.}
+Space A has eight free geometric lengths: MAG, MH, MW, SW1--SW4 and Sr1
+(Appendix~\ref{sec:parameters}), that is, the rotor iron depth, magnet
+height and width, four stator tooth and slot dimensions, and the slot-bottom
+fillet radius. Space B adds ten grouped
+offsets acting on 55 surface control points. Stack length, radial scale,
+stator outer diameter and operating angle are fixed, so the saved Opt120
+design lies outside both spaces. The two spaces also use different discrete
+mesh-motion maps, so their contrast does not isolate the ten added offsets.
+The objective is $F=\sum_c\sigma_c^2$ over the three training currents,
+subject to a full-current mean of at least $1.0025\,\mu_0$ and normalized
+construction margins $c_i-0.05\geq0$. Unbuildable or mesh-infeasible
+candidates are refused: SLSQP restores toward the last admissible point and
+restarts, COBYQA receives a NaN barrier, and C skips the point. A moved mesh
+with an inverted triangle or a minimum angle below $5^\circ$ is repaired by
+up to four charged remeshing attempts.
+
+\paragraph{Common validation and credit.}
+Every method is judged on the same order-93, L2, 20-angle validation model.
+Its initial-design anchor is $F_0=9.6034\times10^{-3}\,(\Nm)^2$ and
+$\mu_0=1.44084\,\Nm$. The targets are $T_{50}=0.5F_0$, $T_{90}=0.1F_0$ and
+$T_{99}=0.01F_0$. A validated design attains a target only if
+\begin{equation}
+ F_{\mathrm{val}}+\delta F\leq T,\qquad
+ \delta F=\max\{0.10F_{\mathrm{val}},\,2.5\times10^{-7}\,(\Nm)^2\},
+\end{equation}
+its full-current mean meets the floor, its construction margins and mesh
+checks pass, and its validation completes within budget. The allowance
+$\delta F$ is an empirical margin, not a bound on continuum error. Optimizer
+success flags confer no credit. Changed incumbents are validated as they
+appear, after the initial interpolation set for B, C and D.
+
+\paragraph{Budget and timing.}
+Cost is wall time, in units of the median cold validation forward measured
+on the same host at the same concurrency. Each run receives 120 units,
+with a 60-unit checkpoint that counts only validations completed by then.
+The charge covers evaluator start-up, geometry checks, mesh motion and
+repair, training solves, adjoints, optimizer overhead, surrogate fitting
+and validation; nothing is subtracted as overhead. L0 receives no discount.
+
+\paragraph{Starts and execution.}
+Each space uses $\theta_0$ and four Latin-hypercube starts (seeds 1--4),
+with the scalar coordinates matched across spaces. All starts were frozen
+before any main outcome. Every method runs from every start twice, giving
+100 runs. Within a start, repeat 1 rotates the method order and repeat 2
+reverses it. Because each optimizer is deterministic, the two repeats
+follow the same path and measure timing noise only. The comparison is
+therefore a paired case study over five starts, not a sample of
+independent replicates.
+
+The session ran on one AWS c7a.4xlarge host (x86-64, OpenBLAS) with 15
+concurrent single-threaded processes. Before calibration, the host
+recomputed the initial-design validation waveforms in both spaces; they
+agreed with the canonical anchor within the preregistered $10^{-9}$
+tolerances, and the two spaces agreed bit for bit. The calibrated unit was
+$70.94\,\mathrm{s}$, the median of 45 concurrent cold validations. All 100
+runs completed in one session with no recovery, deferral or contamination:
+the one-minute load average peaked at 21.1, below the contamination
+threshold of $1.5N=22.5$. The in-run cost totals
+109~CPU-hours.
+
+\subsection{Results}
+\paragraph{Attained quality.}
+Figure~\ref{fig:exp2-quality} shows the best credited value of
+$(F+\delta F)/F_0$ for every start, method and space (repeat~1).
+In space A, no run goes below $F/F_0=0.043$ and none reaches $T_{99}$.
+The best designs of A, B, D and E all reach $0.043F_0$, and C's
+reaches $0.049F_0$. Because the floor is shared by both optimizers and both
+training resolutions, it reflects the eight-parameter space at this
+validation model rather than any one method. Starts matter more than
+methods there: from LHS~4, A and B stop near $0.09F_0$, D reaches
+$0.044F_0$, and C and E never produce a credited validation, in either
+repeat. In space B, each method's best design reaches $0.004$--$0.009F_0$,
+and every method except C reaches $T_{99}$ from at least four of five
+starts.
+
+\begin{figure}[t]\centering
+\includegraphics[width=\linewidth]{figures/exp2-quality.pdf}
+\caption{Best credited $(F_{\mathrm{val}}+\delta F)/F_0$ versus charged wall
+time, repeat~1, at common L2/order-93/20-angle validation. Grey lines mark
+$T_{50}$, $T_{90}$ and $T_{99}$; the dotted line marks the 60-unit
+checkpoint. Each curve ends at the run's actual stop (tick). A missing curve
+means the run had no credited validation.}
+\label{fig:exp2-quality}
+\end{figure}
+
+\paragraph{Time to target.}
+Table~\ref{tab:exp2-time} and Figure~\ref{fig:exp2-time} give the charged
+time to each target, per start. The two repeats agree closely: over the
+111 target crossings attained in both repeats, the median difference is
+2.1\% and the largest is 13.2\%. Repeat-1 times are reported. Only six
+crossings occur after the 60-unit checkpoint, all at $T_{99}$ in space B
+and all for B or D.
+
+Table~\ref{tab:exp2-ratios} gives paired time ratios. A ratio is formed
+only when both methods attain the target from that start; no finite ratio
+is derived from a censored cell. In both spaces and at every attained
+target, gradient-based SLSQP reaches the target sooner than COBYQA at the
+same training resolution. At L1 (B/A), the geometric-mean ratio is 3.1--3.3
+in space A and 5.1--7.8 in space B. At L0 (D/E), it is 2.4--2.8 and
+3.1--7.2. All 45 finite optimizer-contrast pairs favor SLSQP, with
+per-start ratios from 1.46 to 21.5. The coarse mesh shortens the time by a
+smaller factor: the geometric-mean E/A ratio is 0.62--0.79 and D/B is
+0.45--0.56. Against D, the inexpensive derivative-free physical competitor,
+A is faster by a geometric mean of 1.68--1.83 in space A and 2.25--4.32 in
+space B. This contrast changes both factors; one of its 25 pairs is a tie
+(0.99, space-A LHS~2 at $T_{90}$).
+
+The speed of E has a reliability cost. E never produces a credited
+validation from space-A LHS~4, and from space-B LHS~1 it stalls at
+$0.28F_0$, missing $T_{90}$ and $T_{99}$. A, by contrast, attains every
+target that any method reaches from every start. C attains $T_{99}$ only
+once in space B and reaches $T_{90}$ from two of five space-A starts.
+
+\begin{figure}[t]\centering
+\includegraphics[width=\linewidth]{figures/exp2-time-to-target.pdf}
+\caption{Charged wall time to the first attaining validation, repeat~1, one
+marker per start. Filled markers: L1 training; open markers: L0 training;
+crosses: not attained within 120 units.}
+\label{fig:exp2-time}
+\end{figure}
+
+\begin{table}[H]\centering\small
+\caption{Charged wall-time units to the first attaining validation,
+repeat~1. A dash means the target was not attained within 120 units.
+$T_{99}$ was attained by no run in space A.}
+\label{tab:exp2-time}\input{tables/exp2-time-to-target.tex}
+\end{table}
+
+\begin{table}[H]\centering\small
+\caption{Paired per-start time ratios (repeat~1). B/A and D/E vary the
+optimizer at fixed resolution; E/A and D/B vary the resolution; D/A
+compares A with the coarse derivative-free competitor. Ratios above one
+favor the denominator. Geometric means use the finite pairs only.}
+\label{tab:exp2-ratios}\input{tables/exp2-ratios.tex}
+\end{table}
+
+\paragraph{Final refinement.}
+The preregistered selection takes, for each method and space, the
+lowest-$F_{\mathrm{val}}$ feasible design over both repeats, and the
+earliest repeat-1 crossing of each attained target. With $\theta_0$ in
+each space and identical designs merged, this gives 33 designs. Each
+received the six registered checks: the primary L2 validation, L3, a
+40-angle grid, Newton tolerance $10^{-12}$, an independently solved grid
+shifted by $0.5^\circ$, and held-out currents $0.25$ and $0.75$. The 15
+designs with zero stator offsets also received the conforming outer-band
+Arkkio check on fresh meshes. All 213 checks completed
+(Table~\ref{tab:exp2-refinement}).
+
+The checks ran after the study, on a different host (Apple M3 Ultra,
+macOS arm64). For the 16 selected designs validated on the moved
+reference mesh, the primary check reproduces the study's $F_{\mathrm{val}}$
+within $2.1\times10^{-12}$ relative. The other 15 needed a fresh mesh,
+which Gmsh triangulates differently on the two platforms; their $F$
+differs by at most $1.7\times10^{-3}$ relative. This measures the
+sensitivity of $F$ to remeshing and is far below the 10\% allowance
+$\delta F$.
+
+Spatial refinement is the largest change. L3 moves $F$ by $-4.0\%$ to
+$+6.3\%$; the largest increase belongs to the overall best design, D's in
+space B, whose $F$ rises from $0.0044F_0$ to $0.0047F_0$. Angular and
+nonlinear effects are small: the 40-angle and shifted grids change $F$ by
+at most $0.11\%$, and the tighter Newton tolerance by at most $10^{-5}$.
+The conforming estimator gives $1.1\%$ to $4.4\%$ more ripple than the
+order-93 coupling on the space-A designs, and $2.0\%$ more at $\theta_0$.
+All 25 target crossings still satisfy their target, allowance included,
+at L3; the smallest remaining margin is 1.2\% of the target. Every
+candidate also satisfies the full-current mean floor in all five
+training-current checks, the closest by 0.012\%. The refinement therefore
+confirms the credited crossings and leaves the time-to-target comparison
+unchanged.
+
+The held-out currents test the ripple reduction outside the three
+training currents. Relative to $\theta_0$ at the same currents, the
+reduction ranges from 0.65 to 1.73 times its value at the training
+currents. In space A it is within 10\% for all five best designs. In space
+B, the best designs lose more: D's best design has
+$0.0044F_0$ at the training currents but $0.0076$ of $\theta_0$'s value at
+the held-out currents. The extra freedom of space B is therefore partly
+spent on the three training currents.
+
+\begin{table}[H]\centering\scriptsize
+\caption{Final checks of the selected designs. ``best'' marks a method's
+representative; ``A $T_{90}$'' marks the earliest repeat-1 crossing of that
+target by that method. The L2 column is the primary check on the
+refinement host. ``held-out'' is the objective at currents $0.25$ and
+$0.75$ relative to $\theta_0$'s at the same currents. A dash means the
+conforming check does not apply because stator offsets are nonzero.}
+\label{tab:exp2-refinement}\input{tables/exp2-refinement.tex}
+\end{table}
