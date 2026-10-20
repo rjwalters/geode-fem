@@ -4,13 +4,13 @@
   "producer_commit": "9486a9da58beeca91968d4d3608f06b998abff45",
   "full_suite": {
     "command": "python3 -I -B -m unittest discover -s benchmarks/motor_optimization/final_refinement",
-    "tests": 365,
+    "tests": 366,
     "exit_code": 0,
     "log": "reboot-tests.log",
-    "sha256": "5c6084dadf4036d31bbbe2201e17df43cb6b02d97ba133c3cc5c964a11b022a0",
+    "sha256": "03e7d850d40d67692cc430ddb435fc3ae0bcc975a1f50ba322bf4bef3ab43b14",
     "python": "3.15.0",
     "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
-    "at_commit": "67b7d764a3c13b56c1e1d2942b0bed2beac0eb49",
+    "at_commit": "0dece363c4c62bc9b545c7815824b8c00ec66054",
     "scope": "Full final-refinement suite at the four-boot code commit with the hash-checked regenerated mesh cache; remote CI on the PR head is required."
   },
   "mutations": {
@@ -18,8 +18,8 @@
     "injected": 120,
     "killed": 120,
     "report": "reboot-mutations.json",
-    "sha256": "58d29883589ce5549162f5705b1991f6d834b94ceb66cfaa5f6ea63d00729f43",
-    "at_commit": "67b7d764a3c13b56c1e1d2942b0bed2beac0eb49"
+    "sha256": "f7692c175b4a32586741c4035ea628f85cceff8bd1714b9bf48d509701026568",
+    "at_commit": "0dece363c4c62bc9b545c7815824b8c00ec66054"
   },
   "mesh_regeneration": {
     "source_commit": "63b3e3d8bbc30504f845eebb5b78e8be6a2ee12f",
@@ -61,7 +61,7 @@
   "files_sha256": {
     "closed_capture.py": "2d83ee48f684f2cb2dd21f7460afc50ad5d6a3e47bb780eda75c3a0c893c182d",
     "capture_archive.py": "cdc08eefe8e169076ebb6ecc4f8d5e592bf8cea155212d4a2e08bbeaadb34c8a",
-    "reboot_attestation.py": "effa4efffc2f8891b8d74b6f3776ba1f59ca24290d88e80f72d5a83f3870b4b5",
+    "reboot_attestation.py": "6bee649c1d60f37b54bb90979cd4780e1edca8b1f665f59106cc30841121c8d0",
     "study_selection.py": "72ca0ab962576862530e36bded47a55edac6e80a92db414f03d87b35f34f97f3",
     "refinement_bundle.py": "228b3b41caf346aa80aaa34bf71cb1bb80ae37b98ed336a51cd2165aa3442931",
     "reboot_mutations.py": "8da430144b08f7f70d6634da5499368a2f952c9058b34f6002b8d8d79d83ae86",
@@ -73,7 +73,7 @@
     "test_reboot_capture.py": "7bb30fbc76d710797475c1ded6f56c6f4d55cca8f363f4b3deb1d62c1a4af169",
     "test_reboot_pipeline.py": "8bbc9e9e916ef44c557ebc3e1e10723c8119e74fbbffe472a14b557faa9acd00",
     "README.md": "c8cedec076dd263e4ce529e98d18c9555b5a85e44476a52facd85e4c21ad6441",
-    "REBOOT_CAPTURE.md": "719c1a83fb18e9593801d949e34c87df5cf9e6b62bf74e2c375d08aa6620a6bb",
+    "REBOOT_CAPTURE.md": "d8ac4eb38257d7e807f78cd7b507c8a77ede7de504bbc5a1926c7232745216d9",
     "test_reboot_quiet.py": "e2b50b60be7b40365b49409bd82e1f6b60f87f3162a98e9b4ed2da5c41ff60c0",
     "smoke/doctor56-system-daemons.json": "484eca23b4f7318cb0ee84813c8125543193b4750b8d471b76fad6612567d899",
     "quiet_rehearsal.py": "9476e5845be3ee37fd6133b5c4a1d2a06eebd2a6e712a606d99676679c0eea29",
@@ -81,7 +81,7 @@
     "test_reboot_live_fixture.py": "8f67ba00ab621fcb2e4afc153d285750eeb625efe2f768defc2cee936bada1d9",
     "smoke/quiet-rehearsal-e6e7e3ae.json": "956f5530cbe7b0a03ac8ce8dd77ab5f48e7a78490630863136d28f4620aeed16",
     "smoke/quiet-rehearsal-e6e7e3ae-provenance.json": "e554a31c618bf454ceac03c91c6785149a52d5bfa964e6a876fcb9d9b1942407",
-    "test_reboot_four_boot.py": "68bd7bb5e137591ef33d4876fee23572fcd4f024fb8861092221669065741ee0",
+    "test_reboot_four_boot.py": "71b3369a7ba6f1ca399f6e94f744ebed62775c9bb62d1d17b3409ae73c9c8356",
     "failed_capture_witness.py": "d6872b7b790725286f92b7affbe1bbfcb9374b2340b9281aab73f065d70d6ae6"
   },
   "remaining": [
@@ -162,7 +162,7 @@
   "four_boot": {
     "reviewed_base": "d8552191b62536570bc696dc770063787bab8a05",
     "scope": "Operator ruling after the refused B2 (2d91abf3-f032-4482-b459-db009aa3b1bf): systemd 255 rejects hyphenated `journalctl -b` matches; collector now passes the 32-hex boot ID and reports rc/stderr. New four_boot_closed_capture_policy with a hash-verified B2 failed-capture witness, B3 boot-chain and ordering gate, and a B2 journal process classifier; three-boot policy unchanged. Synthetic evidence only; no B3, study outcome, cloud call or instance start.",
-    "new_tests": 37,
+    "new_tests": 38,
     "new_test_files": [
       "test_reboot_four_boot.py"
     ],
