@@ -1,7 +1,8 @@
 """The experiment-2 optimizer driver (issues #1195 and #1201; #1185 with
-amendments 1-7).
+amendments 1-7; method F of #1218).
 
-Five methods on one frozen space from one start, with matched budgets:
+Six methods on one frozen space from one start, with matched budgets (A-E
+are the registered main study; F is a post-hoc ablation):
 
 - A `slsqp`: safeguarded SLSQP with restarts (scipy SLSQP with the
   adjoint gradients of F_train and of the full-current training mean, and
@@ -11,6 +12,9 @@ Five methods on one frozen space from one start, with matched budgets:
 - C `surrogate`: the calibrated RBF trust-region method of amendment 4.
 - D `cobyqa_l0`: B on the separately calibrated L0 nonlinear model.
 - E `slsqp_l0`: A on that L0 model, including the same safeguards.
+- F `slsqp_fd` (#1218): A with forward-difference gradients of F_train and
+  of the mean (`fd_gradient`) in place of the adjoint; everything else,
+  including the analytic geometry Jacobians, is A's.
 
 Common to all three:
 
@@ -79,6 +83,20 @@ METHOD_SPECS.update({
     "slsqp_l0": {"letter": "E", "optimizer": "slsqp", "resolution": "L0",
                   "label": "coarse nonlinear FEM (safeguarded SLSQP, L0)"},
 })
+#: The registered main study (#1185 amendment 8, the 100-run queue): A-E
+#: exactly, as they were before method F existed. `main_schedule`, the
+#: main session, its queue export and its recovery use this registry only.
+MAIN_METHOD_SPECS = {m: dict(s) for m, s in METHOD_SPECS.items()}
+#: F `slsqp_fd` (#1218, a post-hoc ablation outside the preregistered
+#: study): method A's safeguarded SLSQP with restarts, with forward-
+#: difference gradients of the objective and the mean constraint instead of
+#: the adjoint (`fd_gradient`). Everything else is A's.
+METHOD_SPECS["slsqp_fd"] = {"letter": "F", "optimizer": "slsqp", "resolution": None,
+                            "gradient": "forward_difference",
+                            "label": "safeguarded SLSQP with restarts (forward differences)"}
+#: The {A', F} ablation session (#1218 protocol §§2-3): A rerun unchanged
+#: and F, in the same session.
+FD_ABLATION_METHODS = ("slsqp", "slsqp_fd")
 METHODS = tuple(METHOD_SPECS)
 #: How each method is described in every record (#1185 amendment 6 §1:
 #: C is an empirical surrogate, not a reduced physical or waveform model).
@@ -196,6 +214,16 @@ class Run:
         self.c_initial = []
         #: The last admissible evaluated point (u), the restoration anchor.
         self.anchor_u = None
+        #: Every admissible evaluated point (u), in order: method F's
+        #: restoration anchor after a refusal at its own base (`fd_gradient`).
+        self._anchor_trail = []
+        #: The generation of the evaluator's current training reference, as
+        #: its last `train` / `mesh_check` reply reported it (method F).
+        self.generation = None
+        #: Method F's forward-difference gradients (#1218): x bytes -> record,
+        #: and every gradient record in order.
+        self._fd = {}
+        self.fd_gradients = []
         #: x bytes of the start (set by `execute`): never validated.
         self.start_key = None
         #: Category and op of the request in flight at a budget abort.
@@ -276,7 +304,12 @@ class Run:
         """The geometry domain at u (cached per point): buildable,
         admissible, h and dh/du (None where the derivative is not
         defined)."""
-        x = self.problem.x_of(u)
+        return self.geometry_at(self.problem.x_of(u))
+
+    def geometry_at(self, x):
+        """`geometry` at the design vector x itself (method F's stencil
+        points are offsets in x, not in u)."""
+        x = np.asarray(x, dtype=float)
         key = x.tobytes()
         hit = self._geo.get(key)
         if hit is not None:
@@ -354,7 +387,9 @@ class Run:
                "dF": None if r["dF"] is None else np.array(r["dF"]),
                "dmean_full": None if r["dmean_full"] is None else np.array(r["dmean_full"]),
                "admissible": g["admissible"], "min_h": g["min_h"], "h": g["h"],
-               "discrete_pass": all(d["pass"] for d in g["detail"]["discrete"])}
+               "discrete_pass": all(d["pass"] for d in g["detail"]["discrete"]),
+               "generation": r["generation"]}
+        self.generation = r["generation"]
         self._train[key] = rec
         if self.training_incumbent is None:
             self.training_incumbent = rec
@@ -362,6 +397,7 @@ class Run:
             # The restoration anchor: the last admissible evaluated point
             # (adoption correction 1). Its training mesh passed the policy.
             self.anchor_u = rec["u"].copy()
+            self._anchor_trail.append(self.anchor_u)
         self.events.append(dict(self._stamp(), kind="train", x=x.tolist(), F=r["F"],
                                 mean_full=r["mean_full"], stds=r["stds"], gradient=gradient,
                                 purpose=purpose, note=note, generation=r["generation"],
@@ -372,11 +408,60 @@ class Run:
                                 attempts=r.get("attempts")))
         return rec
 
+    def fd_step_unusable(self, xs, k):
+        """Why method F may not use the stencil point xs (#1218 protocol
+        §1), or None: outside the box in component k, not admissible, or its
+        moved training mesh would fire the remesh policy (the evaluator's
+        `check`: the current reference moved to xs, no remesh, no solve)."""
+        if k is not None and not self.problem.lower[k] <= xs[k] <= self.problem.upper[k]:
+            return "outside_box"
+        g = self.geometry_at(xs)
+        if not g["admissible"]:
+            return "inadmissible"
+        r = self._request("check", "mesh_motion", x_bits=to_bits(xs))
+        if r.get("motion_error") is not None or r.get("geometry_ok") is False:
+            return "motion_failed"
+        if r.get("trigger") is not None:
+            return "would_remesh"
+        return None
+
+    def fd_solve(self, xs, generation, note):
+        """One forward-difference solve at xs (`train`, `gradient: false`,
+        charged to `forward`) on `generation`. Not an optimizer evaluation:
+        it is never cached as one, never an incumbent and never a
+        restoration anchor."""
+        r = self._request("train", "forward", x_bits=to_bits(xs), gradient=False,
+                          purpose="iterate", note=note)
+        if r.get("status", "ok") != "ok":
+            raise WiringError(f"slsqp_fd: a stencil solve returned {r.get('status')!r}")
+        if r["event"] is not None or r["generation"] != generation:
+            raise WiringError("slsqp_fd: a stencil point left the base's mesh generation")
+        self.generation = r["generation"]
+        self.events.append(dict(self._stamp(), kind="fd_train", x=np.asarray(xs).tolist(),
+                                F=r["F"], mean_full=r["mean_full"], note=note,
+                                generation=r["generation"], quality=r["quality"],
+                                newton_iterations=r["newton_iterations"]))
+        return {"F": r["F"], "mean_full": r["mean_full"], "generation": r["generation"]}
+
+    def refuse_evaluated(self, u, kind, **detail):
+        """Refuse a point that already has a training value (method F: its
+        gradient, not its value, is undefined). The refused point is then no
+        restoration anchor of its own refusal: restoration starts from the
+        last admissible evaluated point before it, as for a point refused
+        before any value (A)."""
+        x = self.problem.x_of(u)
+        trail = [a for a in self._anchor_trail
+                 if self.problem.x_of(a).tobytes() not in (x.tobytes(), *self._refused)]
+        self.anchor_u = trail[-1].copy() if trail else None
+        self._refuse(u, x, kind, min_h=self.geometry(u)["min_h"], **detail)
+
     def mesh_check(self, u):
         """The training-mesh step alone at u (a restoration probe): True if
         the moved mesh, or a repaired fresh mesh, passes the policy."""
         x = self.problem.x_of(u)
         r = self._request("mesh_check", "remesh", x_bits=to_bits(x))
+        if r.get("generation") is not None:
+            self.generation = r["generation"]
         self.events.append(dict(self._stamp(), kind="mesh_check", x=x.tolist(),
                                 status=r["status"], remesh_meshes=r.get("remesh_meshes") or [],
                                 attempts=r.get("attempts")))
@@ -561,6 +646,8 @@ class Run:
             "surrogate_steps": self.c_steps if self.method == "surrogate" else None,
             "assessment": self.assessment if self.method == "surrogate" else None,
             "aborted_request": self.aborted_request,
+            **({"fd_gradients": self.fd_gradients, "fd_step": FD_STEP}
+               if METHOD_SPECS[self.method].get("gradient") == "forward_difference" else {}),
             "ledger": self.ledger.to_json(),
             "anchor": dict(self.anchor.to_json(), file_values=self.anchor_file_values),
         }
@@ -593,31 +680,47 @@ def slsqp_callables(run):
     is usually accepted, and then needs it). The first new point after each
     gradient use is an `iterate`; later new points before the next gradient
     use are `line_search` trials. A refused point raises `Refused`, which
-    aborts the SLSQP call: SLSQP never sees a value there."""
+    aborts the SLSQP call: SLSQP never sees a value there.
+
+    Method F (#1218 protocol §1): the same callables, except that every
+    function evaluation is a value request (`gradient: false`) and the
+    objective and mean-constraint gradients are `fd_gradient`'s forward
+    differences. The geometry constraints and their analytic Jacobians are
+    A's."""
     P = run.problem
     state = {"after_gradient": True}
+    fd = METHOD_SPECS[run.method].get("gradient") == "forward_difference"
 
     def rec(u):
         purpose = "iterate" if state["after_gradient"] else "line_search"
-        if P.x_of(u).tobytes() not in run._train:
+        x = P.x_of(u)
+        if fd and x.tobytes() in run._refused:
+            # F's gradient was refused at a point SLSQP already had a value
+            # for: nothing more is returned there (amendment 7 §2).
+            raise Refused(u, x, run._refused[x.tobytes()])
+        if x.tobytes() not in run._train:
             state["after_gradient"] = False
-        return run.train(u, gradient=True, purpose=purpose, note="slsqp")
+        return run.train(u, gradient=not fd, purpose=purpose, note="slsqp")
+
+    def gradients(u):
+        r = rec(u)
+        state["after_gradient"] = True
+        if fd:
+            g = fd_gradient(run, u)
+            return g["dF"], g["dmean_full"]
+        return r["dF"], r["dmean_full"]
 
     def fun(u):
         return P.objective(rec(u))
 
     def jac(u):
-        r = rec(u)
-        state["after_gradient"] = True
-        return r["dF"] * P.width / P.f_ref
+        return gradients(u)[0] * P.width / P.f_ref
 
     def con(u):
         return P.constraint(rec(u))
 
     def con_jac(u):
-        r = rec(u)
-        state["after_gradient"] = True
-        return r["dmean_full"] * P.width / P.mean_ref
+        return gradients(u)[1] * P.width / P.mean_ref
 
     def geo(u):
         g = run.geometry(u)
@@ -629,6 +732,13 @@ def slsqp_callables(run):
     def geo_jac(u):
         g = run.geometry(u)
         if g["dh_du"] is None:
+            if fd:
+                # F's value request would not refuse here: refuse as A's
+                # gradient request does (not buildable, else the geometry
+                # derivative is undefined).
+                if not g["buildable"]:
+                    rec(u)
+                run.refuse_evaluated(u, "derivative_undefined")
             rec(u)  # refused as derivative_undefined
             raise AssertionError("unreachable")
         return g["dh_du"]
@@ -637,6 +747,101 @@ def slsqp_callables(run):
         run.accept_iterate(intermediate_result.x, note="slsqp iterate")
 
     return fun, jac, con, con_jac, geo, geo_jac, callback
+
+
+# ── F: forward-difference gradients (#1218) ─────────────────────────────
+
+#: The forward-difference step of method F, in each component's own unit
+#: (#1218 protocol §1; the component step of `fd_check.py`).
+FD_STEP = 1e-6
+
+
+def fd_gradient(run, u):
+    """Forward-difference gradients of F_train and of the full-current
+    training mean at u, in x units (#1218 protocol §1), from `train` value
+    replies (`gradient: false`).
+
+    - Component k is differenced along x_k + FD_STEP; the base value is
+      reused, so one gradient costs n + 1 forward solves (the base is the
+      optimizer's own evaluation at u).
+    - Every stencil point lies on the base point's mesh generation. Before
+      a stencil point is solved, the evaluator's `check` request moves the
+      current training reference there without remeshing and reports
+      whether the remesh policy fires; a step whose point would remesh is
+      never solved. Each stencil reply must be on the base's generation with
+      no remesh event (else `WiringError`).
+    - A step is unusable when its point leaves the box, is not admissible
+      (`geometry`: every h_i >= 0 and every discrete guard; amendment 7 §1),
+      or would remesh. Then component k takes the backward step
+      x_k - FD_STEP. When both are unusable, the gradient is refused at u on
+      the `derivative_undefined` path (A's restore-and-restart).
+    - Every request here (geometry, check and the solves) is an ordinary
+      charged request of the run; the solves are `forward`.
+    - If the base value is not on the evaluator's current generation (a
+      remesh happened after it was solved), the base is solved once more,
+      charged, on the current reference, and that value is the stencil's
+      base (n + 2 solves for that gradient).
+
+    The result is cached per point: the objective and the constraint
+    gradient at one point share one stencil."""
+    P = run.problem
+    x = P.x_of(u)
+    key = x.tobytes()
+    hit = run._fd.get(key)
+    if hit is not None:
+        return hit
+    if key in run._refused:
+        raise Refused(u, x, run._refused[key])
+    base = run.train(u, gradient=False, note="slsqp")
+    before = run._stamp()
+    record = {"index": len(run.fd_gradients), "x": x.tolist(), "step": FD_STEP,
+              "base_generation": base["generation"], "base_resolved": False,
+              "components": [], "solves": 0, "before": before}
+    run.fd_gradients.append(record)
+    if base["generation"] != run.generation:
+        # The base value is on a retired generation: re-solve it on the
+        # current one, unless that would remesh (then no single-generation
+        # stencil exists: refused).
+        reason = run.fd_step_unusable(x, None)
+        record["base_resolved"] = reason is None
+        if reason is not None:
+            record.update(refused=True, base_unusable=reason, after=run._stamp(),
+                          cost_fe=run.ledger.total_fe() - before["wall_fe"])
+            run.refuse_evaluated(u, "derivative_undefined", fd={"base": reason})
+        base = run.fd_solve(x, run.generation, note="slsqp_fd base (current generation)")
+        record["solves"] += 1
+        record["base_generation"] = base["generation"]
+    generation = base["generation"]
+    dF = np.zeros(P.n)
+    dmean = np.zeros(P.n)
+    for k, name in enumerate(P.names):
+        row = {"component": k, "name": name, "attempts": []}
+        record["components"].append(row)
+        for side, sign in (("forward", 1.0), ("backward", -1.0)):
+            xs = x.copy()
+            xs[k] = x[k] + sign * FD_STEP
+            reason = run.fd_step_unusable(xs, k)
+            row["attempts"].append({"side": side, "x_k": float(xs[k]), "unusable": reason})
+            if reason is not None:
+                continue
+            r = run.fd_solve(xs, generation, note=f"slsqp_fd {name} {side}")
+            record["solves"] += 1
+            # The step actually taken (the rounded x_k difference).
+            h = float(xs[k] - x[k])
+            dF[k] = (r["F"] - base["F"]) / h
+            dmean[k] = (r["mean_full"] - base["mean_full"]) / h
+            row.update(side=side, h=h, F=r["F"], mean_full=r["mean_full"])
+            break
+        else:
+            record.update(refused=True, after=run._stamp(),
+                          cost_fe=run.ledger.total_fe() - before["wall_fe"])
+            run.refuse_evaluated(u, "derivative_undefined",
+                                 fd={"component": name, "attempts": row["attempts"]})
+    out = {"dF": dF, "dmean_full": dmean}
+    record.update(refused=False, dF=dF.tolist(), dmean_full=dmean.tolist(),
+                  after=run._stamp(), cost_fe=run.ledger.total_fe() - before["wall_fe"])
+    run._fd[key] = out
+    return out
 
 
 def recorded_minimize(run, scope, *args, **kwargs):

@@ -106,6 +106,10 @@ class FakeEvaluator:
         self.wall = 1.9 if wall is None else wall
         self.mesh_bad = mesh_bad or (lambda u: False)
         self.requests = []
+        # The generation of the current training reference (#1218 `check`):
+        # the fake's remesh rule is stateless (generation 1 iff u_0 > 0.95),
+        # and a point of the other generation would remesh from here.
+        self.generation = 0
         self.emitted = {c: 0.0 for c in CATEGORIES}
         self.ready = {"op": "ready", "ok": True,
                       "space": {"free": [f"p{i}" for i in range(N)], "lower": LOWER,
@@ -155,6 +159,9 @@ class FakeEvaluator:
             raise AssertionError(f"{op} of a point that is not buildable reached the evaluator")
         if op == "geometry":
             pass
+        elif op == "check":
+            # The training reference moved to x, no remesh, no solve (#1218).
+            charges = [("mesh_motion", MOTION, 0, 0)]
         elif op == "mesh_check":
             charges = [("geometry_check", GEOM, 0, 0), ("mesh_motion", MOTION, 0, 0)]
             if self.mesh_bad(u):
@@ -196,6 +203,11 @@ class FakeEvaluator:
         if op == "geometry":
             reply["geometry"] = dom
             return reply
+        if op == "check":
+            gen = 1 if u[0] > 0.95 else 0
+            reply.update(geometry_ok=True, motion_error=None, quality={},
+                         trigger=None if gen == self.generation else {"kind": "min_angle"})
+            return reply
         if op == "mesh_check":
             reply["status"] = "mesh_infeasible" if self.mesh_bad(u) else "ok"
             return reply
@@ -221,6 +233,7 @@ class FakeEvaluator:
             reply["validation"]["msh_sha256"] = SHA
             return reply
         if op == "train":
+            self.generation = 1 if u[0] > 0.95 else 0
             g = f.get("gradient")
             dmean = np.zeros(N)
             dmean[1] = 0.99 * MEAN0 * 0.02 / self.width[1]
