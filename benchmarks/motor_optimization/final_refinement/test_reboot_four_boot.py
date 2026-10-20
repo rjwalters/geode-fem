@@ -67,7 +67,8 @@ def failed_files(p, cloud):
         'refusal-summary.json': raw({'quiet_attempts': 0, 'source_census_started': False,
                                      'capture_archive_created': False, 'start_requests': 1,
                                      'no_boot_retry': True, 'stopped': True, 'capture_exit': 1,
-                                     'launch_time': utc(B2_LAUNCH), 'capture_log_sha256': proof.sha(log)}),
+                                     'launch_time': utc(B2_LAUNCH), 'capture_log_sha256': proof.sha(log),
+                                     'tool_commit': proof.FAILED_CAPTURE_TOOL_COMMIT}),
         'capture.log': log, 'transfer.log': b'', 'cloud-transfer.log': b'',
         'start.json': transition('StartingInstances', 'stopped', 'pending'),
         'stop-response.json': transition('StoppingInstances', 'running', 'stopping'),
@@ -121,7 +122,7 @@ ALLOWED = [
              '@dbus-daemon --system --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only', '101'),
     b2_entry('systemd', '/usr/lib/systemd/systemd', '/sbin/init', '0'),
     b2_entry(),  # kernel transport: no process fields
-    b2_entry('python3', '/opt/numerics/bin/python3.12', COLLECTOR, '1000'),
+    b2_entry('hibinit-agent', '/usr/bin/python3.12', '/usr/bin/python3 /usr/bin/hibinit-agent -c /etc/hibinit-config.cfg', '0'),
 ]
 REFUSED = [
     b2_entry('python3', '/usr/bin/python3.12', '/usr/bin/python3 /tmp/evaluate.py', '1000'),
@@ -153,6 +154,21 @@ REFUSED = [
              '/usr/bin/dbus-daemon --system --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only', '0'),
     b2_entry('ssm-session-wor', '/usr/bin/ssm-session-worker', '/usr/bin/ssm-session-worker fixture-session', '0'),
     b2_entry('jupyter-lab', '/usr/bin/jupyter-lab', '/usr/bin/jupyter-lab', '1000'),
+    # Judge bypasses of the removed collector exception.
+    b2_entry('python3', '/usr/bin/python3.12', '/usr/bin/python3 -I -B /tmp/closed_capture.py --source /exp2', '1000'),
+    b2_entry('python3', '/opt/numerics/bin/python3.12', COLLECTOR, '1000'),  # study python titled as the collector
+    b2_entry('worker', '/usr/bin/worker', COLLECTOR, '1000'),
+    b2_entry('sudo', '/usr/bin/sudo', 'sudo -n /usr/bin/python3 -I -B '
+             '/home/ubuntu/paper3-capture-e1814128/tools/closed_capture.py --source /exp2', '0'),
+    # Rust study binary: comm, executable basename or command word.
+    b2_entry('geode', '/opt/geode/bin/geode', None, '1000'),  # _CMDLINE nulled
+    b2_entry('tokio-runtime-w', '/home/fixture/target/release/geode', None, '1000'),
+    b2_entry('sh', '/usr/bin/dash', 'sh -c /home/fixture/target/release/geode run', '1000'),
+    # hibinit-agent: exact argv, system UID and Python executable only.
+    b2_entry('hibinit-agent', '/usr/bin/python3.12', '/usr/bin/python3 /usr/bin/hibinit-agent -c /tmp/x.cfg', '0'),
+    b2_entry('hibinit-agent', '/usr/bin/python3.12', '/usr/bin/python3 /usr/bin/hibinit-agent -c /etc/hibinit-config.cfg', '1000'),
+    b2_entry('hibinit-agent', '/usr/bin/python3.12', '/usr/bin/python3 /usr/bin/hibinit-agent', '0'),
+    b2_entry('evaluate', '/usr/bin/python3.12', '/usr/bin/python3 /usr/bin/hibinit-agent -c /etc/hibinit-config.cfg', '0'),
 ]
 
 
@@ -290,6 +306,11 @@ class FourBootTests(unittest.TestCase):
         for files in ({k: v for k, v in self.ffiles.items() if k != 'capture.log'}, dict(self.ffiles, extra=b'')):
             with self.assertRaisesRegex(ValueError, 'missing or extra failed-capture evidence'):
                 proof.failed_capture(raw(self.fw), files, self.p, self.history())
+        self.fw['files']['capture.log'] = dict(self.fw['files']['capture.log'], bytes=len(self.ffiles['capture.log']) + 1)
+        self.p['failed_capture_witness_sha256'] = proof.sha(raw(self.fw))
+        with self.assertRaisesRegex(ValueError, 'changed failed-capture evidence: capture.log'):
+            proof.failed_capture(raw(self.fw), self.ffiles, self.p, self.history())
+        self.setUp()
         # A manifest may not name an unsupplied, unverified extra file either.
         self.fw['files']['before-alarm.json'] = {'sha256': '0'*64, 'bytes': 0}
         self.p['failed_capture_witness_sha256'] = proof.sha(raw(self.fw))
@@ -305,6 +326,10 @@ class FourBootTests(unittest.TestCase):
         for kind, value in (('kind', 'paper3_recovery_boot_witness'), ('schema', True), ('schema', 2)):
             self.setUp(); self.fw[kind] = value
             with self.assertRaisesRegex(ValueError, 'unsupported failed-capture witness'): self.failed()
+        for change in (lambda w: w.update(operator_ip='203.0.113.7'), lambda w: w.pop('scope'),
+                       lambda w: w.update(scope=None)):
+            self.setUp(); change(self.fw)
+            with self.assertRaisesRegex(ValueError, 'failed-capture witness has missing or extra fields'): self.failed()
         for statement in ('B2 was copy-only.', None, 'Prefix. ' + proof.FAILED_CAPTURE_STATEMENT):
             self.setUp(); self.fw['witness_statement'] = statement
             with self.assertRaisesRegex(ValueError, 'missing refused-capture witness statement'): self.failed()
@@ -329,6 +354,9 @@ class FourBootTests(unittest.TestCase):
             ('final-instance.json', lambda r: r['Reservations'][0]['Instances'][0]['BlockDeviceMappings'][0].update(DeviceName='/dev/sdb'),
              'B2 stop record changed launch/attachment'),
             ('final-instance.json', lambda r: r['Reservations'][0]['Instances'][0].pop('StateReason'), 'missing witnessed B2 stop'),
+            ('final-instance.json', lambda r: r['Reservations'][0]['Instances'][0]['StateReason'].update(
+                Code='Server.InternalError'), 'missing witnessed B2 stop'),
+            ('start.json', lambda r: r['StartingInstances'][0].update(PreviousState='stopped'), 'B2 start/stop requests differ'),
             ('final-instance.json', lambda r: r['Reservations'][0]['Instances'][0].update(
                 StateTransitionReason=f'User initiated ({gmt(B2_LAUNCH)} GMT)'), 'B2 launch/stop ordering differs'),
         ]
@@ -342,7 +370,7 @@ class FourBootTests(unittest.TestCase):
         for extra in (json.dumps({'attempt': 1, 'elapsed_seconds': 0, 'issues': [], 'kind': 'reboot_quiet_check'}),
                       '  File "/home/fixture/tools/reboot_attestation.py", line 9, in wait_for_quiet',
                       '  File "/home/fixture/tools/reboot_attestation.py", line 9, in source_census',
-                      'tools/quiet_rehearsal.py: OK (census)'):
+                      'tools/quiet_rehearsal.py: OK (census)', 'Quiet check attempt 1', 'CENSUS started'):
             with self.subTest(extra=extra):
                 self.setUp(); self.set_log('\n'.join([*lines[:-1], extra, lines[-1]]) + '\n')
                 with self.assertRaisesRegex(ValueError, 'B2 capture log shows a quiet check or census'): self.failed()
@@ -372,6 +400,11 @@ class FourBootTests(unittest.TestCase):
             with self.subTest(key=key, value=value):
                 self.setUp(); self.edit('refusal-summary.json', lambda s: s.update({key: value}))
                 with self.assertRaisesRegex(ValueError, 'B2 refusal summary changed launch or capture log'): self.failed()
+        for key, value in (('tool_commit', '0'*40), ('tool_commit', None), ('capture_exit', 0),
+                           ('capture_exit', True), ('capture_exit', '1'), ('capture_exit', None)):
+            with self.subTest(key=key, value=value):
+                self.setUp(); self.edit('refusal-summary.json', lambda s: s.update({key: value}))
+                with self.assertRaisesRegex(ValueError, 'B2 refusal summary changed tool or exit'): self.failed()
         self.setUp(); self.ffiles['refusal-summary.json'] = b'[]\n'
         with self.assertRaisesRegex(ValueError, 'B2 refusal summary shows quiet/census/archive activity'): self.failed()
 
@@ -432,7 +465,7 @@ def fake_journalctl(directory, boots):
 # Synthetic systemd 255 (255.4-1ubuntu8.18) -b parser; test-generated, never committed.
 DATA='{data}'
 if [ "$#" -eq 3 ] && [ "$*" = "--list-boots --no-pager --utc" ]; then cat "$DATA/list-boots"; exit 0; fi
-if [ "$#" -eq 6 ] && [ "$1" = "-b" ] && [ "$3 $4 $5 $6" = "-o json --no-pager --utc" ]; then
+if [ "$#" -eq 7 ] && [ "$1" = "-b" ] && [ "$3 $4 $5 $6 $7" = "--all -o json --no-pager --utc" ]; then
   case "$2" in
     {hex32})
       if [ -f "$DATA/$2" ]; then cat "$DATA/$2"; exit 0; fi
@@ -487,7 +520,7 @@ class FakeJournalctlTests(unittest.TestCase):
             with self.subTest(policy=label):
                 live, calls = self.run_live(p, obs)
                 self.assertEqual(calls, [['journalctl', '--list-boots', '--no-pager', '--utc'],
-                    *(['journalctl', '-b', proof.boot_id(b), '-o', 'json', '--no-pager', '--utc'] for b in boots)])
+                    *(['journalctl', '-b', proof.boot_id(b), '--all', '-o', 'json', '--no-pager', '--utc'] for b in boots)])
                 self.assertEqual(live['ended_boot_journals'], obs['ended_boot_journals'])
                 self.assertEqual(live['journal_boot_list'], obs['journal_boot_list'])
                 observed = dict(obs, **{k: live[k] for k in ('journal_boot_list', 'ended_boot_journals')})
@@ -504,9 +537,12 @@ class FakeJournalctlTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, r"^reboot attestation: read-only observation command failed: "
                                             r"journalctl \(rc=1; stderr: Failed to add match "
                                             r"'00000001-0000-0000-0000-000000000000': Invalid argument\)$"):
-                    proof._command(['journalctl', '-b', B0, '-o', 'json', '--no-pager', '--utc'])
-                self.assertEqual(proof._command(['journalctl', '-b', proof.boot_id(B0), '-o', 'json', '--no-pager', '--utc']),
+                    proof._command(['journalctl', '-b', B0, '--all', '-o', 'json', '--no-pager', '--utc'])
+                self.assertEqual(proof._command(['journalctl', '-b', proof.boot_id(B0), '--all', '-o', 'json', '--no-pager', '--utc']),
                                  observed['ended_boot_journals'][B0])
+                # Without --all journald nulls fields over 4096 bytes; the fake refuses that argv.
+                with self.assertRaisesRegex(ValueError, r'rc=2; stderr: unexpected journalctl argv'):
+                    proof._command(['journalctl', '-b', proof.boot_id(B0), '-o', 'json', '--no-pager', '--utc'])
 
     def test_command_refusal_keeps_five_stderr_lines_and_no_stdout(self):
         with self.assertRaises(ValueError) as caught:

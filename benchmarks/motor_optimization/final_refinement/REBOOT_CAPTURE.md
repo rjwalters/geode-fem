@@ -242,9 +242,11 @@ rejects that form with exit code 1 and `Failed to add match '<uuid>': Invalid
 argument`. The plain 32-hex ID works for B0, B1 and the earlier pre-study boot,
 both as root and as `ubuntu`; this was confirmed on a snapshot copy. `_command`
 discarded the exit code and stderr. The collector now passes `boot_id(x)`, the
-32-hex form. A failed read-only command reports its exit code and at most five
-stderr lines, never stdout or environment values. Tests run the real argv
-through a synthetic `journalctl` that applies the systemd 255 parsing rule.
+32-hex form, and adds `--all` so journald does not null fields over 4096 bytes
+(such as a long `_CMDLINE`). A failed read-only command reports its exit code
+and at most five stderr lines, never stdout or environment values. Tests run the
+real argv through a synthetic `journalctl` that applies the systemd 255 parsing
+rule and refuses the argv without `--all`.
 
 **Policy.** `four_boot_closed_capture_policy` has every three-boot field plus
 `failed_capture_boot` (the B2 UUID, with hyphens) and
@@ -266,7 +268,7 @@ contain no study outcomes; their only IP address is the AWS private address.
 `allow-ip.log` names the operator's public IP. It is excluded from the witness,
 which is copied into a capture that may be published, and a witness naming it
 refuses. Every file's SHA-256 and size is
-verified before any semantic check. The witness binds the instance, volume, all
+verified before any semantic check. The witness's top-level keys are an exact set, so an extra field refuses. It binds the instance, volume, all
 three earlier boots and the B1 witness digest. Its statement begins `B2 was a
 refused capture boot; no quiet check, census, archive, evaluator or study
 writes.` The verifier then checks the following:
@@ -275,8 +277,8 @@ writes.` The verifier then checks the following:
 - `before-start.json` is still in the witnessed B1 stop, with the same B1 launch and stop time.
 - `ec2-capture.json` shows the same instance, volume, host and attachment, with a launch strictly after the B1 stop.
 - `final-instance.json` keeps that launch and attachment, and records a user-initiated stop after the launch.
-- `capture.log` ends with exactly `ValueError: reboot attestation: read-only observation command failed: journalctl`, after `live_observation` and `_command` frames. Apart from the exact tool-hash `OK` lines, no line may mention a quiet check or census.
-- `refusal-summary.json` has `quiet_attempts` 0, `source_census_started` false, `capture_archive_created` false, one start request, no boot retry, a stop, the same launch time and the same capture-log digest.
+- `capture.log` ends with exactly `ValueError: reboot attestation: read-only observation command failed: journalctl`, after `live_observation` and `_command` frames. Apart from the exact tool-hash `OK` lines, no line may mention a quiet check or census, in any letter case.
+- `refusal-summary.json` has `quiet_attempts` 0, `source_census_started` false, `capture_archive_created` false, one start request, no boot retry, a stop, the same launch time, the same capture-log digest, tool commit `e1814128c293e939916eb7aedce1e38d4547a48b` and integer `capture_exit` 1.
 
 **B3 gate.** Pass `--failed-capture-evidence NEW_DIR` together with the other
 reboot arguments. The capture observation requires `boots[-4:] == [B0, B1, B2,
@@ -286,14 +288,24 @@ complete shutdown journal under the existing `ended_boot` rules. The ordering
 must be: B1 stop ≤ B1 journal end < B2 launch ≤ B2 first entry; B2 stop ≤ B2
 journal end < B3 launch ≤ B3 first entry ≤ now. Every B2 journal entry's
 `_COMM`, `_EXE` basename and *every* `_CMDLINE` word go through the shared
-classifier. A match refuses, with only these exceptions:
+classifier. The Rust study binary `geode` (as `_COMM`, `_EXE` basename or any
+command word) also refuses in this B2 check. A match refuses, with only these
+exceptions:
 
 - the exact `SYSTEM_DAEMONS` argv under a system `_UID`, with the matching executable;
 - `cloud-init` or `unattended-upgrade` under a system UID, run as `/usr/bin/python3 /usr/bin/<tool>`;
-- the documented collector `python* -I -B /abs/.../closed_capture.py`, followed only by its documented `--option value` pairs.
+- the AWS EC2 hibernation agent, only as the exact argv `/usr/bin/python3 /usr/bin/hibinit-agent -c /etc/hibinit-config.cfg` under a system UID with a Python executable. This is B2-only; the shared `SYSTEM_DAEMONS` used by the live quiet checks are unchanged.
 
-sshd, sudo, apt and kernel entries pass only while none of their words match the
-classifier. Fields that are not text refuse. The B0 mtime cutoff, census
+There is **no collector exception**. B2's real journal contains no collector
+entry, and an argv-only exception cannot be bound to the hash-pinned collector
+source. A script named `closed_capture.py`, a process titled with the collector
+argv and a sudo-wrapped collector all refuse. sshd, sudo, apt and kernel entries
+pass only while none of their words match the classifier. Fields that are not
+text refuse. The shared classifier matches `uv` (and its other terms)
+case-insensitively as substrings. That is a known conservative refusal: an
+unrelated word containing `uv`, such as an Instance Connect key fingerprint,
+refuses rather than passes. It stays as reviewed code; any such entry is
+reviewed before B3, never by relaxing the classifier at capture time. The B0 mtime cutoff, census
 equality with the pinned `0650f4ee…` inventory, the quiet checks and every other
 check above are unchanged. Replay re-verifies all of this from
 `reboot/failed-capture/` in the archive. A three-boot archive carrying that
@@ -302,11 +314,27 @@ directory refuses.
 B3 is **one** boot. It may start only after this change is reviewed and merged
 and the operator gives an explicit go. The cleanup, retry and no-restart rules
 of the bounded capture boot apply unchanged. A B3 refusal is a finding to
-review, not permission for another boot. Before the go, the operator may run
-`reboot_attestation.failed_boot_activity` over B2's JSON journal from a
-read-only snapshot copy. An unexpected B2 entry is then reviewed before B3
-instead of refusing on B3. `test_reboot_four_boot.py` covers each four-boot
-guard; `reboot_mutations.py` deletes each one.
+review, not permission for another boot.
+
+**Required before the B3 go.** B2's journal is immutable, so the classifier's
+verdict on it is already fixed; it must be known before B3 is spent. The
+operator **must** dump B2's real journal read-only from a snapshot copy, with
+`journalctl -D <snapshot>/var/log/journal -b 2d91abf3f0324482b459db009aa3b1bf
+--all -o json`, then run `reboot_attestation.failed_boot_activity` over it at
+the exact head to be merged, and retain the result. Any refused entry is
+reviewed, and the code is changed only through a reviewed pull request, before
+B3. Never commit the dump or copy it into fixtures: its sshd lines name the
+operator's IP.
+
+This run was done on 2026-10-20. The dump has SHA-256
+`39536f6937773bf95eb399c96ab86ea1ec79c06c32f30f00fa647a55194e3df9` and 2219
+entries. With the classifier in this revision the verdict is **PASS** (0
+refused entries). The 637b5fa9 classifier refused six hibinit-agent entries,
+which is why the exact hibinit-agent exception above was added. Repeat the run
+if the classifier changes again before the go.
+
+`test_reboot_four_boot.py` covers each four-boot guard; `reboot_mutations.py`
+deletes each one.
 
 ## Offline replay and downstream preparation
 

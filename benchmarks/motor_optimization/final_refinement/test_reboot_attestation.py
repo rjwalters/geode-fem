@@ -232,8 +232,8 @@ class AttestationTests(unittest.TestCase):
                 observed=proof.live_observation(p,self.observed['ec2'],identity,script)
             self.assertEqual(ordering,['quiet','census'])
             self.assertEqual(commands,[['journalctl','--list-boots','--no-pager','--utc'],
-                ['journalctl','-b',proof.boot_id(B0),'-o','json','--no-pager','--utc'],
-                ['journalctl','-b',proof.boot_id(B1),'-o','json','--no-pager','--utc']])
+                ['journalctl','-b',proof.boot_id(B0),'--all','-o','json','--no-pager','--utc'],
+                ['journalctl','-b',proof.boot_id(B1),'--all','-o','json','--no-pager','--utc']])
             self.assertEqual(observed['source_files']['session_exit.txt']['mtime_ns'],(root/'session_exit.txt').stat().st_mtime_ns)
             self.assertEqual(observed['collector']['identity']['pid'],pid)
             self.assertEqual(observed['process_commands'][0]['uid'],1000)

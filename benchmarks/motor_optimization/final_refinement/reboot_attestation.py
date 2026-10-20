@@ -44,6 +44,10 @@ FAILED_CAPTURE_FILES = {'refusal-summary.json', 'capture.log', 'start.json', 'be
                         'copy.log', 'capture-copy-status.txt', 'operator-exit.txt',
                         'operator-sources.json'}
 FAILED_CAPTURE_KIND = 'paper3_failed_capture_boot_witness'
+FAILED_CAPTURE_KEYS = {'schema', 'kind', 'instance_id', 'volume_id', 'study_boot', 'recovery_boot',
+                       'failed_capture_boot', 'recovery_witness_sha256', 'witness_statement', 'scope', 'files'}
+# The exact reviewed collector revision that ran, and refused, on B2.
+FAILED_CAPTURE_TOOL_COMMIT = 'e1814128c293e939916eb7aedce1e38d4547a48b'
 FAILED_CAPTURE_STATEMENT = ('B2 was a refused capture boot; no quiet check, census, archive, '
                             'evaluator or study writes.')
 # Final line of the e1814128 collector traceback on B2 (systemd 255 refused a
@@ -275,6 +279,8 @@ def failed_capture(witness_raw, files, p, history):
     w = _json(witness_raw)
     require(isinstance(w, dict) and type(w.get('schema')) is int and w['schema'] == 1
             and w.get('kind') == FAILED_CAPTURE_KIND, 'unsupported failed-capture witness')
+    require(set(w) == FAILED_CAPTURE_KEYS and isinstance(w['scope'], str),
+            'failed-capture witness has missing or extra fields')
     require(isinstance(w.get('files'), dict) and set(w['files']) == FAILED_CAPTURE_FILES
             and set(files) == FAILED_CAPTURE_FILES, 'missing or extra failed-capture evidence')
     for name, raw in files.items():
@@ -290,11 +296,12 @@ def failed_capture(witness_raw, files, p, history):
     record = lambda name: (lambda d: d if isinstance(d, dict) else {})(_json(files[name]))
     started = record('start.json').get('StartingInstances')
     stopping = record('stop-response.json').get('StoppingInstances')
+    state = lambda value: value.get('Name') if isinstance(value, dict) else None
     transition = lambda rows, before, after: (
         isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict)
         and rows[0].get('InstanceId') == p['instance_id']
-        and (rows[0].get('PreviousState') or {}).get('Name') == before
-        and (rows[0].get('CurrentState') or {}).get('Name') == after)
+        and state(rows[0].get('PreviousState')) == before
+        and state(rows[0].get('CurrentState')) == after)
     require(transition(started, 'stopped', 'pending') and transition(stopping, 'running', 'stopping'),
             'B2 start/stop requests differ')
     # Immediately before B2 the instance was still in the witnessed B1 stop.
@@ -322,6 +329,9 @@ def failed_capture(witness_raw, files, p, history):
     require(isinstance(summary.get('launch_time'), str) and timestamp(summary['launch_time']) == launch
             and summary.get('capture_log_sha256') == sha(files['capture.log']),
             'B2 refusal summary changed launch or capture log')
+    require(summary.get('tool_commit') == FAILED_CAPTURE_TOOL_COMMIT
+            and type(summary.get('capture_exit')) is int and summary['capture_exit'] == 1,
+            'B2 refusal summary changed tool or exit')
     lines = [line for line in files['capture.log'].decode('utf-8').splitlines() if line.strip()]
     require(lines and lines[-1] == FAILED_CAPTURE_REFUSAL
             and any(line.strip().endswith(', in live_observation') for line in lines)
@@ -496,17 +506,22 @@ B2_PYTHON_SERVICES = {
     'cloud-init': ('/usr/bin/python3', '/usr/bin/cloud-init'),
     'unattended-upgr': ('/usr/bin/python3', '/usr/bin/unattended-upgrade'),
 }
-# Option names of the documented e1814128 collector invocation on B2.
-B2_COLLECTOR_OPTIONS = {'--source', '--repo', '--out', '--reviewed-commit', '--reboot-policy',
-                        '--reboot-policy-sha256', '--recovery-evidence', '--capture-ec2'}
+# Exact whole argv only: the AWS EC2 hibernation agent (ec2-hibinit-agent), observed
+# under uid 0 in B2's real journal. B2-only; the shared SYSTEM_DAEMONS are unchanged.
+B2_PYTHON_EXACT = {
+    'hibinit-agent': ('/usr/bin/python3', '/usr/bin/hibinit-agent', '-c', '/etc/hibinit-config.cfg'),
+}
+# Native study programs outside the shared interpreter word list (B2 check only).
+B2_WORK_PROGRAMS = {'geode'}
 
 
 def failed_boot_activity(raw):
     """Classify every B2 journal entry's process with the shared B1/B2 classifier.
 
-    Only exact system daemons, the enumerated Ubuntu Python system tools, and the
-    documented `python -I -B /.../closed_capture.py --option value ...` collector
-    are excepted. _COMM, the _EXE basename and every _CMDLINE word are checked.
+    Only exact system daemons and the enumerated Ubuntu Python system tools are
+    excepted. _COMM, the _EXE basename and every _CMDLINE word are checked. There
+    is no collector exception: B2's real journal has no collector entry, and an
+    argv-only exception cannot be bound to the hash-pinned collector source.
     """
     busy = []
     for line in raw.splitlines():
@@ -527,12 +542,11 @@ def failed_boot_activity(raw):
         if (system and comm in B2_PYTHON_SERVICES and interpreter
                 and tuple(argv[:2]) == B2_PYTHON_SERVICES[comm]):
             continue
-        if (comm.startswith('python') and interpreter and len(argv) >= 4 and len(argv) % 2 == 0
-                and PurePosixPath(argv[0]).name.startswith('python') and set(argv[1:3]) == {'-I', '-B'}
-                and PurePosixPath(argv[3]).is_absolute() and PurePosixPath(argv[3]).name == 'closed_capture.py'
-                and all(argv[i] in B2_COLLECTOR_OPTIONS for i in range(4, len(argv), 2))):
+        if system and interpreter and comm in B2_PYTHON_EXACT and tuple(argv) == B2_PYTHON_EXACT[comm]:
             continue
-        if comm in SYSTEM_DAEMONS or any(work_process(word) for word in (comm, exe, *argv) if word):
+        words = [word for word in (comm, exe, *argv) if word]
+        if (comm in SYSTEM_DAEMONS or any(work_process(word) for word in words)
+                or any(PurePosixPath(word).name in B2_WORK_PROGRAMS for word in words)):
             busy.append({'comm': comm, 'exe': exe, 'cmdline': cmdline, 'uid': uid})
     return busy
 
@@ -716,7 +730,8 @@ def live_observation(p, ec2_record, identity, script):
     """Linux read-only collection; no evaluators, recovery, builds or journal writes."""
     boots = _command(['journalctl', '--list-boots', '--no-pager', '--utc'])
     # systemd 255 parses `-b` matches as plain 32-hex IDs; hyphenated UUIDs refuse.
-    journals = {boot: _command(['journalctl', '-b', boot_id(boot), '-o', 'json', '--no-pager', '--utc'])
+    # --all keeps fields over 4096 bytes (e.g. long _CMDLINE) instead of nulling them.
+    journals = {boot: _command(['journalctl', '-b', boot_id(boot), '--all', '-o', 'json', '--no-pager', '--utc'])
                 for boot in ended_boots(p)}
     machine = Path('/etc/machine-id').read_bytes()
     require(re.fullmatch(rb'[0-9a-f]{32}\n?', machine) is not None, 'malformed machine identity file')
