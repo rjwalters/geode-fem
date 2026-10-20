@@ -1,0 +1,12 @@
+{
+  "critic": "paper-audit",
+  "scorecard_kind": "human-verdict",
+  "started": "2026-10-20T06:00:00Z",
+  "finished": "2026-10-20T06:24:45Z",
+  "model": "claude-opus-5-5",
+  "schema_version": 1,
+  "audited_head": "f7e096f9a0fc056a7a22ac2918ff9bcbb6dbb452",
+  "audited_tree": "git archive f7e096f9 papers (scratch copy; worktree untouched)",
+  "sidecar": "staged via python -m anvil.lib.sidecar stage/copy/commit",
+  "network": "anonymous only: User-Agent paper-audit/1.0, no mailto, no email in any header/URL/payload (Crossref 1, arXiv 1, docs.scipy.org 2, cobyqa.com 1, 11 href HEAD/GETs); gh issue view 1185 read-only"
+}

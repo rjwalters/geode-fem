@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "issue": 1160,
+  "what": "Measured difference between GEODE TabulatedBhLaw and the reference Mat_Magnetic.m law (MATLAB pchip(B,H) + 1e-5 T clamp + 1/mu0 tail) on M27.",
+  "definitions": {
+    "H_ref": "nu_ref(B)*B, the reference residual field (nu from getNuNonlinear)",
+    "rel_dH_over_H": "|H_geode - H_ref|/H_ref",
+    "rel_dnu_over_nu": "|nu_geode - nu_ref|/nu_ref",
+    "rel_d_dHdB_vs_pchip_curve": "|dHdB_geode - pchip'(B)|/pchip'(B); 1/mu0 above 2.3 T",
+    "rel_d_dHdB_vs_reference_tangent": "|dHdB_geode - (nu_ref + B*getNuPrimeNonlinear(B))| / |.|",
+    "max": "maximum over the dump samples in the region (B > 0)"
+  },
+  "inputs": {
+    "reference_data_json_sha256": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3",
+    "geode_dump_csv_sha256": "251bb2e8ff50a60dfde0a7bcb551c3d0bbbf87b5971a37123d03157b917bdd19",
+    "geode_dump_rows": 4941,
+    "solver_commit": "59e5f5c826a0646e4f086ed9ece3d22b529acff4",
+    "law_source": "crates/geode-core/src/assembly/magnetostatic_nonlinear.rs",
+    "law_source_git_blob": "f1fcba27ffeebc1eabe270a2aab0acbc9b5e37fd",
+    "reference_source": "ICEMsnapshot material/Mat_Magnetic.m (sources.json commit)",
+    "mu0": 1.2566370614359173e-06
+  },
+  "environment": {
+    "python": "3.14.5",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1"
+  },
+  "matlab_pchip_vs_scipy": {
+    "max_abs_dH_rel_to_max_H": 2.690137660658962e-16,
+    "max_rel_dH_B_gt_0": 4.3799787022380034e-16,
+    "max_rel_slope": 6.9550628570791235e-15,
+    "endpoint_slope_first_matlab": 426.04341000000005,
+    "endpoint_slope_first_scipy": 426.04341000000005,
+    "endpoint_slope_last_matlab": 789828.5273200028,
+    "endpoint_slope_last_scipy": 789828.5273200027,
+    "interior_knot_slopes_max_rel_diff": 4.1488684839464567e-16
+  },
+  "knot_slopes": {
+    "geode_nu0_m_per_H": 397.6613271082522,
+    "reference_nu_at_B_le_1e-5_m_per_H": 426.032056043536,
+    "pchip_slope_at_B0_m_per_H": 426.04341000000005,
+    "first_secant_m_per_H": 341.19656,
+    "slope_at_B1_geode": 228.2670257834955,
+    "slope_at_B1_pchip": 228.2670257834955,
+    "slope_at_B_end_geode": 795774.7154594767,
+    "slope_at_B_end_pchip_endpoint": 789828.5273200028,
+    "slope_at_B_end_reference_left_of_join": 789828.5273200028,
+    "reference_tail_slope_1_over_mu0": 795774.7154594767,
+    "reference_slope_jump_at_B_end_rel": 0.007472200390333589,
+    "last_secant_m_per_H": 790771.5369000029,
+    "reference_self_tangent_mismatch_below_clamp_max_rel": 2.6653111216258635e-05,
+    "reference_self_tangent_mismatch_below_clamp_at_B_T": 1e-05
+  },
+  "regions": {
+    "origin_clamp": {
+      "description": "0 < B <= 1e-5 T (reference nu frozen at its 1e-5 T value)",
+      "n_samples": 37,
+      "rel_dH_over_H": {
+        "max": 0.06659294950090636,
+        "at_B_T": 1e-05
+      },
+      "rel_dnu_over_nu": {
+        "max": 0.0665929495009064,
+        "at_B_T": 1e-05
+      },
+      "rel_d_dHdB_vs_pchip_curve": {
+        "max": 0.06661776953359291,
+        "at_B_T": 1e-08
+      },
+      "rel_d_dHdB_vs_reference_tangent": {
+        "max": 0.06659291932617992,
+        "at_B_T": 1e-08
+      }
+    },
+    "first_segment": {
+      "description": "1e-5 < B <= 0.05 T (GEODE odd cubic vs pchip)",
+      "n_samples": 123,
+      "rel_dH_over_H": {
+        "max": 0.0665876894133444,
+        "at_B_T": 1.2115276586285901e-05
+      },
+      "rel_dnu_over_nu": {
+        "max": 0.06658768941334445,
+        "at_B_T": 1.2115276586285901e-05
+      },
+      "rel_d_dHdB_vs_pchip_curve": {
+        "max": 0.0665575617725363,
+        "at_B_T": 1.2115276586285901e-05
+      },
+      "rel_d_dHdB_vs_reference_tangent": {
+        "max": 0.06655756177253618,
+        "at_B_T": 1.2115276586285901e-05
+      }
+    },
+    "interior": {
+      "description": "0.05 <= B <= 2.25 T (both use the same interior slopes)",
+      "n_samples": 4401,
+      "rel_dH_over_H": {
+        "max": 4.18100136183871e-16,
+        "at_B_T": 1.3295000000000001
+      },
+      "rel_dnu_over_nu": {
+        "max": 4.172583123411395e-16,
+        "at_B_T": 1.7785
+      },
+      "rel_d_dHdB_vs_pchip_curve": {
+        "max": 5.2858477713801336e-15,
+        "at_B_T": 0.7184999999999999
+      },
+      "rel_d_dHdB_vs_reference_tangent": {
+        "max": 5.2858477713801336e-15,
+        "at_B_T": 0.7184999999999999
+      }
+    },
+    "last_segment": {
+      "description": "2.25 <= B <= 2.30 T (GEODE last-knot slope 1/mu0 vs pchip endpoint slope)",
+      "n_samples": 101,
+      "rel_dH_over_H": {
+        "max": 0.00021705942928338463,
+        "at_B_T": 2.2824999999999998
+      },
+      "rel_dnu_over_nu": {
+        "max": 0.0002170594292833828,
+        "at_B_T": 2.2824999999999998
+      },
+      "rel_d_dHdB_vs_pchip_curve": {
+        "max": 0.0075284545110698145,
+        "at_B_T": 2.3
+      },
+      "rel_d_dHdB_vs_reference_tangent": {
+        "max": 0.0075284545110698145,
+        "at_B_T": 2.3
+      }
+    },
+    "tail": {
+      "description": "2.30 < B <= 3.0 T (both: H_end + (B - B_end)/mu0)",
+      "n_samples": 280,
+      "rel_dH_over_H": {
+        "max": 2.4304842891179617e-16,
+        "at_B_T": 2.63
+      },
+      "rel_dnu_over_nu": {
+        "max": 3.1960868401901194e-16,
+        "at_B_T": 2.63
+      },
+      "rel_d_dHdB_vs_pchip_curve": {
+        "max": 0.0,
+        "at_B_T": 2.3024999999999998
+      },
+      "rel_d_dHdB_vs_reference_tangent": {
+        "max": 2.9258361585343203e-16,
+        "at_B_T": 2.3724999999999996
+      }
+    }
+  }
+}

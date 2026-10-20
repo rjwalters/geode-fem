@@ -1,0 +1,23 @@
+{
+  "render_gate": {
+    "pdf_path": "main.pdf",
+    "log_path": "main.log",
+    "pages": 10,
+    "page_cap": null,
+    "overfull_boxes": [],
+    "overfull_threshold_pt": 5.0,
+    "compile_status": "ok",
+    "compile_exit_code": 0,
+    "placeholders": [],
+    "findings": [],
+    "passed": true,
+    "reasons": [],
+    "failed_gates": [],
+    "engine_used": null,
+    "template_used": null
+  },
+  "bibliography_structure": {
+    "ok": true,
+    "issues": []
+  }
+}

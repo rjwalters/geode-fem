@@ -1,0 +1,67 @@
+\begin{thebibliography}{6}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Farshbaf~Roomi et~al.(2022)Farshbaf~Roomi, Vahedi, and
+  Nobahari]{roomi2022}
+Farnam Farshbaf~Roomi, Abolfazl Vahedi, and Amin Nobahari.
+\newblock {Electrical machines surrogate-based design optimization based on
+  novel waveform targeting strategy with improvement of the computational
+  efficiency}.
+\newblock \emph{IET Electric Power Applications}, 16\penalty0 (11):\penalty0
+  1286--1299, 2022.
+\newblock \doi{10.1049/elp2.12226}.
+\newblock URL \url{https://doi.org/10.1049/elp2.12226}.
+
+\bibitem[Kemmetm{\"u}ller et~al.(2015)Kemmetm{\"u}ller, Faustner, and
+  Kugi]{kemmetmueller2015}
+Wolfgang Kemmetm{\"u}ller, David Faustner, and Andreas Kugi.
+\newblock {Optimal torque control of permanent magnet synchronous machines
+  using magnetic equivalent circuits}.
+\newblock \emph{Mechatronics}, 32:\penalty0 22--33, 2015.
+\newblock \doi{10.1016/j.mechatronics.2015.10.007}.
+\newblock URL \url{https://doi.org/10.1016/j.mechatronics.2015.10.007}.
+
+\bibitem[Scotzniovsky et~al.(2024)Scotzniovsky, Xiang, Cheng, Rodriguez,
+  Kamensky, Mi, and Hwang]{scotzniovsky2024}
+Luca Scotzniovsky, Ru~Xiang, Zeyu Cheng, Gabriel Rodriguez, David Kamensky,
+  Chris Mi, and John~T. Hwang.
+\newblock {Geometric design of electric motors using adjoint-based shape
+  optimization}.
+\newblock \emph{Optimization and Engineering}, 26\penalty0 (1):\penalty0
+  121--158, 2024.
+\newblock \doi{10.1007/s11081-024-09892-6}.
+\newblock URL \url{https://doi.org/10.1007/s11081-024-09892-6}.
+
+\bibitem[Wen and Zahr(2023)]{wen2023}
+Tianshu Wen and Matthew~J. Zahr.
+\newblock {A globally convergent method to accelerate large-scale optimization
+  using on-the-fly model hyperreduction: Application to shape optimization}.
+\newblock \emph{Journal of Computational Physics}, 484:\penalty0 112082, 2023.
+\newblock \doi{10.1016/j.jcp.2023.112082}.
+\newblock URL \url{https://doi.org/10.1016/j.jcp.2023.112082}.
+
+\bibitem[Wiesheu et~al.(2024)Wiesheu, Komann, Merkel, Sch{\"o}ps, Ulbrich, and
+  Cortes~Garcia]{wiesheu2024spline}
+Michael Wiesheu, Theodor Komann, Melina Merkel, Sebastian Sch{\"o}ps, Stefan
+  Ulbrich, and Idoia Cortes~Garcia.
+\newblock {Spline-Based Rotor and Stator Optimization of a Permanent Magnet
+  Synchronous Motor}.
+\newblock In \emph{2024 International Conference on Electrical Machines
+  (ICEM)}, pages 1--6, 2024.
+\newblock \doi{10.1109/icem60801.2024.10700065}.
+\newblock URL \url{https://doi.org/10.1109/icem60801.2024.10700065}.
+
+\bibitem[Wiesheu et~al.(2025)Wiesheu, Komann, Merkel, Sch{\"o}ps, Ulbrich, and
+  Cortes~Garcia]{wiesheu2025combined}
+Michael Wiesheu, Theodor Komann, Melina Merkel, Sebastian Sch{\"o}ps, Stefan
+  Ulbrich, and Idoia Cortes~Garcia.
+\newblock Combined parameter and shape optimization of electric machines with
+  isogeometric analysis, 2025.
+\newblock URL \url{https://arxiv.org/abs/2311.06046v2}.
+\newblock Version 2, revised 17 March 2025; originally submitted in 2023.
+
+\end{thebibliography}

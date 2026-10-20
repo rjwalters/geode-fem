@@ -1,0 +1,57 @@
+{
+  "gate": "render_gate",
+  "pdf_path": "/Volumes/Stripe/geode-fem/motor-paper-v1/papers/motor-gradient-optimization/motor-gradient-optimization.4/main.pdf",
+  "log_path": "/Volumes/Stripe/geode-fem/motor-paper-v1/papers/motor-gradient-optimization/motor-gradient-optimization.4/main.log",
+  "pages": 17,
+  "page_cap": null,
+  "overfull_boxes": [],
+  "overfull_threshold_pt": 5.0,
+  "compile": {
+    "status": "ok",
+    "exit_code": 0
+  },
+  "placeholders": [],
+  "findings": [],
+  "pass": true,
+  "reasons": [],
+  "engine_used": null,
+  "template_used": null,
+  "bib_lint": {
+    "ok": true,
+    "issues": []
+  },
+  "artifact_verify": "PASS: 112 evidence hashes; 500 + 1140 forward solve statuses; raw means/ripple, coupling/estimator controls, sensitivity and cost tables; 704 distinct loaded FD cases (96 duplicate records identified), 592 recomputed Taylor windows, cross-model sensitivities, slotless rounding and zero-current sweeps; citations/figure assets.\nRecorded-artifact verification only; not a new FEM run or independent scientific review.\nPASS: v4 reference reruns, 60-sample reproduction, refined-model gaps, candidate objectives/current rules/angular aliasing, invalid moved mesh and L3 gradient comparisons independently reconstructed.\n",
+  "pdf_sha256": "c7b76293aa7a1b0307ef974dfd1cf57d6e93a20b20820923ca298866ebcb452a",
+  "checked_at": "2026-10-18T02:49:02.221594+00:00",
+  "independent_review": "pending",
+  "source_provenance": "112 snapshots byte-identical to source Git blobs; three original v3 review/audit reports byte-identical to handoff files.",
+  "numeric_consistency": {
+    "status": "one manually adjudicated false positive",
+    "finding": "0.27% higher incorrectly paired with the earlier cogging refinement 0.01071 to 0.01220",
+    "resolution": "Claim compares GEODE full-current std with the finest full-current reference; verify.py independently recomputes it from raw arrays."
+  },
+  "deterministic_regeneration": "22 generated figures/tables/statistics reproduce byte-identically.",
+  "visual_check": {
+    "pages_inspected": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17
+    ],
+    "figures": 6,
+    "result": "Author inspected all pages at overview resolution and all six figure assets; rechecked changed layouts. Corrected geometry label, sensitivity annotation/legend, cost legend and figure/table float gaps. Fresh independent visual review remains pending."
+  }
+}

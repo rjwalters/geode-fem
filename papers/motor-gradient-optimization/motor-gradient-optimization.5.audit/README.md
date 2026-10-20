@@ -1,0 +1,1 @@
+Original independent audit reports, archived verbatim from Claude’s handoff. Reviewed head: `76d78e1f373b20d0c9c7920582b5a0ddd71082c2`. FAIL: two numerical/text critical flags. This is the original v5 verdict, not approval of v6.

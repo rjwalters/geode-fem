@@ -1,0 +1,59 @@
+{
+  "scope": "Synthetic presentation checks only; no main-study outcomes or final manuscript approval.",
+  "producer_interface_commit": "c0dae78da625cac4bc9ea1af56d06f01408a2ecc",
+  "producer_interface_equivalence": {
+    "previous_commit": "19cc493ed9992885cefcc3192657255ef1eeddc2",
+    "unchanged_files": [
+      "benchmarks/motor_optimization/final_refinement/study_selection.py",
+      "benchmarks/motor_optimization/final_refinement/selection.py"
+    ],
+    "scope": "Exact Git blob equality; producer independently approved and merged as 50a637bfe01605e68870cd39b5905dd24e66ad35. Presentation review remains pending."
+  },
+  "stdlib_test_command": "uv run --with numpy==2.5.4 --with matplotlib==3.11.2 python -I -m unittest discover -s papers/motor-gradient-optimization/refs/main-study-figures -p test_*.py",
+  "synthetic_render": {
+    "runs": 100,
+    "target_cells": 300,
+    "timing_repeat_figures": 2,
+    "matplotlib": "3.11.2",
+    "numpy": "2.5.4",
+    "synthetic_selection_sha256": "214f17ccb1f36637fa0ed25e5c7e9745d93b9111e6d2646fd81e0badf9fcde0e",
+    "both_pngs_visually_inspected": true
+  },
+  "existing_pipeline_synthetic_selection": {
+    "sha256": "8320d22dc143e0d1099dbf43708ef863fe71aedfb6b51068fa92a50ecc39f778",
+    "runs": 100,
+    "target_cells": 300,
+    "unit_seconds": 70.935572288,
+    "scope": "Schema compatibility with retained synthetic public selection, not actual main evidence."
+  },
+  "files_sha256": {
+    "prepare.py": "5d77d4aabf249cc5924669ba937f98cf4d4e573d1d96a25c9820921a09bda867",
+    "render.py": "93b9affef19ebee5ab245e4d8be6ae364f0db065d33b47976f34b56fdf0bc0f8",
+    "test_prepare.py": "5b6348e3a9aedad54fd57049086b99933411a47bd1e48b7ed6bcdb96d1ca9db3",
+    "test_render.py": "adac72c566e1c65f4dbe39534258c88ebead3015e01abb5f10e02a1075d19fbb",
+    "synthetic-layout.png": "d5d7f3d058631af70484e5316c279428c52baa93e84d71d0b39599a46b15102a"
+  },
+  "remaining": [
+    "Independent presentation review",
+    "Run on completed authenticated main selection",
+    "Final-refinement analysis alongside these histories",
+    "Real-data visual inspection at final manuscript size",
+    "Separate end-to-end costs and scoped CPU/RSS analysis"
+  ],
+  "tests_passed": 19,
+  "review49_corrections": [
+    "Retain unavailable-validation events/counts and distinguish missing curve states",
+    "Strict boolean eligibility",
+    "Actual rendered repeat/method series tests",
+    "Isolated ledger/unit, chronology, after-stop and nonunit-F0 tests",
+    "Automatic synthetic watermark",
+    "Explicit checkpoint_reached flags for carry-forward values",
+    "Checkpoint comparison in seconds",
+    "Distinct method colors, target labels outside axes, missing labels away from ticks"
+  ],
+  "mutation_checks": {
+    "injected": 11,
+    "caught": 11,
+    "scope": "Author regression check of all review47 mutations, including five previously surviving; not independent review."
+  }
+}

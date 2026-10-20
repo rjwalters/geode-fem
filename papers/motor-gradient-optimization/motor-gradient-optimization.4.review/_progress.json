@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "thread": "motor-gradient-optimization",
+  "phases": {
+    "review": {
+      "state": "done",
+      "completed": "2026-10-18T03:32:32.388627+00:00"
+    }
+  },
+  "metadata": {
+    "source_head": "fea6ba5b5243f5513b8804bfcdc2117d6cf2ced9",
+    "reports_archived_verbatim": true
+  }
+}

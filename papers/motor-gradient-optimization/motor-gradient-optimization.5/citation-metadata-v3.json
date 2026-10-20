@@ -1,0 +1,83 @@
+{
+  "10.1109/20.123869": {
+    "key": null,
+    "entry_type": "article",
+    "authors": [
+      "Howe, D.",
+      "Zhu, Z.Q."
+    ],
+    "title": "The influence of finite element discretisation on the prediction of cogging torque in permanent magnet excited motors",
+    "year": 1992,
+    "journal": "IEEE Transactions on Magnetics",
+    "volume": "28",
+    "issue": "2",
+    "pages": "1080-1083",
+    "doi": "10.1109/20.123869",
+    "eprint": null,
+    "eprinttype": null,
+    "url": "https://doi.org/10.1109/20.123869"
+  },
+  "10.1109/TEC.2021.3061271": {
+    "key": null,
+    "entry_type": "article",
+    "authors": [
+      "Merkel, Melina",
+      "Gangl, Peter",
+      "Schops, Sebastian"
+    ],
+    "title": "Shape Optimization of Rotating Electric Machines Using Isogeometric Analysis",
+    "year": 2021,
+    "journal": "IEEE Transactions on Energy Conversion",
+    "volume": "36",
+    "issue": "4",
+    "pages": "2683-2690",
+    "doi": "10.1109/tec.2021.3061271",
+    "eprint": null,
+    "eprinttype": null,
+    "url": "https://doi.org/10.1109/tec.2021.3061271"
+  },
+  "10.1007/s11081-024-09925-0": {
+    "key": null,
+    "entry_type": "article",
+    "authors": [
+      "Wiesheu, Michael",
+      "Komann, Theodor",
+      "Merkel, Melina",
+      "Sch\u00f6ps, Sebastian",
+      "Ulbrich, Stefan",
+      "Cortes Garcia, Idoia"
+    ],
+    "title": "Combined parameter and shape optimization of electric machines with isogeometric analysis",
+    "year": 2025,
+    "journal": "Optimization and Engineering",
+    "volume": "26",
+    "issue": "2",
+    "pages": "1011-1038",
+    "doi": "10.1007/s11081-024-09925-0",
+    "eprint": null,
+    "eprinttype": null,
+    "url": "https://doi.org/10.1007/s11081-024-09925-0"
+  },
+  "10.1007/s11081-024-09947-8": {
+    "key": null,
+    "entry_type": "article",
+    "authors": [
+      "Wiesheu, Michael",
+      "Komann, Theodor",
+      "Merkel, Melina",
+      "Sch\u00f6ps, Sebastian",
+      "Ulbrich, Stefan",
+      "Cortes Garcia, Idoia"
+    ],
+    "title": "Correction: Combined parameter and shape optimization of electric machines with isogeometric analysis",
+    "year": 2025,
+    "journal": "Optimization and Engineering",
+    "volume": "26",
+    "issue": "2",
+    "pages": "1039-1040",
+    "doi": "10.1007/s11081-024-09947-8",
+    "eprint": null,
+    "eprinttype": null,
+    "url": "https://doi.org/10.1007/s11081-024-09947-8"
+  }
+}
