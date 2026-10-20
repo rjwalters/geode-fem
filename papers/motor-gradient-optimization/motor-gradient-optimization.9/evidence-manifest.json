@@ -1,0 +1,701 @@
+{
+  "upstream_commit": "b145aaf4ab1a6424828bc941eaf172f48fa0d458",
+  "files": [
+    {
+      "source": "benchmarks/motor_reference/reference_data.json",
+      "snapshot": "figures/src/data/reference_data.json",
+      "sha256": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/summary.json",
+      "snapshot": "figures/src/data/summary.json",
+      "sha256": "774fc9ce84ea238ae550a8a5e16d4a5fbe315b62b0cc0b66af91f69291448b84",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh",
+      "snapshot": "figures/src/data/icem_initial_sector_L0.msh",
+      "sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_nonlinear_m1/README.md",
+      "snapshot": "figures/src/data/README.md",
+      "sha256": "34b4d626d08117b49e80394201914589b9b83ff11b3ea5d4061fd8b0fe8cf247",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_nonlinear_m1/m1_tables.log",
+      "snapshot": "figures/src/data/m1_tables.log",
+      "sha256": "ccc86e29142f0a809c8fecc022ec15772d6047d86c48dc9da3f41953ee0d07a3",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_nonlinear_m1/pchip_compare.json",
+      "snapshot": "figures/src/data/pchip_compare.json",
+      "sha256": "e6b37555d930635d9dddb48119db26368963f6683115201e6b4d1cc7451e6e4e",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_optimization_screen/slotless_screen.json",
+      "snapshot": "figures/src/data/slotless_screen.json",
+      "sha256": "6f417be6e7ab1e259ff8f6360b4697dd44d3444cc6515ceeceac8c9ceadf0a30",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_reference/UPSTREAM_LICENSE.txt",
+      "snapshot": "figures/src/data/UPSTREAM_LICENSE.txt",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L2_table_default_exact.json",
+      "snapshot": "figures/src/data/L2_table_default_exact.json",
+      "sha256": "9bb4763c54fb98e70b6dd041c1a0bd609d9364982fbc0b9dbba545eec7d3c9dc",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L3_table_default_mesh.json",
+      "snapshot": "figures/src/data/L3_table_default_mesh.json",
+      "sha256": "badbdd84493a4b6551594b6e12eab8d3074bc722f79a55f0a3924944e62ec25f",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L2_clamp426_default_mesh.json",
+      "snapshot": "figures/src/data/L2_clamp426_default_mesh.json",
+      "sha256": "d9da0b05954e61ef17c76c29791ac5d08168e0083e7ece798431e60e1fc8af07",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L2_table_tight_mesh.json",
+      "snapshot": "figures/src/data/L2_table_tight_mesh.json",
+      "sha256": "f385f71720b6d6888d7983b970a7e66b4fdcdd3f8bb57047b65388fcb1fadbd4",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L0_table_default_mesh.json",
+      "snapshot": "figures/src/data/L0_table_default_mesh.json",
+      "sha256": "e5bd1aa84c5f21726f810209d4e948810ae06c08b121f020d3dce3ee26a1e2db",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L3_clamp426_default_mesh.json",
+      "snapshot": "figures/src/data/L3_clamp426_default_mesh.json",
+      "sha256": "32a92d87a767699a64f77436a7a454356607d820d02bc4a316b64a643f1bfd6a",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L2_table_default_mesh.json",
+      "snapshot": "figures/src/data/L2_table_default_mesh.json",
+      "sha256": "ef172728055e2474be27bd86a21f6d717b3e8546ce842f88c68423013ec1300b",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L3_table_tight_mesh.json",
+      "snapshot": "figures/src/data/L3_table_tight_mesh.json",
+      "sha256": "0982893ccb9e5ab3e56811931fa1555f99476917371b8ba54b2a1499be8eac8b",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L1_table_default_mesh.json",
+      "snapshot": "figures/src/data/L1_table_default_mesh.json",
+      "sha256": "77b9939baf4f9e6dab91d6b9be2f45481cd47f6b2a852ee983a8bc62e2c832ac",
+      "source_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L0_h45.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L0_h45.json",
+      "sha256": "678743f7d54e23c3ca510fc42be73e7feca1a54b969fded4eab9ebf901fb78ad"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L0_h45f.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L0_h45f.json",
+      "sha256": "6a8133e8ae547ae8d087cc7eaf8dcd56ac224b6ce214c214047c3af4519f1ecb"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L0_hall.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L0_hall.json",
+      "sha256": "6ada27dd174865c52117d0668ab90f5f60805f279528a528ae9c7b84dee01e22"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L1_h189.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L1_h189.json",
+      "sha256": "b04f99d7be65d3a151aeffae9624bf81a6ad0509032dfa348cc0b3dce01ceee7"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L1_h21.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L1_h21.json",
+      "sha256": "a530aea34327304e08798427f94fd9f72f698d2cf6acc53df57b197943100dbb"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L1_h381.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L1_h381.json",
+      "sha256": "827e5e07e3ecd5f1011cf8bf699094fa65078fc8def0688dbf8575f3d7538f17"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L1_h45.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L1_h45.json",
+      "sha256": "fe80fa59b05f316a87dfd84fd39384d5eb2bc674a7f13c4cc8c3645232be342b"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L1_h45f.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L1_h45f.json",
+      "sha256": "69a22a8c81af60babd7a6733555766d09d11e0139308ed726dff8035babd6d7f"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L1_h93.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L1_h93.json",
+      "sha256": "1eebdb0fb1730ec60f2f0c41fe7e07d921fe307c7e39f88a32c88eaaaada12ba"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L1_hall.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L1_hall.json",
+      "sha256": "c2280da451fc9e7a6d6612a10b10580faa927a02b382791d09024bee4a3b01cc"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L2_h189.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L2_h189.json",
+      "sha256": "abffeeb51e3dad34ecfce79c0539daedda76ea593e76e298371567fa61272627"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L2_h21.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L2_h21.json",
+      "sha256": "35009cc669fe1543537f1a2ea84d6c5c7c87ce1a9efb40e3e9e2b89a5ce70014"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L2_h381.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L2_h381.json",
+      "sha256": "9716c9e3c4401556b7db5b986e40aa758f99842e55619aa51c3602808e93beb2"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L2_h45.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L2_h45.json",
+      "sha256": "f9a7a204ac2fb355b8aebb27e580f837d8dccd4663332f1eee0604a6eabdceab"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L2_h45f.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L2_h45f.json",
+      "sha256": "ff0a12d79bc5246f98874ac4bea6d0b330b08f05bdbb93542e8698ceb65a23d6"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L2_h93.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L2_h93.json",
+      "sha256": "6d1e99837c8c5a3c9a3aaef94a56afe31ed4ee9ca46f65c46541331c9cac4ba3"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L3_h45.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L3_h45.json",
+      "sha256": "5eae0a3adb49afbc967e46ea2af54000be3cf1ca12d34b7ccc18cf9db701208d"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L3_h45f.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L3_h45f.json",
+      "sha256": "f33a90cc7eb82acb89529f5e69111e4352470671133f57a2d36b0f965d41a57a"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/runs/L3_h93.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/runs/L3_h93.json",
+      "sha256": "8da8fe19c4d9a6df56e76b3fc57185df9dfdb13744bdb010a2414ea3dda3a896"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/summary.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/summary.json",
+      "sha256": "180af838e39041ef9f361e38e4c5227d6423979411e23b7a0a6d08e46d111d43"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward_harmonic/README.md",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/harmonic/README.md",
+      "sha256": "2407a5669b14e0f2fc65484d3e4b62fa6da09c3ff3608af58f8730dea27af9ca"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/cost_L0_conforming_tol1e-14.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/cost_L0_conforming_tol1e-14.json",
+      "sha256": "b8f0cef3ca7067669ad439b145cf03f39a4fad7302048702e42e985152c7d787"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/cost_L0_conforming_tol1e-8.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/cost_L0_conforming_tol1e-8.json",
+      "sha256": "e1d891daec4988b437f7ef7285c6efe60361be3e95fe511eca81887b9b58c3c7"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/cost_L0_h45_tol1e-14.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/cost_L0_h45_tol1e-14.json",
+      "sha256": "8f4c1f2fccce9d1701a5e621fd029acfcac598799c998c0294fa745191884642"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/cost_L0_h45_tol1e-8.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/cost_L0_h45_tol1e-8.json",
+      "sha256": "cc016f1554402b106f7a19f229d3c287201cc6d69a367a2aa3dc4174125558df"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/cost_L1_conforming_tol1e-14.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/cost_L1_conforming_tol1e-14.json",
+      "sha256": "363c87b97205de9af7cc1b1cf04b0ec3b7f8b5051d4db1d8fe716a3a3d606a94"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/cost_L1_conforming_tol1e-8.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/cost_L1_conforming_tol1e-8.json",
+      "sha256": "ef2df7e8ec4bfa38453e7b6df174388d4db6cc8921ac360d77c70448b656cfdb"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/cost_L1_h45_tol1e-14.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/cost_L1_h45_tol1e-14.json",
+      "sha256": "e29706c7245f37b3efa7b721457e6266aba91a93a28bad38b8e09ab8aefe4738"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/cost_L1_h45_tol1e-8.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/cost_L1_h45_tol1e-8.json",
+      "sha256": "eecaaeee073e0b317fe36b69c2c72381030934fa85856540758c032c5a8df15d"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/cost_L2_conforming_tol1e-14.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/cost_L2_conforming_tol1e-14.json",
+      "sha256": "ee8fc7cdda306ed1b7b2e8090bd438eac8f6a695c01e8242d2728c4adce37ef4"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/cost_L2_conforming_tol1e-8.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/cost_L2_conforming_tol1e-8.json",
+      "sha256": "a5c89b87b9553ec1693fcfa8b121b52a89b39ef5cb3cd6dbb2d01371c3b0396c"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/cost_L2_h45_tol1e-14.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/cost_L2_h45_tol1e-14.json",
+      "sha256": "5a3003e2bdcfd590e384f32174d5e39f9f2631857ad2e617c0e2e0261f3d1e7c"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/cost_L2_h45_tol1e-8.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/cost_L2_h45_tol1e-8.json",
+      "sha256": "90b4354b23c1169a5fab95763c9c8cbc6b96b43106e855e1a5edf7a14ef21cb9"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/gradient_L3_conforming_initial.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/gradient_L3_conforming_initial.json",
+      "sha256": "8fa7086f9291b9ca89581ef046bc6b1b47bf5437d638bed872d813d90ad503e2"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/gradient_L3_conforming_perturbed.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/gradient_L3_conforming_perturbed.json",
+      "sha256": "b7d259224efc39903f7a37c7903c496698494184b1c5e23d33b11892d023e5e5"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/gradient_L3_h45_initial.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/gradient_L3_h45_initial.json",
+      "sha256": "4c8ed8a9dd83cc3da7a6e31f099de2144aa193f0de2d1477e7a08815e5033408"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/gradient_L3_h45_perturbed.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/gradient_L3_h45_perturbed.json",
+      "sha256": "94d5bea2d0bbbbf72c5d7531b15f9c31c90060b6664bc30a7e35352f6677388b"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/remesh_L0_h45.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/remesh_L0_h45.json",
+      "sha256": "e4b239c04d5aa8e752f56c250df4ecd832d4b9794786f8e64e4c58e408884e4b"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/remesh_L1_h45.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/remesh_L1_h45.json",
+      "sha256": "8007e91ff7d1f661b6b32d944bac6f3296e3bf5f851260fee692b65979dd9c21"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/remesh_L2_h45.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/remesh_L2_h45.json",
+      "sha256": "0eef9aa015b0d122991221427892dd0075edd250952dcb312dbd5bb8a17183e5"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/remesh_meshes_L0.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/remesh_meshes_L0.json",
+      "sha256": "39255024b922a2a63d098c669d4aeea65785f8b31a56b68b7769500e8a55c19e"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/remesh_meshes_L1.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/remesh_meshes_L1.json",
+      "sha256": "b61cfa10c83a0811ebe123d47a1a479db7131ee551d2cbbc5f596f81deb9f28c"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/remesh_meshes_L2.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/remesh_meshes_L2.json",
+      "sha256": "b87e56fa42d7c38d5fc4432a34e694e1b2ec47bfb7b18fe42f35b2c64b1cbd5a"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/study_L0_conforming_initial.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/study_L0_conforming_initial.json",
+      "sha256": "40630eb16e82ee92d45c5e6b2a81b3403c314cfdb45c6182768b80592c1431f1"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/study_L0_conforming_perturbed.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/study_L0_conforming_perturbed.json",
+      "sha256": "0b6240cc62d0ac89f335d87a347b4f0d454881439d09f9b5ed894b022ff30408"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/study_L0_h45_initial.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/study_L0_h45_initial.json",
+      "sha256": "fb130d3cd639db5e4435e011777d46b2c86651472175c2a5658a78b83bac3559"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/study_L0_h45_perturbed.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/study_L0_h45_perturbed.json",
+      "sha256": "17d8f9483dda859cc43d269f6d7a0dab389bce2e7b5f5363132ce78e6cce025c"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/study_L1_conforming_initial.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/study_L1_conforming_initial.json",
+      "sha256": "3a264ffb9a5f3bbc86e2a21930818227933dcec137cddb606f052e2eb8712779"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/study_L1_conforming_perturbed.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/study_L1_conforming_perturbed.json",
+      "sha256": "d8600bc039876ee4ecec945ff4ccd05de4410c3b63ad4849edd2423f91a801dd"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/study_L1_h45_initial.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/study_L1_h45_initial.json",
+      "sha256": "c9044b77b558ec5f7acfa01d6cb4d9bca4316771fa88051f05d57fdd3135b58e"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/study_L1_h45_perturbed.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/study_L1_h45_perturbed.json",
+      "sha256": "36613e511f5d59d04616c278f86b015a7e56d1624a66a00a1e80220badd84db0"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/study_L2_conforming_initial.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/study_L2_conforming_initial.json",
+      "sha256": "e8191219603e547e40a65b37d4662424d8d4304e7a2a9c586d77991ed006be06"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/study_L2_conforming_perturbed.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/study_L2_conforming_perturbed.json",
+      "sha256": "a1d7a68240809a9de45cdbaa3fffd2f1efd1568cec9d8c7296bbecd0545cf87c"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/study_L2_h45_initial.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/study_L2_h45_initial.json",
+      "sha256": "87bd6e89ea8ee95d10e316d94766c276b96e1c93bfca0ef172f3d38904214b53"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/runs/study_L2_h45_perturbed.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/runs/study_L2_h45_perturbed.json",
+      "sha256": "5cb774377af6247ce48b3a5049b0301bb4a868a7ce2e7dd5b2007f2bc7557648"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/README.md",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/README.md",
+      "sha256": "c521c36906d1b5ef07ffd6ab1ac0ea5f0ca759347faaf8e71fcb27032dc7fea7"
+    },
+    {
+      "source": "benchmarks/motor_shape_gradient/design/summary.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/gradient/summary.json",
+      "sha256": "87328c6f19d14a8bbba36578d0c1e2e5ac34323da8b642512efbfdb989d4e45a"
+    },
+    {
+      "source": "benchmarks/motor_reference/parametric/summary.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/parametric/summary.json",
+      "sha256": "75dacbfa151c7d7e8201caf6a1bef7549a6a6b4f47c4c4a7e04b53a1d89ca6f9"
+    },
+    {
+      "source": "benchmarks/motor_reference/parametric/README.md",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/parametric/README.md",
+      "sha256": "ed83985e8ee5fd280733a6c9e203545920773ef7e060afd487d099e88d790261"
+    },
+    {
+      "source": "benchmarks/motor_reference/parametric/runs/opt120_L3_h45.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/parametric/runs/opt120_L3_h45.json",
+      "sha256": "7b7961d6385ca7ac85ecc1efec421cc84a229a9a34bfbac0c7ed74f5b0923f65"
+    },
+    {
+      "source": "benchmarks/motor_reference/parametric/runs/opt120scalar_L3_h45.json",
+      "source_commit": "910593bad6f64f9f01671c2632b57034e72b9c61",
+      "snapshot": "figures/src/data/parametric/runs/opt120scalar_L3_h45.json",
+      "sha256": "2695689b54c1c880f43fe7effb04ad5f22673a7065a8ae9dd66c2054aabf942f"
+    },
+    {
+      "source_commit": "8acd21ecf85d89fe077275a3c04ca70b53963d43",
+      "snapshot": "figures/src/data/reference_refinement/README.md",
+      "sha256": "f846dac9f5824600b2f8ff40c084262d0d7d8378c75e6a4d49ec9daeda93abe2",
+      "source": "benchmarks/motor_reference/reference_refinement/README.md"
+    },
+    {
+      "source_commit": "8acd21ecf85d89fe077275a3c04ca70b53963d43",
+      "snapshot": "figures/src/data/reference_refinement/prepare_octave_tree.py",
+      "sha256": "b6a9c1f046213bae6ff637b3c2bbd320fdb51b59a94c14caec92912102774d10",
+      "source": "benchmarks/motor_reference/reference_refinement/prepare_octave_tree.py"
+    },
+    {
+      "source_commit": "8acd21ecf85d89fe077275a3c04ca70b53963d43",
+      "snapshot": "figures/src/data/reference_refinement/runs/s12_c1.json",
+      "sha256": "70a7bf73a09b09cf8754a2021e4daf4cd326e25e808b65815706e0fe813785c7",
+      "source": "benchmarks/motor_reference/reference_refinement/runs/s12_c1.json"
+    },
+    {
+      "source_commit": "8acd21ecf85d89fe077275a3c04ca70b53963d43",
+      "snapshot": "figures/src/data/reference_refinement/runs/s12_c1_t14.json",
+      "sha256": "0884381518dec54625087c2a8c41cb6c50a4383bd16244a2be90924b9bc56b6b",
+      "source": "benchmarks/motor_reference/reference_refinement/runs/s12_c1_t14.json"
+    },
+    {
+      "source_commit": "8acd21ecf85d89fe077275a3c04ca70b53963d43",
+      "snapshot": "figures/src/data/reference_refinement/runs/s12_c2.json",
+      "sha256": "b79b04dd9de595bb6e0c2f8fc3f432c919679e39b719280a9271dc483f3638a9",
+      "source": "benchmarks/motor_reference/reference_refinement/runs/s12_c2.json"
+    },
+    {
+      "source_commit": "8acd21ecf85d89fe077275a3c04ca70b53963d43",
+      "snapshot": "figures/src/data/reference_refinement/runs/s12_c3.json",
+      "sha256": "8ce1878288341f493c1df6b95aba89d5b86348eb04b694852df474eb80fccac9",
+      "source": "benchmarks/motor_reference/reference_refinement/runs/s12_c3.json"
+    },
+    {
+      "source_commit": "8acd21ecf85d89fe077275a3c04ca70b53963d43",
+      "snapshot": "figures/src/data/reference_refinement/runs/s24_c1.json",
+      "sha256": "947efb415dd6cc9da9e1eeb873edd9d69eba20c3fc0005eb741f5375ebdfc70b",
+      "source": "benchmarks/motor_reference/reference_refinement/runs/s24_c1.json"
+    },
+    {
+      "source_commit": "8acd21ecf85d89fe077275a3c04ca70b53963d43",
+      "snapshot": "figures/src/data/reference_refinement/runs/s24_c2.json",
+      "sha256": "87427786c8678fe49dc92800898cad081035ac1aabe87068f788db237cd1ca74",
+      "source": "benchmarks/motor_reference/reference_refinement/runs/s24_c2.json"
+    },
+    {
+      "source_commit": "8acd21ecf85d89fe077275a3c04ca70b53963d43",
+      "snapshot": "figures/src/data/reference_refinement/runs/s24_c3.json",
+      "sha256": "fa557d4abed8e70f5ea45051e7a7084fe837ef0876499f3d2730e5e4edf04208",
+      "source": "benchmarks/motor_reference/reference_refinement/runs/s24_c3.json"
+    },
+    {
+      "source_commit": "8acd21ecf85d89fe077275a3c04ca70b53963d43",
+      "snapshot": "figures/src/data/reference_refinement/runs/s3_c123.json",
+      "sha256": "9b711963e1bd36fd94163607a7a58c059c6a737fdb2eba01c5a7b39d7de0fa1c",
+      "source": "benchmarks/motor_reference/reference_refinement/runs/s3_c123.json"
+    },
+    {
+      "source_commit": "8acd21ecf85d89fe077275a3c04ca70b53963d43",
+      "snapshot": "figures/src/data/reference_refinement/runs/s3_c1_t14.json",
+      "sha256": "697ba5a3f8cc3db5c219e90f38d818efe26c2c0622d7b05cd8be6db33654f765",
+      "source": "benchmarks/motor_reference/reference_refinement/runs/s3_c1_t14.json"
+    },
+    {
+      "source_commit": "8acd21ecf85d89fe077275a3c04ca70b53963d43",
+      "snapshot": "figures/src/data/reference_refinement/runs/s6_c123.json",
+      "sha256": "9c96905ec450894dfd019165a685deeaf2ac54a9f98f1a45af8506aa43d03eef",
+      "source": "benchmarks/motor_reference/reference_refinement/runs/s6_c123.json"
+    },
+    {
+      "source_commit": "8acd21ecf85d89fe077275a3c04ca70b53963d43",
+      "snapshot": "figures/src/data/reference_refinement/runs/s6_c1_t14.json",
+      "sha256": "04173cc4a22a01d4da0b321cf32776f48ea50fd6b44d61fd89e26aa66c745ffb",
+      "source": "benchmarks/motor_reference/reference_refinement/runs/s6_c1_t14.json"
+    },
+    {
+      "source_commit": "8acd21ecf85d89fe077275a3c04ca70b53963d43",
+      "snapshot": "figures/src/data/reference_refinement/summary.json",
+      "sha256": "5ca3c8b8ff61fca62b8f972ae3b09cab392989d92c39dc788c9a610c7e6fd537",
+      "source": "benchmarks/motor_reference/reference_refinement/summary.json"
+    },
+    {
+      "source_commit": "8acd21ecf85d89fe077275a3c04ca70b53963d43",
+      "snapshot": "figures/src/data/reference_refinement/tables.md",
+      "sha256": "d6b62d1d8cb55003181fa651fd39ed67724994b438511ee1a00bf1234637ff2a",
+      "source": "benchmarks/motor_reference/reference_refinement/tables.md"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/runs/initial_nurbs_L2_h45_fixed.json",
+      "sha256": "9faad6a51112b67e481066afb954661bb84d9c35c27a971784016403ab6524a5",
+      "source": "benchmarks/motor_validation/runs/initial_nurbs_L2_h45_fixed.json"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/runs/opt120_export_L2_h45_fixed.json",
+      "sha256": "486bfefa97f327ec5c15627f341f418125123fa0a8c42e7bb895e0d2601b1aa5",
+      "source": "benchmarks/motor_validation/runs/opt120_export_L2_h45_fixed.json"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/runs/initial_nurbs_L3_h45_fixed.json",
+      "sha256": "3b0b61c24f3b634335eb29522e64ecf9386d8eeccd2ba4766a3d1caa6d5b30d5",
+      "source": "benchmarks/motor_validation/runs/initial_nurbs_L3_h45_fixed.json"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/runs/opt120_export_L3_h45_fixed.json",
+      "sha256": "a53e6e853b0c51181eb035c06ea7dd6e6897b2cb08dcefab7c0839dae4577631",
+      "source": "benchmarks/motor_validation/runs/opt120_export_L3_h45_fixed.json"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/runs/initial_nurbs_L2_h93_fixed.json",
+      "sha256": "299f566a95b5aa0d9a732c652a5a2049346afc5ba92950d3b5d82b3ff11315b7",
+      "source": "benchmarks/motor_validation/runs/initial_nurbs_L2_h93_fixed.json"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/runs/opt120_export_L2_h93_fixed.json",
+      "sha256": "45eca5ac4274eb297b4f31e8894f474efc98f0baaaf858cef0db3b0bef93ed05",
+      "source": "benchmarks/motor_validation/runs/opt120_export_L2_h93_fixed.json"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/runs/initial_nurbs_L3_h93_fixed.json",
+      "sha256": "6c47c31d3d1f04d0b7ba7700340d9dcff7bdca6b27dab0768b99ce475ba00b7e",
+      "source": "benchmarks/motor_validation/runs/initial_nurbs_L3_h93_fixed.json"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/runs/opt120_export_L3_h93_fixed.json",
+      "sha256": "f3d6f245f2e0fc8553b819c95cbad0efbeb6c1330c8b368f619e848727c0f1c9",
+      "source": "benchmarks/motor_validation/runs/opt120_export_L3_h93_fixed.json"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/runs/initial_nurbs_L2_conforming_fixed.json",
+      "sha256": "1f012f4892d1b53e3c04b02caa6213443d17f9276decccc9da40a2128fb3b8d7",
+      "source": "benchmarks/motor_validation/runs/initial_nurbs_L2_conforming_fixed.json"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/runs/opt120_export_L2_conforming_fixed.json",
+      "sha256": "74797a5e92cce011eaf0e4a2f2fe27aace9d0a6842172bb95eb4835e5c4a7228",
+      "source": "benchmarks/motor_validation/runs/opt120_export_L2_conforming_fixed.json"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/runs/initial_nurbs_L3_conforming_fixed.json",
+      "sha256": "0a432a520b987aa25dc926b5dc2a4792122b3cc3db871f3e023680a62807679c",
+      "source": "benchmarks/motor_validation/runs/initial_nurbs_L3_conforming_fixed.json"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/runs/opt120_export_L3_conforming_fixed.json",
+      "sha256": "e29767bca1d482e1ec7689c6fd155303e4c0b2bee73982b8c9fe5a65fb54adcf",
+      "source": "benchmarks/motor_validation/runs/opt120_export_L3_conforming_fixed.json"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/runs/opt120_export_L3_h45_fixed-physical.json",
+      "sha256": "97e873c613919b909fd3011f77c8e699190b0a29f71c368a5d3c116987ae149d",
+      "source": "benchmarks/motor_validation/runs/opt120_export_L3_h45_fixed-physical.json"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/runs/opt120_export_L3_h45_jinit.json",
+      "sha256": "90eb0a97ed33c00d280a3c07a9d479114fda7ab76278da2416f4840e12387962",
+      "source": "benchmarks/motor_validation/runs/opt120_export_L3_h45_jinit.json"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/runs/opt120_export_L3_h45_reference.json",
+      "sha256": "55f9822206cb81c53c20492334b8406de4a35b2863f61960bc687f98a8e2621f",
+      "source": "benchmarks/motor_validation/runs/opt120_export_L3_h45_reference.json"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/README.md",
+      "sha256": "02bb98441d71a9791a1fe7358ee47236a7bf374fe3f4d948648ebaa263249945",
+      "source": "benchmarks/motor_validation/README.md"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/summary.json",
+      "sha256": "b3a5d3ad97c2624ed08e19a214a231fc1a06629d2671e3b9e314423ef3eb821d",
+      "source": "benchmarks/motor_validation/summary.json"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/analyze.py",
+      "sha256": "8c6447d26a93b4983ba8de435d9cd22d76d03da4ac1147115dfa809340454a12",
+      "source": "benchmarks/motor_validation/analyze.py"
+    },
+    {
+      "source_commit": "224332c526be1191183af82b610973c7778de720",
+      "snapshot": "figures/src/data/validation/runs/opt120_moved_L3_h45_fixed.json",
+      "sha256": "a4a74d6d9730f158ba7c8e26cb2f361d5ba0c8662db049eed5cc0934598769a4",
+      "source": "benchmarks/motor_validation/runs/opt120_moved_L3_h45_fixed.json"
+    },
+    {
+      "source": "benchmarks/motor_validation/runs/opt120_export_L1_h45_fixed.json",
+      "snapshot": "figures/src/data/validation/runs/opt120_export_L1_h45_fixed.json",
+      "sha256": "df6b189332b8e92c398b56f2029287bf605210c2fe5037545c3aa8c03508b9a1",
+      "source_commit": "224332c526be1191183af82b610973c7778de720"
+    },
+    {
+      "source": "benchmarks/motor_validation/runs/opt120_construction_L2_h45_fixed.json",
+      "snapshot": "figures/src/data/validation/runs/opt120_construction_L2_h45_fixed.json",
+      "sha256": "03477e051c29aa86b4eb284e30ba21b108f3cd2325b1619b1dcfa2dbd3431e62",
+      "source_commit": "224332c526be1191183af82b610973c7778de720"
+    },
+    {
+      "source": "benchmarks/motor_validation/runs/opt120_construction_L3_h45_fixed.json",
+      "snapshot": "figures/src/data/validation/runs/opt120_construction_L3_h45_fixed.json",
+      "sha256": "3252683b3eaf60b161f6faf8e526610e6a15fe6e08159cffdd8e496d4ed83d03",
+      "source_commit": "224332c526be1191183af82b610973c7778de720"
+    }
+  ],
+  "evidence_commits": [
+    "224332c526be1191183af82b610973c7778de720",
+    "581ee7ad40c9646f43e0d6df3de7b5a87d06f798",
+    "8acd21ecf85d89fe077275a3c04ca70b53963d43",
+    "910593bad6f64f9f01671c2632b57034e72b9c61"
+  ]
+}
