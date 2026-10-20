@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1191",
-  "loom_commit": "6ef0734479f403ef172747c2efc14792cd0113a7",
+  "loom_version": "0.19.1193",
+  "loom_commit": "13c4e291c23b485a4e671845ebf2dd4876e3a1e5",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -778,6 +778,6 @@
     ".loom/scripts/tests/test-champion-out-of-band-ac-gate-switch.sh",
     ".loom/scripts/tests/test-guide-work-log-rotation.sh"
   ],
-  "last_resync": "2026-10-19",
+  "last_resync": "2026-10-20",
   "requires_daemon": "0.19.1088"
 }
