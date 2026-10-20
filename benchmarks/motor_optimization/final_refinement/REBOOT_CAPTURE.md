@@ -92,10 +92,9 @@ operator-authorized controller launched `launch.json` from the e6e7e3ae
 preparation with `--instance-initiated-shutdown-behavior terminate`, the
 `geode-fem-bench` profile, Instance Connect, an on-host `shutdown -P +75` cap
 and an exit trap that terminated the instance. Its clean report is the committed
-live fixture `smoke/quiet-rehearsal-e6e7e3ae.json`. A canonical, tested launcher
-for any future rehearsal is deliberately not part of this revision; it follows
-in a separate pull request. Do not launch a rehearsal by hand from this
-revision. The remote payload extracts into a new directory and runs
+live fixture `smoke/quiet-rehearsal-e6e7e3ae.json`. For an operator-authorized
+future rehearsal, use the tested [rehearsal launcher](REHEARSAL_LAUNCHER.md).
+The remote payload extracts into a new directory and runs
 `bash run-remote.sh`.
 It invokes the exact `closed_capture.py --quiet-rehearsal` entry, using the
 producer's hash-pinned `process_identity.py`, waits out cloud-init and package
