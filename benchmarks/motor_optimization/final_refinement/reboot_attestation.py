@@ -36,11 +36,13 @@ THREE_BOOT = 'three_boot_closed_capture_policy'
 FOUR_BOOT = 'four_boot_closed_capture_policy'
 FOUR_BOOT_KEYS = POLICY_KEYS | {'failed_capture_boot', 'failed_capture_witness_sha256'}
 # Operational records of the refused Paper 3 capture boot, verified as one set.
+# The operator's ingress-rule log (allow-ip.log) names a public operator IP and is
+# deliberately excluded: the witness is copied into a capture that may be published.
 FAILED_CAPTURE_FILES = {'refusal-summary.json', 'capture.log', 'start.json', 'before-start.json',
                         'ec2-capture.json', 'stop-response.json', 'final-instance.json',
                         'final-alarm.json', 'operator.log', 'transfer.log', 'cloud-transfer.log',
                         'copy.log', 'capture-copy-status.txt', 'operator-exit.txt',
-                        'operator-sources.json', 'allow-ip.log'}
+                        'operator-sources.json'}
 FAILED_CAPTURE_KIND = 'paper3_failed_capture_boot_witness'
 FAILED_CAPTURE_STATEMENT = ('B2 was a refused capture boot; no quiet check, census, archive, '
                             'evaluator or study writes.')

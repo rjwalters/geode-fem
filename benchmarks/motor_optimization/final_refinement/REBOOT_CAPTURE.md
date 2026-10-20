@@ -254,15 +254,18 @@ captures. A three-boot policy refuses failed-capture evidence, and a four-boot
 policy requires it.
 
 **B2 witness.** `failed_capture_witness.py --source RETAINED_B2_RECORDS --out
-NEW_DIR ...` copies the sixteen B2 operator records into a new directory. It
+NEW_DIR ...` copies the fifteen B2 operator records into a new directory. It
 writes `failed-capture-witness.json` (schema 1, kind
 `paper3_failed_capture_boot_witness`) and prints its digest, which you retain
 independently in the policy. The records are `refusal-summary.json`,
 `capture.log`, `start.json`, `before-start.json`, `ec2-capture.json`,
 `stop-response.json`, `final-instance.json`, `final-alarm.json`, `operator.log`,
 `transfer.log`, `cloud-transfer.log`, `copy.log`, `capture-copy-status.txt`,
-`operator-exit.txt`, `operator-sources.json` and `allow-ip.log`. They are
-operational only and contain no study outcomes. Every file's SHA-256 and size is
+`operator-exit.txt` and `operator-sources.json`. They are operational only and
+contain no study outcomes; their only IP address is the AWS private address.
+`allow-ip.log` names the operator's public IP. It is excluded from the witness,
+which is copied into a capture that may be published, and a witness naming it
+refuses. Every file's SHA-256 and size is
 verified before any semantic check. The witness binds the instance, volume, all
 three earlier boots and the B1 witness digest. Its statement begins `B2 was a
 refused capture boot; no quiet check, census, archive, evaluator or study

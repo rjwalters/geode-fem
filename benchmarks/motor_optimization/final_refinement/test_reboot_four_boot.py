@@ -270,6 +270,15 @@ class FourBootTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'B2 journal end/B3 launch ordering differs'):
                     self.verdict(obs)
 
+    def test_operator_ip_log_is_never_witness_evidence(self):
+        self.assertNotIn('allow-ip.log', proof.FAILED_CAPTURE_FILES)
+        self.assertEqual(len(proof.FAILED_CAPTURE_FILES), 15)
+        log = b'geode-worker: ssh rule for 203.0.113.7/32 already present\n'
+        self.fw['files']['allow-ip.log'] = {'sha256': proof.sha(log), 'bytes': len(log)}
+        self.p['failed_capture_witness_sha256'] = proof.sha(raw(self.fw))
+        with self.assertRaisesRegex(ValueError, 'missing or extra failed-capture evidence'):
+            proof.failed_capture(raw(self.fw), dict(self.ffiles, **{'allow-ip.log': log}), self.p, self.history())
+
     def test_b2_witness_hash_mismatch_refused(self):
         with self.assertRaisesRegex(ValueError, 'changed B2 witness'):
             proof.failed_capture(raw(self.fw) + b' ', self.ffiles, self.p, self.history())
@@ -578,6 +587,7 @@ class FailedEvidencePlumbingTests(unittest.TestCase):
         source = self.base/'records'; source.mkdir()
         for name, data in ffiles.items(): (source/name).write_bytes(data)
         (source/'before-alarm.json').write_bytes(b'{}\n')  # retained, not part of the witness
+        (source/'allow-ip.log').write_bytes(b'ssh rule for 203.0.113.7/32 already present\n')  # never copied
         receipt = failed_capture_witness.build(source, self.base/'witness', **{k: p[k] for k in (
             'instance_id', 'volume_id', 'study_boot', 'recovery_boot', 'failed_capture_boot', 'recovery_witness_sha256')})
         out = Path(receipt['directory'])
