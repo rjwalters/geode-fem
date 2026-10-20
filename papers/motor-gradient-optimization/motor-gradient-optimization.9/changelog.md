@@ -16,3 +16,7 @@ V8 is preserved unchanged with its audit (`.8.audit/`: READY-WITH-AUDIT-FLAGS; a
 | N11 | Link labelled "binary" points to source | "The source of the final-refinement program" |
 
 Not changed: N7 (the instance type comes from the launch record in `refs/main-run-runbook.md`, not the bundled session records) and N10 (metadata-level checks of four citations, all resolved on Crossref or the publishers' records).
+
+## After the v9 audit
+
+The v9 audit (`.9.audit/`) passed with no critical flags. Two advisories were applied afterwards. A1, a clarifying clause: the Fig. 8 level near 0.048 is that of A, B, D and E; C's is near 0.054. The verifier binds both values to repeat 1. A2: the README wording and state line. No number in the PDF changed.

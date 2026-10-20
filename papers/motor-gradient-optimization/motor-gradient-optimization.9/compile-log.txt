@@ -107,7 +107,7 @@ cmsy8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cm
 ti10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmt
 i8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt1
 0.pfb>
-Output written on main.pdf (26 pages, 710674 bytes).
+Output written on main.pdf (26 pages, 710740 bytes).
 Transcript written on main.log.
 === bibtex main ===
 This is BibTeX, Version 0.99e (TeX Live 2026)
@@ -223,7 +223,7 @@ cmsy8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cm
 ti10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmt
 i8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt1
 0.pfb>
-Output written on main.pdf (26 pages, 710674 bytes).
+Output written on main.pdf (26 pages, 710740 bytes).
 Transcript written on main.log.
 === pdflatex -interaction=nonstopmode -halt-on-error main.tex ===
 This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex)
@@ -334,5 +334,5 @@ cmsy8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cm
 ti10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmt
 i8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt1
 0.pfb>
-Output written on main.pdf (26 pages, 710674 bytes).
+Output written on main.pdf (26 pages, 710740 bytes).
 Transcript written on main.log.

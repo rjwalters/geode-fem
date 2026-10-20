@@ -1,8 +1,8 @@
 # Motor paper, revision 9
 
-State: **DRAFTED; fresh independent review and audit pending.** Author: Robb Walters.
+State: **AUDITED (v9 audit PASS, 0 critical); v7 reviews (Opus 37/44, Fable 37/44, both advance) carry forward.** Author: Robb Walters.
 
-V9 corrects the v8 audit flags in v8, which revised v7, which added the preregistered matched optimization study of #1185 (Section 7): 100 budget-matched runs of five optimizers in two design spaces, judged at a common order-93/L2/g20 validation, followed by the final refinement checks of the selected designs. V8, v7 and earlier versions are unchanged; the v8 audit is archived in `.8.audit/`; v7 reviews (Opus 37/44, Fable 37/44, both advance) and its audit (four critical wording flags) are archived beside it. See `changelog.md` for every change and for the protocol deviation that replaced closed capture by inventory-bound verification.
+V9 is the second revision of v7, which added the preregistered matched optimization study of #1185 (Section 7): 100 budget-matched runs of five optimizers in two design spaces, judged at a common order-93/L2/g20 validation, followed by the final refinement checks of the selected designs. V8, v7 and earlier versions are unchanged; the v8 audit is archived in `.8.audit/`; v7 reviews (Opus 37/44, Fable 37/44, both advance) and its audit (four critical wording flags) are archived beside it. See `changelog.md` for every change and for the protocol deviation that replaced closed capture by inventory-bound verification.
 
 ## Rebuild
 

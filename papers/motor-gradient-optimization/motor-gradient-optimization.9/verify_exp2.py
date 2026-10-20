@@ -187,9 +187,10 @@ for phrase in ['in all 45 paired comparisons', 'median of 2.1\\% and at most 12.
                'less\nthan $1.1\\times10^{-5}$', 'values above one mean a smaller', 'design it is 0.89', 'within 0.17\\% above',
                '38 stopped on reaching $T_{99}$, 46 on optimizer convergence', 'It was not run in this study',
                'by geometric means of 2.45--7.79', 'gets there 2.45--7.79 times sooner', 'C reaches $0.049F_0$',
-               'is 1.23--1.73 times that at the training currents', 'D is 0.75\\% faster', 'the level appears near $0.048$',
+               'is 1.23--1.73 times that at the training currents', 'D is 0.75\\% faster', 'the A, B, D and E level appears near $0.048$ (C\'s near $0.054$)',
                'wherever both reach a common validated target']:
     assert phrase in txt, phrase
-assert round(min(v['F_upper'] for r in runs if r['space'] == 'a' for v in r['validations'] if credited(v)) / F0, 3) == .048
+plot = lambda ms: min(v['F_upper'] for r in runs if r['space'] == 'a' and r['repeat'] == 1 and r['method'] in ms for v in r['validations'] if credited(v)) / F0
+assert round(plot('ABDE'), 3) == .048 and round(plot('C'), 3) == .054
 assert 'near $0.043F_0$, so' not in txt and '45 paired starts' not in txt and '13.2' not in txt and 'tree/main' not in txt
 print('PASS: Exp 2 final refinement (33 designs, 213 checks): reproduction, L3/g40/tight/shifted/conforming changes, target margins, mean floor, held-out currents.')
