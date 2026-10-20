@@ -218,6 +218,21 @@ def _reboot(reader, policy_sha256):
         raise ValueError('reboot policy changed original study/build paths')
     history = reboot_attestation.recovery(reader.path('reboot/recovery/witness.json').read_bytes(),
         {name: reader.path('reboot/recovery/'+name).read_bytes() for name in reboot_attestation.WITNESS_FILES}, p)
+    # The refused B2 witness is copied in only for the four-boot chain, and then
+    # completely; replay re-authenticates its bytes against the policy digest.
+    failed_names = {name for name in m['inventory']['files'] if name.startswith('reboot/failed-capture/')}
+    if p['kind'] == reboot_attestation.FOUR_BOOT:
+        expected_failed = {'reboot/failed-capture/witness.json',
+                           *('reboot/failed-capture/'+name for name in reboot_attestation.FAILED_CAPTURE_FILES)}
+        if failed_names != expected_failed:
+            raise ValueError('four-boot capture omits or adds failed-capture evidence')
+        failed = reboot_attestation.failed_capture(reader.path('reboot/failed-capture/witness.json').read_bytes(),
+            {name: reader.path('reboot/failed-capture/'+name).read_bytes()
+             for name in reboot_attestation.FAILED_CAPTURE_FILES}, p, history)
+    else:
+        if failed_names or 'reboot/failed-capture' in m['inventory']['directories']:
+            raise ValueError('three-boot capture carries failed-capture evidence')
+        failed = None
     mapping = {name: reboot_attestation.archive_mapping(name, p['inventory_root'], reader.directories)
                for name in history['inventory']}
     if m.get('inventory_files') != mapping:
@@ -236,7 +251,7 @@ def _reboot(reader, policy_sha256):
                 or observed.get('ec2') != reader.json('reboot/ec2-capture.json')):
             raise ValueError('reboot observations changed their evidence bindings')
         reboot_attestation.machine_observation(observed, p)
-        verdict = reboot_attestation.observations(p, history, observed)
+        verdict = reboot_attestation.observations(p, history, observed, failed)
         reboot_attestation.quiet_processes(observed,
             capture_script_sha256=m['capture_tool_sha256']['closed_capture.py'])
         # Exact pre-retry source at reviewed 1f85a145; every other tool must
@@ -274,7 +289,7 @@ def _reboot(reader, policy_sha256):
                 'machine_id_text', 'machine_id_encoding', 'collector', 'session_exit_text'):
         if phases[0][key] != phases[1][key]:
             raise ValueError('reboot proof changed between capture phases')
-    return {'policy': p, 'policy_sha256': policy_sha256, 'history': history}
+    return {'policy': p, 'policy_sha256': policy_sha256, 'history': history, 'failed': failed}
 
 
 def _processes(reader, git_repo, commit, sources, reboot=None):
@@ -366,4 +381,8 @@ def load(root, *, manifest_sha256, git_repo, reviewed_commit, capture_tool_commi
             'inventory_sha256':reboot['policy']['inventory_sha256'],
             'recovery_witness_sha256':reboot['policy']['recovery_witness_sha256'],
             'termination_basis':'attested_reboot','scope':reboot_attestation.SCOPE}
+        if reboot['failed'] is not None:
+            result['reboot_verification'].update(failed_capture_boot=reboot['policy']['failed_capture_boot'],
+                failed_capture_witness_sha256=reboot['failed']['witness_sha256'],
+                scope=reboot_attestation.FOUR_BOOT_SCOPE)
     return result

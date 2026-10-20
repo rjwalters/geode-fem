@@ -3,23 +3,23 @@
   "baseline_commit": "50a637bfe01605e68870cd39b5905dd24e66ad35",
   "producer_commit": "9486a9da58beeca91968d4d3608f06b998abff45",
   "full_suite": {
-    "command": "python3 -I -m unittest discover -s benchmarks/motor_optimization/final_refinement",
-    "tests": 299,
+    "command": "python3 -I -B -m unittest discover -s benchmarks/motor_optimization/final_refinement",
+    "tests": 366,
     "exit_code": 0,
     "log": "reboot-tests.log",
-    "sha256": "f5f290e0ca0a5a06e9f12fbae5504936e85f8e7fa996726a6ba28e3475830fe1",
+    "sha256": "76f3444ae12b73272ee102a2f03d5af10c5790c01123fa56be15b52072aa652c",
     "python": "3.15.0",
     "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
-    "at_commit": "1f85a145edd64903ef2ca53084553a562d5499fd",
-    "scope": "Historical full suite at prior head. Current rehearsal-only Doctor60 delta uses targeted tests; remote CI on the new head is required."
+    "at_commit": "8265e725a194c10a40d12321e22ac32cd82bf440",
+    "scope": "Full final-refinement suite at the four-boot code commit with the hash-checked regenerated mesh cache; remote CI on the PR head is required."
   },
   "mutations": {
     "command": "python3 -I benchmarks/motor_optimization/final_refinement/reboot_mutations.py --out NEW_REPORT",
-    "injected": 66,
-    "killed": 66,
+    "injected": 127,
+    "killed": 127,
     "report": "reboot-mutations.json",
-    "sha256": "8d9f519a7cab27936b34ba42d66d45340d4a591e677e6bc7e8647e9881e0c026",
-    "at_commit": "e6e7e3aea93041d08cbc61f27d6b89aa53ff178f"
+    "sha256": "dd74ec30fa2bb824c6c01a249e4966f38e1526bdac5b9298f5650ca6e2672e1b",
+    "at_commit": "8265e725a194c10a40d12321e22ac32cd82bf440"
   },
   "mesh_regeneration": {
     "source_commit": "63b3e3d8bbc30504f845eebb5b78e8be6a2ee12f",
@@ -59,32 +59,35 @@
     "whitespace": "pass"
   },
   "files_sha256": {
-    "closed_capture.py": "3f2b6c34d3a6fb090222458efe33e3d0b66e9341990bbcbd5b17a4b48f59cfc3",
-    "capture_archive.py": "9835154ab44a0fc24c861dd67500f1b94db90ac31951c2941db67ddef2d0e4e7",
-    "reboot_attestation.py": "331363d1566da13b738817be3b2ccc94169af5b60701cb8c99ac4c089c20b3b0",
+    "closed_capture.py": "2d83ee48f684f2cb2dd21f7460afc50ad5d6a3e47bb780eda75c3a0c893c182d",
+    "capture_archive.py": "cdc08eefe8e169076ebb6ecc4f8d5e592bf8cea155212d4a2e08bbeaadb34c8a",
+    "reboot_attestation.py": "0d030e2d264858b97601629dd0c029ac5e56483421a159295f74753546555e22",
     "study_selection.py": "72ca0ab962576862530e36bded47a55edac6e80a92db414f03d87b35f34f97f3",
     "refinement_bundle.py": "228b3b41caf346aa80aaa34bf71cb1bb80ae37b98ed336a51cd2165aa3442931",
-    "reboot_mutations.py": "fbb26fa0697b2c335ec998fcf1b431635c04e0f422d4414019187ba8cbffe999",
+    "reboot_mutations.py": "e9c5321d988f6e950b60ddda36fd79040a90005752df667b6b07456722e8dbec",
     "test_capture_archive.py": "32dad1d698df8a1f433d9efcfacbef6cf419640ca68b4bfc5edbb376e49afc35",
     "test_study_selection.py": "fa5684608f2ed20ade62762503704b4f19c435427788c2f9100c88ba003c159c",
     "test_refinement_bundle.py": "f7690398fd253eef559cd5cb9e9dfe9847ec22c849de4e77a65034cab00217df",
     "test_regenerate_platform.py": "8599df58745c1c91df595d01b044fca97c51540db8b5260de15601404c4f2aef",
-    "test_reboot_attestation.py": "1979ea26c618c5ff197776d9bfc0134c6418ee71fad486813e66e2cfaf6e53b2",
-    "test_reboot_capture.py": "44aef6313c726884e475a3f04d807981a26afb7040f972f73c666d482693413c",
+    "test_reboot_attestation.py": "5e7faa02c801a8582b5dbcaa11200e8aaae9eb669e591eaae27898adf9c1953c",
+    "test_reboot_capture.py": "7bb30fbc76d710797475c1ded6f56c6f4d55cca8f363f4b3deb1d62c1a4af169",
     "test_reboot_pipeline.py": "8bbc9e9e916ef44c557ebc3e1e10723c8119e74fbbffe472a14b557faa9acd00",
     "README.md": "c8cedec076dd263e4ce529e98d18c9555b5a85e44476a52facd85e4c21ad6441",
-    "REBOOT_CAPTURE.md": "01e0c71f59fd85cfca824f5a729368f7cf517e618ad5a476e6b23095a98f8f9c",
+    "REBOOT_CAPTURE.md": "0ca692ef85408b590b7a62effe5970d3cc86836d11bff58e11270bbc8449f33e",
     "test_reboot_quiet.py": "e2b50b60be7b40365b49409bd82e1f6b60f87f3162a98e9b4ed2da5c41ff60c0",
     "smoke/doctor56-system-daemons.json": "484eca23b4f7318cb0ee84813c8125543193b4750b8d471b76fad6612567d899",
     "quiet_rehearsal.py": "9476e5845be3ee37fd6133b5c4a1d2a06eebd2a6e712a606d99676679c0eea29",
     "test_reboot_rehearsal.py": "38dba5db93686d31fa58e614e077d775564423ffd02fd92f02ce934169a860ab",
     "test_reboot_live_fixture.py": "8f67ba00ab621fcb2e4afc153d285750eeb625efe2f768defc2cee936bada1d9",
     "smoke/quiet-rehearsal-e6e7e3ae.json": "956f5530cbe7b0a03ac8ce8dd77ab5f48e7a78490630863136d28f4620aeed16",
-    "smoke/quiet-rehearsal-e6e7e3ae-provenance.json": "e554a31c618bf454ceac03c91c6785149a52d5bfa964e6a876fcb9d9b1942407"
+    "smoke/quiet-rehearsal-e6e7e3ae-provenance.json": "e554a31c618bf454ceac03c91c6785149a52d5bfa964e6a876fcb9d9b1942407",
+    "test_reboot_four_boot.py": "524781460eff4b7d00024c067baa2641e9aecdb42ef71175176912141894929a",
+    "failed_capture_witness.py": "d6872b7b790725286f92b7affbe1bbfcb9374b2340b9281aab73f065d70d6ae6"
   },
   "remaining": [
     "Independent narrow Judge and CI of exact current head",
-    "Approval/merge and explicit room go before single B2 capture",
+    "Operator review of the prepared B2 witness statement and independent retention of its digest and the four-boot policy digest",
+    "Approval/merge and explicit operator go before the single B3 capture boot",
     "Actual capture verification, final refinements, results analysis and manuscript review/audit"
   ],
   "doctor54": {
@@ -155,5 +158,105 @@
       "ci_checks_passed": 15,
       "at_commit": "e6e7e3aea93041d08cbc61f27d6b89aa53ff178f"
     }
+  },
+  "four_boot": {
+    "reviewed_base": "d8552191b62536570bc696dc770063787bab8a05",
+    "scope": "Operator ruling after the refused B2 (2d91abf3-f032-4482-b459-db009aa3b1bf): systemd 255 rejects hyphenated `journalctl -b` matches; collector now passes the 32-hex boot ID and reports rc/stderr. New four_boot_closed_capture_policy with a hash-verified B2 failed-capture witness, B3 boot-chain and ordering gate, and a B2 journal process classifier; three-boot policy unchanged. Synthetic evidence only; no B3, study outcome, cloud call or instance start.",
+    "new_tests": 38,
+    "new_test_files": [
+      "test_reboot_four_boot.py"
+    ],
+    "new_mutations": 61,
+    "new_mutations_killed": 61,
+    "mutation_labels": [
+      "F01 allow four-boot boot reuse",
+      "F02 ignore independent B2 witness",
+      "F03 accept other B2 witness kind",
+      "F04 omit B2 file set",
+      "F05 omit B2 file hashes",
+      "F06 omit B2 witness identity",
+      "F07 omit B2 witness statement",
+      "F08 omit B2 start/stop requests",
+      "F09 omit B1 stop to B2 start link",
+      "F10 omit B2 attachment",
+      "F11 omit B2 stop record binding",
+      "F12 omit B2 stop reason",
+      "F13 omit EC2 record shape",
+      "F14 allow B2 launch before B1 stop",
+      "F15 omit summary quiet/census/archive",
+      "F16 omit summary retry/stop",
+      "F17 omit summary launch/log binding",
+      "F18 omit B2 log refusal line",
+      "F19 omit B2 log quiet/census scan",
+      "F20 omit policy/evidence chain match",
+      "F21 omit B1 end/B2 launch/B2 first order",
+      "F22 omit B2 stop vs journal end",
+      "F23 omit B2 end/B3 launch order",
+      "F24 allow B2 journal work process",
+      "F25 omit B2 journal field types",
+      "F26 accept B2 evidence on three-boot policy",
+      "F27 accept four-boot policy without B2",
+      "F28 allow B3 reuse of B2",
+      "F29 accept B2 host in process report",
+      "F30 allow extra/missing/reordered B2-B3 tail",
+      "F31 replay allows B2 journal work process",
+      "F33 witness extra top-level fields",
+      "F34 summary tool commit/exit unchecked",
+      "F32 replay trusts archived B2 bytes",
+      "F40 pass hyphenated boot to journalctl",
+      "F41 read only B0/B1 journals",
+      "F42 drop refusal rc/stderr",
+      "F43 unbounded refusal stderr",
+      "F44 classify two B2 cmdline words",
+      "F45 ignore B2 executable",
+      "F46 allow user-UID B2 daemons",
+      "F47 ignore B2 daemon executable",
+      "F48 loose B2 Python service prefix",
+      "F54 daemon comm alone not refused",
+      "F55 skip B2 shutdown journal",
+      "F56 compare B2 with B1-era history",
+      "F57 replay without four-boot file set",
+      "F58 replay three-boot with B2 files",
+      "F59 replay three-boot ignoring B2 directory",
+      "F60 drop B2 identity from replay result",
+      "F62 re-admit an argv-only collector",
+      "F63 drop journalctl --all",
+      "F64 drop geode program classification",
+      "F65 hibinit prefix only",
+      "F66 hibinit any UID",
+      "F67 hibinit argv under any comm",
+      "F68 J03 witness sha without bytes",
+      "F69 J29 any B2 stop reason code",
+      "F70 J30 case-sensitive quiet/census scan",
+      "F71 non-dict EC2 state",
+      "F61 allow B2 evidence without policy"
+    ],
+    "changed_existing_tests": [
+      "test_reboot_attestation.AttestationTests.test_live_collector_reads_boots_proc_identity_and_exact_source_mtimes (expected argv now uses the 32-hex boot ID; the old expectation encoded the bug)"
+    ],
+    "changed_existing_mutations": [
+      "J15 anchor follows observations(..., failed); same replacement"
+    ]
+  },
+  "doctor_1211": {
+    "judged_head": "637b5fa90977256674f9f20ef7629a529f893e23",
+    "addressed": [
+      "B1 collector exception removed; Judge bypasses refused",
+      "B2 pre-go classifier run over real B2 journal made required and recorded",
+      "journalctl --all",
+      "geode program classified in B2 check",
+      "J03/J29/J30 test gaps; J18 moot (exception removed)",
+      "exact witness keys; refusal-summary tool_commit and typed capture_exit",
+      "non-dict EC2 state refuses"
+    ],
+    "b2_journal_dry_run": {
+      "sha256": "39536f6937773bf95eb399c96ab86ea1ec79c06c32f30f00fa647a55194e3df9",
+      "entries": 2219,
+      "verdict": "PASS",
+      "refused_entries": 0,
+      "at_637b5fa9": "REFUSE: 6 hibinit-agent entries; exact B2-only hibinit-agent argv exception added",
+      "scope": "Operational dry run only; the dump is never committed (sshd lines name the operator IP)."
+    },
+    "known_conservative_refusal": "Shared classifier matches uv case-insensitively as a substring; unchanged reviewed code."
   }
 }
