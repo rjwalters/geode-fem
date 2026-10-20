@@ -1,0 +1,15 @@
+{
+  "critic": "vision",
+  "role": "paper-vision.md",
+  "started": "2026-10-20T07:26:34Z",
+  "finished": "2026-10-20T07:30:22Z",
+  "model": "claude-opus-5-5",
+  "schema_version": 1,
+  "scorecard_kind": "machine-summary",
+  "rubric_id": "anvil-pub-vision-v1",
+  "rubric_total": 20,
+  "rendered_artifact": "main.pdf (no paper.pdf in version dir; main.pdf 23:49 is newer than main.tex 23:43, optimization.tex 23:48 and figures 23:42, so reused without recompiling)",
+  "render": "pdftoppm -r 200 (26 pages)",
+  "vlm_path": "callback (in-session agent inspected every page PNG plus 400-dpi crops of Figs. 8-9); no Anthropic SDK call",
+  "sidecar": "python -m anvil.lib.sidecar stage/commit CLI shim"
+}

@@ -1,0 +1,348 @@
+# Motor paper M1: nonlinear B-H scalar magnetostatics (issue #1157)
+
+This directory holds the validation record for
+`crates/geode-core/src/assembly/magnetostatic_nonlinear.rs`. That module
+solves P1 nonlinear 2-D scalar magnetostatics in SI units with a
+consistent-tangent damped Newton method. It provides a Brauer law and a
+monotone C¹ tabulated B-H law, and it exposes the converged tangent for the
+M3 adjoint.
+
+- `m1_tables.log` is the full `--nocapture` output of the acceptance tests.
+  Regenerate it with:
+
+  ```text
+  cargo test -p geode-core --release --test magnetostatic_nonlinear -- --nocapture --test-threads=1
+  ```
+
+  The tables below are copied from that log. They are deterministic: there
+  is a fixed-seed random direction and no timing data. The test file is
+  `crates/geode-core/tests/magnetostatic_nonlinear.rs`, and CI runs it in
+  `integration-tests.yml` (core-tests-a).
+- The B-H table in the tests is **synthetic**. It is a realistic
+  non-oriented electrical-steel shape (initial μ_r ≈ 4800, knee at
+  1.3–1.5 T, 2.28 T at 200 kA/m), not measured data and not tied to any
+  grade. The Brauer coefficients are `ν = 3.8·exp(2.17 b²) + 396.2` m/H.
+
+## Units
+
+The module is SI throughout: ν in m/H, J in A/m², A_z in Wb/m, B in T.
+The linear module `assembly::magnetostatic` solves
+`−∇·(ν_r ∇A) = μ₀ J` with `ν_r = 1/μ_r` and a source of
+`μ₀ ∫ M·(∇φ)^⊥`. Dividing by μ₀ gives `ν_SI = ν_r/μ₀`, `J_SI = J`, and a
+source of `∫ M·(∇φ)^⊥`, with the same A_z. Test 1 confirms this.
+
+## 1. Linear limit (constant laws against `assemble_magnetostatic` + `solve`)
+
+The setup is a five-band machine cross-section: an iron bore with μ_r 1000,
+a magnet band with μ_rec 1.05, then air gap, winding and outer air.
+
+| case | max\|ΔA\|/max\|A\| | Newton iterations | ‖R₁‖/‖R₀‖ |
+|---|---|---|---|
+| current only | 1.3e-14 | 1 | 5.4e-14 |
+| current + PM magnetization | 1.7e-14 | 1 | 5.8e-14 |
+
+## 2. Tangent check (central FD of R against K·v, random v)
+
+The state is a 16×16 all-iron square, 5 cm on a side, with
+`A = s·L·e^{y/L} sin(2x/L+0.5)`. The step h is the relative perturbation of
+the field: the direction is scaled so its largest element |∇v| equals the
+state's largest |B|. The table law is C¹, so H'' jumps at its knots. An
+element whose |B| crosses a knot inside the FD stencil has an O(h) local
+truncation error. The "knot-free" column drops the rows touched by elements
+that cross a knot at h = 1e-2. It uses the same row set at every h.
+
+| h | Brauer (\|B\| 0.41–1.91 T) | table, all rows (\|B\| 0.52–2.38 T) | table, knot-crossing elements | table, knot-free rows |
+|---|---|---|---|---|
+| 1e-2 | 1.007e-3 | 1.054e-3 | 49 | 3.688e-4 |
+| 1e-3 | 1.007e-5 | 5.820e-6 | 3 | 3.688e-6 |
+| 1e-4 | 1.007e-7 | 6.530e-8 | 0 | 3.688e-8 |
+| 1e-5 | 1.059e-9 | **6.552e-10** | 0 | 3.975e-10 |
+| 1e-6 | **8.258e-10** | 1.322e-9 | 0 | 7.628e-10 |
+| 1e-7 | 7.079e-9 | 8.088e-9 | 0 | 1.272e-8 |
+| 1e-8 | 1.077e-7 | 9.042e-8 | 0 | 9.737e-8 |
+
+The best error is 8.3e-10 for Brauer and 6.6e-10 for the table, against a
+1e-7 target. The observed order between consecutive steps from 1e-2 to 1e-5
+is 2.00, 2.00 and 1.98 for Brauer. For the table it is 2.26, 1.95 and 2.00
+on all rows, and 2.00, 2.00 and 1.97 on the knot-free rows.
+
+Other checks on the laws:
+- `dν/d(b²)` against an FD of ν, and the energy density against
+  `∫ν/2`, agree to ≤2.1e-10 for both laws over 0–2.8 T.
+- The table interpolates every point, and `b_of_h` inverts it to 1e-12.
+- The 1/μ₀ tail joins with a continuous slope.
+- The reduced tangent is symmetric to 1.5e-17 relative and SPD
+  (λ_min > 0) at saturated states for both laws.
+
+## 3. Newton convergence against the frozen-ν fixed point
+
+The case is the coax of section 5 at n_ang = 64 (3329 nodes), in deep
+saturation, solved from zero with the energy line search. rel_tol is set to
+1e-14, so each run continues to the round-off floor (`RoundoffFloor`) and
+the history shows the whole terminal phase.
+
+| k | Newton, table: ‖R_k‖/‖R₀‖ | α_k | Newton, Brauer: ‖R_k‖/‖R₀‖ | α_k |
+|---|---|---|---|---|
+| 1 | 8.77e1 | 0.0156 | 9.86e-1 | 0.0156 |
+| 2 | 8.64e1 | 0.0156 | 1.62e2 | 0.0312 |
+| 3 | 8.37e1 | 0.0312 | 1.52e2 | 0.0625 |
+| 4 | 7.85e1 | 0.0625 | 1.34e2 | 0.125 |
+| 5 | 6.88e1 | 0.125 | 1.05e2 | 0.25 |
+| 6 | 9.17e0 | 1 | 8.42e1 | 1 |
+| 7 | 2.05e0 | 1 | 3.15e1 | 1 |
+| 8 | 2.60e-1 | 1 | 1.17e1 | 1 |
+| 9 | 8.11e-3 | 1 | 4.10e0 | 1 |
+| 10 | 1.48e-5 | 1 | 1.27e0 | 1 |
+| 11 | 8.45e-11 (floor) | 1 | 2.94e-1 | 1 |
+| 12 | | | 2.70e-2 | 1 |
+| 13 | | | 2.42e-4 | 1 |
+| 14 | | | 1.94e-8 | 1 |
+| 15 | | | 7.15e-11 (floor) | 1 |
+
+- **Brauer (C^∞):** over the terminal transitions, C_k = r_k/r_{k−1}²
+  stays at 0.312–0.332, and the consecutive orders are 1.97 and 2.00. That
+  is clean quadratic convergence.
+- **Table (C¹):** over the terminal transitions, C_k is 0.062–0.226, the
+  consecutive orders are 1.68 and 1.82, and the fitted order is 1.77. The
+  convergence is quadratic in the pre-asymptotic regime: the orders are
+  still rising when the residual reaches the round-off floor. The test
+  asserts more than three decades of drop, C_k bounded within a factor of
+  10, and a fitted order above 1.7.
+- **Frozen ν (Picard) on the table case** needs 158 iterations to reach
+  the floor, with a steady ratio of about 0.866 (0.8658 geometric mean over
+  the last 40) and a fitted order of 1.001. That is linear convergence.
+
+The round-off floor comes from cancellation in ∇A over small elements when
+A has a large offset, and it grows with refinement: 3.9e-9 A at n_ang = 64
+and 2.9e-8 A at 256 (section 7). The relative tolerance (default 1e-8) is
+measured against `reference_residual()`, a flux scale that does not depend
+on the guess or on a constant offset (sections 7 and 8). An iterate at the
+estimated floor is accepted as `RoundoffFloor`, with the achieved residual
+reported.
+
+The converged tangent drives the solution sensitivity:
+`dA/dI = K⁻¹F/I`, computed with `solve_tangent_transpose`, matches a
+central FD of two converged solves (dI/I = 1e-3) to 8.0e-7.
+
+## 4. Manufactured solution
+
+The case is Brauer ν on [0,1]² with `A* = 0.35 e^y sin(2x+0.5)` and
+non-homogeneous Dirichlet data from A*. The load is
+`f = −∇·(ν∇A*)`, integrated with the degree-4 rule. The solve starts from
+the ν(0) linear start: with a zero interior and non-zero boundary values,
+the exponential law overflows at the boundary layer.
+
+| n | h | \|A−A*\|_H¹ | rate | ‖A−A*‖_L² | rate | Newton iterations | ν range (m/H) |
+|---|---|---|---|---|---|---|---|
+| 8 | 1.25e-1 | 9.182e-2 | | 1.855e-3 | | 5 | 401–1363 |
+| 16 | 6.25e-2 | 4.574e-2 | 1.01 | 4.553e-4 | 2.03 | 8 | 401–1990 |
+| 32 | 3.13e-2 | 2.283e-2 | 1.00 | 1.134e-4 | 2.01 | 11 | 401–2417 |
+| 64 | 1.56e-2 | 1.141e-2 | 1.00 | 2.832e-5 | 2.00 | 14 | 401–2662 |
+| 128 | 7.81e-3 | 5.703e-3 | 1.00 | 7.079e-6 | 2.00 | 16 | 401–2793 |
+
+The least-squares fitted rates are 1.002 for the H¹ seminorm and 2.007 for
+L². The test asserts H¹ in [0.95, 1.1] and L² in [1.9, 2.2].
+
+## 5. Saturated-iron Ampère oracle
+
+The geometry is a conductor with r < 4 mm carrying I = 2π·5 mm·40 kA/m =
+1256.6 A, an air gap, an iron annulus from 5 to 250 mm (synthetic table),
+and air out to a Dirichlet ring at 300 mm. The mesh is log-graded, with
+Δr/r ≈ 2π/n_ang in the iron. The oracle is
+`|B|(r) = B_of_H(I/(2πr))`, compared element by element at the centroid
+radius. The current density is normalized by the meshed conductor area, so
+I_enc is exact. "Mid-annulus" means `|ln(r/√(r_i r_o))| < 0.1`, that is
+r ≈ 35 mm with |B| ≈ 1.63 T.
+
+| n_ang | nodes | Newton iterations (energy / residual LS) | max rel err | RMS rel err | mid-annulus mean rel err | \|B\| in iron (T) |
+|---|---|---|---|---|---|---|
+| 32 | 897 | 11 / 16 | 3.19e-3 | 2.57e-3 | 2.38e-3 | 1.428–1.922 |
+| 64 | 3329 | 11 / 16 | 1.58e-3 | 1.29e-3 | 1.21e-3 | 1.424–1.928 |
+| 128 | 13441 | 11 / 17 | 7.86e-4 | 6.45e-4 | 6.03e-4 | 1.422–1.930 |
+| 256 | 52993 | 11 / 19 | 3.95e-4 | 3.24e-4 | **3.03e-4** | 1.421–1.931 |
+
+The error converges at O(h): it halves with each doubling of n_ang. The
+inner iron sits at 1.92–1.93 T (deep saturation) and the outer at 1.42 T
+(the knee). The finest mid-annulus error is 0.03%, against a 1% target.
+
+The tripwire uses linear iron at the table's initial μ_r. It misses the
+mid-annulus oracle by 1951%, against 0.24% for the nonlinear solve.
+
+## 6. Law validation
+
+Each of these tables is rejected with `InvalidLaw` and a specific message:
+- mismatched lengths;
+- a single point;
+- not starting at the origin;
+- a repeated B;
+- non-monotone H;
+- a NaN;
+- a table that stops short of saturation, so that a C¹ join to the 1/μ₀
+  tail cannot be monotone.
+
+Invalid Brauer coefficients and ConstantLaw values are rejected too. An
+unmapped region tag is `MissingMaterial`, and an iteration cap reached is
+`NotConverged` with the residual history attached. No silent last iterate
+is returned.
+
+## 7. Warm starts and the round-off floor (Judge finding B1 on PR #1159)
+
+The stopping test is `‖R‖ ≤ max(abs_tol, rel_tol · reference)`, where
+
+```text
+reference = ‖F_free‖ + ‖s‖,   s_i = Σ_T |T| ν(0) |∇λ_i| |∇A_lin|_T .
+```
+
+`reference` is a flux scale of the linear-start solution `A_lin`. It does
+not depend on the guess, and it does not depend on a constant offset of A
+(section 8). A second test, `‖R‖ ≤ floor_factor · roundoff_floor(A)`
+(floor_factor 1 by default), gives `ConvergenceStatus::RoundoffFloor`. The
+floor estimate is `ε‖S‖` with `S_i = |F_i| + Σ_T |T| ν |∇λ_i| Σ_p |a_p||∇λ_p|`,
+which bounds the rounding of ∇A from the stored nodal values. It grows with
+|A| on purpose.
+
+The case is the coax, synthetic table, default config. Residuals are
+relative to the reference (3.71e3 at n_ang = 64, 3.68e3 at 256).
+
+| n_ang | cold iterations | cold final | (a) restart from converged: iterations | (b) I×1.001 from previous: iterations, final | (c) stagnation min, all stops off | floor estimate | estimate/observed | (d) rel_tol 1e-14 |
+|---|---|---|---|---|---|---|---|---|
+| 64 | 11 | 1.40e-12 | 0 | 2, 1.20e-12 | 1.05e-12 | 9.10e-12 | 8.7 | RoundoffFloor, 11 iterations |
+| 256 | 11 | 8.39e-11 | 0 | 2, 9.33e-12 | 7.76e-12 | 6.52e-11 | 8.4 | RoundoffFloor, 12 iterations |
+
+The warm-started (b) solution matches a cold solve at I×1.001 to <1e-8
+relative. Before the B1 fix, (a) and (b) returned `LineSearchFailed` at both
+resolutions.
+
+## 8. Constant Dirichlet offset (Judge finding B2 on PR #1159)
+
+Here the outer ring is pinned to A = C and the guess is C. The physics is
+unchanged, so `A − C` must reproduce the C = 0 solution. The reference is
+taken from the linear start solved with Dirichlet data centred on their
+mean, so a uniform offset cancels before any arithmetic, and the reference
+is exactly invariant. In the B2 defect, the previous reference
+`‖F − K[free,pinned]a_D‖` grew like ν·C, and the solve stopped early with
+status `Tolerance` (34% error at C = 1e6).
+
+| n_ang | C (Wb/m) | ref change | status | iterations | ‖(A−C)−A₀‖/‖A₀‖ | oracle max / mid rel | floor estimate/ref |
+|---|---|---|---|---|---|---|---|
+| 64 | 0 | 0 | Tolerance | 11 | 0 | 1.5766e-3 / 1.2058e-3 | 9.1e-12 |
+| 64 | 0.4 | 1.2e-16 | Tolerance | 11 | 2.6e-16 | 1.5766e-3 / 1.2058e-3 | 1.9e-11 |
+| 64 | 1e2 | 0 | Tolerance | 11 | 3.1e-14 | 1.5766e-3 / 1.2058e-3 | 2.5e-9 |
+| 64 | 1e4 | 0 | RoundoffFloor | 11 | 3.8e-12 | 1.5766e-3 / 1.2058e-3 | 2.5e-7 |
+| 256 | 0 | 0 | Tolerance | 11 | 0 | 3.9480e-4 / 3.0320e-4 | 6.5e-11 |
+| 256 | 0.4 | 2.5e-13 | Tolerance | 11 | 2.8e-16 | 3.9480e-4 / 3.0320e-4 | 1.3e-10 |
+| 256 | 1e2 | 0 | Tolerance | 11 | 3.6e-14 | 3.9480e-4 / 3.0320e-4 | 1.8e-8 |
+| 256 | 1e4 | 0 | RoundoffFloor | 11 | 4.2e-12 | 3.9480e-4 / 3.0320e-4 | 1.8e-6 |
+
+At C = 1e4 the f64 rounding of nodal values of size C raises the
+round-off floor above `rel_tol · reference`. The solve is then correctly
+flagged `RoundoffFloor` rather than `Tolerance`, and the answer is still
+accurate to 4e-12.
+
+## 9. The measured M27 table (issue #1160)
+
+Sections 1–8 use the synthetic table. This section uses the reference
+motor's **measured M27 table**: the 47 points (0–2.30 T) in
+`benchmarks/motor_reference/reference_data.json`.
+
+### 9a. Law checks and Ampère coax (`tests/m27_law.rs`)
+
+`m27_law.log` is the full `--nocapture` output. Regenerate it with:
+
+```text
+cargo test -p geode-core --release --test m27_law -- --nocapture --test-threads=1
+```
+
+CI runs this target in `integration-tests.yml` (core-tests-a).
+
+- The law builds, and it is exact at all 47 knots (max error 0).
+- A dense grid of 300 049 points on 0–3 T has min dH/dB = 67.51 m/H at
+  0.369 T, min ν = 105.39 m/H, and min ν + 2sν' = 67.51 m/H. The test
+  also asserts that `dh_db` and `ν + 2sν'` agree, since they are two
+  routes to the same quantity.
+- **ν'(s) < 0 at low field.** The knot values of H/B are 341.2, 256.4
+  and 208.9 m/H at 0.05, 0.10 and 0.15 T. On 30 000 samples from 0 to
+  1.5 T, ν' is negative from 0 to 0.735 T and changes sign once. The most
+  negative value is ν'(0) = c3 = −22 586 m/(H·T²). Monotone ν is not
+  required, and the law does not impose it. The tangent stays SPD because
+  ν + 2sν' > 0.
+- The central FD of `dnu_db2` agrees to 3.0e-10 (mixed scale) and the
+  energy density to 1.7e-10. The knot energy agrees with Simpson's rule on
+  H(B) to 2.9e-16.
+- The coax is the geometry of section 5, with M27 iron. The inner iron is
+  at 2.05 T and the outer at 1.49 T.
+
+| n_ang | nodes | Newton iterations | max rel err | RMS rel err | mid-annulus mean rel err | \|B\| in iron (T) |
+|---|---|---|---|---|---|---|
+| 32 | 897 | 11 | 3.44e-3 | 2.68e-3 | 2.96e-3 | 1.499–2.046 |
+| 64 | 3329 | 11 | 1.66e-3 | 1.35e-3 | 1.49e-3 | 1.496–2.050 |
+| 128 | 13441 | 11 | 8.10e-4 | 6.73e-4 | 7.48e-4 | 1.494–2.052 |
+| 256 | 52993 | 11 | 4.03e-4 | 3.39e-4 | **3.76e-4** | 1.493–2.053 |
+
+The tripwire uses linear iron at ν(0). It misses the mid-annulus oracle by
+725%, against 0.30% for the nonlinear solve at n_ang = 32.
+
+### 9b. Measured difference against the reference MATLAB `pchip`
+
+The reference's `Mat_Magnetic.m` uses `pchip(B, H)`. Its ν clamps
+B ≤ 1e-5 T to 1e-5 T, and above 2.30 T it uses
+H = H_end + (B − B_end)/μ₀. `pchip_compare.py` implements MATLAB `pchip`
+exactly and applies that clamp and tail. It then compares the result with
+GEODE's dense dump `geode_m27_law_dump.csv`, which `examples/m27_law_dump.rs`
+writes. The dump has 100 samples per table segment, 60 log-spaced points on
+1e-8 to 1e-3 T, and a 0.0025 T grid on the tail. The reference field is
+H_ref = ν_ref(B)·B, the field its residual uses. `pchip_compare.json` is the
+full record and `pchip_compare.log` is the console output. To regenerate the
+dump and then the comparison:
+
+```text
+cargo run -p geode-core --release --example m27_law_dump -- \
+    benchmarks/motor_reference/reference_data.json \
+    > benchmarks/motor_nonlinear_m1/geode_m27_law_dump.csv
+uv run --no-project --python 3.14 --with scipy==1.18.1 python -I \
+    benchmarks/motor_nonlinear_m1/pchip_compare.py \
+    --reference benchmarks/motor_reference/reference_data.json \
+    --dump benchmarks/motor_nonlinear_m1/geode_m27_law_dump.csv \
+    --solver-commit 59e5f5c826a0646e4f086ed9ece3d22b529acff4 \
+    --law-source-blob f1fcba27ffeebc1eabe270a2aab0acbc9b5e37fd \
+    --out benchmarks/motor_nonlinear_m1/pchip_compare.json
+```
+
+The solver commit is the last commit to change
+`magnetostatic_nonlinear.rs`, and the blob is that file's `git hash-object`.
+
+**MATLAB `pchip` against SciPy.** `PchipInterpolator` agrees with the
+transcription to 7.0e-15 in slope and 4.4e-16 in value. Its endpoint
+slopes are the same: 426.0434 m/H at B = 0 and 789 828.53 m/H at 2.30 T.
+SciPy's endpoint rule is the same one-sided three-point formula with the
+same clamps. The clamps do not trigger on M27, because all secants are
+positive.
+
+| region | samples | max \|ΔH\|/H | max \|Δν\|/ν | max \|Δ(dH/dB)\|/(dH/dB) against pchip' |
+|---|---|---|---|---|
+| origin clamp, 0 < B ≤ 1e-5 T | 37 | 6.66e-2 | 6.66e-2 | 6.66e-2 |
+| first segment, 1e-5 < B ≤ 0.05 T | 123 | 6.66e-2 (at 1.2e-5 T) | 6.66e-2 | 6.66e-2 |
+| interior, 0.05–2.25 T | 4401 | 4.2e-16 | 4.2e-16 | 5.3e-15 |
+| last segment, 2.25–2.30 T | 101 | 2.17e-4 (at 2.2825 T) | 2.17e-4 | 7.53e-3 (at 2.30 T) |
+| tail, 2.30–3.0 T | 280 | 2.4e-16 | 3.2e-16 | 0 |
+
+- **Interior.** Both laws use the same weighted-harmonic slopes. The
+  measured difference is round-off.
+- **First segment.** GEODE's odd cubic has ν(0) = 397.66 m/H. The
+  reference's ν for B ≤ 1e-5 T is pchip(1e-5)/1e-5 = 426.03 m/H, from its
+  endpoint slope of 426.04 m/H. That is a 6.66% difference at the origin.
+  The difference is 0 at the 0.05 T knot, where both laws share the slope
+  228.27 m/H.
+  Below the clamp, the reference's own tangent (ν + B·ν'(B), with ν' from
+  the unclamped B) differs from the derivative of its frozen-ν residual by
+  up to 2.7e-5.
+- **Last segment.** GEODE sets the slope at 2.30 T to 1/μ₀ = 795 774.7 m/H
+  for a C¹ join to the tail. pchip's endpoint slope is 789 828.5 m/H, so the
+  reference's dH/dB jumps by 0.747% at 2.30 T. On the segment this gives at
+  most 2.17e-4 in H and ν, and 7.53e-3 in dH/dB, at the knot.
+- **Tail.** Both laws are H_end + (B − B_end)/μ₀ with μ₀ = 4π·1e-7. The
+  difference is round-off.
+
+The effect of these differences on a motor solve is not measured yet.
+`benchmarks/motor_reference/conventions.json` records these numbers in its
+`geode_law_vs_reference` block.
