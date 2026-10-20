@@ -1,6 +1,7 @@
 """Capture-only evidence of termination across an explicit B0 -> B1 -> B2 chain.
 
-Original identities and journals remain unchanged. The producer verifier must
+A four-boot policy inserts a witnessed refused capture boot before the capture
+boot (B0 -> B1 -> B2 refused -> B3). Original identities and journals remain unchanged. The producer verifier must
 still refuse under the real B2 host; this layer supplements only its enumerated
 boot-mismatch refusals. It grants no recovery or scientific launch permission.
 """
@@ -31,6 +32,33 @@ SCOPE = ('Tracked processes terminated by an explicitly witnessed boot transitio
          'original same-boot verification refused. Recovery boot was copy-only. '
          'Time-bound observations, not a signature or complete process history; '
          'no recovery, scientific selection or launch permission.')
+THREE_BOOT = 'three_boot_closed_capture_policy'
+FOUR_BOOT = 'four_boot_closed_capture_policy'
+FOUR_BOOT_KEYS = POLICY_KEYS | {'failed_capture_boot', 'failed_capture_witness_sha256'}
+# Operational records of the refused Paper 3 capture boot, verified as one set.
+# The operator's ingress-rule log (allow-ip.log) names a public operator IP and is
+# deliberately excluded: the witness is copied into a capture that may be published.
+FAILED_CAPTURE_FILES = {'refusal-summary.json', 'capture.log', 'start.json', 'before-start.json',
+                        'ec2-capture.json', 'stop-response.json', 'final-instance.json',
+                        'final-alarm.json', 'operator.log', 'transfer.log', 'cloud-transfer.log',
+                        'copy.log', 'capture-copy-status.txt', 'operator-exit.txt',
+                        'operator-sources.json'}
+FAILED_CAPTURE_KIND = 'paper3_failed_capture_boot_witness'
+FAILED_CAPTURE_KEYS = {'schema', 'kind', 'instance_id', 'volume_id', 'study_boot', 'recovery_boot',
+                       'failed_capture_boot', 'recovery_witness_sha256', 'witness_statement', 'scope', 'files'}
+# The exact reviewed collector revision that ran, and refused, on B2.
+FAILED_CAPTURE_TOOL_COMMIT = 'e1814128c293e939916eb7aedce1e38d4547a48b'
+FAILED_CAPTURE_STATEMENT = ('B2 was a refused capture boot; no quiet check, census, archive, '
+                            'evaluator or study writes.')
+# Final line of the e1814128 collector traceback on B2 (systemd 255 refused a
+# hyphenated `journalctl -b` match before any quiet check or source census).
+FAILED_CAPTURE_REFUSAL = 'ValueError: reboot attestation: read-only observation command failed: journalctl'
+FOUR_BOOT_SCOPE = ('Tracked processes terminated by an explicitly witnessed boot transition; '
+                   'original same-boot verification refused. Recovery boot was copy-only. '
+                   'The first capture boot was a witnessed refusal with no quiet check, census, '
+                   'archive, evaluator or study writes. '
+                   'Time-bound observations, not a signature or complete process history; '
+                   'no recovery, scientific selection or launch permission.')
 
 
 def require(condition, message):
@@ -76,8 +104,9 @@ def relative(value):
 def policy(raw, expected_sha256):
     require(sha(raw) == _sha(expected_sha256), 'policy differs from independent digest')
     p = _json(raw)
-    require(set(p) == POLICY_KEYS and type(p['schema']) is int and p['schema'] == 1
-            and p['kind'] == 'three_boot_closed_capture_policy', 'unsupported policy')
+    require(isinstance(p, dict) and ((set(p) == POLICY_KEYS and p.get('kind') == THREE_BOOT)
+                                     or (set(p) == FOUR_BOOT_KEYS and p.get('kind') == FOUR_BOOT))
+            and type(p['schema']) is int and p['schema'] == 1, 'unsupported policy')
     root = PurePosixPath(p['inventory_root'])
     require(root.is_absolute() and str(root) == p['inventory_root']
             and '..' not in root.parts and root.name, 'unsafe inventory root')
@@ -86,6 +115,10 @@ def policy(raw, expected_sha256):
         _sha(p[key])
     boot_id(p['study_boot']); boot_id(p['recovery_boot'])
     require(p['study_boot'] != p['recovery_boot'], 'reused study/recovery boot')
+    if p['kind'] == FOUR_BOOT:
+        _sha(p['failed_capture_witness_sha256']); boot_id(p['failed_capture_boot'])
+        require(p['failed_capture_boot'] not in (p['study_boot'], p['recovery_boot']),
+                'four-boot policy reuses a boot')
     require(re.fullmatch(r'[0-9a-f]{40}', p['producer_commit']) is not None,
             'producer must be an exact commit')
     require(isinstance(p['host'], str) and p['host'], 'missing host')
@@ -93,6 +126,12 @@ def policy(raw, expected_sha256):
             and re.fullmatch(r'vol-[0-9a-f]+', p['volume_id']) is not None,
             'invalid instance/volume')
     return p
+
+
+def ended_boots(p):
+    """Original hyphenated UUIDs of every boot that ended before the capture boot."""
+    boots = (p['study_boot'], p['recovery_boot'])
+    return boots + (p['failed_capture_boot'],) if p['kind'] == FOUR_BOOT else boots
 
 
 def inventory(raw, p):
@@ -213,6 +252,100 @@ def recovery(witness_raw, files, p):
             'boots': boots, 'ec2': before, 'scope': w['scope']}
 
 
+def instance(raw):
+    """One full `describe-instances` record, flattened to the observation shape."""
+    d = _json(raw)
+    reservations = d.get('Reservations') if isinstance(d, dict) else None
+    instances = (reservations[0].get('Instances') if isinstance(reservations, list) and len(reservations) == 1
+                 and isinstance(reservations[0], dict) else None)
+    require(isinstance(instances, list) and len(instances) == 1 and isinstance(instances[0], dict)
+            and isinstance(instances[0].get('State'), dict), 'malformed EC2 instance record')
+    return dict(instances[0], State=instances[0]['State'].get('Name'))
+
+
+def user_stop(record):
+    match = re.fullmatch(r'User initiated \((\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) GMT\)',
+                         str(record.get('StateTransitionReason', '')))
+    reason = record.get('StateReason')
+    require(match is not None and isinstance(reason, dict) and reason.get('Code') == 'Client.UserInitiatedShutdown',
+            'missing witnessed B2 stop')
+    return timestamp(match.group(1).replace(' ', 'T') + 'Z')
+
+
+def failed_capture(witness_raw, files, p, history):
+    """Authenticate the refused B2 capture boot bytes before checking their semantic links."""
+    require(p['kind'] == FOUR_BOOT, 'failed-capture evidence does not match the policy boot chain')
+    require(sha(witness_raw) == p['failed_capture_witness_sha256'], 'changed B2 witness')
+    w = _json(witness_raw)
+    require(isinstance(w, dict) and type(w.get('schema')) is int and w['schema'] == 1
+            and w.get('kind') == FAILED_CAPTURE_KIND, 'unsupported failed-capture witness')
+    require(set(w) == FAILED_CAPTURE_KEYS and isinstance(w['scope'], str),
+            'failed-capture witness has missing or extra fields')
+    require(isinstance(w.get('files'), dict) and set(w['files']) == FAILED_CAPTURE_FILES
+            and set(files) == FAILED_CAPTURE_FILES, 'missing or extra failed-capture evidence')
+    for name, raw in files.items():
+        require(w['files'][name] == {'sha256': sha(raw), 'bytes': len(raw)},
+                'changed failed-capture evidence: ' + name)
+    for key in ('instance_id', 'volume_id', 'study_boot', 'recovery_boot', 'failed_capture_boot',
+                'recovery_witness_sha256'):
+        require(w.get(key) == p[key], 'B2 witness changed ' + key)
+    require(isinstance(w.get('witness_statement'), str)
+            and w['witness_statement'].startswith(FAILED_CAPTURE_STATEMENT),
+            'missing refused-capture witness statement')
+    # The start/stop requests name the policy instance, from stopped and running.
+    record = lambda name: (lambda d: d if isinstance(d, dict) else {})(_json(files[name]))
+    started = record('start.json').get('StartingInstances')
+    stopping = record('stop-response.json').get('StoppingInstances')
+    state = lambda value: value.get('Name') if isinstance(value, dict) else None
+    transition = lambda rows, before, after: (
+        isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict)
+        and rows[0].get('InstanceId') == p['instance_id']
+        and state(rows[0].get('PreviousState')) == before
+        and state(rows[0].get('CurrentState')) == after)
+    require(transition(started, 'stopped', 'pending') and transition(stopping, 'running', 'stopping'),
+            'B2 start/stop requests differ')
+    # Immediately before B2 the instance was still in the witnessed B1 stop.
+    before = instance(files['before-start.json'])
+    require(ec2(before, p, 'stopped') == history['launch'] and user_stop(before) == history['stop'],
+            'B2 start does not follow the witnessed B1 stop')
+    running = record('ec2-capture.json')
+    launch = ec2(running, p, 'running')
+    require(running.get('BlockDeviceMappings') == history['ec2'].get('BlockDeviceMappings'),
+            'B2 attachment changed')
+    stopped = instance(files['final-instance.json'])
+    require(ec2(stopped, p, 'stopped') == launch
+            and stopped.get('BlockDeviceMappings') == running['BlockDeviceMappings'],
+            'B2 stop record changed launch/attachment')
+    stop = user_stop(stopped)
+    require(history['stop'] < launch < stop, 'B2 launch/stop ordering differs')
+    summary = record('refusal-summary.json')
+    require(type(summary.get('quiet_attempts')) is int
+            and summary['quiet_attempts'] == 0 and summary.get('source_census_started') is False
+            and summary.get('capture_archive_created') is False,
+            'B2 refusal summary shows quiet/census/archive activity')
+    require(type(summary.get('start_requests')) is int and summary['start_requests'] == 1
+            and summary.get('no_boot_retry') is True and summary.get('stopped') is True,
+            'B2 refusal summary shows a retry or no stop')
+    require(isinstance(summary.get('launch_time'), str) and timestamp(summary['launch_time']) == launch
+            and summary.get('capture_log_sha256') == sha(files['capture.log']),
+            'B2 refusal summary changed launch or capture log')
+    require(summary.get('tool_commit') == FAILED_CAPTURE_TOOL_COMMIT
+            and type(summary.get('capture_exit')) is int and summary['capture_exit'] == 1,
+            'B2 refusal summary changed tool or exit')
+    lines = [line for line in files['capture.log'].decode('utf-8').splitlines() if line.strip()]
+    require(lines and lines[-1] == FAILED_CAPTURE_REFUSAL
+            and any(line.strip().endswith(', in live_observation') for line in lines)
+            and any(line.strip().endswith(', in _command') for line in lines),
+            'B2 capture log lacks the journalctl refusal')
+    # Exact tool hash-check lines name quiet_rehearsal.py; anything else that
+    # mentions a quiet check or census (including its JSON log) refuses.
+    hashed = re.compile(r'(tools/[A-Za-z0-9_]+\.py|policy\.json): OK')
+    require(not any(re.search(r'quiet|census', line, re.I) for line in lines if not hashed.fullmatch(line)),
+            'B2 capture log shows a quiet check or census')
+    return {'launch': launch, 'stop': stop, 'ec2': running,
+            'witness_sha256': p['failed_capture_witness_sha256']}
+
+
 def ended_boot(raw, row):
     require(raw and raw.endswith('\n'), 'missing/torn shutdown journal')
     entries = [_json(line) for line in raw.splitlines()]
@@ -234,34 +367,50 @@ def ended_boot(raw, row):
     return stamps[0], stamps[-1]
 
 
-def observations(p, history, observed):
+def observations(p, history, observed, failed=None):
     """Verify the exact chain and temporal file census in one capture phase."""
+    four = p['kind'] == FOUR_BOOT
+    require((failed is not None) == four, 'failed-capture evidence does not match the policy boot chain')
     host = observed.get('host', {})
     require(host.get('host') == p['host'] and host.get('platform') == 'linux'
             and observed.get('machine_id_sha256') == p['machine_id_sha256'], 'capture host changed')
     current = boot_id(host.get('boot'))
-    require(current not in (boot_id(p['study_boot']), boot_id(p['recovery_boot'])), 'capture reused an earlier boot')
+    earlier = ended_boots(p)
+    require(current not in [boot_id(b) for b in earlier], 'capture reused an earlier boot')
     boots = boot_list(observed['journal_boot_list'])
-    require([r['boot'] for r in boots[-3:]] == [boot_id(p['study_boot']), boot_id(p['recovery_boot']), current],
+    tail = len(earlier) + 1
+    require([r['boot'] for r in boots[-tail:]] == [*(boot_id(b) for b in earlier), current],
             'missing, extra or unobserved intermediate boot')
-    require([r['boot'] for r in boots[:-1]] == [r['boot'] for r in history['boots']],
+    # The B1 snapshot ended at B1: every later boot is exactly the tail above.
+    older = boots[:len(boots) - (tail - 2)]
+    require([r['boot'] for r in older] == [r['boot'] for r in history['boots']],
             'boot history changed since recovery')
-    for i, (old, new) in enumerate(zip(history['boots'], boots[:-1])):
+    for i, (old, new) in enumerate(zip(history['boots'], older)):
         require(old['first'] == new['first'] and
                 (old['last'] <= new['last'] if i == len(history['boots'])-1 else old['last'] == new['last']),
                 'recorded boot boundary changed')
     journals = observed.get('ended_boot_journals', {})
-    require(set(journals) == {p['study_boot'], p['recovery_boot']}, 'missing/extra shutdown journal')
-    bounds = [ended_boot(journals[key], row) for key, row in
-              zip((p['study_boot'], p['recovery_boot']), boots[-3:-1])]
+    require(set(journals) == set(earlier), 'missing/extra shutdown journal')
+    bounds = [ended_boot(journals[key], row) for key, row in zip(earlier, boots[-tail:-1])]
     require(bounds[0][1] < bounds[1][0], 'overlapping study/recovery boots')
+    if four:
+        require(bounds[1][1] < bounds[2][0], 'overlapping recovery/failed-capture boots')
+        busy = failed_boot_activity(journals[p['failed_capture_boot']])
+        require(not busy, 'B2 journal shows evaluator/session/analysis activity: ' + json.dumps(busy, sort_keys=True))
     launch = ec2(observed['ec2'], p, 'running')
     require(observed['ec2']['BlockDeviceMappings'] == history['ec2']['BlockDeviceMappings'],
             'capture volume attachment changed')
     now = observed.get('observed_time')
     require(type(now) in (int, float) and math.isfinite(now), 'invalid observation time')
-    require(history['stop'] <= bounds[1][1] / 1_000_000 < launch <= boots[-1]['first'] <= now
-            and boots[-1]['last'] <= now, 'B1 stop/B2 launch ordering differs')
+    if not four:
+        require(history['stop'] <= bounds[1][1] / 1_000_000 < launch <= boots[-1]['first'] <= now
+                and boots[-1]['last'] <= now, 'B1 stop/B2 launch ordering differs')
+    else:
+        require(history['stop'] <= bounds[1][1] / 1_000_000 < failed['launch'] <= bounds[2][0] / 1_000_000,
+                'B1 stop/B2 launch/B2 first entry ordering differs')
+        require(failed['stop'] <= bounds[2][1] / 1_000_000, 'B2 stop follows its journal end')
+        require(bounds[2][1] / 1_000_000 < launch <= boots[-1]['first'] <= now
+                and boots[-1]['last'] <= now, 'B2 journal end/B3 launch ordering differs')
     files = observed.get('source_files', {})
     require(set(files) == set(history['inventory']), 'missing or extra source file')
     for name, record in files.items():
@@ -279,13 +428,17 @@ def observations(p, history, observed):
     require(len(fields) == 2 and fields[0] == '0', 'session exit was not successful')
     require(bounds[0][0] / 1_000_000 <= timestamp(fields[1]) <= bounds[0][1] / 1_000_000,
             'session exit outside original study boot')
-    return {'study_end_us': bounds[0][1], 'capture_boot': host['boot'], 'scope': SCOPE}
+    verdict = {'study_end_us': bounds[0][1], 'capture_boot': host['boot'], 'scope': SCOPE}
+    if four:
+        verdict.update(failed_capture_boot=p['failed_capture_boot'], scope=FOUR_BOOT_SCOPE,
+                       failed_capture_witness_sha256=failed['witness_sha256'])
+    return verdict
 
 
 def process_report(root, verifier, *, host, table, p):
     """Retain the original refusal; never fabricate an old-boot observation."""
     require(host == {'host': p['host'], 'platform': 'linux', 'boot': host.get('boot')}
-            and host['boot'] not in (p['study_boot'], p['recovery_boot']), 'not the attested capture host')
+            and host['boot'] not in ended_boots(p), 'not the attested capture host')
     original = verifier.verify(root, observe=lambda: table, host=lambda: host)
     read_events = importlib.import_module('session_journal').read_events
     expected_issues = []
@@ -345,6 +498,57 @@ def system_daemon(row, command):
     uid = command.get('uid')
     return (type(uid) is int and 0 <= uid < 1000 and type(row.get('ppid')) is int and row.get('ppid') == 1
             and tuple(command['argv']) in SYSTEM_DAEMONS.get(command['comm'], ()))
+
+
+# Ubuntu Python system tools that may log to the B2 journal under a system UID.
+# Their first two _CMDLINE words are exact; later words are their own subcommands.
+B2_PYTHON_SERVICES = {
+    'cloud-init': ('/usr/bin/python3', '/usr/bin/cloud-init'),
+    'unattended-upgr': ('/usr/bin/python3', '/usr/bin/unattended-upgrade'),
+}
+# Exact whole argv only: the AWS EC2 hibernation agent (ec2-hibinit-agent), observed
+# under uid 0 in B2's real journal. B2-only; the shared SYSTEM_DAEMONS are unchanged.
+B2_PYTHON_EXACT = {
+    'hibinit-agent': ('/usr/bin/python3', '/usr/bin/hibinit-agent', '-c', '/etc/hibinit-config.cfg'),
+}
+# Native study programs outside the shared interpreter word list (B2 check only).
+B2_WORK_PROGRAMS = {'geode'}
+
+
+def failed_boot_activity(raw):
+    """Classify every B2 journal entry's process with the shared B1/B2 classifier.
+
+    Only exact system daemons and the enumerated Ubuntu Python system tools are
+    excepted. _COMM, the _EXE basename and every _CMDLINE word are checked. There
+    is no collector exception: B2's real journal has no collector entry, and an
+    argv-only exception cannot be bound to the hash-pinned collector source.
+    """
+    busy = []
+    for line in raw.splitlines():
+        entry = _json(line)
+        require(isinstance(entry, dict), 'malformed B2 journal process field')
+        comm, exe, cmdline, uid = (entry.get(k) for k in ('_COMM', '_EXE', '_CMDLINE', '_UID'))
+        require(all(v is None or isinstance(v, str) for v in (comm, exe, cmdline, uid)),
+                'malformed B2 journal process field')
+        comm, exe, argv = comm or '', exe or '', (cmdline or '').split()
+        uid = int(uid) if uid is not None and re.fullmatch(r'[0-9]+', uid) else None
+        system = uid is not None and 0 <= uid < 1000
+        interpreter = PurePosixPath(exe).name.startswith('python')
+        # The executable must be the daemon itself, or Python for the Python daemons.
+        if (system and tuple(argv) in SYSTEM_DAEMONS.get(comm, ())
+                and (argv[0] == '/usr/bin/python3' if interpreter
+                     else PurePosixPath(exe).name == PurePosixPath(argv[0].lstrip('@')).name)):
+            continue
+        if (system and comm in B2_PYTHON_SERVICES and interpreter
+                and tuple(argv[:2]) == B2_PYTHON_SERVICES[comm]):
+            continue
+        if system and interpreter and comm in B2_PYTHON_EXACT and tuple(argv) == B2_PYTHON_EXACT[comm]:
+            continue
+        words = [word for word in (comm, exe, *argv) if word]
+        if (comm in SYSTEM_DAEMONS or any(work_process(word) for word in words)
+                or any(PurePosixPath(word).name in B2_WORK_PROGRAMS for word in words)):
+            busy.append({'comm': comm, 'exe': exe, 'cmdline': cmdline, 'uid': uid})
+    return busy
 
 
 def quiet_processes(observed, *, capture_script_sha256):
@@ -494,7 +698,10 @@ def archive_mapping(name, inventory_root, roots):
 def _command(args):
     env = dict(os.environ, LC_ALL='C', LANG='C', TZ='UTC')
     result = subprocess.run(args, capture_output=True, env=env, timeout=60)
-    require(result.returncode == 0, 'read-only observation command failed: ' + args[0])
+    # Report the exit code and the first stderr lines; never stdout or environment.
+    detail = ' | '.join(line[:200] for line in result.stderr.decode('utf-8', 'replace').splitlines()[:5])
+    require(result.returncode == 0, 'read-only observation command failed: ' + args[0]
+            + ' (rc=' + str(result.returncode) + '; stderr: ' + detail + ')')
     return result.stdout.decode('utf-8')
 
 
@@ -522,8 +729,10 @@ def process_snapshot(identity, script):
 def live_observation(p, ec2_record, identity, script):
     """Linux read-only collection; no evaluators, recovery, builds or journal writes."""
     boots = _command(['journalctl', '--list-boots', '--no-pager', '--utc'])
-    journals = {boot: _command(['journalctl', '-b', boot, '-o', 'json', '--no-pager', '--utc'])
-                for boot in (p['study_boot'], p['recovery_boot'])}
+    # systemd 255 parses `-b` matches as plain 32-hex IDs; hyphenated UUIDs refuse.
+    # --all keeps fields over 4096 bytes (e.g. long _CMDLINE) instead of nulling them.
+    journals = {boot: _command(['journalctl', '-b', boot_id(boot), '--all', '-o', 'json', '--no-pager', '--utc'])
+                for boot in ended_boots(p)}
     machine = Path('/etc/machine-id').read_bytes()
     require(re.fullmatch(rb'[0-9a-f]{32}\n?', machine) is not None, 'malformed machine identity file')
     # The retained B1 witness did not label whether its hash included the final
@@ -569,7 +778,8 @@ def terminal_exit(events, observed, p):
 
 class CaptureContext:
     """Pinned external evidence and fresh per-phase observations for an exporter."""
-    def __init__(self, policy_path, policy_sha256, recovery_directory, ec2_path, *, observe=live_observation):
+    def __init__(self, policy_path, policy_sha256, recovery_directory, ec2_path, *,
+                 failed_directory=None, observe=live_observation):
         self.paths = {'reboot/policy.json': Path(policy_path),
                       'reboot/recovery/witness.json': Path(recovery_directory)/'recovery-witness.json',
                       'reboot/ec2-capture.json': Path(ec2_path)}
@@ -577,8 +787,21 @@ class CaptureContext:
         self.raw = {name: producer_source.regular(path).read_bytes() for name, path in self.paths.items()}
         self.policy_sha256 = _sha(policy_sha256)
         self.p = policy(self.raw['reboot/policy.json'], self.policy_sha256)
+        require((failed_directory is not None) == (self.p['kind'] == FOUR_BOOT),
+                'four-boot policy requires, and three-boot policy refuses, failed-capture evidence')
         self.history = recovery(self.raw['reboot/recovery/witness.json'],
                                 {name: self.raw['reboot/recovery/'+name] for name in WITNESS_FILES}, self.p)
+        self.failed = None
+        if failed_directory is not None:
+            failed = {'reboot/failed-capture/witness.json': Path(failed_directory)/'failed-capture-witness.json'}
+            failed.update({'reboot/failed-capture/'+name: Path(failed_directory)/name
+                           for name in FAILED_CAPTURE_FILES})
+            self.paths.update(failed)
+            self.raw.update({name: producer_source.regular(path).read_bytes() for name, path in failed.items()})
+            self.failed = failed_capture(self.raw['reboot/failed-capture/witness.json'],
+                                         {name: self.raw['reboot/failed-capture/'+name]
+                                          for name in FAILED_CAPTURE_FILES}, self.p, self.history)
+        self.scope = FOUR_BOOT_SCOPE if self.failed is not None else SCOPE
         self.ec2 = _json(self.raw['reboot/ec2-capture.json'])
         self.observe = observe
 
@@ -595,7 +818,7 @@ class CaptureContext:
         identity = importlib.import_module('process_identity')
         observed = self.observe(self.p, self.ec2, identity, script)
         machine_observation(observed, self.p)
-        verdict = observations(self.p, self.history, observed)
+        verdict = observations(self.p, self.history, observed, self.failed)
         quiet_processes(observed, capture_script_sha256=producer_source.digest(script))
         quiet_history(observed, producer_source.digest(script))
         reports = {path: process_report(path, verifier, host=observed['host'],

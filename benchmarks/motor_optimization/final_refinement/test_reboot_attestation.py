@@ -219,7 +219,8 @@ class AttestationTests(unittest.TestCase):
             def command(args):
                 commands.append(args)
                 if '--list-boots' in args:return self.observed['journal_boot_list']
-                return self.observed['ended_boot_journals'][args[2]]
+                # systemd 255 accepts only the plain 32-hex boot ID form.
+                return {proof.boot_id(k):v for k,v in self.observed['ended_boot_journals'].items()}[args[2]]
             ordering=[];original_wait=proof.wait_for_quiet;original_census=proof.source_census
             def wait(*args,**kwargs):
                 result=original_wait(*args,**kwargs);ordering.append('quiet');return result
@@ -231,8 +232,8 @@ class AttestationTests(unittest.TestCase):
                 observed=proof.live_observation(p,self.observed['ec2'],identity,script)
             self.assertEqual(ordering,['quiet','census'])
             self.assertEqual(commands,[['journalctl','--list-boots','--no-pager','--utc'],
-                ['journalctl','-b',B0,'-o','json','--no-pager','--utc'],
-                ['journalctl','-b',B1,'-o','json','--no-pager','--utc']])
+                ['journalctl','-b',proof.boot_id(B0),'--all','-o','json','--no-pager','--utc'],
+                ['journalctl','-b',proof.boot_id(B1),'--all','-o','json','--no-pager','--utc']])
             self.assertEqual(observed['source_files']['session_exit.txt']['mtime_ns'],(root/'session_exit.txt').stat().st_mtime_ns)
             self.assertEqual(observed['collector']['identity']['pid'],pid)
             self.assertEqual(observed['process_commands'][0]['uid'],1000)
