@@ -106,6 +106,10 @@ class FakeEvaluator:
         self.wall = 1.9 if wall is None else wall
         self.mesh_bad = mesh_bad or (lambda u: False)
         self.requests = []
+        # The generation of the current training reference (#1218 `check`):
+        # the fake's remesh rule is stateless (generation 1 iff u_0 > 0.95),
+        # and a point of the other generation would remesh from here.
+        self.generation = 0
         self.emitted = {c: 0.0 for c in CATEGORIES}
         self.ready = {"op": "ready", "ok": True,
                       "space": {"free": [f"p{i}" for i in range(N)], "lower": LOWER,
@@ -155,6 +159,10 @@ class FakeEvaluator:
             raise AssertionError(f"{op} of a point that is not buildable reached the evaluator")
         if op == "geometry":
             pass
+        elif op == "check":
+            # Read-only (#1218): the current reference's moved positions at
+            # x and the remesh trigger; no remesh, no solve, no state change.
+            charges = [("mesh_motion", MOTION, 0, 0)]
         elif op == "mesh_check":
             charges = [("geometry_check", GEOM, 0, 0), ("mesh_motion", MOTION, 0, 0)]
             if self.mesh_bad(u):
@@ -196,6 +204,15 @@ class FakeEvaluator:
         if op == "geometry":
             reply["geometry"] = dom
             return reply
+        if op == "check":
+            gen = 1 if u[0] > 0.95 else 0
+            # A point of the other generation would remesh from here, and a
+            # mesh-bad point is the fake's always-remeshing (and failing)
+            # design: both fire the policy, as `train` would remesh there.
+            fires = gen != self.generation or self.mesh_bad(u)
+            reply.update(geometry_ok=True, motion_error=None, quality={},
+                         trigger={"kind": "min_angle"} if fires else None)
+            return reply
         if op == "mesh_check":
             reply["status"] = "mesh_infeasible" if self.mesh_bad(u) else "ok"
             return reply
@@ -221,6 +238,7 @@ class FakeEvaluator:
             reply["validation"]["msh_sha256"] = SHA
             return reply
         if op == "train":
+            self.generation = 1 if u[0] > 0.95 else 0
             g = f.get("gradient")
             dmean = np.zeros(N)
             dmean[1] = 0.99 * MEAN0 * 0.02 / self.width[1]

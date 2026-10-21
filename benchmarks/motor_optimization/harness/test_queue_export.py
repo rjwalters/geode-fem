@@ -28,8 +28,8 @@ class QueueExportTests(unittest.TestCase):
             plan = json.loads(raw)
             receipt = json.loads(run.stdout)
             self.assertEqual(receipt["sha256"], hashlib.sha256(raw).hexdigest())
-            self.assertEqual(plan["method_specs"], session.METHOD_SPECS)
-            self.assertEqual(plan["jobs"], main_schedule.registered_jobs(session.METHOD_SPECS))
+            self.assertEqual(plan["method_specs"], session.MAIN_METHOD_SPECS)
+            self.assertEqual(plan["jobs"], main_schedule.registered_jobs(session.MAIN_METHOD_SPECS))
             self.assertEqual(len(plan["jobs"]), 100)
             self.assertEqual(len({j["name"] for j in plan["jobs"]}), 100)
             for key in ("jobs", "method_specs"):
@@ -66,11 +66,11 @@ class QueueExportTests(unittest.TestCase):
             self.assertEqual(json.loads(out.read_text())["label"], "main_queue_plan")
 
     def test_missing_duplicate_and_extra_method_specs_are_refused(self):
-        missing = copy.deepcopy(driver.METHOD_SPECS)
+        missing = copy.deepcopy(driver.MAIN_METHOD_SPECS)
         missing.pop("slsqp_l0")
-        duplicate = copy.deepcopy(driver.METHOD_SPECS)
+        duplicate = copy.deepcopy(driver.MAIN_METHOD_SPECS)
         duplicate["slsqp_l0"]["letter"] = "A"
-        extra = copy.deepcopy(driver.METHOD_SPECS)
+        extra = copy.deepcopy(driver.MAIN_METHOD_SPECS)
         extra["alias"] = copy.deepcopy(extra["slsqp"])
         for specs in (missing, duplicate, extra):
             with self.subTest(specs=specs), self.assertRaises(ValueError):

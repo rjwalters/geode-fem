@@ -26,9 +26,11 @@ def canonical_sha256(value):
 
 def export(out):
     before = recovery_bindings.sources()
-    from driver import METHOD_SPECS
+    # The registered main study's A-E only (method F of #1218 is a separate
+    # ablation queue, fd_ablation_schedule).
+    from driver import MAIN_METHOD_SPECS
     # Take a value copy, retaining all fields and the exact resolution choices.
-    specs = json.loads(json.dumps(METHOD_SPECS, allow_nan=False))
+    specs = json.loads(json.dumps(MAIN_METHOD_SPECS, allow_nan=False))
     jobs = main_schedule.registered_jobs(specs)
     after = recovery_bindings.sources()
     if before != after:

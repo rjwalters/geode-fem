@@ -974,3 +974,12 @@ jobs:
         run: |
           python -I -m unittest discover \
               -s benchmarks/motor_optimization/final_refinement -p 'test_*.py' -v
+
+      - name: Selection mutation checks (main cohort pin and #1218 FD ablation)
+        # Issue #1218: selection.py also selects the post-hoc {A', F}
+        # FD-ablation cohort. The main cohort's selection stays byte-identical
+        # (pinned in test_selection.py); every targeted selection mutation,
+        # including the ablation's, must be killed.
+        run: |
+          python -I benchmarks/motor_optimization/final_refinement/mutation_checks.py \
+              > /tmp/selection-mutations.json

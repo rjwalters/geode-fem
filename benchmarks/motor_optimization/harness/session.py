@@ -4,6 +4,7 @@ this host, then run every job with a fixed number of single-threaded
 processes, and record the session.
 
     pyrun.sh session.py --main  --procs N --out DIR [--binary EVALUATOR]
+    pyrun.sh session.py --fd-ablation --procs N --out DIR [--binary EVALUATOR]
     pyrun.sh session.py --smoke --procs N --out DIR [--budget-fe B]
 
 * Main (`--main`, label `main`): 5 starts (theta0, lhs1-lhs4; amendment
@@ -14,6 +15,14 @@ processes, and record the session.
   that rotation on repeat 2. D/E train at L0 using the same validation unit.
   Main runs also need the operator's choice of host (amendment 7 §6); this
   mode must be asked for by name.
+* FD ablation (`--fd-ablation`, label `fd_ablation`; #1218, a post-hoc
+  ablation outside the preregistered study): the {A', F} queue of
+  `fd_ablation_schedule` (method A rerun unchanged, and F `slsqp_fd`), 40
+  runs on the same starts, spaces, repeats, budget, models and anchor as
+  the main session, with the main session's setup: the frozen-start
+  preflight, the anchor recomputation, the gated unit calibration, the
+  build receipt, clean sources and the host rule. No L0 model is
+  calibrated (neither arm uses one). The main queue is not changed.
 * Smoke (`--smoke`, label `smoke`): both models at L0 on the committed L0
   mesh, an L0 anchor computed here (labelled smoke, not the registered
   anchor), one repeat, a short budget (default 20 FE). Besides θ0 and lhs1
@@ -55,12 +64,14 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from driver import METHOD_LABELS, METHOD_SPECS, method_order  # noqa: E402
+from driver import (FD_ABLATION_METHODS, MAIN_METHOD_SPECS, METHOD_LABELS,  # noqa: E402
+                    METHOD_SPECS, method_order)
 from evaluator import Evaluator  # noqa: E402
 from linalg_info import fingerprint as linalg_fingerprint  # noqa: E402
 from run import thread_env  # noqa: E402
 import resource_usage  # noqa: E402
 import main_schedule  # noqa: E402
+import fd_ablation_schedule  # noqa: E402
 import session_journal  # noqa: E402
 import interruption  # noqa: E402
 import owned_child  # noqa: E402
@@ -71,6 +82,26 @@ OPT = ROOT / "benchmarks/motor_optimization"
 MESHES = ROOT / "benchmarks/motor_reference/geometry/meshes"
 STARTS = ("theta0", "lhs1", "lhs2", "lhs3", "lhs4")
 PILOT_FAILURES = HERE / "pilot_failures.json"
+#: The method specs of each registered session label: the main study's A-E
+#: (unchanged by method F) and the #1218 ablation's {A', F}.
+FD_ABLATION_SPECS = {m: METHOD_SPECS[m] for m in FD_ABLATION_METHODS}
+SESSION_SPECS = {"main": MAIN_METHOD_SPECS, "fd_ablation": FD_ABLATION_SPECS}
+PREREGISTRATION = {
+    "main": "#1185 with amendments 1-8 (amendment 7 revision 1 with the adoption corrections)",
+    "fd_ablation": "#1218 (post-hoc ablation, protocol frozen before any F run; not part of "
+                   "the preregistered #1185 study)",
+}
+
+
+def registered_queue(label):
+    """The registered job queue of a main-like session label."""
+    if label == "main":
+        return main_schedule.registered_jobs(MAIN_METHOD_SPECS)
+    if label == "fd_ablation":
+        return fd_ablation_schedule.registered_jobs(FD_ABLATION_SPECS)
+    raise ValueError(f"no registered queue for {label!r}")
+
+
 #: Host rule (amendment 7 §6).
 CONTAMINATION_FACTOR = 1.5
 CONTAMINATION_SECONDS = 60.0
@@ -654,6 +685,8 @@ def _main(argv=None, stop=None):
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--smoke", action="store_true")
     mode.add_argument("--main", action="store_true")
+    mode.add_argument("--fd-ablation", action="store_true",
+                      help="the #1218 {A', F} ablation queue (40 runs), main-session setup")
     ap.add_argument("--build-receipt", type=Path, help="required for main: witnessed evaluator build receipt")
     ap.add_argument("--budget-fe", type=float, default=None)
     ap.add_argument("--max-wait", type=float, default=1800.0,
@@ -665,6 +698,8 @@ def _main(argv=None, stop=None):
     a = ap.parse_args(argv)
     if a.host_gate == "off" and not a.smoke:
         raise SystemExit("the host gate may be turned off for a smoke session only")
+    main_like = a.main or a.fd_ablation
+    label = "smoke" if a.smoke else "main" if a.main else "fd_ablation"
     out = a.out.resolve()
     if a.smoke and (OPT / "runs").resolve() in [out, *out.parents]:
         raise SystemExit("a smoke session may not write inside runs/")
@@ -674,16 +709,15 @@ def _main(argv=None, stop=None):
     if a.procs < 1 or a.max_deferrals < 1 or a.load_interval <= 0 or a.max_wait < 0:
         raise SystemExit("positive workers/deferrals/interval and nonnegative wait are required")
     journal = session_journal.Journal(out, {"argv": list(argv) if argv is not None else sys.argv[1:],
-                                         "label": "smoke" if a.smoke else "main", "procs": a.procs})
+                                         "label": label, "procs": a.procs})
     monitor = None
     try:
         interruption.check(stop)
         before = host_record()
         prov = provenance(a.binary)
-        if a.main or a.build_receipt is not None:
+        if main_like or a.build_receipt is not None:
             prov["evaluator_build"] = build_provenance.verify(a.build_receipt, a.binary, prov.get("source"))
         journal.emit("setup_started", host=before, provenance=prov)
-        label = "smoke" if a.smoke else "main"
         starts_path = HERE / "starts.json"
         if a.smoke:
             tl = vl = 0
@@ -752,7 +786,7 @@ def _main(argv=None, stop=None):
                             "train_mesh_sha256": sha256(train_mesh),
                             "theta0_train": cal["theta0_train"], "weights": cal["weights"]}}
         secondary_cal = None
-        if not a.smoke:
+        if a.main:
             l0_mesh = MESHES / "icem_initial_sector_L0.msh"
             secondary_out = out / "calibration_L0"
             secondary_out.mkdir()
@@ -764,6 +798,7 @@ def _main(argv=None, stop=None):
                             "train_mesh_sha256": sha256(l0_mesh),
                             "theta0_train": secondary_cal["theta0_train"],
                             "weights": secondary_cal["weights"]}
+        specs = SESSION_SPECS.get(label, MAIN_METHOD_SPECS)
         session = {"issue": 1201, "label": label, "session_id": session_id,
                    "budget_fe": budget, "checkpoint_fe": 60.0, "unit_seconds": cal["unit_seconds"],
                    "weights": cal["weights"], "theta0_train": cal["theta0_train"],
@@ -773,6 +808,10 @@ def _main(argv=None, stop=None):
                                  "train_level": tl, "val_level": vl},
                    "starts": str(starts_path), "procs": a.procs,
                    "linear_algebra": prov["linear_algebra"]}
+        if label == "fd_ablation":
+            session["ablation"] = {"issue": 1218, "methods": list(FD_ABLATION_METHODS),
+                                   "arms": {"slsqp": "A_prime", "slsqp_fd": "F"},
+                                   "post_hoc": True}
         if a.build_receipt is not None:
             session["evaluator"]["build_receipt"] = str(a.build_receipt.resolve())
         if anchor_check is not None:
@@ -780,8 +819,7 @@ def _main(argv=None, stop=None):
                                                 "sha256": sha256(out / "anchor_preflight.json")}
         interruption.check(stop)
         session_journal.freeze(out / "session.json", session)
-        jobs = (build_jobs(starts, SPACES, repeats) if a.smoke else
-                main_schedule.registered_jobs(METHOD_SPECS))
+        jobs = build_jobs(starts, SPACES, repeats) if a.smoke else registered_queue(label)
         if a.smoke:
             # The drills (module docs).
             for m in method_order(1):
@@ -809,7 +847,7 @@ def _main(argv=None, stop=None):
         session_journal.freeze(out / "recovery-inputs.json", recovery_inputs)
         pinned.append("recovery-inputs.json")
         recovery_bindings.validate_setup(recovery_inputs, prov, meshes)
-        if a.main and recovery_inputs.get("source", {}).get("tree_clean") is not True:
+        if main_like and recovery_inputs.get("source", {}).get("tree_clean") is not True:
             raise SystemExit("main dispatch requires clean, frozen experiment sources")
         for name in sorted({job["session_file"] for job in jobs if "session_file" in job}):
             pinned.append(name)
@@ -866,9 +904,9 @@ def _main(argv=None, stop=None):
         manifest = {"issue": 1201, "label": label, "session_id": session_id,
                     "complete": complete, "unresolved_jobs": unresolved,
                     "monitor_error": str(monitor.error) if monitor.error else None,
-                    "preregistration": "#1185 with amendments 1-8 (amendment 7 revision 1 with "
-                                       "the adoption corrections)",
-                    "method_labels": METHOD_LABELS, "method_specs": METHOD_SPECS,
+                    "preregistration": PREREGISTRATION.get(label, PREREGISTRATION["main"]),
+                    "method_labels": {m: METHOD_LABELS[m] for m in specs},
+                    "method_specs": specs,
                     "host_before": before, "host_after": after, "host_idle": host_idle,
                     "host_rule": {"gate": ctx["gate"], "pre_run_max_load": a.procs + 1,
                                   "max_wait_s": a.max_wait, "max_deferrals": a.max_deferrals,

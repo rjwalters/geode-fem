@@ -159,7 +159,7 @@ class BaselineWiringTests(unittest.TestCase):
                 session.combine_calibrations([calibration([1., 2., 3.], 1., .5, 7.)], unit)
 
     def test_main_registry_builds_all_paired_jobs_and_retains_pilot_order(self):
-        jobs = main_schedule.build_jobs({s["letter"]: m for m, s in driver.METHOD_SPECS.items()})
+        jobs = main_schedule.build_jobs({s["letter"]: m for m, s in driver.MAIN_METHOD_SPECS.items()})
         self.assertEqual(len(jobs), 100)
         self.assertEqual(len({j["name"] for j in jobs}), 100)
         for k, start in enumerate(main_schedule.STARTS):

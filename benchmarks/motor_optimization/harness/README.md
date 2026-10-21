@@ -39,10 +39,13 @@ only) is in `../runs/pilot/`, with its `SUMMARY.md`.
 | `crates/geode-core/examples/icem_harness_eval.rs` | The evaluator process, one per run: JSON lines over stdin/stdout. |
 | `crates/geode-core/tests/common/icem_harness.rs` | `Session::handle`: the requests and their charges, built on `RemeshEvaluator`, `Validator::accept`, `Anchor` and `CostLedger`. |
 | `crates/geode-core/tests/motor_experiment2_harness.rs` | CI target. |
-| `driver.py` | The problem scaling, the charged `Run` (the validation policy and attainment), and methods A, B and C. |
+| `driver.py` | The problem scaling, the charged `Run` (the validation policy and attainment), and methods A–E and F (#1218). |
 | `ledger.py`, `acceptance.py`, `evaluator.py`, `surrogate.py` | The driver's ledger, its independent copy of the acceptance rule, the process client, and the RBF model. |
 | `run.py` | One run: a fresh process, a fresh ledger, one trace. |
-| `session.py` | The run manifest: gated calibration, then scheduling; requires explicit `--main` or `--smoke`. Main uses five methods and requires a witnessed build receipt. |
+| `session.py` | The run manifest: gated calibration, then scheduling; requires explicit `--main`, `--fd-ablation` or `--smoke`. Main uses five methods (A–E); `--fd-ablation` the #1218 {A′, F} queue; both require a witnessed build receipt. |
+| `fd_ablation_schedule.py` | The #1218 {A′, F} ablation queue (40 jobs; `session.py --fd-ablation`). The 100-job main queue is unchanged. |
+| `fd_gradient_check.py`, `fd-gradient-runtime-checks.json` | Method F's forward-difference gradient against the adjoint on the L0 CI model, through the process (#1218). |
+| `test_fd_gradient.py`, `fd_gradient_mutations.py`, `fd-gradient-checks.json` | Method F and ablation-queue tests on the fake evaluator, and their mutation record (#1218). |
 | `export_queue.py` | Export the same 100-job main queue for prelaunch inspection, without FEM/calibration. |
 | `summarize_session.py` | Writes `SUMMARY.md` for a session directory. |
 | `summarize_pilot.py` | The pilot analysis (#1198): attainment, budget profile, feasibility, failures, host load, quality-versus-cost curves (`curves.csv`, `quality_vs_cost.svg`) and method C's held-out-current diagnostic, into the session's `SUMMARY.md`. |
@@ -1219,3 +1222,49 @@ binaries are not included; their hashes and recorded build inputs are retained.
 The matching `*-runtime-checks.json` summaries identify exact source snapshots
 and distinguish changed test fixtures from unchanged numerical code. Extract
 into a new directory and verify every member against its manifest before use.
+
+## Method F and the {A′, F} ablation (#1218)
+
+A post-hoc ablation, outside the preregistered #1185 study. Method F
+`slsqp_fd` is method A's safeguarded SLSQP with restarts, with the same
+bounds, constraints, restoration, validation, targets and stopping rules,
+and the analytic geometry Jacobians. Only the objective and mean-constraint
+gradients change: they are forward differences of `train` value replies
+(`gradient: false`), step 1e-6 in each component's unit, base value reused
+(n + 1 forward solves per gradient: 9 in space A, 19 in space B). Every request is an
+ordinary charged request of the run.
+
+- **Same generation.** Before a stencil point is solved, the evaluator's
+  existing `check` request (read-only: no remesh, no solve, no state
+  change) computes the current training reference's moved positions there
+  and reports whether the remesh policy would fire. A stencil
+  point that would remesh is never solved. A stencil reply off the base's
+  generation, or with a remesh event, is a `WiringError`.
+- **Backward step.** A forward step that leaves the box, is not buildable
+  (what A's `train` requires), or would remesh is replaced by the backward
+  step for that component. Admissibility (h ≥ 0) is not required, so F
+  differences wherever A gets an adjoint gradient (protocol-freeze ruling 1
+  on #1218). When both fail, the
+  gradient is refused on A's `derivative_undefined` path. Nothing more is
+  returned at that point, and restoration starts from the last admissible
+  evaluated point *before* it, because the refused point has a value.
+- **Same refusals as A.** At a buildable point whose design derivative is
+  undefined, F refuses `derivative_undefined` before its value request,
+  exactly where A's gradient request is refused (0 solves).
+- **Retired base.** If the base value is on a retired generation, the base
+  is solved once more on the current reference (n + 2 solves). If that
+  would remesh, the gradient is refused.
+
+`session.py --fd-ablation` runs the 40-job queue of `fd_ablation_schedule.py`
+(label `fd_ablation`). The cohort is θ0 and lhs1–4, spaces a and b, repeats
+1 and 2, with {A′, F} rotated by the start index and reversed on repeat 2.
+The setup is the main session's: start preflight, anchor recomputation, the
+gated unit calibration, a build receipt, clean sources and the host rule. No
+L0 model is calibrated. The main registry (`driver.MAIN_METHOD_SPECS`,
+A–E), its queue and its export are unchanged; `test_fd_gradient.py` pins
+their canonical hashes. Recovery: `recovery.py --fd-ablation`.
+
+On the L0 CI model (`fd-gradient-runtime-checks.json`), F's gradient agrees
+with the adjoint to a norm-wise relative 5.2e-4 (A) and 1.9e-3 (B). Component-wise,
+the worst cases are 6e-3 (A) and 5.7e-2 (B, a small SW3 component). Those
+are the accuracy F gets at the frozen step.
