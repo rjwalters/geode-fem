@@ -750,6 +750,12 @@
       "snapshot": "figures/src/data/exp2b/fd-gradient-runtime-checks-L1.json",
       "sha256": "5ecb87d3f59a0d81df027942ce8683d4b3435893cdb8988dd0ec50b8b386be94",
       "source_commit": "74843242db03e8d57edf971420171064bf19f107"
+    },
+    {
+      "source": "benchmarks/motor_optimization/harness/fd-step-sweep-L1.json",
+      "snapshot": "figures/src/data/exp2b/fd-step-sweep-L1.json",
+      "sha256": "b04b2e7db9bdd749ff429a8f3de923c6450819700e9f6e7cafb0e10065ecf601",
+      "source_commit": "f94acad3f312c7d417830ff82b66a78a1ea89fb2"
     }
   ],
   "evidence_commits": [
@@ -760,6 +766,7 @@
     "74843242db03e8d57edf971420171064bf19f107",
     "8acd21ecf85d89fe077275a3c04ca70b53963d43",
     "910593bad6f64f9f01671c2632b57034e72b9c61",
-    "9486a9da58beeca91968d4d3608f06b998abff45"
+    "9486a9da58beeca91968d4d3608f06b998abff45",
+    "f94acad3f312c7d417830ff82b66a78a1ea89fb2"
   ]
 }

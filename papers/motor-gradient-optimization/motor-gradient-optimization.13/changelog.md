@@ -8,7 +8,7 @@ Inputs: `motor-gradient-optimization.12.review/` (`verdict.md`, `review-opus.md`
 - the fixed-sign per-component offsets at L1 and L0;
 - the archive digest.
 
-**Outstanding dependencies (hold READY):**
+**Outstanding dependencies (hold READY), as of the first v13 commit (the second commit resolves `fd-step-sweep`; see the addendum):**
 - `[PENDING fd-step-sweep]` (2 markers, §5 and Appendix D): a step-sweep/central-difference diagnostic at the failing L1 point, being measured in a separate PR.
 - `[PENDING zenodo-doi]` (1 marker, data statement): the operator's deposit of the raw-trace archive.
 
@@ -52,3 +52,15 @@ No other marker remains; the verifier asserts exactly these two sources.
 | Opus A7 / Fable A10 / coordinator 5 | Raw traces private | Deposit-ready archive built (not uploaded); the data statement names it with byte size and SHA-256 and carries `[PENDING zenodo-doi]`. `figures/src/data/deposit/deposit-record.json` records the digest, size and file counts. `verify_exp2b.py` checks that the record matches the text and the two inventories, and re-hashes the archive when `MOTOR_RAW_ARCHIVE` points at it |
 | Opus A9 / Fable A7 | Method/space letter collision | Declined again: renaming spaces in prose, tables and figures is high-risk for a decoding nit |
 | Opus A10 | Fig. 5 x-axis label | Added |
+
+## Addendum: step sweep filled in (second v13 commit)
+
+Source: PR #1223, merged at `f94acad3f312c7d417830ff82b66a78a1ea89fb2` (verified MERGED and an ancestor of origin/main). The record `benchmarks/motor_optimization/harness/fd-step-sweep-L1.json` is copied to `figures/src/data/exp2b/` and entered in the evidence manifest with that commit and its SHA-256 (126 entries). Both `[PENDING fd-step-sweep]` markers are filled; **the only remaining marker is `[PENDING zenodo-doi]`**, the operator's deposit.
+
+| Item | Resolution |
+|---|---|
+| §5 sentence | "A step sweep at that point shows the excess to be forward-difference truncation error: a central difference with the same step reduces it from 0.24 to 2.2e-4 relative." |
+| Appendix D detail | For SW3, MH and SW2 at the failing L1 point (space A, interior), the forward error divided by the step keeps its sign and size within 0.9% over 1e-5..1e-7 m (3.0% for MH's objective component). Central differences remove it: SW3's mean component goes from 0.24 to 2.2e-4 relative at 1e-6, with a 94-fold drop from 1e-5 to 1e-6 (the h² prediction is 100). The central floor at 1e-6 is 9e-8 to 3.4e-7 absolute (MH, SW2). SW3's truncation per unit step (1.9e3) is below MH's (2.8e3) and SW2's (9.7e3), so it fails on its small slope (−7.7e-3), not unusual curvature. Moré & Wild frame the regime: truncation, not noise, dominates at the frozen step. The sweep is deterministic: the base repeat is bit-identical, and its forward 1e-6 values equal the L1 check's |
+| §7 limits, data statement | §7: F's forward differences carry a truncation error exceeding the per-component limit on one small component. The data statement pins the sweep at `f94acad3` |
+| Verifier | New `verify_exp2b.py` block. It checks the manifest pin and SHA-256, and the session level, tolerance and steps. It recomputes every forward and central error from the raw stencil values and base and matches the record's stored errors. It asserts that the adjoint values equal the L1 check's and that the forward 1e-6 differences are bit-identical to it, and that the base repeat is exact. It asserts every number in the new sentences, which are also bound. The pending check now allows only `zenodo-doi` |
+| Coordinator summary vs data | Agrees. Small precisions taken from the recomputation: spread "within 0.9%" (coordinator: "about 3 digits"); MH objective spread 3.0% (2.7% between 1e-6 and 1e-7); central floor 9e-8 to 3.4e-7 (coordinator: "about 1e-7..3e-7"); 94-fold drop (coordinator: "about 100×") |

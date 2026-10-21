@@ -342,8 +342,10 @@ frozen step, F's gradients agree with the adjoint within a max-norm relative
 error of $5.2\times10^{-4}$ to $1.9\times10^{-3}$ for $F$ and at most
 $7.2\times10^{-4}$ for the full-current mean at $\theta_0$ and an interior
 point in each space, but one small component exceeds the check's
-per-component limit of $10^{-1}$ (Appendix~\ref{sec:exp2-times}).
-[PENDING fd-step-sweep]
+per-component limit of $10^{-1}$ (Appendix~\ref{sec:exp2-times}). A step
+sweep at that point shows the excess to be forward-difference truncation
+error: a central difference with the same step reduces it from 0.24 to
+$2.2\times10^{-4}$ relative.
 As a check of the control,
 A$'$'s primary crossing times are 0.94--1.04 times those of the main-study A
 from the same start and repeat, each in its own session's unit.

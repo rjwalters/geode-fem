@@ -282,6 +282,46 @@ for rec in (L1, fdc):
     sw = errs['SW3']; rng = (round(-max(sw), 4), round(-min(sw), 4))
     assert rng == ((.0018, .0019) if rec is L1 else (.003, .0031)), rng
 assert [p['x'] for p in L1['records'][0]['points'] if p['point'] == 'theta0'][0] == [p['x'] for p in L1['records'][1]['points'] if p['point'] == 'theta0'][0][:8]
+# v13: step sweep at the failing L1 point (PR #1223, merge f94acad3), recomputed from the raw stencil values.
+e2 = man['figures/src/data/exp2b/fd-step-sweep-L1.json']
+assert e2['source_commit'] == 'f94acad3f312c7d417830ff82b66a78a1ea89fb2' and sha(V / e2['snapshot']) == e2['sha256']
+SW = json.loads((V / e2['snapshot']).read_text()); rr = SW['record']; base = rr['base']
+assert SW['level'] == 1 and SW['protocol_step'] == 1e-6 and SW['forward_steps'] == [1e-5, 1e-6, 1e-7] and SW['central_steps'] == [1e-5, 1e-6]
+assert rr['space'] == 'a' and rr['point'] == 'interior' and rr['session']['training']['level'] == 1 and rr['session']['training']['newton_rel_tol'] == 1e-8
+assert rr['base_repeat']['dF_abs'] == 0.0 and rr['base_repeat']['dmean_full_abs'] == 0.0 and rr['base_repeat']['F'] == base['F']
+pint = [p for r_ in L1['records'] if r_['space'] == 'a' for p in r_['points'] if p['point'] == 'interior'][0]
+assert pint['x'] == rr['x'] and pint['F'] == base['F']
+fe, ce, perh = {}, {}, {}
+for c in rr['components']:
+    stn = {(q['step'], q['side']): q for q in c['stencil']}
+    l1c = [x for x in pint['components'] if x['name'] == c['name']][0]
+    for key, bk in (('dF', 'F'), ('dmean_full', 'mean_full')):
+        adj = l1c['adjoint_' + key]
+        assert all(sc[key]['adjoint'] == adj for sc in c['schemes'] if sc['usable'])
+        for h in SW['forward_steps']:
+            q = stn[(h, '+')]; fd = (q[bk] - base[bk]) / q['dx']; fe[(c['name'], key, h)] = fd - adj
+            if h == 1e-6:
+                assert fd == l1c['fd_' + key]  # bit-identical to the L1 check
+        for h in SW['central_steps']:
+            qp, qm = stn[(h, '+')], stn[(h, '-')]
+            ce[(c['name'], key, h)] = (qp[bk] - qm[bk]) / (qp['dx'] - qm['dx']) - adj
+        for sc in c['schemes']:
+            if sc['usable']:
+                ref = fe if sc['scheme'] == 'forward' else ce
+                assert math.isclose(ref[(c['name'], key, sc['step'])], sc[key]['signed_err'], rel_tol=1e-9, abs_tol=1e-15)
+        v = [fe[(c['name'], key, h)] / h for h in SW['forward_steps']]
+        assert all(x > 0 for x in v) or all(x < 0 for x in v)
+        perh[(c['name'], key)] = (v, max(map(abs, v)) / min(map(abs, v)) - 1, adj)
+spread = {k: x[1] for k, x in perh.items()}
+assert round(100 * max(x for k, x in spread.items() if k != ('MH', 'dF')), 1) == .9 and round(100 * spread[('MH', 'dF')], 1) == 3.0
+adj3 = perh[('SW3', 'dmean_full')][2]
+assert round(abs(fe[('SW3', 'dmean_full', 1e-6)] / adj3), 2) == .24 and f"{abs(ce[('SW3', 'dmean_full', 1e-6)] / adj3):.1e}" == '2.2e-04'
+assert round(ce[('SW3', 'dmean_full', 1e-5)] / ce[('SW3', 'dmean_full', 1e-6)]) == 94
+fl = [abs(ce[(n, k, 1e-6)]) for n in ('MH', 'SW2') for k in ('dF', 'dmean_full')]
+assert (f'{min(fl):.0e}', f'{max(fl):.1e}') == ('9e-08', '3.4e-07')
+ph = {n: abs(perh[(n, 'dmean_full')][0][1]) for n in ('SW3', 'MH', 'SW2')}
+assert (f"{ph['SW3']:.1e}", f"{ph['MH']:.1e}", f"{ph['SW2']:.1e}") == ('1.9e+03', '2.8e+03', '9.7e+03') and f'{adj3:.1e}' == '-7.7e-03'
+print('PASS: Exp 2b L1 step sweep (3 components x 2 outputs; forward/central errors recomputed from raw stencil values; truncation, bit-identical to the L1 check).')
 print('PASS: Exp 2b L1 finite-difference accuracy (4 points; norm-wise and component errors recomputed from raw FD/adjoint values; one component-wise FAIL, SW3 mean at the space-A interior).')
 
 
@@ -318,7 +358,7 @@ class _Norm(str):
 
 tex = (V / 'main.tex').read_text() + (V / 'optimization.tex').read_text(); txt = _Norm(tex)
 import re as _re0
-assert set(_re0.findall(r'\[PENDING:? ([^\]]+)\]', tex)) == {'fd-step-sweep', 'zenodo-doi'} and 'PENDING exp2b' not in tex
+assert set(_re0.findall(r'\[PENDING:? ([^\]]+)\]', tex)) == {'zenodo-doi'} and 'PENDING exp2b' not in tex
 assert r'\title{Per core, adjoint gradients reach validated torque-ripple\\' in tex and '2.5 and 4.1 times sooner than finite differences' in txt
 # Package pointer bound to this directory (v13).
 assert V.name == 'motor-gradient-optimization.13' and f'papers/motor-gradient-optimization/{V.name}' in tex
@@ -347,6 +387,14 @@ for phrase in [
     'For every one of the eight scalar components, the finite-difference-minus-adjoint error of the mean gradient has the same sign at all four points, at L1 and at L0',
     '$-1.8$ to $-1.9\\times10^{-3}$ at L1 and $-3.0$ to $-3.1\\times10^{-3}$ at L0',
     'took 2.5 and 4.1 times as long with 8 and 18 parameters on one core per run',
+    'A step sweep at that point shows the excess to be forward-difference truncation error: a central difference with the same step reduces it from 0.24 to $2.2\\times10^{-4}$ relative',
+    'keeps its sign and its size to within 0.9\\% (3.0\\% for the MH component of the objective gradient), as truncation error does and noise would not',
+    'its central error falls 94-fold from $10^{-5}$ to $10^{-6}$, close to the 100-fold that $h^2$ predicts',
+    'of the MH and SW2 components are $9\\times10^{-8}$ to $3.4\\times10^{-7}$ in absolute terms',
+    'SW3\'s forward error per unit step, $1.9\\times10^{3}$, is smaller than MH\'s ($2.8\\times10^{3}$) and SW2\'s ($9.7\\times10^{3}$), so SW3 fails because its slope at this design is small ($-7.7\\times10^{-3}$)',
+    'the frozen step lies where truncation, not computational noise, dominates the forward-difference error',
+    'a repeated base solve agrees bit for bit, and its forward values at $10^{-6}$ equal those of the L1 check',
+    'F\'s forward differences carry a truncation error that exceeds the per-component check limit on one small component',
     'since both variants cross each target after the same number of validated designs',
     'The measured ratios compare compute, but they are smaller than the per-gradient cost ratio',
     'The number above each pair is that start\'s F/A$\'$ ratio of charged time',
@@ -384,4 +432,4 @@ if os.environ.get('MOTOR_RAW_ARCHIVE'):
             h.update(chunk)
     assert h.hexdigest() == DR['sha256'] and Path(os.environ['MOTOR_RAW_ARCHIVE']).stat().st_size == DR['bytes']
     print('PASS: raw-trace archive re-hashed against the deposit record.')
-print('PASS: Exp 2b tables (per-start times and ratios, validation charges, final checks) and every manuscript number; title; package pointer; only the fd-step-sweep and zenodo-doi pending markers.')
+print('PASS: Exp 2b tables (per-start times and ratios, validation charges, final checks) and every manuscript number; title; package pointer; only the zenodo-doi pending marker.')

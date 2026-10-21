@@ -1,8 +1,8 @@
 # Motor paper, revision 13
 
-State: **REVISED after the v12 reviews (Opus 38/44, Fable 37/44, both advance, no critical flags). Two outstanding dependencies hold READY: `[PENDING fd-step-sweep]` (a step-sweep/central-difference diagnostic at the failing L1 point, measured in a separate PR) and `[PENDING zenodo-doi]` (the operator's deposit of the raw-trace archive).** Author: Robb Walters.
+State: **REVISED after the v12 reviews (Opus 38/44, Fable 37/44, both advance, no critical flags). One outstanding dependency holds READY: `[PENDING zenodo-doi]`, the operator's deposit of the raw-trace archive.** Author: Robb Walters.
 
-V13 points the data statement at this directory (bound in `verify_exp2b.py`), reports the ablation's costs per gradient in a defined unit, replaces the SW3 "noise floor" reading with the measured fixed-sign per-component offsets (Appendix D), explains F's budget stops, prints the per-start F/A′ ratio in Fig. 5, adds five verified references, and names the deposit-ready raw-trace archive by digest. No earlier number changed; every new number is recomputed by `verify_exp2b.py`. V12 and earlier versions are unchanged.
+V13 points the data statement at this directory (bound in `verify_exp2b.py`), reports the ablation's costs per gradient in a defined unit, replaces the SW3 "noise floor" reading with the measured fixed-sign per-component offsets (Appendix D), explains F's budget stops, prints the per-start F/A′ ratio in Fig. 5, reports the step sweep that identifies the SW3 miss as truncation (`fd-step-sweep-L1.json`, pinned at `f94acad3`), adds five verified references, and names the deposit-ready raw-trace archive by digest. No earlier number changed; every new number is recomputed by `verify_exp2b.py`. V12 and earlier versions are unchanged.
 
 ## Rebuild
 
@@ -24,7 +24,7 @@ EXP2B_SESSION=<copy>/exp2-fd-ablation/session EXP2B_REFINE=<refine-dir> EXP2B_SE
 
 `verify.py` runs `verify_exp2.py` and `verify_exp2b.py` at its end. The local class and committed `main.bbl` make the paper standalone.
 
-The stdlib verifiers independently reconstruct the numerical claims from raw arrays, without importing renderer helpers. They check 125 input hashes, original forward/gradient controls, 704 distinct FD cases, 592 Taylor windows, 3,240 candidate solve statuses, reference refinement, size normalizations, the matched study (100 runs, 213 refinement checks), and, from v11, the ledger charges of all 100 runs, the validation-charge table, training/validation objective ratios, the training-gradient FD records of both spaces and the preregistration export. This does not rerun FEM or replace independent scientific review.
+The stdlib verifiers independently reconstruct the numerical claims from raw arrays, without importing renderer helpers. They check 126 input hashes, original forward/gradient controls, 704 distinct FD cases, 592 Taylor windows, 3,240 candidate solve statuses, reference refinement, size normalizations, the matched study (100 runs, 213 refinement checks), and, from v11, the ledger charges of all 100 runs, the validation-charge table, training/validation objective ratios, the training-gradient FD records of both spaces and the preregistration export. This does not rerun FEM or replace independent scientific review.
 
 ## Raw-trace archive
 

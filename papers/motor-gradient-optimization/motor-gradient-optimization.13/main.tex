@@ -380,8 +380,9 @@ since both change the ripple objective or its sensitivities
 
 The evidence has clear limits. It is a paired case study over five
 deterministic starts of one motor; the ratios are not population estimates.
-The ablation is post hoc, and F's L1 gradient check fails its
-per-component limit at one small component (Section~\ref{sec:exp2-fd}). Population methods such as
+The ablation is post hoc, and F's forward differences carry a truncation
+error that exceeds the per-component check limit on one small component
+(Section~\ref{sec:exp2-fd}). Population methods such as
 CMA-ES, multi-start strategies and other surrogates remain untested.
 Method C ran with the preregistered settings of
 Appendix~\ref{sec:settings} and was not tuned; its low attainment bounds
@@ -454,9 +455,11 @@ For the post-hoc ablation, the package holds the 40 run extracts, the
 setup records, the ablation's SHA-256 inventory of 2,118 files with its
 RFC~3161 and OpenTimestamps records, the final-check results, an export of
 its protocol; the ablation's evaluator source is
-\href{https://github.com/rjwalters/geode-fem/tree/5cc86ad81aeea4847a2608fcafde22a1bbfb6990/benchmarks/motor_optimization}{\texttt{5cc86ad8}},
-and F's L1 gradient check is pinned at
-\href{https://github.com/rjwalters/geode-fem/tree/74843242db03e8d57edf971420171064bf19f107/benchmarks/motor_optimization/harness}{\texttt{74843242}}.
+\href{https://github.com/rjwalters/geode-fem/tree/5cc86ad81aeea4847a2608fcafde22a1bbfb6990/benchmarks/motor_optimization}{\texttt{5cc86ad8}};
+F's L1 gradient check is pinned at
+\href{https://github.com/rjwalters/geode-fem/tree/74843242db03e8d57edf971420171064bf19f107/benchmarks/motor_optimization/harness}{\texttt{74843242}}
+and its step sweep at
+\href{https://github.com/rjwalters/geode-fem/tree/f94acad3f312c7d417830ff82b66a78a1ea89fb2/benchmarks/motor_optimization/harness}{\texttt{f94acad3}}.
 The ablation's \href{https://github.com/rjwalters/geode-fem/issues/1218}{protocol}
 was posted at 22:34~UTC on 2026-10-20 and frozen by a comment at
 23:00~UTC, before the first ablation run began at 02:07~UTC on 2026-10-21;
@@ -739,13 +742,27 @@ components, the finite-difference-minus-adjoint error of the mean gradient
 has the same sign at all four points, at L1 and at L0, and for SW3 it is
 nearly the same at all four (three distinct designs, since $\theta_0$ is
 shared by both spaces): $-1.8$ to $-1.9\times10^{-3}$ at L1 and $-3.0$ to
-$-3.1\times10^{-3}$ at L0. The SW3 failure is therefore this offset on a
-component whose adjoint value is small at that design. Whether the offset
-comes from the one-sided difference, which a central difference or a step
-sweep would separate from an adjoint bias, and how it compares with the
-function's computational noise, which sets the best step
-\citep{more2011estimating,more2012estimating}, is the subject of a separate
-measurement: [PENDING fd-step-sweep]
+$-3.1\times10^{-3}$ at L0. The SW3 failure is therefore this offset on a component whose adjoint
+value is small at that design. A step sweep at the failing point,
+recorded separately from the L1 check, identifies the offset. For SW3, MH
+and SW2, forward differences at steps of $10^{-5}$, $10^{-6}$ and
+$10^{-7}$\,m give an error that, divided by the step, keeps its sign and
+its size to within 0.9\% (3.0\% for the MH component of the objective
+gradient), as truncation error does and noise would not. Central
+differences remove it: the SW3 mean component's error falls from 0.24
+relative (forward, $10^{-6}$) to $2.2\times10^{-4}$ (central, $10^{-6}$),
+and its central error falls 94-fold from $10^{-5}$ to $10^{-6}$, close to
+the 100-fold that $h^2$ predicts. At $10^{-6}$ the remaining central errors
+of the MH and SW2 components are $9\times10^{-8}$ to $3.4\times10^{-7}$ in
+absolute terms, an upper bound on the noise contribution at that step. SW3's
+forward error per unit step, $1.9\times10^{3}$, is smaller than MH's
+($2.8\times10^{3}$) and SW2's ($9.7\times10^{3}$), so SW3 fails because its
+slope at this design is small ($-7.7\times10^{-3}$), not because its
+curvature is large. In the terms of \citet{more2011estimating,more2012estimating},
+the frozen step lies where truncation, not computational noise, dominates
+the forward-difference error. The sweep is deterministic: a repeated base
+solve agrees bit for bit, and its forward values at $10^{-6}$ equal those of
+the L1 check.
 
 The session ran on the same type of host as the main study (c7a.4xlarge,
 15 concurrent processes) with a calibrated unit of $66.66\,\mathrm{s}$,
