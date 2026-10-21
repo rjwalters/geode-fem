@@ -309,17 +309,61 @@ class FdGradientTests(unittest.TestCase):
         self.assertEqual(cm.exception.kind, "derivative_undefined")
         self.assertEqual(run2.refusals[-1]["fd"], {"base": "would_remesh"})
 
-    def test_undefined_geometry_jacobian_is_refused_without_a_solve(self):
-        run, fake, _, _ = fd_run()
+    def test_f_refuses_wherever_a_refuses_before_any_solve(self):
+        """[#1218 review] A/F parity at a buildable point whose design
+        derivative is undefined (a zero slot-top discriminant): A's gradient
+        request is refused before any solve, so F's value request must be
+        too. Both refuse at `fun`, with zero train requests."""
         u = np.array([0.5, 0.5, 0.5, 0.5])
-        fun, jac, con, con_jac, geo, geo_jac, callback = driver.slsqp_callables(run)
-        fun(u)
-        run.geometry(u)["dh_du"] = None
-        n = len(fake.requests)
-        with self.assertRaises(Refused) as cm:
-            geo_jac(u)
-        self.assertEqual(cm.exception.kind, "derivative_undefined")
-        self.assertEqual(len(fake.requests), n)
+        for method in ("slsqp", "slsqp_fd"):
+            with self.subTest(method=method):
+                run, fake, led, _ = make_run(method=method)
+                g = run.geometry(u)
+                self.assertTrue(g["buildable"])
+                g["jacobian_defined"] = False
+                g["dh_du"] = None
+                fun, jac, con, con_jac, geo, geo_jac, callback = driver.slsqp_callables(run)
+                with self.assertRaises(Refused) as cm:
+                    fun(u)
+                self.assertEqual(cm.exception.kind, "derivative_undefined")
+                self.assertEqual(trains(fake), [])
+                self.assertEqual(led.totals()["forward"]["entries"], 0)
+                self.assertEqual([r["kind"] for r in run.refusals], ["derivative_undefined"])
+                for f in (fun, con, jac, con_jac, geo_jac):
+                    with self.assertRaises(Refused):
+                        f(u)
+                self.assertEqual(trains(fake), [])
+                self.assertIsNone(run.anchor_u)
+
+    def test_a_not_buildable_point_is_refused_as_not_buildable_by_both(self):
+        u = np.array([0.5, 0.5, 0.5, 0.5])
+        for method in ("slsqp", "slsqp_fd"):
+            with self.subTest(method=method):
+                run, fake, _, _ = make_run(method=method)
+                g = run.geometry(u)
+                g.update(buildable=False, admissible=False, jacobian_defined=False, dh_du=None)
+                fun = driver.slsqp_callables(run)[0]
+                with self.assertRaises(Refused) as cm:
+                    fun(u)
+                self.assertEqual(cm.exception.kind, "not_buildable")
+                self.assertEqual(trains(fake), [])
+
+    def test_a_mesh_bad_forward_step_takes_the_backward_step(self):
+        # The fake's `check` fires on a mesh-bad design (its remesh fails),
+        # as `train` would remesh there: the stencil never solves it.
+        run, fake, _, _ = fd_run(mesh_bad=lambda u: u[0] > 0.6)
+        u = np.array([0.6 - 5e-7, 0.5, 0.5, 0.5])
+        run.train(u, gradient=False)
+        try:
+            g = driver.fd_gradient(run, u)
+        except WiringError as error:  # a probe that passed a failing remesh
+            self.fail(f"the check probe did not see the mesh-bad step: {error}")
+        c = run.fd_gradients[-1]["components"][0]
+        self.assertEqual(c["attempts"][0]["unusable"], "would_remesh")
+        self.assertEqual(c["side"], "backward")
+        self.assertTrue(all(from_bits(f["x_bits"])[0] <= 0.6 for f in trains(fake)))
+        dF, _ = exact_gradients(run, u)
+        np.testing.assert_allclose(g["dF"], dF, rtol=1e-4, atol=1e-12)
 
     def test_end_to_end_f_run_uses_values_only_and_records_its_gradients(self):
         run, fake, led, _ = fd_run(budget_fe=400.0)

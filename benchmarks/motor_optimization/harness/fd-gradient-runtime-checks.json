@@ -8,7 +8,7 @@
  "status": "PASS",
  "binary_sha256": "1cf13392ce0acdc81e2d080959c92dc26044cdf8a60f0e858c25ab6c8253348f",
  "source_sha256": {
-  "driver.py": "93c3d6bfeb22a220bf7581216ca546cd6faeea0c3cfd2682d3890bd6ad914a41",
+  "driver.py": "744a85f191ee38722ca0fe086f0206c32bcb3d343d48b09efd42329cba0f3d01",
   "fd_gradient_check.py": "f402159f4cc1a6bdd0ca9d3c035b2aeed27c562cec1d91021b5988a84b8d282e",
   "evaluator.py": "8b8da2194c53760be27917a4832ab518bd533c4f2284a41a096026cefa764687",
   "ledger.py": "f9e30323b718944c7519b33aff8aa5b30bf7531008656130dc5adfb5b6dd3ea0",
@@ -47,7 +47,7 @@
       "solves": 8,
       "base_generation": 0,
       "base_resolved": false,
-      "cost_fe": 20.763972291984828
+      "cost_fe": 20.40543366599013
      },
      "components": [
       {
@@ -219,7 +219,7 @@
       "solves": 8,
       "base_generation": 0,
       "base_resolved": false,
-      "cost_fe": 20.663361542014172
+      "cost_fe": 20.234909708000487
      },
      "components": [
       {
@@ -506,11 +506,11 @@
      "adjoint_solves": 0
     }
    },
-   "wall_s": 56.51311608299147,
+   "wall_s": 55.32069845899241,
    "load": [
-    15.66455078125,
-    13.32421875,
-    11.583984375
+    11.78271484375,
+    12.48779296875,
+    14.0107421875
    ]
   },
   {
@@ -551,7 +551,7 @@
       "solves": 18,
       "base_generation": 0,
       "base_resolved": false,
-      "cost_fe": 46.84067362500355
+      "cost_fe": 45.773958374978974
      },
      "components": [
       {
@@ -948,7 +948,7 @@
       "solves": 18,
       "base_generation": 0,
       "base_resolved": false,
-      "cost_fe": 46.00253845800762
+      "cost_fe": 44.92720758300857
      },
      "components": [
       {
@@ -1415,11 +1415,11 @@
      "adjoint_solves": 0
     }
    },
-   "wall_s": 107.85025837499416,
+   "wall_s": 105.36503508299938,
    "load": [
-    19.3173828125,
-    15.2353515625,
-    12.5341796875
+    12.5830078125,
+    12.427734375,
+    13.798828125
    ]
   }
  ]

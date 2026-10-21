@@ -412,9 +412,11 @@ class Run:
         """Why method F may not use the stencil point xs (#1218 protocol
         §1 and freeze ruling 1), or None: outside the box in component k, not
         buildable (the condition A's `train` requires; h < 0 is allowed), or
-        its moved training mesh would fire the remesh policy (the
-        evaluator's `check`: the current reference moved to xs, no remesh,
-        no solve), i.e. it would leave the base's mesh generation."""
+        its moved training mesh would fire the remesh policy, i.e. it would
+        leave the base's mesh generation (the evaluator's `check`, which is
+        read-only: it computes the current reference's moved positions at xs
+        and the policy's trigger, and changes no state; no remesh, no
+        solve)."""
         if k is not None and not self.problem.lower[k] <= xs[k] <= self.problem.upper[k]:
             return "outside_box"
         g = self.geometry_at(xs)
@@ -700,6 +702,16 @@ def slsqp_callables(run):
             # F's gradient was refused at a point SLSQP already had a value
             # for: nothing more is returned there (amendment 7 §2).
             raise Refused(u, x, run._refused[x.tobytes()])
+        if fd and x.tobytes() not in run._train:
+            # F refuses wherever A refuses (#1218 review): A's every request
+            # is a gradient request, which `train` refuses as
+            # derivative_undefined before any solve at a buildable point
+            # whose design derivative is undefined. F's value request would
+            # not, so refuse here first, in A's order (a point that is not
+            # buildable is refused by `train` as not_buildable).
+            g = run.geometry(u)
+            if g["buildable"] and not g["jacobian_defined"]:
+                run._refuse(u, x, "derivative_undefined", min_h=g["min_h"])
         if x.tobytes() not in run._train:
             state["after_gradient"] = False
         return run.train(u, gradient=not fd, purpose=purpose, note="slsqp")
@@ -734,14 +746,7 @@ def slsqp_callables(run):
     def geo_jac(u):
         g = run.geometry(u)
         if g["dh_du"] is None:
-            if fd:
-                # F's value request would not refuse here: refuse as A's
-                # gradient request does (not buildable, else the geometry
-                # derivative is undefined).
-                if not g["buildable"]:
-                    rec(u)
-                run.refuse_evaluated(u, "derivative_undefined")
-            rec(u)  # refused as derivative_undefined
+            rec(u)  # refused as derivative_undefined (A and F alike)
             raise AssertionError("unreachable")
         return g["dh_du"]
 
@@ -767,10 +772,10 @@ def fd_gradient(run, u):
       reused, so one gradient costs n + 1 forward solves (the base is the
       optimizer's own evaluation at u).
     - Every stencil point lies on the base point's mesh generation. Before
-      a stencil point is solved, the evaluator's `check` request moves the
-      current training reference there without remeshing and reports
-      whether the remesh policy fires; a step whose point would remesh is
-      never solved. Each stencil reply must be on the base's generation with
+      a stencil point is solved, the evaluator's read-only `check` request
+      computes the current training reference's moved positions there and
+      reports whether the remesh policy would fire (it changes no state);
+      a step whose point would remesh is never solved. Each stencil reply must be on the base's generation with
       no remesh event (else `WiringError`).
     - A step is unusable when its point leaves the box, is not buildable
       (`geometry`; amendment 7 §1), or would remesh. Admissibility (h >= 0)

@@ -1235,8 +1235,9 @@ gradients change: they are forward differences of `train` value replies
 ordinary charged request of the run.
 
 - **Same generation.** Before a stencil point is solved, the evaluator's
-  existing `check` request moves the current training reference there
-  without remeshing and reports whether the remesh policy fires. A stencil
+  existing `check` request (read-only: no remesh, no solve, no state
+  change) computes the current training reference's moved positions there
+  and reports whether the remesh policy would fire. A stencil
   point that would remesh is never solved. A stencil reply off the base's
   generation, or with a remesh event, is a `WiringError`.
 - **Backward step.** A forward step that leaves the box, is not buildable
@@ -1247,6 +1248,9 @@ ordinary charged request of the run.
   gradient is refused on A's `derivative_undefined` path. Nothing more is
   returned at that point, and restoration starts from the last admissible
   evaluated point *before* it, because the refused point has a value.
+- **Same refusals as A.** At a buildable point whose design derivative is
+  undefined, F refuses `derivative_undefined` before its value request,
+  exactly where A's gradient request is refused (0 solves).
 - **Retired base.** If the base value is on a retired generation, the base
   is solved once more on the current reference (n + 2 solves). If that
   would remesh, the gradient is refused.

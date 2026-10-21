@@ -77,9 +77,17 @@ MUTATIONS = (
      "        if False:"),
     ("fd_refused_base_is_its_own_anchor [#1218]", "driver.py",
      "        self.anchor_u = trail[-1].copy() if trail else None\n", "\n"),
-    ("fd_geometry_jacobian_refusal_solves", "driver.py",
-     '                run.refuse_evaluated(u, "derivative_undefined")\n            rec(u)',
-     '                run.train(u, gradient=False)\n            rec(u)'),
+    ("fd_value_request_at_undefined_derivative [#1218 review]", "driver.py",
+     '            if g["buildable"] and not g["jacobian_defined"]:\n'
+     '                run._refuse(u, x, "derivative_undefined", min_h=g["min_h"])',
+     '            if False:\n'
+     '                run._refuse(u, x, "derivative_undefined", min_h=g["min_h"])'),
+    ("fd_undefined_derivative_refused_as_not_buildable", "driver.py",
+     '                run._refuse(u, x, "derivative_undefined", min_h=g["min_h"])',
+     '                run._refuse(u, x, "not_buildable", min_h=g["min_h"])'),
+    ("fake_check_ignores_mesh_bad", "test_harness.py",
+     "fires = gen != self.generation or self.mesh_bad(u)",
+     "fires = gen != self.generation"),
     ("fd_stencil_is_an_optimizer_evaluation", "driver.py",
      '        self.generation = r["generation"]\n        self.events.append(dict(self._stamp(), kind="fd_train",',
      '        self.generation = r["generation"]\n        self._train.setdefault(np.asarray(xs).tobytes(), '

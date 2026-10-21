@@ -160,7 +160,8 @@ class FakeEvaluator:
         if op == "geometry":
             pass
         elif op == "check":
-            # The training reference moved to x, no remesh, no solve (#1218).
+            # Read-only (#1218): the current reference's moved positions at
+            # x and the remesh trigger; no remesh, no solve, no state change.
             charges = [("mesh_motion", MOTION, 0, 0)]
         elif op == "mesh_check":
             charges = [("geometry_check", GEOM, 0, 0), ("mesh_motion", MOTION, 0, 0)]
@@ -205,8 +206,12 @@ class FakeEvaluator:
             return reply
         if op == "check":
             gen = 1 if u[0] > 0.95 else 0
+            # A point of the other generation would remesh from here, and a
+            # mesh-bad point is the fake's always-remeshing (and failing)
+            # design: both fire the policy, as `train` would remesh there.
+            fires = gen != self.generation or self.mesh_bad(u)
             reply.update(geometry_ok=True, motion_error=None, quality={},
-                         trigger=None if gen == self.generation else {"kind": "min_angle"})
+                         trigger={"kind": "min_angle"} if fires else None)
             return reply
         if op == "mesh_check":
             reply["status"] = "mesh_infeasible" if self.mesh_bad(u) else "ok"
