@@ -5,14 +5,14 @@
     "revise": {
       "state": "done",
       "started": "2026-10-20T22:30:00Z",
-      "completed": "2026-10-20T23:17:09Z"
+      "completed": "2026-10-21T07:02:08Z"
     }
   },
   "metadata": {
     "iteration": 11,
     "max_iterations": 10,
     "revised_from": 10,
-    "note": "Operator-directed revision beyond max_iterations (no Anvil revision cap applies by operator instruction); outstanding dependency [PENDING exp2b-fd-slsqp].",
+    "note": "Operator-directed revision beyond max_iterations (no Anvil revision cap applies by operator instruction). The [PENDING exp2b-fd-slsqp] dependency was resolved with the completed ablation (issue #1218).",
     "evidence_snapshot": {
       "brief_mtime": 1792535733.1705203,
       "refs_mtime": 1792535733.5861146

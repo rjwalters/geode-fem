@@ -3,41 +3,45 @@
 \usepackage{float}
 \newcommand{\Nm}{\mathrm{N\,m}}
 \newcommand{\dd}{\,\mathrm{d}}
-\title{Adjoint-driven SLSQP reaches validated torque-ripple targets\\
-sooner than derivative-free search in a nonlinear motor model}
+\title{Adjoint gradients reach validated torque-ripple targets\\
+2.5 to 4 times sooner than finite differences\\in a nonlinear motor model}
 \author{Robb Walters}
 \date{October 2026}
-\hypersetup{pdftitle={Adjoint-driven SLSQP reaches validated torque-ripple targets sooner than derivative-free search in a nonlinear motor model},pdfauthor={Robb Walters},pdfsubject={Matched optimization, torque-ripple reproduction and discrete design-gradient verification}}
+\hypersetup{pdftitle={Adjoint gradients reach validated torque-ripple targets 2.5 to 4 times sooner than finite differences in a nonlinear motor model},pdfauthor={Robb Walters},pdfsubject={Matched optimization, torque-ripple reproduction and discrete design-gradient verification}}
 
 \begin{document}
 \maketitle
 \begin{abstract}
-A differentiable field model pays off in design only if it shortens the
-path to a design that survives independent validation. We reconstruct a
-published nonlinear permanent-magnet motor in our GEODE finite-element
-implementation, verify its discrete design gradients, and compare five
-optimizers in a preregistered, budget-matched study judged by a common
-order-93 validation model. SLSQP driven by adjoint gradients reached
-torque-ripple targets sooner than COBYQA at the same training resolution
-in all 45 paired comparisons where both succeeded. The geometric-mean
-ratio was 2.45--3.25 in an eight-parameter space and 3.14--7.79 in an
-18-parameter space that adds grouped surface offsets; the two spaces also
-use different mesh-motion maps, so the larger ratios cannot be assigned to
-the added freedom alone. Validating each new incumbent took 53\% of all
-charged time, and excluding those charges would enlarge these ratios.
-SLSQP and COBYQA differ in search strategy as well as in gradient access,
-so this contrast does not isolate the value of the adjoint gradients.
-[PENDING exp2b-fd-slsqp]
-A coarser training mesh made runs only 1.3--2.2 times faster and, with
-SLSQP, missed targets from one start in each design space. Every selected
-target crossing still met its target on a finer mesh, which changed the
-objective by $-4.0\%$ to $+1.1\%$. The validation model differs from
-training because the ripple objective depends on the rotor--stator
-interface: at the finest mesh, truncating harmonic coupling at the
-reference's order 45 lowers loaded torque standard deviation by 7--9\% and
-raises cogging standard deviation by 59\% relative to conforming coupling.
-Of 704 distinct loaded derivative comparisons, 688 agree with best-step
-central differences within $2.8\times10^{-7}$ relatively.
+A differentiable field model pays off in design only if its gradients
+shorten the path to a design that survives independent validation. We
+reconstruct a published nonlinear permanent-magnet motor in our GEODE
+finite-element implementation, verify its discrete design gradients, and
+compare optimizers in a preregistered, budget-matched study judged by a
+common order-93 validation model. SLSQP driven by adjoint gradients reached
+torque-ripple targets sooner than COBYQA at the same training resolution in
+all 45 paired comparisons where both succeeded, by geometric means of
+2.45--3.25 in an eight-parameter space and 3.14--7.79 in an 18-parameter
+space. Because that contrast also changes the optimizer, we added a
+post-hoc ablation after these outcomes were known, under a protocol frozen
+before its runs: the same safeguarded SLSQP with forward-difference
+gradients. With the optimizer held fixed, adjoint gradients reached the
+primary target 2.47 times sooner in the eight-parameter space and 4.11
+times sooner in the 18-parameter space (geometric means over five starts,
+ranges 2.45--2.52 and 3.84--4.33), and both variants reached every primary
+target from every start. The ratio grows with the number of parameters, as
+the cost of a finite-difference gradient does, although the two spaces also
+differ in mesh-motion map. Compared approximately across the two sessions,
+gradient access accounts for roughly 80\% and 70\% of the logarithm of the
+SLSQP-versus-COBYQA ratios, and the optimizer for the rest. Validating each
+new incumbent took 53\% of all charged time in the main study and dilutes
+every ratio. A coarser training mesh made runs only 1.3--2.2 times faster
+and, with SLSQP, missed targets from one start in each design space. Every
+selected target crossing met its target on a finer mesh, which changed the
+main study's objectives by $-4.0\%$ to $+1.1\%$. Validation uses a higher
+interface order than training because the ripple objective depends on it:
+at the finest mesh, truncating harmonic coupling at the reference's order
+45 lowers loaded torque standard deviation by 7--9\% and raises cogging
+standard deviation by 59\% relative to conforming coupling.
 \end{abstract}
 
 \section{Introduction}
@@ -69,11 +73,14 @@ over the coarse derivative-free competitor in the eight-parameter space. A
 coarser training mesh speeds runs by only 1.3--2.2 times and costs
 reliability, and the selected designs pass refinement checks.
 
-The contrast changes the search strategy together with gradient access, so
+That contrast changes the search strategy together with gradient access, so
 by itself it does not show that the adjoint is what pays off. A post-hoc
-ablation that runs the same safeguarded SLSQP with finite-difference
-gradients isolates that factor (Section~\ref{sec:exp2-fd}).
-[PENDING exp2b-fd-slsqp]
+ablation, added after the main outcomes were known and run under a
+protocol frozen before its runs, holds SLSQP fixed and replaces the adjoint
+by forward differences (Section~\ref{sec:exp2-fd}). The adjoint then
+reaches the primary target 2.47 times sooner with eight parameters and
+4.11 times sooner with 18. Gradient access is therefore the larger part of
+the SLSQP-versus-COBYQA advantage, and the optimizer contributes the rest.
 
 Two sets of checks make the comparison interpretable. First, the training
 objective depends on the rotor--stator interface model
@@ -89,9 +96,10 @@ Taylor checks at scalar design points and in both optimization spaces
 ripple sensitivities differ between interface/estimator models, and holding
 winding-group-1 density rather than current fixed reverses three
 mean-torque sensitivities. The numerical methods are established; the
-contribution is the measured time-to-target evidence for adjoint-driven
-SLSQP against derivative-free and coarse-model alternatives, with the
-checks that show what its gradients represent.
+contribution is the measured time-to-target evidence for adjoint gradients,
+separated from the choice of optimizer, against finite-difference,
+derivative-free and coarse-model alternatives, with the checks that show
+what the gradients represent.
 
 \section{Related work}
 \citet{wiesheu2024spline} combine spline-based rotor and stator shape
@@ -404,17 +412,9 @@ $F$ rises by 16\%. Its ratio to Opt120 is consequently 7,631 at order 45,
 2,454 at order 93 and 2,444 for conforming coupling. The full-current
 Opt120 standard deviation rises from 0.00066 to 0.00164\,N\,m.
 The large ripple reduction survives these checks, but its magnitude
-depends strongly on the interface model.
-
-Between L2 and L3, changes in
-$F$, normalized by L3, reach 1.36\% for the initial design and 2.71\%
-for Opt120 across the three models on the exported mesh family; these increments are not error bounds.
-For Opt120 at order 45, the successive L1--L2 and L2--L3 increases in $F$
-are $3.05\times10^{-8}$ and $2.90\times10^{-8}$\,N$^2$\,m$^2$,
-so they barely shrink and do not establish an asymptotic rate. An alternate
-freshly constructed mesh family changes by 3.22\% for Opt120 from L2 to L3.
-The $2.79\times10^{-6}$\,N$^2$\,m$^2$ interface effect is about
-96 times the last export-mesh increment, despite this unresolved remainder.
+depends strongly on the interface model: the order-93 change is about 96
+times the last spatial-refinement increment of $F$
+(Appendix~\ref{sec:opt120-policy}).
 
 A possible explanation is that optimization against order 45 favors
 cancellation within that truncated model. This is a conjecture, not an
@@ -529,21 +529,8 @@ still drifting there. Their widest quadratic windows span two decades. The nearl
 zero-current mean is a weaker check: its best relative errors reach
 $7.0\times10^{-4}$. Cogging standard-deviation errors are at most
 $8.9\times10^{-7}$. Thus the loaded agreement does not describe every
-zero-current derivative.
-
-Discrete derivative accuracy also does not imply mesh convergence. In the
-harmonic model, SW3 mean-torque sensitivities change sign between coarse
-levels and their increments shrink with refinement; ripple gradients converge
-more slowly than most mean gradients. The conforming/Arkkio SW2 mean
-sensitivity is non-monotone across L0--L3 ($-46.5$, $-41.3$, $-44.4$,
-$-47.2$\,N\,m/m), whereas harmonic/coupling torque approaches $-47.1$
-from $-49.8$\,N\,m/m. Fresh-remesh checks of MW, SW1 and SW2 are limited
-at small steps by changes in connectivity. The L2 MW mean-derivative fit
-has relative gap $2.6\times10^{-6}$, but individual remeshed steps at
-$h\geq10^{-4}$\,m scatter by about $6\times10^{-4}$. The largest L2 full-current
-remeshed-versus-moved fitted discrepancy is 3.8\% for the SW1 ripple
-derivative. These checks support the discrete chain rule while leaving
-refinement of candidate designs necessary.
+zero-current derivative. Discrete derivative accuracy also does not imply
+mesh convergence (Appendix~\ref{sec:cost}).
 
 \subsection{Model dependence of verified sensitivities}
 The two model--estimator pairs give different ripple sensitivities even
@@ -588,9 +575,13 @@ of the charged time validation, which compresses the same-resolution
 ratios; it also produces most of A's lead over the coarse derivative-free
 competitor D in space A, where the non-validation time of the two is
 nearly equal. In space B, A's lead over D survives the decomposition. The
-ratios are not population estimates for arbitrary starts, and the
-optimizer contrast includes differences in search strategy beyond gradient
-access. [PENDING exp2b-fd-slsqp]
+ratios are not population estimates for arbitrary starts. The
+finite-difference ablation separates gradient access from search strategy:
+with SLSQP fixed, the adjoint is 2.47 and 4.11 times faster in the two
+spaces, and set against the main study's B/A ratios this leaves factors of
+roughly 1.2--1.3 and 1.9--2.0 for the optimizer. These shares are
+approximate, because the two sessions ran separately with different time
+units, and the ablation is post hoc.
 
 Population methods such as CMA-ES, multi-start strategies and other
 surrogates remain untested. Method C was run with the preregistered
@@ -634,8 +625,10 @@ resolution in every comparison where both succeeded, over five starts in
 two fixed-size design spaces, and its crossings survived refinement.
 Validating incumbents took about half of the charged time, and a coarse
 training mesh, which does not make validation cheaper, gained little and
-lost reliability. [PENDING exp2b-fd-slsqp]
-Whether the advantage holds for other motor problems, other
+lost reliability. With the optimizer held fixed, finite differences in
+place of the adjoint slowed SLSQP by a factor of 2.5 with eight parameters
+and 4.1 with 18, so most of the advantage over derivative-free search came
+from the gradients and the rest from the optimizer. Whether the advantage holds for other motor problems, other
 parameterizations and reduced physical models remains to be tested.
 
 \section*{Code and data availability}
@@ -679,6 +672,11 @@ OpenTimestamps), and each extracted run and session record is bound to it
 by hash. The session, calibration and anchor-recomputation records are
 included, as is an export of the governing preregistration comments taken
 on 2026-10-18 at 09:34~UTC, before the main session began at 18:16~UTC.
+For the post-hoc ablation, the package holds the 40 run extracts, the
+setup records, the ablation's SHA-256 inventory of 2,118 files with its
+RFC~3161 and OpenTimestamps records, the final-check results, an export of
+its protocol and a third verifier; the ablation's evaluator source is
+\href{https://github.com/rjwalters/geode-fem/tree/5cc86ad81aeea4847a2608fcafde22a1bbfb6990/benchmarks/motor_optimization}{\texttt{5cc86ad8}}.
 
 \appendix
 \section{Field model details}\label{sec:fieldmodel}
@@ -850,6 +848,71 @@ conforming check does not apply because stator offsets are nonzero.}
 \label{tab:exp2-refinement}\input{tables/exp2-refinement.tex}
 \end{table}
 
+\paragraph{Training and validation objectives.}
+The training model also reads lower than validation. At $\theta_0$, the
+order-45 training objective is 0.887 (L1) and 0.894 (L0) of $F_0$. At the
+31 selected designs, the ratio of training to validation objective lies
+between 0.57 and 1.19 times its $\theta_0$ value. The lowest values belong
+to space-B designs near $T_{99}$: E's and A's $T_{99}$ crossings (0.57 and
+0.71) and D's best design (0.65); the best space-B designs of B and C are at
+0.99 and 1.19. Large reductions therefore often, but not always, come with a
+training objective that underestimates validation more than at $\theta_0$.
+This is consistent with the cancellation conjecture of
+Section~\ref{sec:opt120} but does not establish it.
+
+\paragraph{Ablation session and finite-difference accuracy.}
+On the L0 model, F's gradients agree with the adjoint to a max-norm
+relative error of $5.1\times10^{-4}$ to $1.9\times10^{-3}$ for $F$ and
+$1.0\times10^{-4}$ to $6.7\times10^{-4}$ for the full-current mean, at
+$\theta_0$ and an interior point in each space. Single small components are
+less accurate, up to $5.7\times10^{-2}$ for SW3 at the space-B interior
+point. These errors, at the frozen step, are part of what F is; the frozen
+acceptance limits were $5\times10^{-3}$ for the norm and $10^{-1}$ per
+component.
+
+The session ran on the same type of host as the main study (c7a.4xlarge,
+15 concurrent processes) with a calibrated unit of $66.66\,\mathrm{s}$,
+against $70.94\,\mathrm{s}$ in the main session. The anchor recomputation
+again agreed within $2.4\times10^{-13}$, no run was host-contaminated, and
+the one-minute load peaked at 19.7. A SHA-256 inventory of the 2,118
+session files was taken on the host before it stopped and timestamped by
+two RFC~3161 authorities; every number below is recomputed from traces
+bound to it.
+
+\paragraph{Ablation final checks.}
+The final checks confirm F's and A$'$'s selected designs
+(Table~\ref{tab:exp2b-refinement}). All 90 checks of the 14 designs
+completed. The primary check reproduces the study's $F_{\mathrm{val}}$
+within $6.3\times10^{-4}$ relative. L3 changes $F$ by $-2.9\%$ to $+2.6\%$
+($-2.9\%$ to $+1.1\%$ at the crossings), the 40-angle, tight and shifted
+checks by less than $0.03\%$, and the conforming estimator gives $1.1\%$ to
+$4.4\%$ more ripple on the space-A designs. All ten target crossings keep
+their target at L3 with at least 15\% margin, and every candidate keeps the
+mean floor, the closest by 0.044\%. An independent selection program chose
+the same 14 designs, bit for bit.
+
+\begin{table}[H]\centering\small
+\caption{Post-hoc ablation (Section~\ref{sec:exp2-fd}): charged time units
+to the first attaining validation for A$'$ and F, repeat~1, and their
+ratio per start; the last column gives the geometric mean, with repeat~2 in
+parentheses. Units are those of the ablation session.}
+\label{tab:exp2b-ratios}\input{tables/exp2b-ratios.tex}
+\end{table}
+
+\begin{table}[H]\centering\small
+\caption{Validation charges in the ablation, repeat~1, as in
+Table~\ref{tab:exp2-validation}.}
+\label{tab:exp2b-validation}\input{tables/exp2b-validation.tex}
+\end{table}
+
+\begin{table}[H]\centering\small
+\caption{Final checks of the ablation's selected designs, as in
+Table~\ref{tab:exp2-refinement}: L2 objective, L3 change, the largest
+40-angle, tight or shifted change, and the conforming change where stator
+offsets are zero.}
+\label{tab:exp2b-refinement}\input{tables/exp2b-refinement.tex}
+\end{table}
+
 \section{Forward-model controls}\label{sec:controls}
 \begin{figure}[H]\centering
 \includegraphics[width=\linewidth]{figures/coupling-waveforms.pdf}
@@ -893,6 +956,16 @@ not replace a field solve with a truncated interface. The complete filter
 results are retained in the accompanying forward-study records.
 
 \section{Opt120: size, current policy and angular sampling}\label{sec:opt120-policy}
+Between L2 and L3, changes in
+$F$, normalized by L3, reach 1.36\% for the initial design and 2.71\%
+for Opt120 across the three models on the exported mesh family; these increments are not error bounds.
+For Opt120 at order 45, the successive L1--L2 and L2--L3 increases in $F$
+are $3.05\times10^{-8}$ and $2.90\times10^{-8}$\,N$^2$\,m$^2$,
+so they barely shrink and do not establish an asymptotic rate. An alternate
+freshly constructed mesh family changes by 3.22\% for Opt120 from L2 to L3.
+The $2.79\times10^{-6}$\,N$^2$\,m$^2$ interface effect is about
+96 times the last export-mesh increment, despite this unresolved remainder.
+
 Current policy changes Opt120's feasibility (Fig.~\ref{fig:validation}d). At L3 and order 45,
 the initial full-current mean is 1.4433\,N\,m. Opt120 gives 1.3147\,N\,m
 under fixed \emph{unscaled} current, 1.2550\,N\,m under fixed physical
@@ -951,6 +1024,20 @@ The interface change mainly alters the resolved ripple.}
 \end{figure}
 
 \section{Model-dependent sensitivities and derivative cost}\label{sec:cost}
+Discrete derivative accuracy also does not imply mesh convergence. In the
+harmonic model, SW3 mean-torque sensitivities change sign between coarse
+levels and their increments shrink with refinement; ripple gradients converge
+more slowly than most mean gradients. The conforming/Arkkio SW2 mean
+sensitivity is non-monotone across L0--L3 ($-46.5$, $-41.3$, $-44.4$,
+$-47.2$\,N\,m/m), whereas harmonic/coupling torque approaches $-47.1$
+from $-49.8$\,N\,m/m. Fresh-remesh checks of MW, SW1 and SW2 are limited
+at small steps by changes in connectivity. The L2 MW mean-derivative fit
+has relative gap $2.6\times10^{-6}$, but individual remeshed steps at
+$h\geq10^{-4}$\,m scatter by about $6\times10^{-4}$. The largest L2 full-current
+remeshed-versus-moved fitted discrepancy is 3.8\% for the SW1 ripple
+derivative. These checks support the discrete chain rule while leaving
+refinement of candidate designs necessary.
+
 \begin{figure}[H]\centering
 \includegraphics[width=\linewidth]{figures/model-gradients.pdf}
 \caption{Full fixed-current sensitivities at L2, scaled by each geometric

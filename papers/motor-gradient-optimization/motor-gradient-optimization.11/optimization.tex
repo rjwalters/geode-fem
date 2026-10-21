@@ -1,6 +1,6 @@
 \section{Matched optimization study}\label{sec:optimization}
-This section tests whether adjoint-driven optimization shortens the time
-needed to reach a common validated ripple target. The protocol and all of
+This section tests whether adjoint gradients shorten the time needed to
+reach a common validated ripple target. The protocol and all of
 its amendments were fixed in the
 \href{https://github.com/rjwalters/geode-fem/issues/1185}{preregistration}
 before any main-run outcome was observed. One later deviation, in how the
@@ -26,7 +26,8 @@ initial design; Appendix~\ref{sec:settings} gives its radii, acceptance
 and update rules and the other settings. A/B and E/D vary the optimizer at fixed training resolution,
 and A/E and B/D vary resolution at fixed optimizer. The optimizer contrast
 includes differences in search strategy, so it does not isolate gradient
-access as the only causal difference. Training uses order-45 coupling torque
+access as the only causal difference; the ablation of
+Section~\ref{sec:exp2-fd} does. Training uses order-45 coupling torque
 on 20 angles at current fractions $0$, $\tfrac12$ and $1$ of the fixed peak
 current $9.6777\,\mathrm{A}$. L0 and L1 differ only in spatial resolution,
 and neither is fitted or corrected against validation. Time to a fixed
@@ -312,52 +313,81 @@ is 1.23--1.73 times that at the training currents, while for B's best
 design it is 0.89. D's best design has $0.0044F_0$ at the training currents but
 $0.0076$ of $\theta_0$'s value at the held-out currents. Part of the extra
 reduction from space B's added freedom is therefore specific to the three
-training currents.
-
-The training model also reads lower than validation. At $\theta_0$, the
-order-45 training objective is 0.887 (L1) and 0.894 (L0) of $F_0$. At the
-31 selected designs, the ratio of training to validation objective lies
-between 0.57 and 1.19 times its $\theta_0$ value. The lowest values belong
-to space-B designs near $T_{99}$: E's and A's $T_{99}$ crossings (0.57 and
-0.71) and D's best design (0.65); the best space-B designs of B and C are at
-0.99 and 1.19. Large reductions therefore often, but not always, come with a
-training objective that underestimates validation more than at $\theta_0$.
-This is consistent with the cancellation conjecture of
-Section~\ref{sec:opt120} but does not establish it.
+training currents. Appendix~\ref{sec:exp2-times} compares training and
+validation objectives at these designs.
 
 \subsection{Post-hoc ablation: finite-difference SLSQP}\label{sec:exp2-fd}
 The contrasts above vary the optimizer together with gradient access. This
 ablation varies gradient access alone. It was added after the main
 outcomes were known, so it is post hoc and not part of the preregistered
-study; its protocol was frozen in a
-\href{https://github.com/rjwalters/geode-fem/issues/1218}{separate public protocol}
-before any of its runs.
+study. Its \href{https://github.com/rjwalters/geode-fem/issues/1218}{public
+protocol} was posted at 22:34~UTC on 2026-10-20 and frozen by a ruling
+comment at 23:00~UTC, before the first ablation run began at 02:07~UTC on
+2026-10-21 (GitHub timestamps; the body was never edited).
 
 \paragraph{Protocol.}
 Method F is the safeguarded SLSQP of A with identical bounds, constraints,
 restoration, validation policy, targets, mean floor and stopping rules.
 Only the gradients of the objective and of the mean constraint change: they
 are forward differences of training values with a step of $10^{-6}$ in each
-component's unit, reusing the base value, so one gradient costs $n+1$
+component's unit, reusing the base value, so one gradient costs $n$ extra
 training forwards ($n=8$ in space A and 18 in space B). A component whose
-forward step is inadmissible or would remesh uses the backward step; if
-both fail, the gradient is refused as it would be for A. Every
-difference solve is charged to the run. The geometry-constraint Jacobians
-remain analytic, as for A. To make the comparison within one session, A is
-rerun unchanged in the same session as A$'$: both methods run from the five
-starts above, in both spaces, with two repeats and rotated method order,
-giving 40 runs of 120 units on the L1 training model. The primary estimand
-is, per start, the repeat-1 ratio F/A$'$ of time to $T_{90}$ in space A and
-to $T_{99}$ in space B; a censored cell gives no finite ratio. The
-representative and earliest crossings of F receive the six refinement
-checks above.
+forward step is unusable (outside the box, unbuildable, or on another mesh
+generation) uses the backward step, as 8\% of components did; if both
+fail, the gradient is refused as it would be for A, which never happened. Every difference
+solve is charged to the run. The geometry-constraint Jacobians remain
+analytic, as for A. A is rerun unchanged in the same session as A$'$, so
+the comparison shares host, time unit and load: both methods run from the
+five starts above, in both spaces, with two repeats and rotated method
+order, giving 40 runs of 120 units on the L1 training model. The primary
+estimand is, per start, the repeat-1 ratio F/A$'$ of time to $T_{90}$ in
+space A and to $T_{99}$ in space B; a censored cell gives no finite ratio.
+The representative and earliest crossings of F and A$'$ receive the six
+refinement checks above.
+
+On the L0 model, F's gradients agree with the adjoint within
+$1.9\times10^{-3}$ in max-norm relative error, and the session repeated
+the main study's setup checks (Appendix~\ref{sec:exp2-times}).
 
 \paragraph{Results.}
-Per-start F/A$'$ time ratios and their geometric means: [PENDING exp2b-fd-slsqp].
-Hit fractions and censoring of F and A$'$: [PENDING exp2b-fd-slsqp].
-Consistency of A$'$ with the main-study A and repeat-2 reproducibility:
-[PENDING exp2b-fd-slsqp].
-Final refinement of F's selected designs: [PENDING exp2b-fd-slsqp].
+Both F and A$'$ reach $T_{50}$ and $T_{90}$ in space A and all three
+targets in space B from all five starts, in both repeats; neither reaches
+$T_{99}$ in space A, as in the main study. No cell is censored. With the
+optimizer fixed, the adjoint reaches the primary target sooner from every
+start: the geometric-mean F/A$'$ ratio is 2.47 in space A (range
+2.45--2.52) and 4.11 in space B (3.84--4.33). Repeat 2 gives 2.49 and 4.04
+(Table~\ref{tab:exp2b-ratios} in Appendix~\ref{sec:exp2-times}), and the
+other targets give 2.43 in space A and 3.67--3.86 in space B. The ratio
+grows with the number of parameters, as the $n$ extra forwards per
+finite-difference gradient would predict; the two spaces also differ in
+mesh-motion map. F crosses each target after the same number of
+validations as A$'$ from every start. In space B, F also makes the same
+number of validations as A$'$ at every start and the same number of
+training evaluations at four of five, and its validated objectives agree
+with A$'$'s within 1\% at three starts; at the other two, individual
+validated objectives differ by up to 29\%.
+The difference is the cost of the gradient: one F training step costs a
+median of 1.53 units in space A and 3.32 in space B, against 0.29 and 0.31
+for A$'$ with its adjoint.
 
-\paragraph{Gradient credit.}
-[PENDING exp2b-fd-slsqp]
+Validation dilutes this contrast as it does the main one, but unequally:
+validation is 66--69\% of A$'$'s time to the primary target and 16--27\% of
+F's (Table~\ref{tab:exp2b-validation}). Excluding the validation charges up
+to each crossing, the F/A$'$ geometric mean becomes 5.58 in space A and
+10.07 in space B. As a check of the control, A$'$'s primary crossing times
+are 0.94--1.04 times those of the main-study A from the same start and
+repeat, each in its own session's unit.
+
+Set against the main study, the ablation splits the SLSQP-versus-COBYQA
+ratio approximately. The main-study B/A geometric means for the primary
+targets are 3.10 (space A, $T_{90}$) and 7.79 (space B, $T_{99}$). Dividing
+the main-study B times by the ablation's F times from the same starts gives
+1.22 and 1.91 in each session's units, or 1.3 and 2.0 in seconds. Gradient
+access therefore accounts for roughly 80\% of the logarithm of the space-A
+ratio and 70\% of the space-B ratio, and the optimizer for the rest. These
+shares are approximate: the comparison spans two sessions with different
+time units, although the starts, budget and validation model are the same.
+
+The final checks confirm F's and A$'$'s selected designs: all ten target
+crossings keep their target at L3 with at least 15\% margin
+(Table~\ref{tab:exp2b-refinement}; details in Appendix~\ref{sec:exp2-times}).

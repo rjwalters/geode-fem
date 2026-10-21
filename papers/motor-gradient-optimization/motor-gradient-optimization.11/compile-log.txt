@@ -78,16 +78,17 @@ ty (/usr/local/texlive/2026/texmf-dist/tex/latex/kvoptions/kvoptions.sty)))
 (/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsb.fd)
 (/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msb.cfg) [1{/usr/loc
 al/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map}] [2] [3] [4 <./fi
-gures/geometry.pdf>] (./optimization.tex [5] [6] [7]
-(./tables/exp2-validation.tex) [8 <./figures/exp2-quality.pdf>] [9 <./figures/e
-xp2-time-to-target.pdf>] [10]) (./tables/coupling.tex) [11] [12 <./figures/coup
-ling-convergence.pdf>] [13 <./figures/refined-validation.pdf>] [14] [15]
-[16 <./figures/design-gradients.pdf>] [17] [18] [19] [20]
-(./tables/exp2-time-to-target.tex) [21] (./tables/exp2-ratios.tex) [22]
-(./tables/exp2-refinement.tex) [23] [24] [25 <./figures/coupling-waveforms.pdf>
-] [26] [27 <./figures/opt120-waveforms.pdf>] (./tables/gradient-cost.tex)
-[28 <./figures/model-gradients.pdf>] (./tables/design-points.tex) (./main.bbl
-[29] [30] [31]) [32] (./main.aux) )</usr/local/texlive/2026/texmf-dist/fonts/ty
+gures/geometry.pdf>] (./optimization.tex [5] [6] [7] [8 <./figures/exp2-quality
+.pdf>] (./tables/exp2-validation.tex) [9 <./figures/exp2-time-to-target.pdf>]
+[10]) [11] (./tables/coupling.tex) [12] [13 <./figures/coupling-convergence.pdf
+>] [14 <./figures/refined-validation.pdf>] [15] [16] [17 <./figures/design-grad
+ients.pdf>] [18] [19] [20] (./tables/exp2-time-to-target.tex) [21]
+(./tables/exp2-ratios.tex) [22] (./tables/exp2-refinement.tex) [23] [24]
+(./tables/exp2b-ratios.tex) (./tables/exp2b-validation.tex)
+(./tables/exp2b-refinement.tex) [25] [26] [27 <./figures/coupling-waveforms.pdf
+>] [28] [29 <./figures/opt120-waveforms.pdf>] (./tables/gradient-cost.tex)
+[30 <./figures/model-gradients.pdf>] (./tables/design-points.tex) (./main.bbl
+[31] [32] [33]) [34] (./main.aux) )</usr/local/texlive/2026/texmf-dist/fonts/ty
 pe1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2026/texmf-dist/fonts/typ
 e1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2026/texmf-dist/fonts/type
 1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1
@@ -107,7 +108,7 @@ y6.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7
 fb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pf
 b></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmti8.pfb>
 </usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt10.pfb>
-Output written on main.pdf (32 pages, 744176 bytes).
+Output written on main.pdf (34 pages, 754960 bytes).
 Transcript written on main.log.
 === bibtex main ===
 This is BibTeX, Version 0.99e (TeX Live 2026)
@@ -194,16 +195,17 @@ ty (/usr/local/texlive/2026/texmf-dist/tex/latex/kvoptions/kvoptions.sty)))
 (/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsb.fd)
 (/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msb.cfg) [1{/usr/loc
 al/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map}] [2] [3] [4 <./fi
-gures/geometry.pdf>] (./optimization.tex [5] [6] [7]
-(./tables/exp2-validation.tex) [8 <./figures/exp2-quality.pdf>] [9 <./figures/e
-xp2-time-to-target.pdf>] [10]) (./tables/coupling.tex) [11] [12 <./figures/coup
-ling-convergence.pdf>] [13 <./figures/refined-validation.pdf>] [14] [15]
-[16 <./figures/design-gradients.pdf>] [17] [18] [19] [20]
-(./tables/exp2-time-to-target.tex) [21] (./tables/exp2-ratios.tex) [22]
-(./tables/exp2-refinement.tex) [23] [24] [25 <./figures/coupling-waveforms.pdf>
-] [26] [27 <./figures/opt120-waveforms.pdf>] (./tables/gradient-cost.tex)
-[28 <./figures/model-gradients.pdf>] (./tables/design-points.tex) (./main.bbl
-[29] [30] [31]) [32] (./main.aux) )</usr/local/texlive/2026/texmf-dist/fonts/ty
+gures/geometry.pdf>] (./optimization.tex [5] [6] [7] [8 <./figures/exp2-quality
+.pdf>] (./tables/exp2-validation.tex) [9 <./figures/exp2-time-to-target.pdf>]
+[10]) [11] (./tables/coupling.tex) [12] [13 <./figures/coupling-convergence.pdf
+>] [14 <./figures/refined-validation.pdf>] [15] [16] [17 <./figures/design-grad
+ients.pdf>] [18] [19] [20] (./tables/exp2-time-to-target.tex) [21]
+(./tables/exp2-ratios.tex) [22] (./tables/exp2-refinement.tex) [23] [24]
+(./tables/exp2b-ratios.tex) (./tables/exp2b-validation.tex)
+(./tables/exp2b-refinement.tex) [25] [26] [27 <./figures/coupling-waveforms.pdf
+>] [28] [29 <./figures/opt120-waveforms.pdf>] (./tables/gradient-cost.tex)
+[30 <./figures/model-gradients.pdf>] (./tables/design-points.tex) (./main.bbl
+[31] [32] [33]) [34] (./main.aux) )</usr/local/texlive/2026/texmf-dist/fonts/ty
 pe1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2026/texmf-dist/fonts/typ
 e1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2026/texmf-dist/fonts/type
 1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1
@@ -223,7 +225,7 @@ y6.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7
 fb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pf
 b></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmti8.pfb>
 </usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt10.pfb>
-Output written on main.pdf (32 pages, 744176 bytes).
+Output written on main.pdf (34 pages, 754960 bytes).
 Transcript written on main.log.
 === pdflatex -interaction=nonstopmode -halt-on-error main.tex ===
 This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex)
@@ -305,16 +307,17 @@ ty (/usr/local/texlive/2026/texmf-dist/tex/latex/kvoptions/kvoptions.sty)))
 (/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsb.fd)
 (/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msb.cfg) [1{/usr/loc
 al/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map}] [2] [3] [4 <./fi
-gures/geometry.pdf>] (./optimization.tex [5] [6] [7]
-(./tables/exp2-validation.tex) [8 <./figures/exp2-quality.pdf>] [9 <./figures/e
-xp2-time-to-target.pdf>] [10]) (./tables/coupling.tex) [11] [12 <./figures/coup
-ling-convergence.pdf>] [13 <./figures/refined-validation.pdf>] [14] [15]
-[16 <./figures/design-gradients.pdf>] [17] [18] [19] [20]
-(./tables/exp2-time-to-target.tex) [21] (./tables/exp2-ratios.tex) [22]
-(./tables/exp2-refinement.tex) [23] [24] [25 <./figures/coupling-waveforms.pdf>
-] [26] [27 <./figures/opt120-waveforms.pdf>] (./tables/gradient-cost.tex)
-[28 <./figures/model-gradients.pdf>] (./tables/design-points.tex) (./main.bbl
-[29] [30] [31]) [32] (./main.aux) )</usr/local/texlive/2026/texmf-dist/fonts/ty
+gures/geometry.pdf>] (./optimization.tex [5] [6] [7] [8 <./figures/exp2-quality
+.pdf>] (./tables/exp2-validation.tex) [9 <./figures/exp2-time-to-target.pdf>]
+[10]) [11] (./tables/coupling.tex) [12] [13 <./figures/coupling-convergence.pdf
+>] [14 <./figures/refined-validation.pdf>] [15] [16] [17 <./figures/design-grad
+ients.pdf>] [18] [19] [20] (./tables/exp2-time-to-target.tex) [21]
+(./tables/exp2-ratios.tex) [22] (./tables/exp2-refinement.tex) [23] [24]
+(./tables/exp2b-ratios.tex) (./tables/exp2b-validation.tex)
+(./tables/exp2b-refinement.tex) [25] [26] [27 <./figures/coupling-waveforms.pdf
+>] [28] [29 <./figures/opt120-waveforms.pdf>] (./tables/gradient-cost.tex)
+[30 <./figures/model-gradients.pdf>] (./tables/design-points.tex) (./main.bbl
+[31] [32] [33]) [34] (./main.aux) )</usr/local/texlive/2026/texmf-dist/fonts/ty
 pe1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2026/texmf-dist/fonts/typ
 e1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2026/texmf-dist/fonts/type
 1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1
@@ -334,5 +337,5 @@ y6.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7
 fb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pf
 b></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmti8.pfb>
 </usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt10.pfb>
-Output written on main.pdf (32 pages, 744176 bytes).
+Output written on main.pdf (34 pages, 754960 bytes).
 Transcript written on main.log.

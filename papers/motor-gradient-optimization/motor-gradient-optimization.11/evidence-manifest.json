@@ -738,11 +738,18 @@
       "snapshot": "figures/src/data/exp2/provenance/preregistration-1185-export.json",
       "sha256": "430f12420be89f48addfc2d60d3e7b291586358f107f2eac1a32267d80d68170",
       "source_commit": "06a9a0d9d4dcae56cbbd260e70b96a1fc1a802a5"
+    },
+    {
+      "source": "benchmarks/motor_optimization/harness/fd-gradient-runtime-checks.json",
+      "snapshot": "figures/src/data/exp2b/fd-gradient-runtime-checks.json",
+      "sha256": "38383302194bb5ba3cb50974f5a4e0fbeb532626312d0268cafe11d2b6d0f1e7",
+      "source_commit": "2d4fbcfe8479c0df30e22323d987d885a671c1fb"
     }
   ],
   "evidence_commits": [
     "06a9a0d9d4dcae56cbbd260e70b96a1fc1a802a5",
     "224332c526be1191183af82b610973c7778de720",
+    "2d4fbcfe8479c0df30e22323d987d885a671c1fb",
     "581ee7ad40c9646f43e0d6df3de7b5a87d06f798",
     "8acd21ecf85d89fe077275a3c04ca70b53963d43",
     "910593bad6f64f9f01671c2632b57034e72b9c61",

@@ -181,7 +181,13 @@ assert ap['status'] == 'PASS' and ap['spaces_agree_bitwise'] is True and all(s['
 assert max(s['comparison']['F_relative_error'] for s in ap['sessions']) < 2.5e-13
 assert round(sum(r['in_run_wall_seconds'] for r in runs) / 3600) == 109
 # Text-side bindings for the revised wording.
-txt = (V / 'optimization.tex').read_text() + (V / 'main.tex').read_text()
+class _Norm(str):
+    # Phrase bindings ignore line breaks and repeated spaces in the manuscript (v11).
+    def __contains__(self, phrase):
+        return ' '.join(phrase.split()) in ' '.join(self.split())
+
+
+txt = _Norm((V / 'optimization.tex').read_text() + (V / 'main.tex').read_text())
 for phrase in ['in all 45 paired comparisons', 'median of 2.1\\% and at most 12.4\\%', 'only three crossings occur',
                '$2.0$--$2.1\\%$ more at $\\theta_0$', 'by $-4.0\\%$ to $+1.1\\%$', 'below\n$2.2\\times10^{-12}$',
                'less\nthan $1.1\\times10^{-5}$', 'values above one mean a smaller', 'design it is 0.89', 'within 0.17\\% above',
@@ -199,7 +205,7 @@ print('PASS: Exp 2 final refinement (33 designs, 213 checks): reproduction, L3/g
 # V11: per-space optimizer-contrast ranges stated in the abstract and introduction.
 spa = [x for sp in 'a' for x in g('B', 'A', sp) + g('D', 'E', sp)]; spb = [x for x in g('B', 'A', 'b') + g('D', 'E', 'b')]
 assert (round(min(spa), 2), round(max(spa), 2)) == (2.45, 3.25) and (round(min(spb), 2), round(max(spb), 2)) == (3.14, 7.79)
-for phrase in ['ratio was 2.45--3.25 in an eight-parameter space and 3.14--7.79 in an\n18-parameter space',
+for phrase in ['by geometric means of\n2.45--3.25 in an eight-parameter space and 3.14--7.79 in an 18-parameter\nspace',
                'the same mesh, by geometric means of 2.45--3.25 in the eight-parameter\nspace and 3.14--7.79 in the 18-parameter space']:
     assert phrase in txt, phrase
 

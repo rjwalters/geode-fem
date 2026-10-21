@@ -3,9 +3,10 @@
   "public_repo_url": "https://github.com/rjwalters/geode-fem",
   "artifact_verify": {
     "commands": [
-      "python3 verify.py"
+      "python3 verify.py",
+      "python3 verify_exp2b.py"
     ],
     "cwd": "motor-gradient-optimization.11",
-    "timeout_s": 60
+    "timeout_s": 120
   }
 }

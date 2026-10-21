@@ -304,3 +304,4 @@ assert 'figures/opt120-waveforms.pdf' in tex
 print('PASS: v6 SW2/SW3 component rounding, distinct L0/L1 Taylor failure mechanisms, vector versus norm changes, all three size-normalized current policies, and matched full-current abstract claim.')
 import runpy
 runpy.run_path(str(V/'verify_exp2.py'),run_name='__main__')
+runpy.run_path(str(V/'verify_exp2b.py'),run_name='__main__')
