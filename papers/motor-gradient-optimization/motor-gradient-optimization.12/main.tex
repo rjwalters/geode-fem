@@ -393,8 +393,8 @@ since both change the ripple objective or its sensitivities
 
 The evidence has clear limits. It is a paired case study over five
 deterministic starts of one motor; the ratios are not population estimates.
-The ablation is post hoc, and F's gradient accuracy was measured on the L0
-model, not on the L1 model it trained on. Population methods such as
+The ablation is post hoc, and F's L1 gradient check fails its
+per-component limit at one small component (Section~\ref{sec:exp2-fd}). Population methods such as
 CMA-ES, multi-start strategies and other surrogates remain untested.
 Method C ran with the preregistered settings of
 Appendix~\ref{sec:settings} and was not tuned; its low attainment bounds
@@ -471,7 +471,9 @@ For the post-hoc ablation, the package holds the 40 run extracts, the
 setup records, the ablation's SHA-256 inventory of 2,118 files with its
 RFC~3161 and OpenTimestamps records, the final-check results, an export of
 its protocol and a third verifier; the ablation's evaluator source is
-\href{https://github.com/rjwalters/geode-fem/tree/5cc86ad81aeea4847a2608fcafde22a1bbfb6990/benchmarks/motor_optimization}{\texttt{5cc86ad8}}.
+\href{https://github.com/rjwalters/geode-fem/tree/5cc86ad81aeea4847a2608fcafde22a1bbfb6990/benchmarks/motor_optimization}{\texttt{5cc86ad8}},
+and F's L1 gradient check is pinned at
+\href{https://github.com/rjwalters/geode-fem/tree/74843242db03e8d57edf971420171064bf19f107/benchmarks/motor_optimization/harness}{\texttt{74843242}}.
 The ablation's \href{https://github.com/rjwalters/geode-fem/issues/1218}{protocol}
 was posted at 22:34~UTC on 2026-10-20 and frozen by a comment at
 23:00~UTC, before the first ablation run began at 02:07~UTC on 2026-10-21;
@@ -738,7 +740,8 @@ $\theta_0$ and an interior point in each space. Single small components are
 less accurate, up to $5.7\times10^{-2}$ for SW3 at the space-B interior
 point. These errors, at the frozen step, are part of what F is; the frozen
 acceptance limits were $5\times10^{-3}$ for the norm and $10^{-1}$ per
-component. The same check was not run on the L1 training model.
+component. On the L1 training model the record's status is FAIL because of
+one small component, as Section~\ref{sec:exp2-fd} reports.
 
 The session ran on the same type of host as the main study (c7a.4xlarge,
 15 concurrent processes) with a calibrated unit of $66.66\,\mathrm{s}$,

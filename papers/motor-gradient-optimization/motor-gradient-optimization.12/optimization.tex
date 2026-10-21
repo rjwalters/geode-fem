@@ -326,12 +326,19 @@ within 1\% at three starts, and at the other two individual validated
 objectives differ by up to 29\%. In space A, F stops at the budget in eight
 of ten runs and converges in two, whereas A$'$ converges in four, stops in
 the solver in four and reaches the budget in two; from every start, F's
-best validated objective is within 0.4\% of A$'$'s. F's gradient accuracy
-was measured on the L0 model, where it agrees with the adjoint within
-$1.9\times10^{-3}$ in max-norm relative error, with single small components
-off by up to $5.7\times10^{-2}$ (Appendix~\ref{sec:exp2-times}); it was not
-measured on the L1 model F trained on, where the matched validation counts
-are the evidence that its gradients sufficed. As a check of the control,
+best validated objective is within 0.4\% of A$'$'s. F's gradients were
+checked against the adjoint on the L1 training model, with L2 validation as
+in the session and the frozen step, at $\theta_0$ and an interior point in
+each space: the max-norm relative error is $5.2\times10^{-4}$ to
+$1.9\times10^{-3}$ for $F$ and at most $7.2\times10^{-4}$ for the
+full-current mean. The check's per-component limit of $10^{-1}$ fails once:
+at the space-A interior point, the SW3 component of the mean gradient is
+$-9.62\times10^{-3}$ by finite differences against $-7.74\times10^{-3}$ by
+the adjoint, a relative error of 0.24, on a component $8.7\times10^{-5}$
+times the largest. Its absolute error, $1.9\times10^{-3}$, matches SW3's at
+the three passing points ($1.8$--$1.9\times10^{-3}$); we read this as the
+noise floor of the fixed step on a small component, an interpretation that
+no step sweep has tested. As a check of the control,
 A$'$'s primary crossing times are 0.94--1.04 times those of the main-study A
 from the same start and repeat, each in its own session's unit.
 

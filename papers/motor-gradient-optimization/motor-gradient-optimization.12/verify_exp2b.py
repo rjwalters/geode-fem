@@ -228,6 +228,37 @@ assert hashlib.sha256(pe['freeze_comment']['body'].encode()).hexdigest() == pe['
 assert pe['freeze_comment']['created_at'] == pe['freeze_comment']['updated_at'] == '2026-10-20T23:00:32Z' and pe['issue']['created_at'] == '2026-10-20T22:34:54Z'
 assert sess['session_id'] == 'fd_ablation-20261021T020705Z' and pe['freeze_comment']['created_at'] < '2026-10-21T02:07:05Z'
 print('PASS: Exp 2b L0 finite-difference accuracy (4 points, recomputed norms) and protocol timing.')
+# L1 finite-difference accuracy record of method F (PR merge 74843242), recomputed from its raw FD/adjoint values.
+e1 = man['figures/src/data/exp2b/fd-gradient-runtime-checks-L1.json']
+assert e1['source_commit'] == '74843242db03e8d57edf971420171064bf19f107' and sha(V / e1['snapshot']) == e1['sha256']
+L1 = json.loads((V / e1['snapshot']).read_text()); assert L1['status'] == 'FAIL' and L1['component_tol'] == .1 and L1['norm_tol'] == 5e-3
+neg = L1['negligible']; nf, nm, fails, sw3 = {}, {}, [], {}
+for r in L1['records']:
+    tr, va = r['session']['training'], r['session']['validation']
+    assert tr['level'] == 1 and va['level'] == 2 and tr['newton_rel_tol'] == 1e-8 and r['step'] == 1e-6
+    for p in r['points']:
+        comp = p['components']
+        for key, out in (('dF', nf), ('dmean_full', nm)):
+            f = [c['fd_' + key] for c in comp]; a = [c['adjoint_' + key] for c in comp]; big = max(abs(y) for y in a)
+            out[(r['space'], p['point'])] = max(abs(x - y) for x, y in zip(f, a)) / big
+            assert math.isclose(out[(r['space'], p['point'])], p['normwise_rel_' + key], rel_tol=1e-9)
+            for c in comp:
+                y = c['adjoint_' + key]; rel = abs(c['fd_' + key] - y) / abs(y) if y != 0 and abs(y) >= neg * big else None
+                assert (rel is None and c['rel_' + key] is None) or math.isclose(rel, c['rel_' + key], rel_tol=1e-9)
+                if rel is not None and rel > .1:
+                    fails.append((r['space'], p['point'], c['name'], key, rel, c['fd_' + key], y, abs(y) / big))
+                if c['name'] == 'SW3' and key == 'dmean_full':
+                    sw3[(r['space'], p['point'])] = abs(c['fd_' + key] - y)
+        assert p['pass'] == (nf[(r['space'], p['point'])] <= 5e-3 and nm[(r['space'], p['point'])] <= 5e-3 and not any(x[:2] == (r['space'], p['point']) for x in fails))
+assert max(nf.values()) <= 5e-3 and max(nm.values()) <= 5e-3
+assert (f'{min(nf.values()):.1e}', f'{max(nf.values()):.1e}', f'{max(nm.values()):.1e}') == ('5.2e-04', '1.9e-03', '7.2e-04')
+assert [round(nf[k], 5) for k in (('a', 'theta0'), ('a', 'interior'), ('b', 'theta0'), ('b', 'interior'))] == [.00054, .00052, .00193, .00183]
+assert len(fails) == 1 and fails[0][:4] == ('a', 'interior', 'SW3', 'dmean_full')
+_, _, _, _, rel, fdv, adv, frac = fails[0]
+assert (f'{fdv:.2e}', f'{adv:.2e}', round(rel, 2), f'{frac:.1e}') == ('-9.62e-03', '-7.74e-03', .24, '8.7e-05')
+others = [v_ for k, v_ in sw3.items() if k != ('a', 'interior')]
+assert f"{sw3[('a', 'interior')]:.1e}" == '1.9e-03' and (f'{min(others):.1e}', f'{max(others):.1e}') == ('1.8e-03', '1.9e-03')
+print('PASS: Exp 2b L1 finite-difference accuracy (4 points; norm-wise and component errors recomputed from raw FD/adjoint values; one component-wise FAIL, SW3 mean at the space-A interior).')
 
 
 # Tables exp2b-*, recomputed independently of render_exp2b.py.
@@ -285,8 +316,10 @@ for phrase in [
     'In space B all 20 ablation runs stop at $T_{99}$',
     'its validated objectives agree with A$\'$\'s within 1\\% at three starts, and at the other two individual validated objectives differ by up to 29\\%',
     'In space A, F stops at the budget in eight of ten runs and converges in two, whereas A$\'$ converges in four, stops in the solver in four and reaches the budget in two; from every start, F\'s best validated objective is within 0.4\\% of A$\'$\'s',
-    'agrees with the adjoint within $1.9\\times10^{-3}$ in max-norm relative error, with single small components off by up to $5.7\\times10^{-2}$',
-    'it was not measured on the L1 model F trained on', 'The same check was not run on the L1 training model',
+    'the max-norm relative error is $5.2\\times10^{-4}$ to $1.9\\times10^{-3}$ for $F$ and at most $7.2\\times10^{-4}$ for the full-current mean',
+    'the SW3 component of the mean gradient is $-9.62\\times10^{-3}$ by finite differences against $-7.74\\times10^{-3}$ by the adjoint, a relative error of 0.24, on a component $8.7\\times10^{-5}$ times the largest',
+    'Its absolute error, $1.9\\times10^{-3}$, matches SW3\'s at the three passing points ($1.8$--$1.9\\times10^{-3}$); we read this as the noise floor of the fixed step on a small component, an interpretation that no step sweep has tested',
+    'F\'s L1 gradient check fails its per-component limit at one small component', 'the record\'s status is FAIL because of one small component',
     'A$\'$\'s primary crossing times are 0.94--1.04 times those of the main-study A',
     'the main-study B/A geometric means are 3.10 and 7.79, and F/A$\'$ over the same starts is 2.47 and 4.10',
     'is 1.24, 1.45, 0.70, 0.95 and 2.27 in space A (geometric mean 1.22) and 3.84, 2.46, 1.26 and 1.12 in space B (1.91)',
