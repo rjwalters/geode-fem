@@ -104,10 +104,15 @@ def _training(trace, model):
         raise ValueError('training-level registration flag disagrees with native configuration')
 
 
-def _assemble(capture, setup, reader, *, ledger_type, starts):
-    """Internal assembly; caller must supply verified capture/setup, never flags alone."""
+def _assemble(capture, setup, reader, *, ledger_type, starts, cohort='main', queue=_queue):
+    """Internal assembly; caller must supply verified capture/setup, never flags alone.
+
+    The defaults are the main study. The #1218 FD-ablation adapter
+    (ablation_selection) supplies its verified-copy evidence in the same shape,
+    its registered 40-job queue check and cohort='fd_ablation'.
+    """
     chain=capture['chain'];session=capture['frozen']['session']
-    jobs=chain['generations'][0]['jobs'];_queue(jobs)
+    jobs=chain['generations'][0]['jobs'];queue(jobs)
     policy=chain['policy']['jobs']
     if (chain['all_registered_jobs_resolved'] is not True or [r['job'] for r in policy]!=jobs
             or any(r['selected_completion'] is None for r in policy)):
@@ -159,7 +164,7 @@ def _assemble(capture, setup, reader, *, ledger_type, starts):
     if not set(selected)<=observed:raise ValueError('selected completion absent from generations')
     a=setup['effective_anchor']
     selection=select(records,f0=a['F0'],mean0=a['mean0_full_current'],theta0=setup['theta0']['a']['design'],
-                     theta0_references=[setup['theta0']['b']['design']])
+                     theta0_references=[setup['theta0']['b']['design']],cohort=cohort)
     plan=check_plan.make_plan(selection,include_conforming=True)
     selected_designs={j['design_key']:copy.deepcopy(designs[j['design_key']]) for j in selection['jobs']}
     # Store JSON-compatible complete design identity for later native requests.
