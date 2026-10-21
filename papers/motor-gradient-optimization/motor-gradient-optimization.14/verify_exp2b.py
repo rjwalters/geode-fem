@@ -141,6 +141,8 @@ assert round(M['runs'][0]['unit_seconds'], 2) == 70.94 and round(U, 2) == 66.66
 mb = lambda sp, tg: [MA[('B', sp, s, 1)]['attainment'][tg]['wall_fe'] / ma(sp, s, tg, 1) for s in S if MA[('B', sp, s, 1)]['attainment'][tg]['attained']]
 ba = {sp: gm(mb(sp, tg)) for sp, tg in (('a', 'T90'), ('b', 'T99'))}
 assert (round(ba['a'], 2), round(ba['b'], 2)) == (3.10, 7.79)
+_bam = [gm([MA[('B', 'a', s_, 1)]['attainment'][tg]['wall_fe'] / MA[('A', 'a', s_, 1)]['attainment'][tg]['wall_fe'] for s_ in S]) for tg in ('T50', 'T90')]
+assert (round(min(_bam), 2), round(max(_bam), 2)) == (3.10, 3.25)  # the eight-parameter ratios set beside Yu et al. 2018
 bf = {sp: gm([MA[('B', sp, s, 1)]['attainment'][tg]['wall_fe'] / t('F', sp, s, tg) for s in S if MA[('B', sp, s, 1)]['attainment'][tg]['attained']])
       for sp, tg in (('a', 'T90'), ('b', 'T99'))}
 assert (round(bf['a'], 2), round(bf['b'], 2)) == (1.22, 1.91)
@@ -417,6 +419,7 @@ for phrase in [
     '$-1.8$ to $-1.9\\times10^{-3}$ at L1 and $-3.0$ to $-3.1\\times10^{-3}$ at L0',
     'took 2.5 and 4.1 times as long with 8 and 18 parameters on one core per run with cold-started stencils',
     'A$\'$ reproduces the main-study A within 6\\%',
+    'the counterpart of our eight-parameter SLSQP-against-COBYQA ratios of 3.10--3.25. They do not compare adjoint with finite-difference gradients, which our ablation does',
     'Both cross each target after the same number of validations from every start. Up to the primary crossing their validated objectives agree within 0.4\\% in space A and within 0.9\\% at three space-B starts; at space-B LHS~2 and LHS~4 the iterates drift apart before the $T_{99}$ crossing, by 29\\% at the crossing validation and 18\\% one validation before it, and at LHS~2 F uses one training evaluation fewer',
     'per gradient, F pays 33 and 70 times as much',
     'costs a training solve that both arms pay (medians 0.240 and 0.236 units for F, 0.232 and 0.245 for A$\'$), so an evaluation with a gradient costs F 7.4 and 14.7 times as much as A$\'$',

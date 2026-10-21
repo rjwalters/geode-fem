@@ -139,9 +139,13 @@ machines, and \citet{lei2017review} review their design-optimization
 methods. \citet{ion2018robust} compare deterministic gradient-based and
 stochastic search for electric devices, and \citet{zingg2008comparative}
 found that a genetic algorithm needed 5 to 200 times as many function
-evaluations as an adjoint method in aerodynamic shape optimization;
-\citet{yu2018influence} study how the algorithm and initial design affect
-wing shape optimization. Our
+evaluations as an adjoint method in aerodynamic shape optimization.
+On an eight-variable wing twist problem, \citet{yu2018influence} found
+gradient-free optimizers 4 to over 100 times as expensive as adjoint-driven
+ones at the same optimum, the counterpart of our eight-parameter
+SLSQP-against-COBYQA ratios of 3.10--3.25. They do not compare adjoint with
+finite-difference gradients, which our ablation does, but state its premise:
+finite-difference cost grows with the number of variables and adjoint cost does not. Our
 time-to-target measure follows the performance profiles of
 \citet{dolan2002benchmarking} and the data profiles of
 \citet{more2009benchmarking}, with a wall-time budget and censored

@@ -37,10 +37,21 @@ The verifier allows exactly these two sources. Run `grep -n PENDING main.tex opt
 | Opus A2 | Units on App. D values | Slope and curvature now in N m/m and N m/m², explicitly for the mean gradient |
 | Opus A3 / Fable A4 | Fig. 5 censored marker; LHS 4 label | The censored B cell is drawn at B's 120-unit budget and the caption says so. Ratio labels sit in a fixed row at the top of each panel, one per start column, so none is ambiguous; the caption names the row |
 | Fable A3 | Split the data statement | Three paragraphs: forward evidence; main study and package; ablation and archive. The middle paragraph is set `sloppypar` to break the package path without overflow |
-| Opus A5 / Fable A1 / coordinator | Yu et al. 2018 | Verified on Crossref and OpenAlex (no identifier sent; `citation-metadata-v14.json`). No abstract is available on either. OpenAlex's machine keywords include gradient-based and derivative-free optimization, but **whether the paper contains an adjoint-versus-finite-difference arm could not be confirmed**, so it is cited only for what its title states (algorithm and initial-design effects in wing shape optimization) and not as a prior measurement of the contrast. Lyu, Xu & Martins 2014 is still not added (no record) |
+| Opus A5 / Fable A1 / coordinator (first v14 commit) | Yu et al. 2018 | Verified on Crossref and OpenAlex (no identifier sent; `citation-metadata-v14.json`). No abstract is available on either. OpenAlex's machine keywords include gradient-based and derivative-free optimization, but **whether the paper contains an adjoint-versus-finite-difference arm could not be confirmed**, so it is cited only for what its title states (algorithm and initial-design effects in wing shape optimization) and not as a prior measurement of the contrast. Lyu, Xu & Martins 2014 is still not added (no record) |
 | Fable A5 | Two budget-truncated gradients | App. D says the last gradient of each space-A θ0 run of F was cut off by the budget and is excluded from the cost medians |
 | Opus A8 | Abstract ending | The abstract now ends on the decision result |
 | Opus A7 | Fig. 6 placement | Width 0.88\linewidth; it now sits within §6's pages |
 | Opus A4 | Package pointer not on the default branch | Pointer updated to `.14` and bound in the verifier. Pinning to a merge commit or including the package in the Zenodo deposit is left to the operator/coordinator |
 | Opus A6 / Fable A2 | Letter collision | Declined again |
 | length | Keep ≤ 14 pages | To make room for F_w, moved rather than deleted: Table 3 (main-study validation charges), the space-A post-crossing detail, the A′-vs-A control check and the ablation validation-share sentence went to App. D. Removed: a §7 sentence that repeated the Conclusion and the Conclusion's scope sentence that repeated §7. Yu's sentence and the Conclusion opening were shortened |
+
+## Addendum: Yu et al. 2018 positioned from the full text (second v14 commit)
+
+Source: the coordinator's full-text check of the author preprint, `../refs/yu2018-fulltext-check.md` (committed with this change).
+
+| Item | Resolution |
+|---|---|
+| Positioning | §2 now reads: "On an eight-variable wing twist problem, Yu et al. (2018) found gradient-free optimizers 4 to over 100 times as expensive as adjoint-driven ones at the same optimum, the counterpart of our eight-parameter SLSQP-against-COBYQA ratios of 3.10–3.25. They do not compare adjoint with finite-difference gradients, which our ablation does, but state its premise: finite-difference cost grows with the number of variables and adjoint cost does not." |
+| Our ratio | The space-A B/A geometric means (3.10 at T90, 3.25 at T50) are recomputed by `verify_exp2.py` and asserted again beside the citation in `verify_exp2b.py`; the sentence is bound |
+| Lyu, Xu & Martins 2014 | Dropped as a lead: Yu et al. 2018 is its journal successor (same authors, same CRM study) and the 2014 paper has no Crossref/OpenAlex record (`citation-notes.md` updated) |
+| Length | Main text still pp. 1–14; abstract unchanged (236 words) |
