@@ -44,8 +44,8 @@ only) is in `../runs/pilot/`, with its `SUMMARY.md`.
 | `run.py` | One run: a fresh process, a fresh ledger, one trace. |
 | `session.py` | The run manifest: gated calibration, then scheduling; requires explicit `--main`, `--fd-ablation` or `--smoke`. Main uses five methods (A–E); `--fd-ablation` the #1218 {A′, F} queue; both require a witnessed build receipt. |
 | `fd_ablation_schedule.py` | The #1218 {A′, F} ablation queue (40 jobs; `session.py --fd-ablation`). The 100-job main queue is unchanged. |
-| `fd_gradient_check.py`, `fd-gradient-runtime-checks.json` | Method F's forward-difference gradient against the adjoint on the L0 CI model, through the process (#1218). |
-| `test_fd_gradient.py`, `fd_gradient_mutations.py`, `fd-gradient-checks.json` | Method F and ablation-queue tests on the fake evaluator, and their mutation record (#1218). |
+| `fd_gradient_check.py`, `fd-gradient-runtime-checks.json`, `fd-gradient-runtime-checks-L1.json` | Method F's forward-difference gradient against the adjoint through the process (#1218): on the L0 CI model (default), and with `--level 1` on the main session's L1 training model. |
+| `test_fd_gradient.py`, `fd_gradient_mutations.py`, `fd-gradient-checks.json` | Method F, ablation-queue and `fd_gradient_check.py --level` tests without FEM, and their mutation record (#1218). |
 | `export_queue.py` | Export the same 100-job main queue for prelaunch inspection, without FEM/calibration. |
 | `summarize_session.py` | Writes `SUMMARY.md` for a session directory. |
 | `summarize_pilot.py` | The pilot analysis (#1198): attainment, budget profile, feasibility, failures, host load, quality-versus-cost curves (`curves.csv`, `quality_vs_cost.svg`) and method C's held-out-current diagnostic, into the session's `SUMMARY.md`. |
@@ -1268,3 +1268,22 @@ On the L0 CI model (`fd-gradient-runtime-checks.json`), F's gradient agrees
 with the adjoint to a norm-wise relative 5.2e-4 (A) and 1.9e-3 (B). Component-wise,
 the worst cases are 6e-3 (A) and 5.7e-2 (B, a small SW3 component). Those
 are the accuracy F gets at the frozen step.
+
+`fd_gradient_check.py --level 1` runs the same check, with the same step and
+the same bounds, on the main session's training model: L1 on the frozen θ0
+mesh (`icem_initial_sector_L1.msh`, SHA-256 c4526a26…). Validation follows the
+primary session (`session.py --main` / `--fd-ablation`), L2 on
+`icem_initial_sector_L2.msh` against the registered `anchor.json`. The check
+never validates. Both meshes are gitignored and hash-checked before any
+process starts. The L1 record (`fd-gradient-runtime-checks-L1.json`, log
+beside it) is **FAIL** on the component-wise bound, in one place only.
+Norm-wise, F agrees with the adjoint everywhere: dF 5.4e-4 / 5.2e-4 (A θ0 /
+interior) and 1.9e-3 / 1.8e-3 (B), and dmean_full 1.0e-4 / 1.1e-4 (A) and
+7.2e-4 / 6.3e-4 (B), all within the 5e-3 bound. Component-wise, the worst
+cases are within 1e-1 except at space A's interior point. There, SW3's
+dmean_full is −9.62e-3 by FD against −7.74e-3 by the adjoint (relative 0.24).
+That component is 9e-5 of the largest, so it counts under the 1e-6
+negligibility rule. Its absolute error, 1.9e-3, is the same as SW3's at θ0
+(1.8e-3, relative 1.8e-2). This is the frozen step's noise floor on a small
+component, not an O(1) wiring error. Space B passes at both points (worst
+component 1.4e-2, CPR7 backward at θ0). The step was not retuned.

@@ -17,7 +17,7 @@ import sys
 import tempfile
 
 HERE = Path(__file__).resolve().parent
-TESTS = ("FdGradientTests", "AblationQueueTests")
+TESTS = ("FdGradientTests", "AblationQueueTests", "FdGradientCheckLevelTests")
 MUTATIONS = (
     # ── [#1218] an uncharged FD solve ───────────────────────────────────
     ("fd_stencil_solve_uncharged [#1218]", "driver.py",
@@ -119,6 +119,31 @@ MUTATIONS = (
     ("ablation_recovery_allows_dirty_sources", "recovery_bindings.py",
      'if session.get("label") in ("main", "fd_ablation") and (',
      'if session.get("label") in ("main",) and ('),
+    # ── fd_gradient_check.py --level ────────────────────────────────────
+    ("fd_check_default_level_1", "fd_gradient_check.py",
+     'choices=sorted(LEVELS), default=0,', 'choices=sorted(LEVELS), default=1,'),
+    ("fd_check_level_not_passed_to_check", "fd_gradient_check.py",
+     'check(a.binary, space, Path(work) / space, a.level)',
+     'check(a.binary, space, Path(work) / space)'),
+    ("fd_check_l1_trains_on_l0", "fd_gradient_check.py",
+     '    1: {"train_mesh": MESHES / "icem_initial_sector_L1.msh",',
+     '    1: {"train_mesh": MESHES / "icem_initial_sector_L0.msh",'),
+    ("fd_check_l1_validates_at_l1", "fd_gradient_check.py",
+     '"val_mesh": MESHES / "icem_initial_sector_L2.msh", "val_level": 2},',
+     '"val_mesh": MESHES / "icem_initial_sector_L1.msh", "val_level": 1},'),
+    ("fd_check_train_level_hard_coded", "fd_gradient_check.py",
+     '"--train-level", str(level),', '"--train-level", "0",'),
+    ("fd_check_l1_frozen_hash_wrong", "fd_gradient_check.py",
+     '"c4526a26904c73f68ba0987f0ca8995bcc0095f0e7936399d5920e167f35d7f5"',
+     '"c4526a26904c73f68ba0987f0ca8995bcc0095f0e7936399d5920e167f35d7f6"'),
+    ("fd_check_mesh_hash_unchecked", "fd_gradient_check.py",
+     '        if got != want:\n            raise SystemExit',
+     '        if False:\n            raise SystemExit'),
+    ("fd_check_report_hash_unchecked", "fd_gradient_check.py",
+     'if json.loads(report.read_text())["msh_sha256"] != want:', 'if False:'),
+    ("fd_check_meshes_not_verified", "fd_gradient_check.py",
+     '        raise SystemExit(f"refusing to overwrite {a.out}")\n    verify_meshes(a.level)',
+     '        raise SystemExit(f"refusing to overwrite {a.out}")'),
 )
 
 
@@ -147,7 +172,8 @@ def main():
                      "mutated_file": file, "failing_tests": failed,
                      "stderr_tail": result.stderr[-1500:]})
     print(json.dumps({"issue": 1218, "python": sys.version,
-                      "scope": "fake-evaluator tests of method F and the {A', F} queue; no FEM",
+                      "scope": ("fake-evaluator tests of method F and the {A', F} queue, and the "
+                                "--level wiring of fd_gradient_check.py; no FEM"),
                       "tests": ["test_fd_gradient.py " + t for t in TESTS],
                       "baseline_source_sha256": {f: hashlib.sha256(s.encode()).hexdigest()
                                                  for f, s in sorted(sources.items())},

@@ -542,6 +542,101 @@ class AblationQueueTests(unittest.TestCase):
             recovery_bindings.verify(dirty, session_record)
 
 
+#: The frozen θ0 L1 training-mesh hash (`icem_initial_sector_L1_report.json`,
+#: the main session's training mesh).
+L1_TRAIN_SHA256 = "c4526a26904c73f68ba0987f0ca8995bcc0095f0e7936399d5920e167f35d7f5"
+
+
+class FdGradientCheckLevelTests(unittest.TestCase):
+    """`fd_gradient_check.py --level`: L0 (default) is the L0 CI model
+    unchanged; L1 is the primary session's training and validation models
+    with its registered anchor, every mesh hash-checked. No FEM."""
+
+    def test_level_0_is_the_l0_ci_model_unchanged(self):
+        import fd_gradient_check as c
+        l0 = str(c.MESHES / "icem_initial_sector_L0.msh")
+        expect = ["bin", "--space", "a", "--train-mesh", l0, "--val-mesh", l0,
+                  "--train-level", "0", "--val-level", "0", "--mesh-out", "out"]
+        self.assertEqual(c.argv_of("bin", "a", "out"), expect)
+        self.assertEqual(c.argv_of("bin", "a", "out", "anc.json"),
+                         expect + ["--anchor", "anc.json"])
+
+    def test_level_1_is_the_primary_session_model(self):
+        import fd_gradient_check as c
+        anchor = session.OPT / "anchor.json"
+        self.assertEqual(c.REGISTERED_ANCHOR, anchor)
+        for space in ("a", "b"):
+            # session.py --main / --fd-ablation: tl, vl = 1, 2 on L1 / L2.
+            self.assertEqual(
+                c.argv_of("bin", space, "out", anchor, level=1),
+                session.evaluator_args("bin", space, session.MESHES / "icem_initial_sector_L1.msh",
+                                       session.MESHES / "icem_initial_sector_L2.msh", 1, 2,
+                                       anchor, "out"))
+        self.assertEqual(c.FROZEN_SHA256["icem_initial_sector_L1.msh"], L1_TRAIN_SHA256)
+        self.assertEqual(sorted(c.LEVELS), [0, 1])
+
+    def test_level_option_defaults_to_0_and_reaches_the_check(self):
+        import fd_gradient_check as c
+        seen = []
+
+        def fake_check(binary, space, out_dir, level=0):
+            seen.append((space, level))
+            return {"space": space, "level": level, "status": "PASS"}
+        with tempfile.TemporaryDirectory() as td:
+            for argv, level in (([], 0), (["--level", "0"], 0), (["--level", "1"], 1)):
+                seen.clear()
+                out = Path(td) / f"rec{len(argv)}{level}.json"
+                with patch.object(c, "check", fake_check), \
+                        patch.object(c, "verify_meshes") as vm, \
+                        patch.object(c, "sha256", return_value="0" * 64), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(c.main(["--binary", "bin", "--out", str(out), *argv]), 0)
+                self.assertEqual(seen, [("a", level), ("b", level)])
+                vm.assert_called_once_with(level)
+                rec = json.loads(out.read_text())
+                if level == 0:
+                    self.assertNotIn("level", rec)
+                    self.assertIn("L0 CI model", rec["check"])
+                else:
+                    self.assertEqual(rec["level"], 1)
+                    self.assertIn("L1", rec["check"])
+            for bad in ("2", "-1"):
+                with self.assertRaises(SystemExit), \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    c.main(["--binary", "bin", "--out", str(Path(td) / "x.json"),
+                            "--level", bad])
+
+    def test_meshes_are_hash_checked_against_frozen_and_report(self):
+        import fd_gradient_check as c
+        with tempfile.TemporaryDirectory() as td:
+            train, val = Path(td) / "t_L1.msh", Path(td) / "v_L2.msh"
+            train.write_bytes(b"train")
+            val.write_bytes(b"val")
+            digest = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (train, val)}
+            for p in (train, val):
+                p.with_name(p.stem + "_report.json").write_text(
+                    json.dumps({"msh_sha256": digest[p.name]}))
+            levels = {1: {"train_mesh": train, "val_mesh": val, "val_level": 2}}
+            with patch.object(c, "LEVELS", levels), patch.object(c, "FROZEN_SHA256", digest):
+                c.verify_meshes(1)
+                for p in (train, val):
+                    with self.subTest(changed=p.name):
+                        good = p.read_bytes()
+                        p.write_bytes(good + b" ")
+                        with self.assertRaisesRegex(SystemExit, "is not the frozen"):
+                            c.verify_meshes(1)
+                        p.write_bytes(good)
+                        rep = p.with_name(p.stem + "_report.json")
+                        rep.write_text(json.dumps({"msh_sha256": "0" * 64}))
+                        with self.assertRaisesRegex(SystemExit, "is not the frozen"):
+                            c.verify_meshes(1)
+                        rep.write_text(json.dumps({"msh_sha256": digest[p.name]}))
+                c.verify_meshes(1)
+                val.unlink()
+                with self.assertRaisesRegex(SystemExit, "missing"):
+                    c.verify_meshes(1)
+
+
 def evaluator_binary():
     path = os.environ.get("MOTOR_HARNESS_EVALUATOR")
     if path:
@@ -594,6 +689,53 @@ class L0RecordTests(unittest.TestCase):
                             self.assertLessEqual(row[key], L0_COMPONENT_TOL, row)
         # Space B's bound-active θ0 offsets exercise the backward step.
         self.assertEqual(sides, {"forward", "backward"})
+
+
+class L1RecordTests(unittest.TestCase):
+    """The committed L1 runtime record of `fd_gradient_check.py --level 1`
+    (the primary session's training model): same step and criteria as L0.
+    Its status is whatever the criteria give; this checks the record is
+    consistent with them, not that it passes."""
+
+    def test_frozen_mesh_hashes_are_the_committed_reports(self):
+        import fd_gradient_check as c
+        for name, digest in c.FROZEN_SHA256.items():
+            report = c.MESHES / name.replace(".msh", "_report.json")
+            self.assertEqual(json.loads(report.read_text())["msh_sha256"], digest, name)
+
+    def test_committed_l1_record_is_consistent(self):
+        import fd_gradient_check as c
+        data = json.loads((HERE / "fd-gradient-runtime-checks-L1.json").read_text())
+        self.assertEqual((data["issue"], data["level"]), (1218, 1))
+        self.assertEqual((data["norm_tol"], data["component_tol"], data["negligible"]),
+                         (L0_NORM_TOL, L0_COMPONENT_TOL, c.NEGLIGIBLE))
+        self.assertEqual(sorted(r["space"] for r in data["records"]), ["a", "b"])
+        anchor = HERE.parent / "anchor.json"
+        for rec in data["records"]:
+            self.assertEqual((rec["level"], rec["val_level"]), (1, 2))
+            self.assertEqual(rec["step"], FD_STEP)
+            self.assertEqual(rec["train_msh_sha256"], L1_TRAIN_SHA256)
+            self.assertEqual(rec["mesh_sha256"], L1_TRAIN_SHA256)
+            self.assertEqual(rec["val_mesh_sha256"],
+                             c.FROZEN_SHA256["icem_initial_sector_L2.msh"])
+            self.assertEqual(rec["anchor"]["sha256"],
+                             hashlib.sha256(anchor.read_bytes()).hexdigest())
+            self.assertEqual(rec["charged"]["adjoint"]["entries"], 2)
+            self.assertEqual([p["point"] for p in rec["points"]], ["theta0", "interior"])
+            for p in rec["points"]:
+                self.assertFalse(p["fd"]["refused"])
+                self.assertEqual(p["fd"]["solves"], len(p["components"]))
+                for row in p["components"]:
+                    self.assertAlmostEqual(abs(row["h"]), FD_STEP, delta=1e-12)
+                ok = (p["normwise_rel_dF"] <= L0_NORM_TOL
+                      and p["normwise_rel_dmean_full"] <= L0_NORM_TOL
+                      and all(v is None or v <= L0_COMPONENT_TOL for row in p["components"]
+                              for v in (row["rel_dF"], row["rel_dmean_full"])))
+                self.assertEqual(p["pass"], ok)
+            self.assertEqual(rec["status"],
+                             "PASS" if all(p["pass"] for p in rec["points"]) else "FAIL")
+        self.assertEqual(data["status"], "PASS" if all(r["status"] == "PASS"
+                                                       for r in data["records"]) else "FAIL")
 
 
 if __name__ == "__main__":
