@@ -51,21 +51,21 @@ space b interior CPS1 forward: dF FD 2.000924309e+01 adj 2.000552611e+01 rel 0.0
 space b interior CPS2 forward: dF FD -8.084450643e+00 adj -8.086960275e+00 rel 0.00031033065640049526; dmean FD -1.398463813e+02 adj -1.399032335e+02 rel 0.00040636852430168567
 space b interior CPS3 forward: dF FD -2.188725522e+01 adj -2.192425246e+01 rel 0.0016875029206943337; dmean FD -1.221639565e+02 adj -1.222344595e+02 rel 0.0005767849537314138
 FAIL: fd-gradient-runtime-checks-L1-warm.json
-     1097.47 real      1093.85 user         2.11 sys
-           423772160  maximum resident set size
+     1107.53 real      1105.05 user         1.80 sys
+           425050112  maximum resident set size
                    0  average shared memory size
                    0  average unshared data size
                    0  average unshared stack size
-              101420  page reclaims
-                1396  page faults
+               95907  page reclaims
+                1417  page faults
                    0  swaps
                    0  block input operations
                    0  block output operations
                    0  messages sent
                    0  messages received
                    0  signals received
-                2994  voluntary context switches
-              116141  involuntary context switches
-          3943257361  instructions retired
-          1631846623  cycles elapsed
-            59458160  peak memory footprint
+                3342  voluntary context switches
+               44080  involuntary context switches
+          4003055175  instructions retired
+          1644927866  cycles elapsed
+            59572848  peak memory footprint

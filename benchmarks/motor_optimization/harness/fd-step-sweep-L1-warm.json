@@ -18,14 +18,14 @@
   "MH",
   "SW2"
  ],
- "binary_sha256": "58a83f1088835b16fadf89fd9007ff8a4f6e14954f9f0da817a45242822ead29",
+ "binary_sha256": "3ec100329380671744a5317ea0af549d9fd1b6bf04fa45150a0384cdd62f7dc3",
  "source_sha256": {
   "driver.py": "3148600501b803f148336afa3d9946a6f4031040c595e39ae8506c3d7e06300d",
   "fd_step_sweep.py": "9b722dbab65fda2268bce43b1e893508056dfabb7a3e6dba8459aecc9b96fb79",
   "fd_gradient_check.py": "15d7b0234ac9a5138879caf178b4e57741e35a8ced413b08bd7baf9be9e8ebd5",
   "evaluator.py": "8b8da2194c53760be27917a4832ab518bd533c4f2284a41a096026cefa764687",
   "ledger.py": "f9e30323b718944c7519b33aff8aa5b30bf7531008656130dc5adfb5b6dd3ea0",
-  "crates/geode-core/tests/common/icem_harness.rs": "dd41ba793539b81d8583230d67c5f6cbda02f2d88e9a2936ff20f7e789c8ea35",
+  "crates/geode-core/tests/common/icem_harness.rs": "cf01688a1708143be72adb930ca63df4f1a1f2e81499d3a779d8ad3efd867251",
   "crates/geode-core/tests/common/icem_remesh.rs": "42e0dffe56770a459ced5244c74b54565fe790bd9c13cd56df4ebd7cef6ba190",
   "crates/geode-core/tests/common/icem_experiment2.rs": "0e94bbe4b317b5c6497d3b54998bca9b003f46c5abe906f68e8768f3af078886"
  },
@@ -75,7 +75,7 @@
       "mean_full": 1.3498004811437492,
       "start": "same_mesh",
       "newton_iterations": 60,
-      "solve_s": 5.8539952920000005,
+      "solve_s": 5.908508,
       "side": "+",
       "step": 1e-05
      },
@@ -87,7 +87,7 @@
       "mean_full": 1.3498006328042145,
       "start": "same_mesh",
       "newton_iterations": 60,
-      "solve_s": 5.858869958,
+      "solve_s": 5.92272075,
       "side": "-",
       "step": 1e-05
      },
@@ -99,7 +99,7 @@
       "mean_full": 1.3498007319408036,
       "start": "same_mesh",
       "newton_iterations": 60,
-      "solve_s": 5.8679685,
+      "solve_s": 5.917519209,
       "side": "+",
       "step": 1e-06
      },
@@ -111,7 +111,7 @@
       "mean_full": 1.3498007474178686,
       "start": "same_mesh",
       "newton_iterations": 60,
-      "solve_s": 5.86596125,
+      "solve_s": 5.939906541,
       "side": "-",
       "step": 1e-06
      },
@@ -123,7 +123,7 @@
       "mean_full": 1.3498007407312849,
       "start": "same_mesh",
       "newton_iterations": 60,
-      "solve_s": 5.8637492909999995,
+      "solve_s": 5.928867167,
       "side": "+",
       "step": 1e-07
      }
@@ -244,7 +244,7 @@
       "mean_full": 1.350003296198389,
       "start": "same_mesh",
       "newton_iterations": 60,
-      "solve_s": 5.842483083,
+      "solve_s": 5.937296959,
       "side": "+",
       "step": 1e-05
      },
@@ -256,7 +256,7 @@
       "mean_full": 1.3495976337967077,
       "start": "same_mesh",
       "newton_iterations": 64,
-      "solve_s": 6.08248425,
+      "solve_s": 6.14511775,
       "side": "-",
       "step": 1e-05
      },
@@ -268,7 +268,7 @@
       "mean_full": 1.3498210218288809,
       "start": "same_mesh",
       "newton_iterations": 60,
-      "solve_s": 5.872418791,
+      "solve_s": 5.93353325,
       "side": "+",
       "step": 1e-06
      },
@@ -280,7 +280,7 @@
       "mean_full": 1.3497804556938253,
       "start": "same_mesh",
       "newton_iterations": 60,
-      "solve_s": 5.86348275,
+      "solve_s": 5.917186792,
       "side": "-",
       "step": 1e-06
      },
@@ -292,7 +292,7 @@
       "mean_full": 1.3498027698028365,
       "start": "same_mesh",
       "newton_iterations": 60,
-      "solve_s": 5.882713708,
+      "solve_s": 5.927834834,
       "side": "+",
       "step": 1e-07
      }
@@ -413,7 +413,7 @@
       "mean_full": 1.3493065667049176,
       "start": "same_mesh",
       "newton_iterations": 60,
-      "solve_s": 5.896336083,
+      "solve_s": 5.901635042,
       "side": "+",
       "step": 1e-05
      },
@@ -425,7 +425,7 @@
       "mean_full": 1.3502929408491828,
       "start": "same_mesh",
       "newton_iterations": 60,
-      "solve_s": 5.875715375,
+      "solve_s": 5.897581875,
       "side": "-",
       "step": 1e-05
      },
@@ -437,7 +437,7 @@
       "mean_full": 1.3497514129528168,
       "start": "same_mesh",
       "newton_iterations": 60,
-      "solve_s": 5.894798875,
+      "solve_s": 5.905544584,
       "side": "+",
       "step": 1e-06
      },
@@ -449,7 +449,7 @@
       "mean_full": 1.349850050339925,
       "start": "same_mesh",
       "newton_iterations": 60,
-      "solve_s": 5.901105708,
+      "solve_s": 5.903250167,
       "side": "-",
       "step": 1e-06
      },
@@ -461,7 +461,7 @@
       "mean_full": 1.3497958095556288,
       "start": "same_mesh",
       "newton_iterations": 60,
-      "solve_s": 5.869176292,
+      "solve_s": 5.912204541,
       "side": "+",
       "step": 1e-07
      }
@@ -707,11 +707,11 @@
     "adjoint_solves": 0
    }
   },
-  "wall_s": 128.0124713339901,
+  "wall_s": 128.74759645797894,
   "load": [
-   13.33544921875,
-   12.05517578125,
-   11.98779296875
+   15.890625,
+   15.095703125,
+   14.8623046875
   ],
   "val_level": 2,
   "val_mesh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
@@ -722,7 +722,7 @@
  },
  "reproduction": {
   "file": "benchmarks/motor_optimization/harness/fd-gradient-runtime-checks-L1-warm.json",
-  "sha256": "11964da59a83b8241bac10719f735c396bed8853eb3119877b0480164e78f514",
+  "sha256": "dda9ac3a9d8c0edce9617889ed866e297462bfb8cc40155359ade36dd97aa1bd",
   "components": [
    {
     "name": "SW3",

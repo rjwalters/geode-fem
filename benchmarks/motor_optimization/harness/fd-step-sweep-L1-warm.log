@@ -29,21 +29,21 @@ space a interior SW2 central h=1e-05 dmean_full: FD -49.31870721326379 adj -4.93
 space a interior SW2 central h=1e-06 dF: FD 13.244197862500595 adj 1.324419690e+01 err 9.57770915022138e-07 rel 7.231626967733357e-08
 space a interior SW2 central h=1e-06 dmean_full: FD -49.31869355406138 adj -4.931869341e+01 err -1.4834940031960286e-07 rel 3.0079750714243653e-09
 recorded: fd-step-sweep-L1-warm.json
-      128.54 real       127.82 user         0.35 sys
-           384499712  maximum resident set size
+      129.14 real       128.74 user         0.27 sys
+           411418624  maximum resident set size
                    0  average shared memory size
                    0  average unshared data size
                    0  average unshared stack size
-               43775  page reclaims
-                 768  page faults
+               46039  page reclaims
+                   3  page faults
                    0  swaps
                    0  block input operations
                    0  block output operations
                    0  messages sent
                    0  messages received
                    0  signals received
-                 503  voluntary context switches
-               14882  involuntary context switches
-          2874700815  instructions retired
-          1192306952  cycles elapsed
-            55771712  peak memory footprint
+                 467  voluntary context switches
+                2920  involuntary context switches
+          2799667434  instructions retired
+          1111751645  cycles elapsed
+            56164952  peak memory footprint
