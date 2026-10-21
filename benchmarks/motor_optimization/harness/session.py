@@ -5,6 +5,7 @@ processes, and record the session.
 
     pyrun.sh session.py --main  --procs N --out DIR [--binary EVALUATOR]
     pyrun.sh session.py --fd-ablation --procs N --out DIR [--binary EVALUATOR]
+    pyrun.sh session.py --fd-warm-ablation --procs N --out DIR [--binary EVALUATOR]
     pyrun.sh session.py --smoke --procs N --out DIR [--budget-fe B]
 
 * Main (`--main`, label `main`): 5 starts (theta0, lhs1-lhs4; amendment
@@ -23,6 +24,14 @@ processes, and record the session.
   preflight, the anchor recomputation, the gated unit calibration, the
   build receipt, clean sources and the host rule. No L0 model is
   calibrated (neither arm uses one). The main queue is not changed.
+* F_w arm (`--fd-warm-ablation`, label `fd_warm_ablation`; #1224, post-hoc,
+  added after the #1185 and #1218 outcomes were known): the {A', F_w} queue
+  of `fd_warm_schedule` (method A rerun unchanged, and F_w `slsqp_fd_warm`,
+  F with base-started stencil solves), 20 runs on the frozen starts and
+  both spaces, repeat 1 only, with the FD ablation's setup in every other
+  respect (budget, models, anchor, preflights, gated calibration, build
+  receipt, clean sources, host rule; no L0 model). The main and #1218
+  queues are not changed.
 * Smoke (`--smoke`, label `smoke`): both models at L0 on the committed L0
   mesh, an L0 anchor computed here (labelled smoke, not the registered
   anchor), one repeat, a short budget (default 20 FE). Besides θ0 and lhs1
@@ -64,14 +73,15 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from driver import (FD_ABLATION_METHODS, MAIN_METHOD_SPECS, METHOD_LABELS,  # noqa: E402
-                    METHOD_SPECS, method_order)
+from driver import (FD_ABLATION_METHODS, FD_WARM_METHODS, MAIN_METHOD_SPECS,  # noqa: E402
+                    METHOD_LABELS, METHOD_SPECS, method_order)
 from evaluator import Evaluator  # noqa: E402
 from linalg_info import fingerprint as linalg_fingerprint  # noqa: E402
 from run import thread_env  # noqa: E402
 import resource_usage  # noqa: E402
 import main_schedule  # noqa: E402
 import fd_ablation_schedule  # noqa: E402
+import fd_warm_schedule  # noqa: E402
 import session_journal  # noqa: E402
 import interruption  # noqa: E402
 import owned_child  # noqa: E402
@@ -86,10 +96,16 @@ PILOT_FAILURES = HERE / "pilot_failures.json"
 #: (unchanged by method F) and the #1218 ablation's {A', F}.
 FD_ABLATION_SPECS = {m: METHOD_SPECS[m] for m in FD_ABLATION_METHODS}
 SESSION_SPECS = {"main": MAIN_METHOD_SPECS, "fd_ablation": FD_ABLATION_SPECS}
+#: The #1224 {A', F_w} arm.
+FD_WARM_SPECS = {m: METHOD_SPECS[m] for m in FD_WARM_METHODS}
+SESSION_SPECS["fd_warm_ablation"] = FD_WARM_SPECS
 PREREGISTRATION = {
     "main": "#1185 with amendments 1-8 (amendment 7 revision 1 with the adoption corrections)",
     "fd_ablation": "#1218 (post-hoc ablation, protocol frozen before any F run; not part of "
                    "the preregistered #1185 study)",
+    "fd_warm_ablation": "#1224 (post-hoc arm added after the #1185 and #1218 outcomes were "
+                        "known; protocol frozen before any F_w run; not part of the "
+                        "preregistered #1185 study)",
 }
 
 
@@ -99,6 +115,8 @@ def registered_queue(label):
         return main_schedule.registered_jobs(MAIN_METHOD_SPECS)
     if label == "fd_ablation":
         return fd_ablation_schedule.registered_jobs(FD_ABLATION_SPECS)
+    if label == "fd_warm_ablation":
+        return fd_warm_schedule.registered_jobs(FD_WARM_SPECS)
     raise ValueError(f"no registered queue for {label!r}")
 
 
@@ -687,6 +705,8 @@ def _main(argv=None, stop=None):
     mode.add_argument("--main", action="store_true")
     mode.add_argument("--fd-ablation", action="store_true",
                       help="the #1218 {A', F} ablation queue (40 runs), main-session setup")
+    mode.add_argument("--fd-warm-ablation", action="store_true",
+                      help="the #1224 {A', F_w} queue (20 runs, repeat 1), main-session setup")
     ap.add_argument("--build-receipt", type=Path, help="required for main: witnessed evaluator build receipt")
     ap.add_argument("--budget-fe", type=float, default=None)
     ap.add_argument("--max-wait", type=float, default=1800.0,
@@ -698,8 +718,9 @@ def _main(argv=None, stop=None):
     a = ap.parse_args(argv)
     if a.host_gate == "off" and not a.smoke:
         raise SystemExit("the host gate may be turned off for a smoke session only")
-    main_like = a.main or a.fd_ablation
-    label = "smoke" if a.smoke else "main" if a.main else "fd_ablation"
+    main_like = a.main or a.fd_ablation or a.fd_warm_ablation
+    label = ("smoke" if a.smoke else "main" if a.main else "fd_ablation" if a.fd_ablation
+             else "fd_warm_ablation")
     out = a.out.resolve()
     if a.smoke and (OPT / "runs").resolve() in [out, *out.parents]:
         raise SystemExit("a smoke session may not write inside runs/")
@@ -812,6 +833,10 @@ def _main(argv=None, stop=None):
             session["ablation"] = {"issue": 1218, "methods": list(FD_ABLATION_METHODS),
                                    "arms": {"slsqp": "A_prime", "slsqp_fd": "F"},
                                    "post_hoc": True}
+        if label == "fd_warm_ablation":
+            session["ablation"] = {"issue": 1224, "methods": list(FD_WARM_METHODS),
+                                   "arms": {"slsqp": "A_prime", "slsqp_fd_warm": "F_w"},
+                                   "repeats": [1], "post_hoc": True}
         if a.build_receipt is not None:
             session["evaluator"]["build_receipt"] = str(a.build_receipt.resolve())
         if anchor_check is not None:

@@ -40,6 +40,15 @@
 //! field beyond the Newton tolerance. Results under `Previous` depend on
 //! the evaluation history at that tolerance.
 //!
+//! An explicit start (#1224, warm-started finite-difference stencils):
+//! [`RemeshEvaluator::evaluate_retaining`] is [`evaluate`](RemeshEvaluator::evaluate)
+//! that also returns the evaluation's converged fields ([`WarmFields`]),
+//! and [`RemeshEvaluator::evaluate_from`] is `evaluate` with its Newton
+//! solves started from such fields (the `SameMesh` start of `Previous`)
+//! when they live on the generation the evaluation lands on, and cold
+//! otherwise, whatever the configured [`WarmStart`]. Neither changes the
+//! `Previous` history of `evaluate`.
+//!
 //! # Current rule
 //!
 //! The primary rule of the pre-registration only: a fixed peak current
@@ -942,6 +951,15 @@ pub enum EvalError {
     Transfer(String),
 }
 
+/// The converged fields of one evaluation, as a Newton start for
+/// [`RemeshEvaluator::evaluate_from`] (#1224): the reference generation they
+/// live on and, per current fraction, `A_z` per operating point.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WarmFields {
+    pub generation: usize,
+    pub initials: Vec<Vec<Vec<f64>>>,
+}
+
 /// Converged fields of the last evaluation, for [`WarmStart::Previous`].
 struct LastFields {
     generation: usize,
@@ -1041,22 +1059,111 @@ impl<Sp: Space> RemeshEvaluator<Sp> {
         p: &Sp::Point,
         gradient: bool,
     ) -> Result<DesignEvaluation<Sp::Point>, EvalError> {
+        let (ev, last) = self.evaluate_inner(p, gradient, None)?;
+        if self.cfg.warm == WarmStart::Previous {
+            self.last = Some(last);
+        }
+        Ok(ev)
+    }
+
+    /// [`evaluate`](Self::evaluate) at `p`, exactly (the same start, the same
+    /// `Previous` history), that also returns the evaluation's converged
+    /// fields: the start of a later [`evaluate_from`](Self::evaluate_from)
+    /// (#1224).
+    ///
+    /// # Errors
+    ///
+    /// As [`evaluate`](Self::evaluate).
+    pub fn evaluate_retaining(
+        &mut self,
+        p: &Sp::Point,
+        gradient: bool,
+    ) -> Result<(DesignEvaluation<Sp::Point>, WarmFields), EvalError> {
+        let (ev, last) = self.evaluate_inner(p, gradient, None)?;
+        let fields = if self.cfg.warm == WarmStart::Previous {
+            let fields = WarmFields {
+                generation: last.generation,
+                initials: last.initials.clone(),
+            };
+            self.last = Some(last);
+            fields
+        } else {
+            WarmFields {
+                generation: last.generation,
+                initials: last.initials,
+            }
+        };
+        Ok((ev, fields))
+    }
+
+    /// [`evaluate`](Self::evaluate) at `p` (move, check, remesh if a trigger
+    /// fires, solve) with every Newton solve started from `start` instead of
+    /// the configured [`WarmStart`] (#1224): from its fields when they live
+    /// on the generation this evaluation lands on (reported as
+    /// [`StartUsed::SameMesh`]), cold otherwise and with `None` (reported as
+    /// [`StartUsed::Cold`]). Never transfers fields across a remesh, and does
+    /// not change the `Previous` history of `evaluate`.
+    ///
+    /// # Errors
+    ///
+    /// As [`evaluate`](Self::evaluate).
+    pub fn evaluate_from(
+        &mut self,
+        p: &Sp::Point,
+        gradient: bool,
+        start: Option<&WarmFields>,
+    ) -> Result<DesignEvaluation<Sp::Point>, EvalError> {
+        self.evaluate_inner(p, gradient, Some(start))
+            .map(|(ev, _)| ev)
+    }
+
+    /// The body of [`evaluate`](Self::evaluate): with `explicit` `None` the
+    /// configured start from the `Previous` history, else the explicit start
+    /// of [`evaluate_from`](Self::evaluate_from). Leaves the history alone.
+    fn evaluate_inner(
+        &mut self,
+        p: &Sp::Point,
+        gradient: bool,
+        explicit: Option<Option<&WarmFields>>,
+    ) -> Result<(DesignEvaluation<Sp::Point>, LastFields), EvalError> {
         let t0 = Instant::now();
         let prepared = self.refm.prepare(&Sp::geo(p))?;
         let event = prepared.event.map(|i| self.refm.events()[i].clone());
         let setup = self.refm.current();
-        let out = Self::solve(&self.cfg, setup, p, gradient, &prepared, self.last.as_ref())?;
+        let out = match explicit {
+            None => Self::solve(&self.cfg, setup, p, gradient, &prepared, self.last.as_ref())?,
+            Some(start) => {
+                let from = start
+                    .filter(|w| w.generation == prepared.generation)
+                    .map(|w| LastFields {
+                        generation: w.generation,
+                        mesh: TriMesh {
+                            nodes: Vec::new(),
+                            tris: Vec::new(),
+                        },
+                        parts: Vec::new(),
+                        initials: w.initials.clone(),
+                    });
+                let mut cfg = self.cfg.clone();
+                cfg.warm = if from.is_some() {
+                    WarmStart::Previous
+                } else {
+                    WarmStart::Cold
+                };
+                Self::solve(&cfg, setup, p, gradient, &prepared, from.as_ref())?
+            }
+        };
         let (ev, last) = out;
-        if self.cfg.warm == WarmStart::Previous {
-            self.last = Some(last);
-        }
-        Ok(DesignEvaluation {
-            event,
-            trigger: prepared.trigger,
-            motion_seconds: prepared.motion_seconds,
-            seconds: t0.elapsed().as_secs_f64(),
-            ..ev
-        })
+        Ok((
+            DesignEvaluation {
+                event,
+                trigger: prepared.trigger,
+                motion_seconds: prepared.motion_seconds,
+                seconds: t0.elapsed().as_secs_f64(),
+                ..ev
+            },
+            last,
+        ))
     }
 
     /// Evaluate at `p` on the reference of `generation` with no remesh

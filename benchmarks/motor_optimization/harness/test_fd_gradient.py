@@ -27,6 +27,7 @@ import numpy as np  # noqa: E402
 
 import driver  # noqa: E402
 import fd_ablation_schedule  # noqa: E402
+import fd_warm_schedule  # noqa: E402
 import main_schedule  # noqa: E402
 import session  # noqa: E402
 from driver import FD_STEP, Refused, WiringError  # noqa: E402
@@ -38,6 +39,12 @@ from test_harness import CENTRE_U, F0, N, X0, make_run  # noqa: E402
 #: leave both unchanged (#1218 acceptance 2).
 MAIN_JOBS_SHA256 = "eedac7dbbc7f53516986417f69161eb9915f9b487cc1b9f6fb0af8d2b4d5e0ac"
 MAIN_SPECS_SHA256 = "afc6921dc06bfcd2b149bfd5f13fbdcd3be04acc7230844598f5253de35f9374"
+#: The #1218 {A', F} queue and its method specs as merged (origin/main
+#: f94acad3, before F_w): F_w must leave both unchanged (#1224).
+FD_ABLATION_JOBS_SHA256 = "b0620ac5672cdcc2346da840adf4f331b277199322eac31c886d5ac47c3c36c0"
+FD_ABLATION_SPECS_SHA256 = "fdad5d3a3de6e71e9664a0d324d9f5107300ffb88539dac421a656d6541b9360"
+#: The #1224 {A', F_w} queue as registered (pinned before any F_w run).
+FD_WARM_JOBS_SHA256 = "f1a7b045c3e71f9d3f3a29df59673e6630dcfc891a51e1a7e1038f6c1a4991b8"
 #: The FD-vs-adjoint bounds of `fd_gradient_check` on the L0 CI model.
 L0_NORM_TOL = 5e-3
 L0_COMPONENT_TOL = 1e-1
@@ -579,7 +586,8 @@ class FdGradientCheckLevelTests(unittest.TestCase):
         import fd_gradient_check as c
         seen = []
 
-        def fake_check(binary, space, out_dir, level=0):
+        def fake_check(binary, space, out_dir, level=0, warm=False):
+            self.assertIs(warm, False)
             seen.append((space, level))
             return {"space": space, "level": level, "status": "PASS"}
         with tempfile.TemporaryDirectory() as td:
@@ -635,6 +643,470 @@ class FdGradientCheckLevelTests(unittest.TestCase):
                 val.unlink()
                 with self.assertRaisesRegex(SystemExit, "missing"):
                     c.verify_meshes(1)
+
+
+def warm_run(**kw):
+    return make_run(method="slsqp_fd_warm", **kw)
+
+
+def stripped(requests):
+    """The requests with the F_w warm-start fields removed."""
+    return [(op, {k: v for k, v in f.items() if k not in ("retain_fields", "warm_from_bits")})
+            for op, f in requests]
+
+
+def is_stencil(f):
+    note = f.get("note") or ""
+    return note.startswith("slsqp_fd ") and "base" not in note
+
+
+class FdWarmTests(unittest.TestCase):
+    """F_w `slsqp_fd_warm` (#1224 protocol §1): F with base-started
+    stencil solves, on the fake evaluator (which models the retained
+    bases)."""
+
+    def test_w_spec_is_f_with_only_the_stencil_start_changed(self):
+        f, w = driver.METHOD_SPECS["slsqp_fd"], driver.METHOD_SPECS["slsqp_fd_warm"]
+        self.assertEqual(w["letter"], "W")
+        self.assertEqual(w["fd_stencil_start"], "base")
+        self.assertNotIn("fd_stencil_start", f)
+        self.assertEqual({k: v for k, v in w.items()
+                          if k not in ("letter", "label", "fd_stencil_start")},
+                         {k: v for k, v in f.items() if k not in ("letter", "label")})
+        self.assertIn("warm-started stencils", w["label"])
+        self.assertEqual(driver.LETTERS["W"], "slsqp_fd_warm")
+        self.assertEqual(driver.FD_WARM_METHODS, ("slsqp", "slsqp_fd_warm"))
+        self.assertNotIn("slsqp_fd_warm", driver.MAIN_METHOD_SPECS)
+
+    def test_w_requests_are_f_requests_plus_the_warm_fields(self):
+        """The parity check: end to end on the fake, F_w sends exactly F's
+        requests, in F's order, with the same charges and the same result;
+        the only difference is `retain_fields` on every own training solve
+        and `warm_from_bits` (the base's x, never another stencil point) on
+        every stencil solve."""
+        f, ffake, fled, _ = fd_run(budget_fe=400.0)
+        w, wfake, wled, _ = warm_run(budget_fe=400.0)
+        fr = driver.execute(f, f.problem.u_of(X0))
+        wr = driver.execute(w, w.problem.u_of(X0))
+        self.assertEqual(fr, wr)
+        self.assertEqual(stripped(ffake.requests), stripped(wfake.requests))
+        self.assertEqual(fled.totals(), wled.totals())
+        for op, req in ffake.requests:
+            self.assertNotIn("retain_fields", req)
+            self.assertNotIn("warm_from_bits", req)
+        stencils = 0
+        for (op, req), (_, freq) in zip(wfake.requests, ffake.requests):
+            if op != "train":
+                self.assertEqual(req, freq)
+                continue
+            if is_stencil(req):
+                stencils += 1
+                self.assertNotIn("retain_fields", req)
+                base = next(g for g in w.fd_gradients
+                            if any(e["x"] == from_bits(req["x_bits"]) for e in w.events
+                                   if e["kind"] == "fd_train"))
+                self.assertIsNotNone(base)
+                xs, xb = np.array(from_bits(req["x_bits"])), np.array(from_bits(
+                    req["warm_from_bits"]))
+                # One component away from the base, by the frozen step.
+                self.assertEqual(np.count_nonzero(xs - xb), 1)
+                self.assertAlmostEqual(abs(float(np.sum(xs - xb))), FD_STEP, delta=1e-12)
+                self.assertIn(tuple(req["warm_from_bits"]), wfake.bases)
+            else:
+                self.assertIs(req.get("retain_fields"), True)
+                self.assertNotIn("warm_from_bits", req)
+        self.assertGreater(stencils, 0)
+        fres, wres = f.result(), w.result()
+        self.assertEqual(wres["method_spec"]["letter"], "W")
+        self.assertEqual(len(fres["fd_gradients"]), len(wres["fd_gradients"]))
+        for fg, wg in zip(fres["fd_gradients"], wres["fd_gradients"]):
+            self.assertEqual(wg["stencil_start"], "base")
+            self.assertEqual(fg["dF"], wg["dF"])
+            self.assertEqual(fg["solves"], wg["solves"])
+            for c in wg["components"]:
+                if "side" in c:
+                    self.assertEqual(c["start"], "same_mesh")
+                    self.assertIsNone(c["start_reason"])
+        self.assertEqual(fres["validations"], wres["validations"])
+        warm = [e for e in wres["events"] if e["kind"] == "fd_train"]
+        self.assertTrue(warm and all(e["warm"]["start"] == "same_mesh" for e in warm))
+        self.assertFalse(any("warm" in e for e in fres["events"]))
+
+    def test_every_stencil_starts_from_its_own_base_not_the_previous_stencil(self):
+        run, fake, led, _ = warm_run()
+        u = np.array([0.5, 0.5, 0.5, 0.5])
+        run.train(u, gradient=False)
+        driver.fd_gradient(run, u)
+        base_bits = driver.to_bits(run.problem.x_of(u))
+        st = [f for op, f in fake.requests if op == "train" and is_stencil(f)]
+        self.assertEqual(len(st), N)
+        self.assertTrue(all(f["warm_from_bits"] == base_bits for f in st))
+        # A second gradient at another point: its own base.
+        v = np.array([0.4, 0.5, 0.5, 0.5])
+        run.train(v, gradient=False)
+        driver.fd_gradient(run, v)
+        st2 = [f for op, f in fake.requests if op == "train" and is_stencil(f)][N:]
+        self.assertTrue(all(f["warm_from_bits"] == driver.to_bits(run.problem.x_of(v))
+                            for f in st2))
+        # The charges are F's: N + 1 forward entries per gradient.
+        self.assertEqual(led.totals()["forward"]["entries"], 2 * (N + 1))
+
+    def test_a_retired_base_is_resolved_retained_and_used(self):
+        run, fake, _, _ = warm_run()
+        u = np.array([0.5, 0.5, 0.5, 0.5])
+        run.train(u, gradient=False)
+        run._train[run.problem.x_of(u).tobytes()]["generation"] = 3
+        driver.fd_gradient(run, u)
+        rec = run.fd_gradients[-1]
+        self.assertTrue(rec["base_resolved"])
+        tr = trains(fake)
+        self.assertEqual(len(tr), N + 2)
+        # The re-solved base starts as F's (no warm start) and is retained.
+        self.assertIs(tr[1].get("retain_fields"), True)
+        self.assertNotIn("warm_from_bits", tr[1])
+        self.assertIn("base", tr[1]["note"])
+        self.assertTrue(all(f["warm_from_bits"] == tr[1]["x_bits"] for f in tr[2:]))
+        self.assertTrue(all(c["start"] == "same_mesh" for c in rec["components"]))
+
+    def test_an_evicted_base_falls_back_cold_and_is_recorded(self):
+        run, fake, _, _ = warm_run()
+        u = np.array([0.5, 0.5, 0.5, 0.5])
+        run.train(u, gradient=False)
+        fake.bases.clear()
+        g = driver.fd_gradient(run, u)
+        rec = run.fd_gradients[-1]
+        self.assertEqual({c["start"] for c in rec["components"]}, {"cold"})
+        self.assertEqual({c["start_reason"] for c in rec["components"]}, {"base_not_retained"})
+        dF, _ = exact_gradients(run, u)
+        np.testing.assert_allclose(g["dF"], dF, rtol=1e-4, atol=1e-12)
+
+    def test_an_evaluator_that_ignores_the_warm_fields_is_a_wiring_error(self):
+        for tamper in ("drop", "other_base", "not_retained", "unrequested"):
+            with self.subTest(tamper=tamper):
+                run, fake, _, _ = warm_run() if tamper != "unrequested" else fd_run()
+                real = fake.request
+
+                def request(op, timeout=None, _real=real, _t=tamper, **f):
+                    r = _real(op, timeout=timeout, **f)
+                    if op != "train":
+                        return r
+                    if _t == "drop":
+                        r.pop("warm", None)
+                    elif _t == "other_base" and "warm_from_bits" in f:
+                        r["warm"]["from_x_bits"] = [0] * len(f["warm_from_bits"])
+                    elif _t == "not_retained" and f.get("retain_fields"):
+                        r["warm"]["retained"] = False
+                    elif _t == "unrequested":
+                        r["warm"] = {"retained": True, "generation": r["generation"]}
+                    return r
+                fake.request = request
+                u = np.array([0.5, 0.5, 0.5, 0.5])
+                with self.assertRaises(WiringError):
+                    run.train(u, gradient=False)
+                    driver.fd_gradient(run, u)
+
+    def test_f_and_a_are_unchanged_by_f_w(self):
+        for method in ("slsqp", "slsqp_fd"):
+            with self.subTest(method=method):
+                run, fake, _, _ = make_run(method=method, budget_fe=400.0)
+                driver.execute(run, run.problem.u_of(X0))
+                self.assertFalse(run.fd_warm)
+                self.assertFalse(any("retain_fields" in f or "warm_from_bits" in f
+                                     for _, f in fake.requests))
+                self.assertEqual(fake.bases, {})
+
+
+class FdWarmQueueTests(unittest.TestCase):
+    """The #1224 {A', F_w} queue and session, and the pins of the queues
+    F_w must not change."""
+
+    def test_main_and_fd_ablation_queues_and_specs_are_pinned(self):
+        self.assertEqual(canonical(driver.MAIN_METHOD_SPECS), MAIN_SPECS_SHA256)
+        self.assertEqual(canonical(session.registered_queue("main")), MAIN_JOBS_SHA256)
+        self.assertEqual(canonical(session.FD_ABLATION_SPECS), FD_ABLATION_SPECS_SHA256)
+        self.assertEqual(canonical(session.registered_queue("fd_ablation")),
+                         FD_ABLATION_JOBS_SHA256)
+        self.assertEqual(driver.FD_ABLATION_METHODS, ("slsqp", "slsqp_fd"))
+        self.assertNotIn("slsqp_fd_warm", session.FD_ABLATION_SPECS)
+
+    def test_warm_queue_is_20_rotated_repeat1_jobs(self):
+        jobs = session.registered_queue("fd_warm_ablation")
+        self.assertEqual(jobs, fd_warm_schedule.registered_jobs(
+            {m: driver.METHOD_SPECS[m] for m in driver.FD_WARM_METHODS}))
+        self.assertEqual(len(jobs), 20)
+        self.assertEqual(len({j["name"] for j in jobs}), 20)
+        self.assertEqual([j["position"] for j in jobs], list(range(20)))
+        self.assertEqual({j["repeat"] for j in jobs}, {1})
+        self.assertEqual({(j["method"], j["arm"], j["method_letter"]) for j in jobs},
+                         {("slsqp", "A_prime", "A"), ("slsqp_fd_warm", "F_w", "W")})
+        f = session.registered_queue("fd_ablation")
+        for k, start in enumerate(main_schedule.STARTS):
+            for space in main_schedule.SPACES:
+                got = [j["method_letter"] for j in jobs if (j["start"], j["space"]) == (start, space)]
+                self.assertEqual(got, ["A", "W"] if k % 2 == 0 else ["W", "A"])
+                # The rotation of fd_ablation_schedule's repeat 1, F -> W.
+                r1 = [j["method_letter"] for j in f
+                      if (j["start"], j["space"], j["repeat"]) == (start, space, 1)]
+                self.assertEqual(got, ["W" if c == "F" else c for c in r1])
+        # Space and start order is the #1218 repeat-1 order.
+        self.assertEqual([(j["space"], j["start"]) for j in jobs],
+                         [(j["space"], j["start"]) for j in f if j["repeat"] == 1])
+        self.assertEqual(canonical(jobs), FD_WARM_JOBS_SHA256)
+
+    def test_warm_queue_refuses_other_comparisons(self):
+        s = driver.METHOD_SPECS
+        for specs in ({"slsqp": s["slsqp"]},
+                      {"slsqp": s["slsqp"], "slsqp_fd": s["slsqp_fd"]},
+                      {"slsqp": s["slsqp"], "slsqp_fd": dict(s["slsqp_fd"], letter="W")},
+                      {"slsqp": s["slsqp"],
+                       "slsqp_fd_warm": dict(s["slsqp_fd_warm"], fd_stencil_start="cold")},
+                      {"slsqp": dict(s["slsqp"], fd_stencil_start="base"),
+                       "slsqp_fd_warm": s["slsqp_fd_warm"]},
+                      {"slsqp": s["slsqp"],
+                       "slsqp_fd_warm": dict(s["slsqp_fd_warm"], gradient="adjoint")},
+                      {"slsqp_l0": dict(s["slsqp_l0"], letter="A"),
+                       "slsqp_fd_warm": s["slsqp_fd_warm"]},
+                      {"slsqp": s["slsqp"], "slsqp_fd_warm": s["slsqp_fd_warm"],
+                       "slsqp_fd": s["slsqp_fd"]}):
+            with self.subTest(specs=list(specs)), self.assertRaises(ValueError):
+                fd_warm_schedule.registered_jobs(specs)
+        for bad in (-1, 5, True, 1.0):
+            with self.assertRaises(ValueError):
+                fd_warm_schedule.method_order(bad)
+
+    def test_fd_warm_session_freezes_its_queue_with_main_setup(self):
+        from test_session_journal import good_anchor, good_cal
+        from session_journal import freeze, read_events
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            out = root / "session"
+            meshes = root / "meshes"
+            meshes.mkdir()
+            binary = root / "eval"
+            binary.write_bytes(b"fixture")
+            for level in (0, 1, 2):
+                (meshes / f"icem_initial_sector_L{level}.msh").write_bytes(b"fixture")
+            (root / "anchor.json").write_text("{}")
+            (root / "starts.json").write_text("{}")
+            calls = {"preflight": 0, "anchor": 0}
+
+            def preflight(binary, starts, meshes, path, **kwargs):
+                calls["preflight"] += 1
+                record = {"status": "PASS"}
+                freeze(path, record)
+                return record
+
+            def anchor_preflight(binary, train, val, anchor, path, **kwargs):
+                calls["anchor"] += 1
+                record = good_anchor()
+                freeze(path, record)
+                return record
+
+            def schedule(jobs, *a, **k):
+                return [dict(job, job_name=job["name"], status="ran", exit=0,
+                             host_contaminated=False, optimizer_completed=True,
+                             diagnostic_status="not_requested", stop_reason="budget")
+                        for job in jobs]
+            with patch.object(session, "host_record", return_value={}), \
+                 patch.object(session, "provenance",
+                              return_value={"linear_algebra": session.linalg_fingerprint()}), \
+                 patch("build_provenance.verify", return_value={"verified": True}) as build, \
+                 patch.object(session, "MESHES", meshes), patch.object(session, "OPT", root), \
+                 patch.object(session, "HERE", root), \
+                 patch("recovery_bindings.capture",
+                       return_value={"schema": 1, "source": {"tree_clean": True}}) as capture, \
+                 patch("recovery_bindings.validate_setup"), \
+                 patch("start_preflight.verify", side_effect=preflight), \
+                 patch("anchor_preflight.verify", side_effect=anchor_preflight), \
+                 patch.object(session, "gated_calibration",
+                              side_effect=[good_cal() for _ in range(4)]) as cal, \
+                 patch.object(session, "schedule", side_effect=schedule) as dispatch, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(session.main(["--fd-warm-ablation", "--procs", "15", "--out",
+                                               str(out), "--binary", str(binary)]), 0)
+                self.assertEqual(cal.call_count, 1)  # no L0 model
+                build.assert_called_once()
+                self.assertEqual(calls, {"preflight": 1, "anchor": 1})
+                count = dispatch.call_count
+                self.assertEqual(dispatch.call_args.args[0],
+                                 session.registered_queue("fd_warm_ablation"))
+                capture.return_value = {"schema": 1, "source": {"tree_clean": False}}
+                with self.assertRaisesRegex(SystemExit, "clean, frozen"):
+                    session.main(["--fd-warm-ablation", "--procs", "4", "--out",
+                                  str(root / "dirty"), "--binary", str(binary)])
+                self.assertEqual(dispatch.call_count, count)
+                with self.assertRaisesRegex(SystemExit, "120 FE"):
+                    session.main(["--fd-warm-ablation", "--procs", "4", "--out",
+                                  str(root / "short"), "--binary", str(binary),
+                                  "--budget-fe", "60"])
+                with self.assertRaisesRegex(SystemExit, "smoke session only"), \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    session.main(["--fd-warm-ablation", "--procs", "4", "--out",
+                                  str(root / "nogate"), "--binary", str(binary),
+                                  "--host-gate", "off"])
+                with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                    session.main(["--fd-warm-ablation", "--fd-ablation", "--procs", "4",
+                                  "--out", str(root / "both"), "--binary", str(binary)])
+            jobs = json.loads((out / "queue.json").read_text())["jobs"]
+            self.assertEqual(jobs, session.registered_queue("fd_warm_ablation"))
+            config = json.loads((out / "session.json").read_text())
+            self.assertEqual(config["label"], "fd_warm_ablation")
+            self.assertEqual(config["budget_fe"], 120.0)
+            self.assertEqual(config["primary_model"], "L1")
+            self.assertEqual(list(config["models"]), ["L1"])
+            self.assertEqual(config["procs"], 15)
+            self.assertEqual(config["ablation"],
+                             {"issue": 1224, "methods": ["slsqp", "slsqp_fd_warm"],
+                              "arms": {"slsqp": "A_prime", "slsqp_fd_warm": "F_w"},
+                              "repeats": [1], "post_hoc": True})
+            manifest = json.loads((out / "manifest.json").read_text())
+            self.assertTrue(manifest["complete"])
+            self.assertEqual(manifest["label"], "fd_warm_ablation")
+            self.assertEqual(manifest["method_specs"], session.FD_WARM_SPECS)
+            self.assertIn("#1224", manifest["preregistration"])
+            self.assertIn("post-hoc", manifest["preregistration"])
+            events = read_events(out / "events.jsonl")["events"]
+            self.assertEqual(events[-1]["kind"], "session_finished")
+
+    def test_recovery_accepts_the_warm_label_and_queue(self):
+        import recovery
+        import recovery_bindings
+        with patch.object(recovery, "recover", return_value={"complete": True}) as rec, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(recovery.main(["--source", "/nonexistent", "--fd-warm-ablation"]),
+                             0)
+        self.assertEqual(rec.call_args.args[1], "fd_warm_ablation")
+        dirty = {"schema": 1, "source": {"tree_clean": False}}
+        with patch.object(recovery_bindings, "capture", return_value=dirty), \
+                self.assertRaisesRegex(ValueError, "clean sources"):
+            recovery_bindings.verify(dirty, {"label": "fd_warm_ablation"})
+
+
+class FdWarmCheckTests(unittest.TestCase):
+    """`fd_gradient_check.py --warm` and `fd_step_sweep.py --warm` (#1224
+    protocol §2) on the fake: F_w's stencils, F's cold reference, the costs
+    and the stop gate. No FEM."""
+
+    def test_check_main_passes_warm_and_labels_the_record(self):
+        import fd_gradient_check as c
+        seen = []
+
+        def fake_check(binary, space, out_dir, level=0, warm=False):
+            seen.append((space, level, warm))
+            return {"space": space, "level": level, "status": "PASS", "gate": "proceed"}
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "rec-1224.json"
+            with patch.object(c, "check", fake_check), patch.object(c, "verify_meshes"), \
+                    patch.object(c, "sha256", return_value="0" * 64), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(c.main(["--binary", "bin", "--out", str(out), "--level", "1",
+                                         "--warm"]), 0)
+            self.assertEqual(seen, [("a", 1, True), ("b", 1, True)])
+            rec = json.loads(out.read_text())
+            self.assertEqual((rec["issue"], rec["level"], rec["method"]),
+                             (1224, 1, "slsqp_fd_warm"))
+            self.assertEqual((rec["gate"], rec["gate_factor"]), ("proceed", 10.0))
+            self.assertIn("F_w", rec["check"])
+            self.assertEqual((rec["norm_tol"], rec["component_tol"]),
+                             (L0_NORM_TOL, L0_COMPONENT_TOL))
+            self.assertIn("crates/geode-core/tests/common/icem_remesh.rs",
+                          rec["source_sha256"])
+
+    def test_warm_reference_on_the_fake(self):
+        """The record of one point: every F_w stencil starts from the base;
+        F's cold reference is computed on the same evaluator at the same
+        point with the same sides; the costs come from the stencil replies;
+        and the gate compares with F's committed record."""
+        import fd_gradient_check as c
+        run, fake, led, _ = warm_run()
+        seen = c.Recorder(fake)
+        run.ev = seen
+        u = np.array([0.5, 0.5, 0.5, 0.5])
+        base = run.train(u, gradient=False, note="fd check base")
+        g = driver.fd_gradient(run, u)
+        adj = run.train(u, gradient=True, note="fd check adjoint")
+        rel_f, norm_f = c.compare(g["dF"], adj["dF"])
+        rel_m, norm_m = c.compare(g["dmean_full"], adj["dmean_full"])
+        fd_rec = run.fd_gradients[-1]
+        with patch.object(c, "committed_normwise",
+                          return_value={"normwise_rel_dF": norm_f / 2,
+                                        "normwise_rel_dmean_full": max(norm_m, 1e-300)}), \
+                patch.object(c.Anchor, "from_file", return_value=run.anchor):
+            out = c.warm_reference(fake, "anchor.json", run.problem, u,
+                                   {"base": base, "gradient": g, "record": fd_rec,
+                                    "norm_f": norm_f, "norm_m": norm_m,
+                                    "trains": seen.trains}, adj, 1, "a", "interior")
+        cr = out["cold_reference"]
+        self.assertTrue(cr["base"]["same_as_warm_base"])
+        self.assertEqual([r["side"] for r in cr["components"]],
+                         [r["side"] for r in fd_rec["components"]])
+        # The fake's values do not depend on the start.
+        self.assertEqual(cr["normwise_warm_minus_cold_dF"], 0.0)
+        self.assertEqual(out["cost"]["warm_stencil"]["solves"], N)
+        self.assertEqual(out["cost"]["warm_stencil"]["starts"], ["same_mesh"] * N)
+        self.assertEqual(out["cost"]["cold_stencil"]["starts"], ["cold"] * N)
+        self.assertEqual(out["cost"]["warm_over_cold_newton_iterations"], 1.0)
+        self.assertAlmostEqual(out["gate"]["ratio_dF"], 2.0)
+        self.assertEqual(out["gate"]["verdict"], "proceed")
+        cold_stencils = [f for op, f in fake.requests if op == "train" and is_stencil(f)
+                         and "warm_from_bits" not in f]
+        self.assertEqual(len(cold_stencils), N)
+        with patch.object(c, "committed_normwise",
+                          return_value={"normwise_rel_dF": norm_f / 11,
+                                        "normwise_rel_dmean_full": max(norm_m, 1e-300)}), \
+                patch.object(c.Anchor, "from_file", return_value=run.anchor):
+            stop = c.warm_reference(fake, "anchor.json", run.problem, u,
+                                    {"base": base, "gradient": g, "record": fd_rec,
+                                     "norm_f": norm_f, "norm_m": norm_m,
+                                     "trains": seen.trains}, adj, 1, "a", "interior")
+        self.assertEqual(stop["gate"]["verdict"], "stop")
+        # A cold F_w stencil is refused by the check (not the protocol).
+        fd_rec["components"][0]["start"] = "cold"
+        with self.assertRaises(WiringError), \
+                patch.object(c.Anchor, "from_file", return_value=run.anchor):
+            c.warm_reference(fake, "anchor.json", run.problem, u,
+                             {"base": base, "gradient": g, "record": fd_rec, "norm_f": norm_f,
+                              "norm_m": norm_m, "trains": seen.trains}, adj, 1, "a", "interior")
+
+    def test_sweep_warm_starts_every_stencil_from_the_base(self):
+        import fd_step_sweep as s
+        run, fake, led, clock = warm_run()
+        rec = s.sweep(run, CENTRE_U + 0.1, ("p0", "p1"))
+        tr = trains(fake)
+        base_bits = tr[0]["x_bits"]
+        self.assertIs(tr[0].get("retain_fields"), True)
+        st = [f for f in tr if (f.get("note") or "").startswith("fd sweep")]
+        self.assertEqual(len(st), 5 * 2)
+        self.assertTrue(all(f["warm_from_bits"] == base_bits for f in st))
+        # The base repeat is cold, as in F.
+        self.assertNotIn("warm_from_bits", tr[-1])
+        for comp in rec["components"]:
+            for row in comp["stencil"]:
+                self.assertEqual(row["start"], "same_mesh")
+        f_run, f_fake, _, _ = fd_run()
+        f_rec = s.sweep(f_run, CENTRE_U + 0.1, ("p0", "p1"))
+        self.assertEqual(stripped(f_fake.requests), stripped(fake.requests))
+        for a, b in zip(f_rec["components"], rec["components"]):
+            self.assertEqual(a["schemes"], b["schemes"])
+            self.assertTrue(all("start" not in row for row in a["stencil"]))
+
+    def test_sweep_main_passes_warm(self):
+        import fd_step_sweep as s
+        seen = []
+
+        def fake_sweep(binary, level, space, point, components, out_dir, warm=False):
+            seen.append(warm)
+            return {"components": []}
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "rec-1224-sweep.json"
+            with patch.object(s, "run_sweep", fake_sweep), \
+                    patch.object(s.fdc, "verify_meshes"), \
+                    patch.object(s, "sha256", return_value="0" * 64), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(s.main(["--binary", "bin", "--out", str(out), "--warm"]), 0)
+            self.assertEqual(seen, [True])
+            rec = json.loads(out.read_text())
+            self.assertEqual((rec["issue"], rec["method"]), (1224, "slsqp_fd_warm"))
 
 
 def evaluator_binary():
@@ -882,6 +1354,142 @@ class FdStepSweepRecordTests(unittest.TestCase):
         self.assertEqual(data["reproduction"]["file"], "benchmarks/motor_optimization/"
                          "harness/fd-gradient-runtime-checks-L1.json")
         self.assertEqual(len(data["reproduction"]["components"]), len(s.COMPONENTS))
+
+
+class FdWarmRecordTests(unittest.TestCase):
+    """The committed L1 records of F_w (#1224 protocol §2):
+    `fd_gradient_check.py --level 1 --warm` and `fd_step_sweep.py --warm`.
+    Their status is whatever the frozen criteria give; this checks that each
+    record is consistent with those criteria and with F's records, not that
+    it passes."""
+
+    def test_committed_normwise_reads_fs_record(self):
+        import fd_gradient_check as c
+        prior = c.committed_normwise(1, "a", "interior")
+        data = json.loads((HERE / "fd-gradient-runtime-checks-L1.json").read_text())
+        p = next(q for q in next(r for r in data["records"] if r["space"] == "a")["points"]
+                 if q["point"] == "interior")
+        self.assertEqual(prior["normwise_rel_dF"], p["normwise_rel_dF"])
+        self.assertEqual(prior["normwise_rel_dmean_full"], p["normwise_rel_dmean_full"])
+        self.assertEqual(c.GATE_FACTOR, 10.0)
+
+    def test_final_refinement_binds_the_same_arm(self):
+        """The selection side (final_refinement) states the same session
+        block and method specs as the harness writes."""
+        import ast
+        fr = HERE.parent / "final_refinement"
+
+        def literal(path, name):
+            tree = ast.parse((fr / path).read_text())
+            node = next(n for n in tree.body if isinstance(n, ast.Assign)
+                        and any(getattr(t, "id", None) == name for t in n.targets))
+            return ast.literal_eval(node.value)
+        self.assertEqual(literal("setup_evidence.py", "WARM_ABLATION"),
+                         {"issue": 1224, "methods": list(driver.FD_WARM_METHODS),
+                          "arms": {"slsqp": "A_prime", "slsqp_fd_warm": "F_w"},
+                          "repeats": [1], "post_hoc": True})
+        specs = literal("ablation_selection.py", "WARM_METHOD_SPECS")
+        self.assertEqual(specs, {m: {k: v for k, v in driver.METHOD_SPECS[m].items()
+                                     if k != "label"} for m in driver.FD_WARM_METHODS})
+        self.assertEqual(fd_warm_schedule.registered_jobs(specs),
+                         session.registered_queue("fd_warm_ablation"))
+
+    def test_committed_l1_warm_record_is_consistent(self):
+        import fd_gradient_check as c
+        data = json.loads((HERE / "fd-gradient-runtime-checks-L1-warm.json").read_text())
+        f = json.loads((HERE / "fd-gradient-runtime-checks-L1.json").read_text())
+        self.assertEqual((data["issue"], data["level"], data["method"], data["stencil_start"]),
+                         (1224, 1, "slsqp_fd_warm", "base"))
+        self.assertEqual((data["norm_tol"], data["component_tol"], data["negligible"]),
+                         (L0_NORM_TOL, L0_COMPONENT_TOL, c.NEGLIGIBLE))
+        self.assertEqual(data["gate_factor"], 10.0)
+        anchor = HERE.parent / "anchor.json"
+        gates = []
+        for rec, frec in zip(data["records"], f["records"]):
+            self.assertEqual(rec["space"], frec["space"])
+            self.assertEqual((rec["level"], rec["val_level"], rec["step"]), (1, 2, FD_STEP))
+            self.assertEqual(rec["train_msh_sha256"], L1_TRAIN_SHA256)
+            self.assertEqual(rec["val_mesh_sha256"], c.FROZEN_SHA256["icem_initial_sector_L2.msh"])
+            self.assertEqual(rec["anchor"]["sha256"],
+                             hashlib.sha256(anchor.read_bytes()).hexdigest())
+            self.assertEqual(rec["charged"]["adjoint"]["entries"], 2)
+            self.assertEqual(rec["charged"]["remesh"]["entries"], 0)
+            self.assertEqual([p["point"] for p in rec["points"]], ["theta0", "interior"])
+            for p, fp in zip(rec["points"], frec["points"]):
+                self.assertEqual(p["x"], fp["x"])
+                # The same base value as F's record (a cold solve).
+                self.assertEqual((p["F"], p["mean_full"]), (fp["F"], fp["mean_full"]))
+                self.assertFalse(p["fd"]["refused"])
+                self.assertEqual(p["fd"]["solves"], len(p["components"]))
+                self.assertEqual([r["side"] for r in p["components"]],
+                                 [r["side"] for r in fp["components"]])
+                ok = (p["normwise_rel_dF"] <= L0_NORM_TOL
+                      and p["normwise_rel_dmean_full"] <= L0_NORM_TOL
+                      and all(v is None or v <= L0_COMPONENT_TOL for row in p["components"]
+                              for v in (row["rel_dF"], row["rel_dmean_full"])))
+                self.assertEqual(p["pass"], ok)
+                # Every stencil solve started from the base on its mesh.
+                cost = p["cost"]
+                self.assertEqual(cost["warm_stencil"]["starts"],
+                                 ["same_mesh"] * len(p["components"]))
+                self.assertEqual(cost["cold_stencil"]["starts"], ["cold"] * len(p["components"]))
+                self.assertAlmostEqual(cost["warm_over_cold_newton_iterations"],
+                                       cost["warm_stencil"]["total_newton_iterations"]
+                                       / cost["cold_stencil"]["total_newton_iterations"])
+                # F's cold reference in the same process reproduces F's
+                # committed record bit for bit.
+                ref = p["cold_reference"]
+                self.assertTrue(ref["base"]["same_as_warm_base"])
+                self.assertEqual([(r["fd_dF"], r["fd_dmean_full"]) for r in ref["components"]],
+                                 [(r["fd_dF"], r["fd_dmean_full"]) for r in fp["components"]])
+                self.assertEqual((ref["normwise_rel_dF"], ref["normwise_rel_dmean_full"]),
+                                 (fp["normwise_rel_dF"], fp["normwise_rel_dmean_full"]))
+                g = p["gate"]
+                self.assertEqual(g["committed_f"]["normwise_rel_dF"], fp["normwise_rel_dF"])
+                ratio = max(p["normwise_rel_dF"] / fp["normwise_rel_dF"],
+                            p["normwise_rel_dmean_full"] / fp["normwise_rel_dmean_full"])
+                self.assertEqual(g["verdict"], "stop" if ratio > 10.0 else "proceed")
+                gates.append(g["verdict"])
+            self.assertEqual(rec["status"],
+                             "PASS" if all(p["pass"] for p in rec["points"]) else "FAIL")
+        self.assertEqual(data["gate"], "stop" if "stop" in gates else "proceed")
+        self.assertEqual(data["status"], "PASS" if all(r["status"] == "PASS"
+                                                       for r in data["records"]) else "FAIL")
+
+    def test_committed_warm_sweep_records_are_consistent(self):
+        import fd_gradient_check as c
+        import fd_step_sweep as s
+        for name, space, comps in (("fd-step-sweep-L1-warm.json", "a", list(s.COMPONENTS)),
+                                   ("fd-step-sweep-L1-warm-b.json", "b", ["Sr1", "SW4", "SW1"])):
+            with self.subTest(record=name):
+                data = json.loads((HERE / name).read_text())
+                self.assertEqual((data["issue"], data["level"], data["protocol_step"],
+                                  data["method"]), (1224, 1, FD_STEP, "slsqp_fd_warm"))
+                self.assertEqual(data["components"], comps)
+                rec = data["record"]
+                self.assertEqual((rec["space"], rec["point"], rec["level"], rec["val_level"]),
+                                 (space, "interior", 1, 2))
+                self.assertEqual(rec["train_msh_sha256"], L1_TRAIN_SHA256)
+                self.assertEqual(rec["val_mesh_sha256"],
+                                 c.FROZEN_SHA256["icem_initial_sector_L2.msh"])
+                self.assertEqual(rec["charged"]["adjoint"]["entries"], 1)
+                self.assertEqual(rec["charged"]["remesh"]["entries"], 0)
+                self.assertEqual(rec["solves"], 1 + 5 * len(comps))
+                for comp in rec["components"]:
+                    self.assertTrue(all(st["start"] == "same_mesh" for st in comp["stencil"]))
+                    for r in comp["schemes"]:
+                        self.assertTrue(r["usable"])
+                        for dq in ("dF", "dmean_full"):
+                            e = r[dq]
+                            self.assertAlmostEqual(e["signed_err"], e["fd"] - e["adjoint"],
+                                                   delta=1e-15)
+                # The forward 1e-6 values are the L1 warm check's, bit for bit.
+                repro = data["reproduction"]
+                self.assertEqual(repro["file"], "benchmarks/motor_optimization/harness/"
+                                 "fd-gradient-runtime-checks-L1-warm.json")
+                self.assertEqual(len(repro["components"]), len(comps))
+                for row in repro["components"]:
+                    self.assertEqual((row["dF_diff"], row["dmean_full_diff"]), (0.0, 0.0))
 
 
 if __name__ == "__main__":

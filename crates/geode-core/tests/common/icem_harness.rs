@@ -22,6 +22,21 @@
 //!   (`bool`), `purpose` (`"iterate"` or `"line_search"`). Replies `F`,
 //!   the per-current means and stds, `mean_full` (fraction 1) and, with
 //!   `gradient`, `dF` and `dmean_full` over the free components.
+//!   Two optional fields serve warm-started finite-difference stencils
+//!   (method F_w, #1224); a request with neither is handled exactly as
+//!   before, and its reply is unchanged:
+//!   - `retain_fields: true`: the evaluation is the same (same start, same
+//!     reply fields), and its converged fields are kept as a stencil base,
+//!     keyed by the request's `x_bits`, with the generation they live on
+//!     (the last [`WARM_BASES`] distinct points). The reply adds
+//!     `warm: {retained: true, generation}`.
+//!   - `warm_from_bits` (a retained base's `x_bits`): every Newton solve of
+//!     this evaluation starts from that base's fields when they live on the
+//!     generation the evaluation lands on, and cold otherwise (a base that
+//!     is not retained, or on another generation). The reply adds `warm:
+//!     {from_x_bits, start: "same_mesh" | "cold", reason, base_generation}`.
+//!     Nothing is retained from such a request: a stencil is never a base.
+//!     The two fields are exclusive. Charges are the same as for any `train`.
 //! - `validate`: `x`. Runs [`Validator::accept`] against the anchor (the
 //!   primary model at the anchor's level, on the anchor's θ0 mesh) and
 //!   replies the validation value and the [`Acceptance`](crate::icem_experiment2::Acceptance).
@@ -77,12 +92,16 @@ use crate::icem_experiment2::{
     ValidationError, Validator, attempt_json, g20, sha256_hex, validation_json,
 };
 use crate::icem_remesh::{
-    EvalError, EvaluatorConfig, FreshMeshRecord, MeshSource, RemeshEvaluator, Space, event_json,
-    quality_json, trigger_json,
+    EvalError, EvaluatorConfig, FreshMeshRecord, MeshSource, RemeshEvaluator, Space, StartUsed,
+    WarmFields, event_json, quality_json, trigger_json,
 };
 
 /// Protocol name in every `info` reply.
 pub const PROTOCOL: &str = "icem-harness/1";
+
+/// Stencil bases a session keeps (`train` with `retain_fields`; #1224): the
+/// most recent distinct points, oldest dropped first.
+pub const WARM_BASES: usize = 16;
 
 /// The models of a session.
 #[derive(Debug, Clone, PartialEq)]
@@ -191,6 +210,46 @@ pub struct Session<Sp: Space> {
     /// Detail of the last failed request (attempts, fresh meshes), attached
     /// to its error reply.
     detail: Option<Value>,
+    /// Retained stencil bases, oldest first: `x_bits` and converged fields
+    /// (module docs; #1224).
+    warm_bases: Vec<(Vec<u64>, WarmFields)>,
+}
+
+/// The warm-start fields of a `train` request (module docs).
+enum TrainStart {
+    /// Neither field: the evaluation exactly as before #1224.
+    Default,
+    /// `retain_fields: true`.
+    Retain,
+    /// `warm_from_bits`.
+    From(Vec<u64>),
+}
+
+fn train_start(req: &Value) -> Result<TrainStart, String> {
+    let retain = match &req["retain_fields"] {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        _ => return Err("retain_fields must be a boolean".into()),
+    };
+    let from = match &req["warm_from_bits"] {
+        Value::Null => None,
+        Value::Array(a) => Some(
+            a.iter()
+                .map(|v| v.as_u64().ok_or("warm_from_bits must be u64"))
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        _ => return Err("warm_from_bits must be an array of u64".into()),
+    };
+    match (retain, from) {
+        (true, Some(_)) => Err(
+            "retain_fields and warm_from_bits are exclusive (a warm-started \
+            stencil solve is never a base)"
+                .into(),
+        ),
+        (true, None) => Ok(TrainStart::Retain),
+        (false, Some(b)) => Ok(TrainStart::From(b)),
+        (false, None) => Ok(TrainStart::Default),
+    }
 }
 
 /// Errors are strings in the reply; the request fails, the session lives.
@@ -246,6 +305,7 @@ impl<Sp: Space> Session<Sp> {
             anchor,
             train_mesh_sha256: sha256_hex(train_msh),
             detail: None,
+            warm_bases: Vec::new(),
         })
     }
 
@@ -395,10 +455,29 @@ impl<Sp: Space> Session<Sp> {
             .collect()
     }
 
+    /// The retained stencil base at `bits`, if any (#1224).
+    pub fn warm_base(&self, bits: &[u64]) -> Option<&WarmFields> {
+        self.warm_bases
+            .iter()
+            .find(|(b, _)| b.as_slice() == bits)
+            .map(|(_, w)| w)
+    }
+
+    /// Keep `fields` as the stencil base at `bits` (the newest; the oldest of
+    /// more than [`WARM_BASES`] is dropped).
+    fn retain_base(&mut self, bits: Vec<u64>, fields: WarmFields) {
+        self.warm_bases.retain(|(b, _)| *b != bits);
+        self.warm_bases.push((bits, fields));
+        if self.warm_bases.len() > WARM_BASES {
+            self.warm_bases.remove(0);
+        }
+    }
+
     fn op_train(&mut self, req: &Value, ledger: &mut CostLedger, note: &str) -> OpResult {
         let x = self.x_of(req)?;
         let gradient = req["gradient"].as_bool().unwrap_or(false);
         let purpose = purpose_of(req)?;
+        let start = train_start(req)?;
         let d = self.domain_at(&x, ledger, "buildability")?;
         Self::require_buildable(&d)?;
         if gradient && !d.jacobian_defined() {
@@ -412,7 +491,29 @@ impl<Sp: Space> Session<Sp> {
         }
         let n0 = self.train.fresh_meshes().len();
         let t = Instant::now();
-        let ev = match self.space.evaluate(&mut self.train, &x, gradient) {
+        let mut retained = None;
+        let mut warm_base = None;
+        let result = match &start {
+            TrainStart::Default => self.space.evaluate(&mut self.train, &x, gradient),
+            TrainStart::Retain => self
+                .space
+                .evaluate_retaining(&mut self.train, &x, gradient)
+                .map(|(ev, fields)| {
+                    retained = Some(fields);
+                    ev
+                }),
+            TrainStart::From(bits) => {
+                let base = self
+                    .warm_bases
+                    .iter()
+                    .find(|(b, _)| b == bits)
+                    .map(|(_, w)| w);
+                warm_base = Some(base.map(|w| w.generation));
+                self.space
+                    .evaluate_from(&mut self.train, &x, gradient, base)
+            }
+        };
+        let ev = match result {
             Ok(ev) => ev,
             Err(Exp2Error::Eval(EvalError::Mesh(RemeshError::MeshInfeasible {
                 moved,
@@ -455,7 +556,28 @@ impl<Sp: Space> Session<Sp> {
                 .map(|c| c.fraction)
                 .collect::<Vec<_>>(),
         )?;
-        Ok(json!({
+        let warm = match &start {
+            TrainStart::Default => None,
+            TrainStart::Retain => {
+                let fields = retained.expect("retained fields of a retaining evaluation");
+                let generation = fields.generation;
+                self.retain_base(x_bits(&x), fields);
+                Some(json!({"retained": true, "generation": generation}))
+            }
+            TrainStart::From(bits) => {
+                let base_generation = warm_base.flatten();
+                let (start, reason) = match (&ev.full.start, base_generation) {
+                    (StartUsed::SameMesh, _) => ("same_mesh", None),
+                    (_, None) => ("cold", Some("base_not_retained")),
+                    (_, Some(_)) => ("cold", Some("base_on_other_generation")),
+                };
+                Some(
+                    json!({"from_x_bits": bits, "start": start, "reason": reason,
+                    "base_generation": base_generation}),
+                )
+            }
+        };
+        let mut reply = json!({
             "x": x, "x_bits": x_bits(&x), "status": "ok", "F": ev.f, "dF": ev.d_f,
             "fractions": ev.full.currents.iter().map(|c| c.fraction).collect::<Vec<_>>(),
             "means": ev.means, "stds": ev.full.currents.iter().map(|c| c.std).collect::<Vec<_>>(),
@@ -470,7 +592,11 @@ impl<Sp: Space> Session<Sp> {
             "newton_iterations": ev.full.currents.iter().map(|c| c.newton_iterations).sum::<usize>(),
             "solves": ev.full.currents.iter().map(|c| c.torques.len()).sum::<usize>(),
             "seconds": ev.full.seconds,
-        }))
+        });
+        if let Some(w) = warm {
+            reply["warm"] = w;
+        }
+        Ok(reply)
     }
 
     /// The mesh step of a training evaluation at `x`, alone (the

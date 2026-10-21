@@ -237,6 +237,10 @@ class SelectionTests(unittest.TestCase):
 #: c08ce9e6), canonical JSON SHA-256: the main cohort's selection must stay
 #: byte-identical with the FD-ablation cohort added (#1218).
 MAIN_SELECTION_SHA256 = "95d22dc388d518b5fa54c9ebf7657f4a110e292a2d2ad556bd745294345fa30e"
+#: select() of `ablation_cohort()` with cohort="fd_ablation" under the
+#: pre-#1224 selection.py (origin/main f94acad3): the #1218 cohort's
+#: selection must stay byte-identical with the F_w cohort added (#1224).
+FD_ABLATION_SELECTION_SHA256 = "35d3cffb308734698d0d6428c07c8b5722db8663102c98c95a9246a73600e357"
 
 
 def main_cohort():
@@ -247,6 +251,31 @@ def main_cohort():
         for space in ("a", "b"):
             for start in range(5):
                 for method in "ABCDE":
+                    run = f"{method}_{space}_{start}_r{repeat}"
+                    for ordinal in range(rng.randrange(0, 4)):
+                        f = rng.choice([0.6, 0.3, 0.05, 0.004, 1e-7]) * rng.uniform(0.5, 1.5)
+                        rows.append(Validation(
+                            run, f"{rng.getrandbits(256):064x}", method, space, start, repeat,
+                            ordinal, design(round(rng.uniform(-1, 1), 3)),
+                            rng.uniform(0.0, 130.0), 120.0, f,
+                            rng.choice([1.0026, 1.0024, 1.01]),
+                            eligible_run=rng.random() > 0.1,
+                            host_contaminated=rng.random() < 0.05, completed=rng.random() > 0.05,
+                            geometry_admissible=rng.random() > 0.1, discrete_pass=True,
+                            mesh_pass=rng.random() > 0.05,
+                            stop_reason=rng.choice(["budget", "T99", "failed"])))
+    return rows
+
+
+def ablation_cohort(letters="AF", seed=1218):
+    """A deterministic 40-run-shaped synthetic {A', F} cohort (repeats 1 and
+    2), or with `letters="AW"` and repeat 1 the 20-run {A', F_w} one."""
+    rng = random.Random(seed)
+    rows = []
+    for repeat in ((1, 2) if letters == "AF" else (1,)):
+        for space in ("a", "b"):
+            for start in range(5):
+                for method in letters:
                     run = f"{method}_{space}_{start}_r{repeat}"
                     for ordinal in range(rng.randrange(0, 4)):
                         f = rng.choice([0.6, 0.3, 0.05, 0.004, 1e-7]) * rng.uniform(0.5, 1.5)
@@ -360,6 +389,76 @@ class FdAblationSelectionTests(unittest.TestCase):
         main_roles = {c["role"] for c in selection([])["cells"]}
         ablation_roles = {c["role"] for c in ablation([])["cells"]}
         self.assertFalse(main_roles & ablation_roles)
+
+
+def warm(rows, **changes):
+    return selection(rows, cohort="fd_warm_ablation", **changes)
+
+
+class FdWarmSelectionTests(unittest.TestCase):
+    """#1224 protocol §7: the {A', F_w} session's representatives and
+    earliest crossings under the same rules, repeat 1 only; the main and
+    #1218 cohorts' selections unchanged."""
+
+    def test_main_and_fd_ablation_selections_are_byte_identical(self):
+        self.assertEqual(digest(selection(main_cohort())), MAIN_SELECTION_SHA256)
+        rows = ablation_cohort()
+        self.assertEqual(len(rows), 58)
+        self.assertEqual(digest(ablation(rows)), FD_ABLATION_SELECTION_SHA256)
+        self.assertEqual(COHORTS["fd_ablation"], ("A", "F"))
+
+    def test_warm_cohort_is_a_prime_and_f_w(self):
+        self.assertEqual(COHORTS["fd_warm_ablation"], ("A", "W"))
+        out = warm([])
+        self.assertEqual(out["cohort"], "fd_warm_ablation")
+        self.assertEqual(out["arms"], {"A": "A_prime", "W": "F_w"})
+        self.assertIn("#1224", out["preregistration"])
+        self.assertIn("post-hoc", out["preregistration"])
+        roles = [c["role"] for c in out["cells"]]
+        self.assertEqual(roles, [f"{arm}/{sp}/{k}" for arm in ("A_prime", "F_w")
+                                 for sp in ("a", "b")
+                                 for k in ("representative", "T50", "T90", "T99")])
+        self.assertEqual({c["arm"] for c in out["cells"]}, {"A_prime", "F_w"})
+        self.assertEqual(len(out["jobs"]), 1)
+
+    def test_cohorts_do_not_accept_each_others_methods_or_repeats(self):
+        for m in "BCDEF":
+            with self.subTest(method=m), self.assertRaises(ValueError):
+                warm([record(method=m)])
+        with self.assertRaises(ValueError):
+            ablation([record(method="W")])
+        with self.assertRaises(ValueError):
+            selection([record(method="W")])
+        with self.assertRaisesRegex(ValueError, "repeat 1 only"):
+            warm([record(method="W", repeat=2)])
+        # The #1218 cohort keeps its repeat 2.
+        try:
+            out = ablation([record(method="F", repeat=2)])
+        except ValueError as error:
+            self.fail(f"the #1218 cohort refused repeat 2: {error}")
+        self.assertEqual(out["records"][0]["eligible"], True)
+
+    def test_warm_applies_the_amendment8_rules(self):
+        rows = ablation_cohort("AW", seed=1224)
+        self.assertTrue(all(r.repeat == 1 for r in rows))
+        out = warm(rows)
+        # The same rules as the #1218 cohort: relabel W -> F and A' stays.
+        relabelled = ablation([replace(r, method="F" if r.method == "W" else r.method)
+                               for r in rows])
+        self.assertEqual([(c["kind"], c["space"], c["status"], c["record_id"])
+                          for c in out["cells"]],
+                         [(c["kind"], c["space"], c["status"], c["record_id"])
+                          for c in relabelled["cells"]])
+        self.assertEqual([r["decision"] for r in out["records"]],
+                         [r["decision"] for r in relabelled["records"]])
+        plan = check_plan.make_plan(out, include_conforming=True)
+        self.assertEqual(plan["selection_manifest_sha256"], digest(out))
+
+    def test_warm_roles_never_share_names_with_the_other_cohorts(self):
+        roles = {c["role"] for c in warm([])["cells"]}
+        self.assertFalse(roles & {c["role"] for c in selection([])["cells"]})
+        self.assertEqual({r for r in roles if not r.startswith("A_prime/")}
+                         & {c["role"] for c in ablation([])["cells"]}, set())
 
 
 if __name__ == "__main__":

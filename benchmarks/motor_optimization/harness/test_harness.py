@@ -43,6 +43,8 @@ MOTION = 1 / 64
 IO = 1 / 512
 GEOM = 1 / 1024
 TAU = 0.05
+#: The evaluator's retained stencil bases (`icem_harness::WARM_BASES`, #1224).
+FAKE_WARM_BASES = 16
 TRAIN = MOTION + 1.0
 VALIDATE = MOTION + 2.0
 WEIGHTS = {"validation_solve": 1 / 60, "train_forward_solve": 0.4 / 60,
@@ -110,6 +112,9 @@ class FakeEvaluator:
         # the fake's remesh rule is stateless (generation 1 iff u_0 > 0.95),
         # and a point of the other generation would remesh from here.
         self.generation = 0
+        #: Retained stencil bases (#1224 `retain_fields`): x_bits tuple ->
+        #: generation, oldest first, at most the evaluator's WARM_BASES.
+        self.bases = {}
         self.emitted = {c: 0.0 for c in CATEGORIES}
         self.ready = {"op": "ready", "ok": True,
                       "space": {"free": [f"p{i}" for i in range(N)], "lower": LOWER,
@@ -239,6 +244,25 @@ class FakeEvaluator:
             return reply
         if op == "train":
             self.generation = 1 if u[0] > 0.95 else 0
+            # The evaluator's warm-start fields (#1224); the analytic values
+            # do not depend on the start.
+            if f.get("retain_fields") and "warm_from_bits" in f:
+                raise AssertionError("retain_fields and warm_from_bits are exclusive")
+            if f.get("retain_fields"):
+                key = tuple(f["x_bits"])
+                self.bases.pop(key, None)
+                self.bases[key] = self.generation
+                while len(self.bases) > FAKE_WARM_BASES:
+                    self.bases.pop(next(iter(self.bases)))
+                reply["warm"] = {"retained": True, "generation": self.generation}
+            elif "warm_from_bits" in f:
+                bg = self.bases.get(tuple(f["warm_from_bits"]))
+                same = bg is not None and bg == self.generation
+                reply["warm"] = {"from_x_bits": list(f["warm_from_bits"]),
+                                 "start": "same_mesh" if same else "cold",
+                                 "reason": None if same else ("base_not_retained" if bg is None
+                                                              else "base_on_other_generation"),
+                                 "base_generation": bg}
             g = f.get("gradient")
             dmean = np.zeros(N)
             dmean[1] = 0.99 * MEAN0 * 0.02 / self.width[1]
@@ -251,7 +275,8 @@ class FakeEvaluator:
                          dF=(0.9 * F0 * self.dq_dx(u)).tolist() if g else None,
                          dmean_full=dmean.tolist() if g else None,
                          generation=1 if u[0] > 0.95 else 0,
-                         event={} if u[0] > 0.95 else None, quality={}, newton_iterations=1)
+                         event={} if u[0] > 0.95 else None, quality={}, newton_iterations=1,
+                         seconds=1.0)
         else:
             # The evaluator's rule, written out here independently of
             # acceptance.py (as the Rust side is).

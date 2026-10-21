@@ -117,7 +117,7 @@ def verify(expected, session, *, repo=ROOT, runtime_probe=runtime, source_probe=
     if expected.get("schema") != 1:
         raise ValueError("no supported frozen recovery bindings")
     observed = capture(session, repo=repo, runtime_probe=runtime_probe, source_probe=source_probe)
-    if session.get("label") in ("main", "fd_ablation") and (
+    if session.get("label") in ("main", "fd_ablation", "fd_warm_ablation") and (
             expected["source"].get("tree_clean") is not True
             or observed["source"].get("tree_clean") is not True):
         raise ValueError("main recovery requires unchanged clean sources")

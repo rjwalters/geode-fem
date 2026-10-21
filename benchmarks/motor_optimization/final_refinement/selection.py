@@ -17,6 +17,19 @@ METHODS = tuple("ABCDE")
 COHORTS = {"main": METHODS, "fd_ablation": ("A", "F")}
 #: Role labels of the ablation's arms (letter A there is A', never main A).
 ARMS = {"fd_ablation": {"A": "A_prime", "F": "F"}}
+#: `fd_warm_ablation` is the #1224 post-hoc {A', F_w} session (repeat 1
+#: only): letter A is again the within-session rerun A', W is
+#: `slsqp_fd_warm`. Same rules; its roles are labelled `A_prime` and `F_w`.
+COHORTS["fd_warm_ablation"] = ("A", "W")
+ARMS["fd_warm_ablation"] = {"A": "A_prime", "W": "F_w"}
+#: Cohorts registered for repeat 1 only (#1224 protocol §4).
+REPEAT1_ONLY = ("fd_warm_ablation",)
+#: The preregistration statement of each post-hoc cohort's output.
+PREREGISTRATIONS = {
+    "fd_ablation": "#1218 post-hoc ablation (not part of the #1185 study)",
+    "fd_warm_ablation": "#1224 post-hoc arm, added after the #1185 and #1218 outcomes were "
+                        "known (not part of the #1185 study)",
+}
 SPACES = ("a", "b")
 TARGETS = (("T50", 0.5), ("T90", 0.1), ("T99", 0.01))
 
@@ -165,7 +178,8 @@ def select(records, *, f0, mean0, theta0, theta0_references=(), cohort="main"):
     pre-#1218 one. `fd_ablation` selects the representatives of F and A′ per
     space and their earliest repeat-1 crossings, with theta0, under the same
     rules; its roles are labelled by arm (`A_prime/a/representative`) and the
-    output records the cohort and arms.
+    output records the cohort and arms. `fd_warm_ablation` (#1224) does the
+    same for F_w and A′ (`F_w/a/representative`).
     """
     if cohort not in COHORTS:
         raise ValueError(f"unknown selection cohort: {cohort!r}")
@@ -187,6 +201,8 @@ def select(records, *, f0, mean0, theta0, theta0_references=(), cohort="main"):
     audit, eligible = {}, []
     for r in records:
         _metadata(r, methods)
+        if cohort in REPEAT1_ONLY and r.repeat != 1:
+            raise ValueError(f"the {cohort} cohort is repeat 1 only")
         if r.record_id in seen:
             raise ValueError(f"duplicate validation identity: {r.record_id}")
         seen.add(r.record_id)
@@ -275,5 +291,5 @@ def select(records, *, f0, mean0, theta0, theta0_references=(), cohort="main"):
                     "not all crossings or typical-start performance. No refinement results yet."}
     if cohort != "main":
         out.update(cohort=cohort, arms=dict(labels),
-                   preregistration="#1218 post-hoc ablation (not part of the #1185 study)")
+                   preregistration=PREREGISTRATIONS.get(cohort))
     return out

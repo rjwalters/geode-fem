@@ -15,6 +15,9 @@ are the registered main study; F is a post-hoc ablation):
 - F `slsqp_fd` (#1218): A with forward-difference gradients of F_train and
   of the mean (`fd_gradient`) in place of the adjoint; everything else,
   including the analytic geometry Jacobians, is A's.
+- F_w `slsqp_fd_warm` (#1224, letter W): F with one change, every stencil
+  solve starts Newton from the base point's converged training state on the
+  same mesh generation instead of cold (`fd_gradient`).
 
 Common to all three:
 
@@ -97,6 +100,17 @@ METHOD_SPECS["slsqp_fd"] = {"letter": "F", "optimizer": "slsqp", "resolution": N
 #: The {A', F} ablation session (#1218 protocol §§2-3): A rerun unchanged
 #: and F, in the same session.
 FD_ABLATION_METHODS = ("slsqp", "slsqp_fd")
+#: F_w `slsqp_fd_warm` (#1224, post-hoc, outside the preregistered study):
+#: method F in every respect except one. Each stencil solve starts Newton
+#: from the base point's converged training state on the same mesh
+#: generation (`fd_stencil_start: "base"`) instead of cold. The base solve
+#: itself, every other training solve and every validation start exactly as
+#: in F and A; every stencil solve is charged.
+METHOD_SPECS["slsqp_fd_warm"] = dict(
+    METHOD_SPECS["slsqp_fd"], letter="W", fd_stencil_start="base",
+    label="safeguarded SLSQP with restarts (forward differences, warm-started stencils)")
+#: The {A', F_w} session (#1224 protocol §§3-4): A rerun unchanged and F_w.
+FD_WARM_METHODS = ("slsqp", "slsqp_fd_warm")
 METHODS = tuple(METHOD_SPECS)
 #: How each method is described in every record (#1185 amendment 6 §1:
 #: C is an empirical surrogate, not a reduced physical or waveform model).
@@ -224,6 +238,8 @@ class Run:
         #: and every gradient record in order.
         self._fd = {}
         self.fd_gradients = []
+        #: Method F_w (#1224): stencil solves start from the base's fields.
+        self.fd_warm = METHOD_SPECS[method].get("fd_stencil_start") == "base"
         #: x bytes of the start (set by `execute`): never validated.
         self.start_key = None
         #: Category and op of the request in flight at a budget abort.
@@ -372,8 +388,13 @@ class Run:
         if gradient and not g["jacobian_defined"]:
             self._refuse(u, x, "derivative_undefined", min_h=g["min_h"])
         category = "line_search" if purpose == "line_search" else "forward"
+        # F_w (#1224): every training solve of its own is a possible stencil
+        # base, so the evaluator keeps its converged fields; the solve, its
+        # start and its charges are F's.
+        retain = {"retain_fields": True} if self.fd_warm else {}
         r = self._request("train", category, x_bits=to_bits(x), gradient=gradient,
-                          purpose=purpose, note=note)
+                          purpose=purpose, note=note, **retain)
+        self._check_warm(r, retain)
         status = r.get("status", "ok")
         if status == "mesh_infeasible":
             self._refuse(u, x, "mesh_infeasible", attempts=r.get("attempts"),
@@ -429,23 +450,56 @@ class Run:
             return "would_remesh"
         return None
 
-    def fd_solve(self, xs, generation, note):
+    def _check_warm(self, r, fields):
+        """The evaluator honoured the warm-start fields of a `train` request
+        (#1224): a retained base on the reply's generation, or the reply of a
+        start from the requested base. A request without them gets a reply
+        without `warm`."""
+        if r.get("status", "ok") != "ok":
+            return
+        w = r.get("warm")
+        if not fields:
+            if w is not None:
+                raise WiringError("train: a warm-start reply to a request without one")
+        elif "retain_fields" in fields:
+            if (w or {}).get("retained") is not True or w.get("generation") != r["generation"]:
+                raise WiringError("train: the evaluator did not retain the base's fields")
+        elif (w or {}).get("from_x_bits") != fields["warm_from_bits"] \
+                or w.get("start") not in ("same_mesh", "cold"):
+            raise WiringError("train: the evaluator did not start from the requested base")
+
+    def fd_solve(self, xs, generation, note, warm_from=None, retain=False):
         """One forward-difference solve at xs (`train`, `gradient: false`,
         charged to `forward`) on `generation`. Not an optimizer evaluation:
         it is never cached as one, never an incumbent and never a
-        restoration anchor."""
+        restoration anchor.
+
+        F_w (#1224): `warm_from` (the base's x) starts every Newton solve
+        from the base's converged fields on this generation; `retain` keeps
+        this solve's fields as a base (a base re-solved on the current
+        generation). Neither is ever sent for F."""
+        warm = ({"warm_from_bits": to_bits(warm_from)} if warm_from is not None
+                else {"retain_fields": True} if retain else {})
         r = self._request("train", "forward", x_bits=to_bits(xs), gradient=False,
-                          purpose="iterate", note=note)
+                          purpose="iterate", note=note, **warm)
         if r.get("status", "ok") != "ok":
             raise WiringError(f"slsqp_fd: a stencil solve returned {r.get('status')!r}")
         if r["event"] is not None or r["generation"] != generation:
             raise WiringError("slsqp_fd: a stencil point left the base's mesh generation")
+        self._check_warm(r, warm)
         self.generation = r["generation"]
-        self.events.append(dict(self._stamp(), kind="fd_train", x=np.asarray(xs).tolist(),
-                                F=r["F"], mean_full=r["mean_full"], note=note,
-                                generation=r["generation"], quality=r["quality"],
-                                newton_iterations=r["newton_iterations"]))
-        return {"F": r["F"], "mean_full": r["mean_full"], "generation": r["generation"]}
+        event = dict(self._stamp(), kind="fd_train", x=np.asarray(xs).tolist(),
+                     F=r["F"], mean_full=r["mean_full"], note=note,
+                     generation=r["generation"], quality=r["quality"],
+                     newton_iterations=r["newton_iterations"])
+        if warm:
+            event.update(warm=r["warm"], solve_s=r.get("seconds"))
+        self.events.append(event)
+        out = {"F": r["F"], "mean_full": r["mean_full"], "generation": r["generation"]}
+        if warm:
+            out.update(warm=r["warm"], newton_iterations=r["newton_iterations"],
+                       seconds=r.get("seconds"))
+        return out
 
     def refuse_evaluated(self, u, kind, **detail):
         """Refuse a point that already has a training value (method F: its
@@ -807,6 +861,9 @@ def fd_gradient(run, u):
     record = {"index": len(run.fd_gradients), "x": x.tolist(), "step": FD_STEP,
               "base_generation": base["generation"], "base_resolved": False,
               "components": [], "solves": 0, "before": before}
+    if run.fd_warm:
+        # F_w (#1224): the stencil starts from the base's fields.
+        record["stencil_start"] = "base"
     run.fd_gradients.append(record)
     if base["generation"] != run.generation:
         # The base value is on a retired generation: re-solve it on the
@@ -818,7 +875,8 @@ def fd_gradient(run, u):
             record.update(refused=True, base_unusable=reason, after=run._stamp(),
                           cost_fe=run.ledger.total_fe() - before["wall_fe"])
             run.refuse_evaluated(u, "derivative_undefined", fd={"base": reason})
-        base = run.fd_solve(x, run.generation, note="slsqp_fd base (current generation)")
+        base = run.fd_solve(x, run.generation, note="slsqp_fd base (current generation)",
+                            retain=run.fd_warm)
         record["solves"] += 1
         record["base_generation"] = base["generation"]
     generation = base["generation"]
@@ -834,13 +892,17 @@ def fd_gradient(run, u):
             row["attempts"].append({"side": side, "x_k": float(xs[k]), "unusable": reason})
             if reason is not None:
                 continue
-            r = run.fd_solve(xs, generation, note=f"slsqp_fd {name} {side}")
+            r = run.fd_solve(xs, generation, note=f"slsqp_fd {name} {side}",
+                             warm_from=x if run.fd_warm else None)
             record["solves"] += 1
             # The step actually taken (the rounded x_k difference).
             h = float(xs[k] - x[k])
             dF[k] = (r["F"] - base["F"]) / h
             dmean[k] = (r["mean_full"] - base["mean_full"]) / h
             row.update(side=side, h=h, F=r["F"], mean_full=r["mean_full"])
+            if run.fd_warm:
+                row.update(start=r["warm"]["start"], start_reason=r["warm"]["reason"],
+                           newton_iterations=r["newton_iterations"], solve_s=r["seconds"])
             break
         else:
             record.update(refused=True, after=run._stamp(),

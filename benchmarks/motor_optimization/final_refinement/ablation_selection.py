@@ -20,6 +20,12 @@ host-boot attestation, the witnessed evaluator build and the bytes of the
 frozen mesh inputs outside the session tree (their digests stay bound). A
 recovery generation or diagnostic repair is refused, not reconciled. No solver
 is launched and no refinement outcome can influence selection.
+
+The same adapter reads the #1224 {A', F_w} arm (`cohort='fd_warm_ablation'`,
+a `session.py --fd-warm-ablation` copy): its durability is exactly #1218's
+(protocol §5), and only the registered queue (the 20 repeat-1 jobs of
+`fd_warm_schedule.registered_jobs`), the session label and its ablation
+block differ (`COHORTS`). The default cohort is #1218's, unchanged.
 """
 import argparse
 import copy
@@ -68,38 +74,76 @@ SCOPE = ('Frozen post-hoc #1218 {A\', F} cohort from a verified copy of the FD-a
          'no closed capture), with the recorded scientific evidence; no final refinement has run. '
          'Remote process absence, host attestation and the witnessed build are not re-established. '
          'Not part of the preregistered #1185 study.')
+#: The F_w arm's method specs as registered in harness/driver.py (#1224):
+#: `fd_warm_schedule.registered_jobs` refuses anything but A's adjoint SLSQP
+#: and F_w's forward-difference SLSQP with base-started stencils.
+WARM_METHOD_SPECS = {'slsqp': {'letter': 'A', 'optimizer': 'slsqp', 'resolution': None},
+                     'slsqp_fd_warm': {'letter': 'W', 'optimizer': 'slsqp', 'resolution': None,
+                                       'gradient': 'forward_difference',
+                                       'fd_stencil_start': 'base'}}
+WARM_SCOPE = ('Frozen post-hoc #1224 {A\', F_w} cohort (repeat 1) from a verified copy of the '
+              'F_w-arm session, checked file by file against its retained SHA-256 inventory '
+              '(durability as #1218: no closed capture), with the recorded scientific evidence; no '
+              'final refinement has run. Remote process absence, host attestation and the '
+              'witnessed build are not re-established. Added after the #1185 and #1218 outcomes '
+              'were known; not part of the preregistered #1185 study.')
+#: The verified-copy cohorts: schedule module, method specs, registered job
+#: count and letters, the session's ablation block, scope and ruling.
+COHORTS = {
+    'fd_ablation': {'schedule': 'fd_ablation_schedule', 'files': SCHEDULE_FILES,
+                    'specs': METHOD_SPECS, 'letters': ['A'] * 20 + ['F'] * 20,
+                    'ablation': setup_evidence.ABLATION, 'scope': SCOPE,
+                    'ruling': '#1218 operator ruling 2026-10-20 (no closed capture)'},
+    'fd_warm_ablation': {'schedule': 'fd_warm_schedule',
+                         'files': ('main_schedule.py', 'fd_warm_schedule.py'),
+                         'specs': WARM_METHOD_SPECS, 'letters': ['A'] * 10 + ['W'] * 10,
+                         'ablation': setup_evidence.WARM_ABLATION, 'scope': WARM_SCOPE,
+                         'ruling': '#1224 protocol §5 (durability as #1218: no closed capture)'},
+}
 
 
-def registered_jobs():
-    """The 40 jobs of harness `fd_ablation_schedule.registered_jobs`, and its source digests.
+def _cohort(cohort):
+    if cohort not in COHORTS:
+        raise ValueError(f'unknown verified-copy cohort: {cohort!r}')
+    return COHORTS[cohort]
+
+
+def registered_jobs(cohort='fd_ablation'):
+    """The 40 jobs of harness `fd_ablation_schedule.registered_jobs` (the 20
+    of `fd_warm_schedule` for `fd_warm_ablation`), and its source digests.
 
     The schedule is this checkout's reviewed protocol; the session's own
     queue.json must equal it exactly.
     """
-    sources = {name: producer_source.regular(HARNESS / name).read_bytes() for name in SCHEDULE_FILES}
-    names = [name[:-3] for name in SCHEDULE_FILES]
+    spec = _cohort(cohort)
+    files = spec['files']
+    sources = {name: producer_source.regular(HARNESS / name).read_bytes() for name in files}
+    names = [name[:-3] for name in files]
     if any(name in sys.modules for name in names):
         raise ValueError('schedule replay requires fresh module identities')
     try:
-        for file, name in zip(SCHEDULE_FILES, names):
+        for file, name in zip(files, names):
             module = types.ModuleType(name)
             module.__file__ = str(HARNESS / file)
             sys.modules[name] = module
             exec(compile(sources[file], module.__file__, 'exec'), module.__dict__)
-        jobs = sys.modules['fd_ablation_schedule'].registered_jobs(copy.deepcopy(METHOD_SPECS))
+        jobs = sys.modules[spec['schedule']].registered_jobs(copy.deepcopy(spec['specs']))
     finally:
         for name in names:
             sys.modules.pop(name, None)
-    if (len(jobs) != 40 or len({j['name'] for j in jobs}) != 40
-            or sorted(j['method_letter'] for j in jobs) != ['A'] * 20 + ['F'] * 20):
-        raise ValueError('registered FD-ablation schedule is not 40 distinct {A\', F} jobs')
+    n = len(spec['letters'])
+    if (len(jobs) != n or len({j['name'] for j in jobs}) != n
+            or sorted(j['method_letter'] for j in jobs) != spec['letters']):
+        if cohort == 'fd_ablation':
+            raise ValueError('registered FD-ablation schedule is not 40 distinct {A\', F} jobs')
+        raise ValueError('registered F_w schedule is not 20 distinct repeat-1 {A\', F_w} jobs')
     return jobs, {name: hashlib.sha256(raw).hexdigest() for name, raw in sources.items()}
 
 
 def queue_check(expected):
     def check(jobs):
         if _exact(jobs) != _exact(expected):
-            raise ValueError('queue differs from the registered 40 FD-ablation jobs')
+            raise ValueError(f'queue differs from the registered {len(expected)} FD-ablation jobs')
     return check
 
 
@@ -200,7 +244,7 @@ class Inventory:
         return self.root / rel / PurePosixPath(original).relative_to(base)
 
 
-def load_generation(reader, queue):
+def load_generation(reader, queue, cohort='fd_ablation'):
     """One FD-ablation generation, every byte read through the inventory.
 
     trace_archive.load_generation is a pinned capture tool (byte-identical to
@@ -234,7 +278,7 @@ def load_generation(reader, queue):
         for name, expected in files.items():
             read(name, expected)
         session = _json(read('session.json'))
-        if (session.get('label') != 'fd_ablation' or not _positive(session.get('unit_seconds'))
+        if (session.get('label') != cohort or not _positive(session.get('unit_seconds'))
                 or type(session.get('budget_fe')) not in (int, float) or session['budget_fe'] != 120
                 or type(session.get('session_id')) is not str or not session['session_id']):
             raise ValueError('invalid FD-ablation session')
@@ -291,7 +335,7 @@ def load_generation(reader, queue):
             if result.get('status') == 'ran':
                 _sha(expected)
             raw = _json(read(name, expected))
-            if type(raw) is not dict or raw.get('label') != 'fd_ablation':
+            if type(raw) is not dict or raw.get('label') != cohort:
                 raise ValueError('trace changed session identity')
             _trace(dict(raw, label='main'), attempt['job'], session)
             if result.get('status') == 'ran' and not raw['optimizer_completed'] and result['exit'] == 0:
@@ -313,10 +357,10 @@ class _NoSnapshots:
         raise ValueError('the FD-ablation adapter reads no optimizer snapshot')
 
 
-def _closure(generation):
+def _closure(generation, cohort='fd_ablation'):
     """The single generation finished complete, with no repair or recovery."""
     session = generation['session']
-    if (_exact(session.get('ablation')) != _exact(setup_evidence.ABLATION)
+    if (_exact(session.get('ablation')) != _exact(_cohort(cohort)['ablation'])
             or set(session.get('models', {})) != {'L1'} or 'recovery' in generation['bindings']):
         raise ValueError('not a registered single-generation FD-ablation session')
     kinds = [e['kind'] for e in generation['events']]
@@ -327,7 +371,7 @@ def _closure(generation):
     manifest = generation['manifest']
     if (len(ends) != 1 or ends[0].get('complete') is not True or manifest is None
             or manifest.get('complete') is not True or manifest.get('unresolved_jobs') != []
-            or manifest.get('label') != 'fd_ablation' or manifest.get('session_id') != session['session_id']):
+            or manifest.get('label') != cohort or manifest.get('session_id') != session['session_id']):
         raise ValueError('FD-ablation session did not finish complete')
 
 
@@ -339,7 +383,7 @@ def _completions(generation, reader, expected):
         raise ValueError('duplicate trace binding')
     for a in generation['attempts']:
         if a['job']['name'] not in names:
-            raise ValueError('attempt outside the registered 40 jobs')
+            raise ValueError(f'attempt outside the registered {len(expected)} jobs')
         if a.get('trace_file') and a['trace_file'] != a['job']['name'] + (a['created'].get('suffix') or '') + '.json':
             raise ValueError('trace name differs from its registered job')
         if (a.get('trace') or {}).get('diagnostic_status') in ('pending', 'interrupted'):
@@ -383,12 +427,14 @@ def _inputs(git_repo, commit, frozen, source, folder):
     return paths
 
 
-def load(copy_root, *, inventory, inventory_sha256, session, git_repo, reviewed_commit):
+def load(copy_root, *, inventory, inventory_sha256, session, git_repo, reviewed_commit,
+         cohort='fd_ablation'):
+    spec = _cohort(cohort)
     reader = Inventory(copy_root, inventory, inventory_sha256, session)
-    expected, schedule_sha256 = registered_jobs()
+    expected, schedule_sha256 = registered_jobs(cohort)
     check = queue_check(expected)
-    generation = load_generation(reader, check)
-    _closure(generation)
+    generation = load_generation(reader, check, cohort)
+    _closure(generation, cohort)
     reader.bind(generation['original_session_directory'])
     policy = _completions(generation, reader, expected)
     frozen = reader.json(reader.prefix + 'recovery-inputs.json')
@@ -398,7 +444,7 @@ def load(copy_root, *, inventory, inventory_sha256, session, git_repo, reviewed_
     with tempfile.TemporaryDirectory(prefix='fd-ablation-inputs-') as temporary:
         inputs = _inputs(git_repo, reviewed_commit, frozen, source, Path(temporary).resolve())
         setup = setup_evidence.check(records, frozen=frozen, inputs=inputs, source=source,
-                                     git_repo=git_repo, reviewed_commit=reviewed_commit, cohort='fd_ablation')
+                                     git_repo=git_repo, reviewed_commit=reviewed_commit, cohort=cohort)
         starts = _bound_json(inputs['starts'], frozen['inputs']['starts']['sha256'])
     capture = {'frozen': frozen, 'manifest_sha256': None,
                # Identity only: the anchor binds this mesh digest; its bytes are not in the tree.
@@ -407,11 +453,11 @@ def load(copy_root, *, inventory, inventory_sha256, session, git_repo, reviewed_
                          'policy': {'jobs': policy}}}
     with producer_source.committed_modules(git_repo, reviewed_commit, ('ledger',)):
         result = study_selection._assemble(capture, setup, reader, ledger_type=importlib.import_module('ledger').Ledger,
-                                           starts=starts, cohort='fd_ablation', queue=check)
+                                           starts=starts, cohort=cohort, queue=check)
     reader.stable()
     del result['capture_manifest_sha256']
-    result.update(cohort='fd_ablation', scope=SCOPE, evidence={
-        'kind': 'verified_copy_inventory', 'ruling': '#1218 operator ruling 2026-10-20 (no closed capture)',
+    result.update(cohort=cohort, scope=spec['scope'], evidence={
+        'kind': 'verified_copy_inventory', 'ruling': spec['ruling'],
         'inventory_sha256': reader.inventory_sha256, 'session': reader.session,
         'original_session_directory': generation['original_session_directory'],
         'session_files': len(reader.session_files()), 'reviewed_commit': reviewed_commit,
@@ -426,7 +472,10 @@ def main():
     parser.add_argument('--copy', required=True, type=Path, help='verified local copy (inventory paths are relative to it)')
     parser.add_argument('--inventory', required=True, type=Path, help='sha256sum-format inventory of the copy')
     parser.add_argument('--inventory-sha256', required=True, help="the inventory's retained SHA-256")
-    parser.add_argument('--session', required=True, help='inventory-relative session.py --fd-ablation directory')
+    parser.add_argument('--session', required=True,
+                        help='inventory-relative session.py --fd-ablation (or --fd-warm-ablation) directory')
+    parser.add_argument('--cohort', choices=sorted(COHORTS), default='fd_ablation',
+                        help="fd_ablation (#1218, default) or fd_warm_ablation (#1224)")
     parser.add_argument('--git-repo', required=True, type=Path)
     parser.add_argument('--reviewed-commit', required=True)
     parser.add_argument('--out', required=True, type=Path)
@@ -435,11 +484,11 @@ def main():
     if out == root or root in out.parents or out.exists():
         parser.error('output must be a new file outside the verified copy')
     result = load(root, inventory=args.inventory, inventory_sha256=args.inventory_sha256, session=args.session,
-                  git_repo=args.git_repo, reviewed_commit=args.reviewed_commit)
+                  git_repo=args.git_repo, reviewed_commit=args.reviewed_commit, cohort=args.cohort)
     raw = (json.dumps(result, sort_keys=True, indent=2, allow_nan=False) + '\n').encode()
     with out.open('xb') as stream:
         stream.write(raw)
-    print(json.dumps({'file': str(out), 'sha256': hashlib.sha256(raw).hexdigest(), 'cohort': 'fd_ablation',
+    print(json.dumps({'file': str(out), 'sha256': hashlib.sha256(raw).hexdigest(), 'cohort': args.cohort,
                       'designs': len(result['designs']), 'checks': len(result['plan']['jobs']),
                       'can_launch': False}))
 

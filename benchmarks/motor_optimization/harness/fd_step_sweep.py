@@ -2,6 +2,7 @@
 
     pyrun.sh fd_step_sweep.py --binary EVALUATOR --out RECORD.json \\
         [--level {0,1}] [--space {a,b}] [--point {interior,theta0}] [--components SW3,MH,SW2]
+        [--warm]
 
 A diagnostic only: method F's frozen protocol (`driver.fd_gradient`, the
 single forward step `driver.FD_STEP`) is not changed or used here. The L1
@@ -32,6 +33,13 @@ another generation is a `WiringError`. The base is solved once more after
 every stencil and the adjoint, on the same generation, to measure the
 repeatability of a value at a fixed point. Every raw value is recorded with
 the step actually taken (the rounded x_k difference).
+
+`--warm` (#1224 protocol §2) sweeps method F_w's stencils instead: the base
+`train` request retains its converged fields and every stencil solve starts
+Newton from them (`Run.fd_solve(..., warm_from=x)`), as `driver.fd_gradient`
+does for `slsqp_fd_warm`; each stencil value records its start and Newton
+iterations. The base repeat stays cold, as in F. The reproduction compares
+the forward FD_STEP values with F_w's L1 record (`WARM_RUNTIME_RECORDS`).
 """
 import argparse
 import hashlib
@@ -64,6 +72,8 @@ QUANTITIES = (("dF", "F"), ("dmean_full", "mean_full"))
 #: forward 1e-6 values are compared with, per level.
 RUNTIME_RECORDS = {0: HERE / "fd-gradient-runtime-checks.json",
                    1: HERE / "fd-gradient-runtime-checks-L1.json"}
+#: The same for `--warm` (method F_w's records, #1224).
+WARM_RUNTIME_RECORDS = {1: HERE / "fd-gradient-runtime-checks-L1-warm.json"}
 
 
 def sha256(path):
@@ -88,7 +98,8 @@ def errors(fd, adj):
 
 def sweep(run, u, components=COMPONENTS, forward_steps=FORWARD_STEPS,
           central_steps=CENTRAL_STEPS):
-    """The sweep at u on `run` (module docs); return its point record."""
+    """The sweep at u on `run` (module docs); return its point record. On an
+    F_w run (`run.fd_warm`) every stencil solve starts from the base."""
     P = run.problem
     x = P.x_of(u)
     base = run.train(u, gradient=False, note="fd step sweep base")
@@ -101,10 +112,15 @@ def sweep(run, u, components=COMPONENTS, forward_steps=FORWARD_STEPS,
         key = xs.tobytes()
         if key not in solved:
             reason = run.fd_step_unusable(xs, k)
-            r = None if reason is not None else run.fd_solve(xs, generation, note=note)
+            r = None if reason is not None else run.fd_solve(
+                xs, generation, note=note, warm_from=x if run.fd_warm else None)
             solved[key] = {"x_k": float(xs[k]), "dx": float(xs[k] - x[k]), "unusable": reason,
                            "F": None if r is None else r["F"],
                            "mean_full": None if r is None else r["mean_full"]}
+            if run.fd_warm and r is not None:
+                solved[key].update(start=r["warm"]["start"],
+                                   newton_iterations=r["newton_iterations"],
+                                   solve_s=r["seconds"])
         return solved[key]
 
     def shifted(k, d):
@@ -153,11 +169,11 @@ def sweep(run, u, components=COMPONENTS, forward_steps=FORWARD_STEPS,
             "components": out}
 
 
-def reproduction(level, space, point, comps):
+def reproduction(level, space, point, comps, warm=False):
     """The sweep's forward FD_STEP values against the committed runtime
-    record's at the same level, space, point and component (None when the
-    record has no such entry)."""
-    path = RUNTIME_RECORDS.get(level)
+    record's (F_w's with `warm`) at the same level, space, point and
+    component (None when the record has no such entry)."""
+    path = (WARM_RUNTIME_RECORDS if warm else RUNTIME_RECORDS).get(level)
     if path is None or not path.exists():
         return None
     data = json.loads(path.read_text())
@@ -180,7 +196,7 @@ def reproduction(level, space, point, comps):
     return {"file": str(path.relative_to(ROOT)), "sha256": sha256(path), "components": rows}
 
 
-def run_sweep(binary, level, space, point, components, out_dir):
+def run_sweep(binary, level, space, point, components, out_dir, warm=False):
     fdc.verify_meshes(level)
     cfg = fdc.LEVELS[level]
     out_dir = Path(out_dir)
@@ -210,7 +226,8 @@ def run_sweep(binary, level, space, point, components, out_dir):
         sp = ev.ready["space"]
         ledger = Ledger(1.0, 1e6)  # a diagnostic, not a budgeted run
         problem = driver.Problem(sp, {"F": 1.0, "mean_full": 1.0})
-        run = driver.Run(ev, ledger, Anchor.from_file(anchor_path), problem, "slsqp_fd")
+        run = driver.Run(ev, ledger, Anchor.from_file(anchor_path), problem,
+                         "slsqp_fd_warm" if warm else "slsqp_fd")
         unknown = [c for c in components if c not in problem.names]
         if unknown:
             raise SystemExit(f"space {space} has no component {unknown}")
@@ -248,13 +265,16 @@ def main(argv=None):
     ap.add_argument("--space", choices=("a", "b"), default="a")
     ap.add_argument("--point", choices=("interior", "theta0"), default="interior")
     ap.add_argument("--components", default=",".join(COMPONENTS))
+    ap.add_argument("--warm", action="store_true",
+                    help="sweep method F_w's base-started stencils (#1224)")
     a = ap.parse_args(argv)
     if a.out.exists():
         raise SystemExit(f"refusing to overwrite {a.out}")
     fdc.verify_meshes(a.level)
     components = tuple(c for c in a.components.split(",") if c)
     with tempfile.TemporaryDirectory(prefix="motor-fd-step-sweep-") as work:
-        rec = run_sweep(a.binary, a.level, a.space, a.point, components, Path(work))
+        rec = run_sweep(a.binary, a.level, a.space, a.point, components, Path(work),
+                        **({"warm": True} if a.warm else {}))
     sources = {name: sha256(HERE / name) for name in ("driver.py", "fd_step_sweep.py",
                                                       "fd_gradient_check.py", "evaluator.py",
                                                       "ledger.py")}
@@ -269,7 +289,17 @@ def main(argv=None):
               "binary_sha256": sha256(a.binary), "source_sha256": sources,
               "threads": {"RAYON_NUM_THREADS": "1", "GEODE_NUM_THREADS": "1"},
               "record": rec,
-              "reproduction": reproduction(a.level, a.space, a.point, rec["components"])}
+              "reproduction": reproduction(a.level, a.space, a.point, rec["components"],
+                                           **({"warm": True} if a.warm else {}))}
+    if a.warm:
+        for rel in ("crates/geode-core/tests/common/icem_remesh.rs",
+                    "crates/geode-core/tests/common/icem_experiment2.rs"):
+            sources[rel] = sha256(ROOT / rel)
+        record.update(issue=1224, method="slsqp_fd_warm", stencil_start="base",
+                      check=record["check"] + ", method F_w (warm-started stencils)",
+                      scope=("a diagnostic of method F_w's FD-vs-adjoint error (#1224 protocol "
+                             "§2); its stencil solves start from the base's converged fields; "
+                             "not main data"))
     a.out.write_text(json.dumps(record, indent=1) + "\n")
     print(f"recorded: {a.out}")
     return 0

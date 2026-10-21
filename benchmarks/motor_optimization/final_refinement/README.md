@@ -247,3 +247,23 @@ not re-established. Recovery generations and diagnostic repairs are refused.
 real frozen setup. `ablation_mutations.py` (run in CI) checks that every
 targeted mutation is killed.
 
+## The #1224 F_w cohort
+
+The post-hoc {A′, F_w} arm (#1224) goes through the same two steps. Its
+durability is #1218's (protocol §5), so it has no closed capture either.
+
+- `selection.select(..., cohort="fd_warm_ablation")`: letters A (A′) and W
+  (F_w), roles `A_prime/...` and `F_w/...`, the same amendment-8 rules, and
+  repeat 1 only (a repeat-2 record is refused). The output records
+  `cohort`, `arms` and the #1224 post-hoc status.
+- `ablation_selection.py --cohort fd_warm_ablation`: the same verified-copy
+  checks, against `fd_warm_schedule.registered_jobs` (20 jobs), the
+  `fd_warm_ablation` session label and its ablation block
+  (`setup_evidence.WARM_ABLATION`).
+
+The `main` and `fd_ablation` outputs are byte-identical to their pre-#1224
+ones. `test_selection.py` pins both selections on synthetic cohorts, and
+`test_ablation_selection.py` pins the #1218 adapter's output on its fixture.
+`test_ablation_selection.py` also runs the F_w cohort on a synthetic 20-run
+copy, and both mutation suites include the F_w mutations.
+

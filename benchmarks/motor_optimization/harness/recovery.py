@@ -2,6 +2,7 @@
 
     pyrun.sh recovery.py --source ORIGINAL_SESSION --main
     pyrun.sh recovery.py --source ORIGINAL_SESSION --fd-ablation
+    pyrun.sh recovery.py --source ORIGINAL_SESSION --fd-warm-ablation
     pyrun.sh recovery.py --source ORIGINAL_SESSION --smoke [--external-events REVIEWED.json]
 
 No budget, worker, host, unit, output-directory or numerical-setting overrides.
@@ -89,7 +90,8 @@ def recover(source, mode, *, external_events=None, stop=None,
         source = registry.source
         config = json.loads((source / "session.json").read_text())
         original = json.loads((source / "bindings.json").read_text())
-        if config["label"] != mode or mode not in ("main", "fd_ablation", "smoke"):
+        if config["label"] != mode or mode not in ("main", "fd_ablation", "fd_warm_ablation",
+                                                    "smoke"):
             raise ValueError("recovery mode must match the original session")
         if "recovery-inputs.json" not in original["files"]:
             raise ValueError("original session lacks frozen recovery inputs")
@@ -98,7 +100,7 @@ def recover(source, mode, *, external_events=None, stop=None,
                 or type(settings["gate"]) is not bool or (mode != "smoke" and not settings["gate"])
                 or settings["max_wait"] < 0 or settings["interval"] <= 0 or settings["max_deferrals"] < 1):
             raise ValueError("original dispatch settings are missing or invalid")
-        if mode in ("main", "fd_ablation"):
+        if mode in ("main", "fd_ablation", "fd_warm_ablation"):
             # The registered queue of the label (#1218: the main queue is A-E
             # only; the ablation's is {A', F}).
             expected = launcher.registered_queue(mode)
@@ -235,12 +237,14 @@ def main(argv=None):
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--main", action="store_true")
     mode.add_argument("--fd-ablation", action="store_true")
+    mode.add_argument("--fd-warm-ablation", action="store_true")
     mode.add_argument("--smoke", action="store_true")
     ap.add_argument("--external-events", type=Path)
     args = ap.parse_args(argv)
     events = json.loads(args.external_events.read_text()) if args.external_events else {}
     with interruption.StopSignals() as signals:
-        mode = "main" if args.main else "fd_ablation" if args.fd_ablation else "smoke"
+        mode = ("main" if args.main else "fd_ablation" if args.fd_ablation
+                else "fd_warm_ablation" if args.fd_warm_ablation else "smoke")
         result = recover(args.source, mode, external_events=events,
                          stop=lambda: signals.requested)
     print(json.dumps({key: result.get(key) for key in ("generation", "directory", "complete", "failure")}))
