@@ -59,11 +59,17 @@ def expected_jobs():
 
 class Fixture:
     """A `session.py --fd-ablation` output tree and its sha256sum inventory."""
+    cohort = 'fd_ablation'
+    original = ORIGINAL
+    session_dir = SESSION
+    ablation = setup_evidence.ABLATION
+    jobs_of = staticmethod(expected_jobs)
+    validation_positions = {0, 1, 11, 21}  # A'/F in space a, F in space b, A' at repeat 2
 
     def __init__(self, base, case):
         self.case = case
         self.copy = base / 'copy'
-        self.root = self.copy / SESSION
+        self.root = self.copy / self.session_dir
         self.root.mkdir(parents=True)
         self.inventory = base / 'inventory.sha256.txt'
         self.files = {}
@@ -72,24 +78,24 @@ class Fixture:
             if isinstance(v, dict): return {change(k): change(x) for k, x in v.items()}
             if isinstance(v, list): return [change(x) for x in v]
             old = b.original['bindings.json']['session_directory']
-            if isinstance(v, str) and (v == old or v.startswith(old + '/')): return ORIGINAL + v[len(old):]
+            if isinstance(v, str) and (v == old or v.startswith(old + '/')): return self.original + v[len(old):]
             return v
         self.records = change(copy.deepcopy({k: v for k, v in b.original.items() if k != 'calibration_secondary.json'}))
         self.frozen = change(copy.deepcopy(b.frozen))
         session = self.records['session.json']
-        session.update(label='fd_ablation', session_id='fd_ablation-20261021T000000Z',
-                       ablation=copy.deepcopy(setup_evidence.ABLATION))
+        session.update(label=self.cohort, session_id=self.cohort + '-20261021T000000Z',
+                       ablation=copy.deepcopy(self.ablation))
         session['models'].pop('L0')
         self.frozen['inputs'].pop('training_L0')
         self.session = session
-        self.jobs = expected_jobs()
+        self.jobs = self.jobs_of()
         self.events = []
         self.traces = {}
         self.attempts = []
-        self.manifest = {'issue': 1201, 'label': 'fd_ablation', 'session_id': session['session_id'],
+        self.manifest = {'issue': 1201, 'label': self.cohort, 'session_id': session['session_id'],
                          'complete': True, 'unresolved_jobs': []}
         self.queue = copy.deepcopy(self.jobs)
-        self.validations = {0, 1, 11, 21}  # A'/F in space a, F in space b, A' at repeat 2
+        self.validations = set(self.validation_positions)
 
     def write(self, name, raw):
         self.files[name] = raw
@@ -116,7 +122,7 @@ class Fixture:
                       file_values={'F0': c.setup['canonical_anchor']['F0'],
                                    'mean0': c.setup['canonical_anchor']['mean0_full_current']})
         trace = {k: job[k] for k in ('method', 'space', 'start', 'repeat')}
-        trace.update(issue=1201, label='fd_ablation', session=self.session['session_id'],
+        trace.update(issue=1201, label=self.cohort, session=self.session['session_id'],
                      unit_seconds=self.session['unit_seconds'], budget_fe=self.session['budget_fe'],
                      order_position=job['position'], training_model=model,
                      stop_reason='budget' if completed else 'interrupted', optimizer_completed=completed,
@@ -154,7 +160,7 @@ class Fixture:
                 self.attempt(job, validations=i in self.validations)
         self.emit('session_created')
         anchor_raw = dump(self.records['anchor_preflight.json'])
-        self.session['anchor_recomputation'] = {'file': ORIGINAL + '/anchor_preflight.json',
+        self.session['anchor_recomputation'] = {'file': self.original + '/anchor_preflight.json',
                                                 'sha256': digest(anchor_raw)}
         self.frozen['session'] = self.session
         self.write('anchor_preflight.json', anchor_raw)
@@ -200,10 +206,48 @@ class Fixture:
         self.sha256 = digest(self.inventory.read_bytes())
 
     def load(self, **changes):
-        arguments = dict(inventory=self.inventory, inventory_sha256=self.sha256, session=SESSION,
+        arguments = dict(inventory=self.inventory, inventory_sha256=self.sha256, session=self.session_dir,
                          git_repo=REPO, reviewed_commit=self.case.b.commit)
+        if self.cohort != 'fd_ablation':
+            arguments['cohort'] = self.cohort
         arguments.update(changes)
         return ablation_selection.load(self.copy, **arguments)
+
+
+WARM_ORIGINAL = '/home/ubuntu/exp2c-fd-warm/fd_warm_ablation'
+WARM_SESSION = 'exp2c-fd-warm/fd_warm_ablation'
+#: The #1218 adapter's output on the default Fixture under the pre-#1224
+#: ablation_selection.py (origin/main f94acad3), canonical JSON SHA-256: the
+#: #1218 cohort must stay byte-identical with the F_w cohort added.
+FD_ABLATION_ADAPTER_SHA256 = 'a70f8933d25f2cc9ccd1a87c09f7ab4dd53a1512b5cae242bb17dc8aa550de0a'
+
+
+def canonical(value):
+    return digest(json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode())
+
+
+def expected_warm_jobs():
+    """Independent statement of the #1224 queue: AW rotated by start, repeat 1 only."""
+    jobs = []
+    for space in ('a', 'b'):
+        for index, start in enumerate(('theta0', 'lhs1', 'lhs2', 'lhs3', 'lhs4')):
+            for k, letter in enumerate('AW' if index % 2 == 0 else 'WA'):
+                method = {'A': 'slsqp', 'W': 'slsqp_fd_warm'}[letter]
+                jobs.append({'position': len(jobs), 'repeat': 1, 'space': space, 'start': start,
+                             'start_index': index, 'method': method, 'method_letter': letter,
+                             'arm': {'A': 'A_prime', 'W': 'F_w'}[letter], 'order_index': k,
+                             'name': f'{method}_{space}_{start}_r1'})
+    return jobs
+
+
+class WarmFixture(Fixture):
+    """A `session.py --fd-warm-ablation` output tree (#1224) and its inventory."""
+    cohort = 'fd_warm_ablation'
+    original = WARM_ORIGINAL
+    session_dir = WARM_SESSION
+    ablation = setup_evidence.WARM_ABLATION
+    jobs_of = staticmethod(expected_warm_jobs)
+    validation_positions = {0, 1, 11}  # A'/F_w at theta0 in space a, F_w at theta0 in space b
 
 
 class AblationSelectionTests(unittest.TestCase):
@@ -236,6 +280,110 @@ class AblationSelectionTests(unittest.TestCase):
             return fixture.load()
         except ValueError as error:
             self.fail(f'valid FD-ablation copy refused: {error}')
+
+    def test_fd_ablation_output_is_byte_identical(self):
+        self.assertEqual(canonical(self.accept(self.fixture().build())), FD_ABLATION_ADAPTER_SHA256)
+
+    def warm_fixture(self, name='warm'):
+        return WarmFixture(self.base / name, self)
+
+    def test_warm_schedule_is_the_independent_20_job_rotation(self):
+        try:
+            jobs, sources = ablation_selection.registered_jobs('fd_warm_ablation')
+        except (ValueError, KeyError) as error:
+            self.fail(f'registered F_w schedule refused: {error!r}')
+        self.assertEqual(jobs, expected_warm_jobs())
+        self.assertEqual(set(sources), {'main_schedule.py', 'fd_warm_schedule.py'})
+        self.assertNotIn('fd_warm_schedule', sys.modules)
+        with self.assertRaisesRegex(ValueError, 'unknown verified-copy cohort'):
+            ablation_selection.registered_jobs('main')
+
+    def test_warm_selects_both_arms_from_the_verified_copy_and_cli_roundtrip(self):
+        f = self.warm_fixture().build()
+        try:
+            out = f.load()
+        except ValueError as error:
+            self.fail(f'valid F_w copy refused: {error}')
+        self.assertTrue(out['can_select']); self.assertFalse(out['can_launch'])
+        self.assertEqual(out['cohort'], 'fd_warm_ablation')
+        self.assertEqual(out['selection']['cohort'], 'fd_warm_ablation')
+        self.assertEqual(out['selection']['arms'], {'A': 'A_prime', 'W': 'F_w'})
+        self.assertIn('#1224', out['selection']['preregistration'])
+        self.assertIn('#1224', out['scope']); self.assertIn('#1224', out['evidence']['ruling'])
+        self.assertEqual(len(out['attempts']), 20); self.assertEqual(len(out['selection']['cells']), 16)
+        self.assertEqual(out['evidence']['registered_jobs'], 20)
+        self.assertEqual(set(out['evidence']['schedule_source_sha256']),
+                         {'main_schedule.py', 'fd_warm_schedule.py'})
+        cells = {c['role']: c for c in out['selection']['cells']}
+        self.assertEqual(cells['A_prime/a/representative']['record_id'], WARM_ORIGINAL + '#2:0')
+        self.assertEqual(cells['F_w/a/representative']['record_id'], WARM_ORIGINAL + '#5:0')
+        self.assertEqual(cells['F_w/b/representative']['record_id'], WARM_ORIGINAL + '#35:0')
+        self.assertEqual(cells['A_prime/b/representative']['status'], 'unavailable')
+        self.assertEqual(out['plan'], check_plan.make_plan(out['selection'], include_conforming=True))
+        output = self.base / 'ablation-selection-1224-adapter.json'
+        launcher = [CLI, '--cli'] if CLI else [str(HERE / 'ablation_selection.py')]
+        command = [sys.executable, '-I', *launcher, '--copy', str(f.copy),
+                   '--inventory', str(f.inventory), '--inventory-sha256', f.sha256,
+                   '--session', WARM_SESSION, '--cohort', 'fd_warm_ablation',
+                   '--git-repo', str(REPO), '--reviewed-commit', self.b.commit, '--out', str(output)]
+        result = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(output.read_text()), out)
+        self.assertEqual(json.loads(result.stdout)['cohort'], 'fd_warm_ablation')
+
+    def test_cohorts_do_not_accept_each_others_copies(self):
+        f = self.fixture().build()
+        with self.assertRaisesRegex(ValueError, 'invalid FD-ablation session'):
+            f.load(cohort='fd_warm_ablation')
+        w = self.warm_fixture().build()
+        with self.assertRaisesRegex(ValueError, 'invalid FD-ablation session'):
+            w.load(cohort='fd_ablation')
+        with self.assertRaisesRegex(ValueError, 'unknown verified-copy cohort'):
+            w.load(cohort='main')
+        # A warm session that ran another queue (the #1218 one, or repeat 2).
+        for name, queue in (('fd_queue', expected_jobs()),
+                            ('repeat2', [dict(j, repeat=2, name=j['name'][:-1] + '2')
+                                         for j in expected_warm_jobs()])):
+            g = self.warm_fixture(name); g.queue = queue; g.build()
+            with self.subTest(name=name), \
+                    self.assertRaisesRegex(ValueError, 'registered 20 FD-ablation jobs'):
+                g.load()
+        # The warm queue under the #1218 label, ablation block or traces.
+        for name, edit, reason in (
+                ('label', lambda g: g.session.update(label='fd_ablation'), 'invalid FD-ablation session'),
+                ('block', lambda g: g.session.update(ablation=copy.deepcopy(setup_evidence.ABLATION)),
+                 'registered single-generation'),
+                ('repeats', lambda g: g.session['ablation'].update(repeats=[1, 2]),
+                 'registered single-generation'),
+                ('manifest', lambda g: g.manifest.update(label='fd_ablation'), 'finish complete')):
+            g = self.warm_fixture(name); edit(g); g.build()
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, reason):g.load()
+        g = self.warm_fixture('trace_label')
+        g.build(mutate=lambda aid, t: t.__setitem__('label', 'fd_ablation') if t['order_position'] == 3 else None)
+        with self.assertRaisesRegex(ValueError, 'trace changed session identity'):g.load()
+
+    def test_warm_setup_cohort_is_checked(self):
+        g = self.warm_fixture('setup'); g.build()
+        records = {n: json.loads(g.files[n]) for n in ablation_selection.SETUP_FILES}
+        frozen = json.loads(g.files['recovery-inputs.json'])
+        kwargs = dict(frozen=frozen, inputs=self.b.inputs, source=self.b.source, git_repo=REPO,
+                      reviewed_commit=self.b.commit)
+        try:
+            setup_evidence.check(copy.deepcopy(records), cohort='fd_warm_ablation', **kwargs)
+        except ValueError as error:
+            self.fail(f'valid F_w setup refused: {error}')
+        with self.assertRaisesRegex(ValueError, 'FD-ablation session'):
+            setup_evidence.check(copy.deepcopy(records), cohort='fd_ablation', **kwargs)
+        # The #1218 block under the F_w label: refused by the setup check itself.
+        other = copy.deepcopy(records); other_frozen = copy.deepcopy(frozen)
+        for s in (other['session.json'], other_frozen['session']):
+            s['ablation'] = copy.deepcopy(setup_evidence.ABLATION)
+        with self.assertRaisesRegex(ValueError, 'changed registered FD-ablation session'):
+            setup_evidence.check(other, cohort='fd_warm_ablation', **dict(kwargs, frozen=other_frozen))
+        self.assertEqual(setup_evidence.WARM_ABLATION,
+                         {'issue': 1224, 'methods': ['slsqp', 'slsqp_fd_warm'],
+                          'arms': {'slsqp': 'A_prime', 'slsqp_fd_warm': 'F_w'},
+                          'repeats': [1], 'post_hoc': True})
 
     def test_registered_schedule_is_the_independent_40_job_rotation(self):
         jobs, sources = ablation_selection.registered_jobs()

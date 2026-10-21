@@ -52,6 +52,19 @@ MUTATIONS = [
      'if True:\n                    cell["arm"]'),
     ("main_accepts_method_F", "        _metadata(r, methods)\n",
      '        _metadata(r, METHODS + ("F",))\n'),
+    # #1224: the F_w cohort, and the main and #1218 cohorts left unchanged.
+    ("warm_admits_method_F", 'COHORTS["fd_warm_ablation"] = ("A", "W")',
+     'COHORTS["fd_warm_ablation"] = ("A", "F", "W")'),
+    ("warm_roles_use_the_f_label", 'ARMS["fd_warm_ablation"] = {"A": "A_prime", "W": "F_w"}',
+     'ARMS["fd_warm_ablation"] = {"A": "A_prime", "W": "F"}'),
+    ("warm_accepts_repeat_2", "        if cohort in REPEAT1_ONLY and r.repeat != 1:\n",
+     "        if False:\n"),
+    ("fd_ablation_becomes_repeat1_only", 'REPEAT1_ONLY = ("fd_warm_ablation",)',
+     'REPEAT1_ONLY = ("fd_warm_ablation", "fd_ablation")'),
+    ("warm_output_claims_1218", 'preregistration=PREREGISTRATIONS.get(cohort))',
+     'preregistration=PREREGISTRATIONS["fd_ablation"])'),
+    ("fd_ablation_output_claims_1224", 'preregistration=PREREGISTRATIONS.get(cohort))',
+     'preregistration=PREREGISTRATIONS["fd_warm_ablation"])'),
 ]
 
 

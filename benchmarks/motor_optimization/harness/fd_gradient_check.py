@@ -2,7 +2,7 @@
 model (#1218 acceptance 1), through the evaluator process, the JSON
 protocol and the driver's own `fd_gradient`.
 
-    pyrun.sh fd_gradient_check.py --binary EVALUATOR --out RECORD.json [--level {0,1}]
+    pyrun.sh fd_gradient_check.py --binary EVALUATOR --out RECORD.json [--level {0,1}] [--warm]
 
 `--level` is the training level (default 0, the L0 CI model described
 below). `--level 1` runs the same check on the main session's training
@@ -35,6 +35,19 @@ measured: with the protocol's frozen step they reach ~1e-2 on small
 components (Newton tolerance and mesh-motion noise over h = 1e-6), which is
 the accuracy method F actually gets. A wiring fault (a wrong step, sign,
 component, base or generation) is an O(1) error and fails both bounds.
+
+`--warm` (#1224 protocol §2, the accuracy gate of method F_w) checks F_w
+(`slsqp_fd_warm`) instead of F, with the same points, step and criteria:
+each stencil solve starts Newton from the base point's converged training
+fields (retained by the base `train` request) instead of cold. At each point
+the same process then computes F's cold forward-difference gradient once more
+as a reference (a second `Run`, method F, on the same evaluator and mesh),
+so the record has, side by side, the warm and cold FD values, their
+norm-wise errors against the adjoint and their difference, and the cost of
+every warm and every cold stencil solve (Newton iterations and the
+evaluator's solve seconds). The stop gate of protocol §2 compares F_w's
+norm-wise errors with F's committed record at the same level
+(`FD_RECORDS`; "stop" when any exceeds 10x).
 """
 import argparse
 import hashlib
@@ -82,6 +95,58 @@ FROZEN_SHA256 = {
 NORM_TOL = 5e-3
 COMPONENT_TOL = 1e-1
 NEGLIGIBLE = 1e-6
+#: The F_w stop gate (#1224 protocol §2): F_w's norm-wise error may not
+#: exceed GATE_FACTOR times F's at any checked point.
+GATE_FACTOR = 10.0
+#: F's committed records the gate compares with, per level.
+FD_RECORDS = {0: HERE / "fd-gradient-runtime-checks.json",
+              1: HERE / "fd-gradient-runtime-checks-L1.json"}
+
+
+class Recorder:
+    """The evaluator as a `Run` sees it, keeping every `train` reply (its
+    note, Newton iterations and solve seconds): the stencil costs of
+    `--warm`."""
+
+    def __init__(self, ev):
+        self.ev = ev
+        self.ready = ev.ready
+        self.trains = []
+
+    def request(self, op, timeout=None, **fields):
+        r = self.ev.request(op, timeout=timeout, **fields)
+        if op == "train":
+            self.trains.append({"note": fields.get("note"), "warm": r.get("warm"),
+                                "newton_iterations": r.get("newton_iterations"),
+                                "solve_s": r.get("seconds"), "ok": r.get("ok")})
+        return r
+
+
+def stencil_costs(trains):
+    """Newton iterations and solve seconds of the stencil solves among
+    `trains` (notes `slsqp_fd <component> <side>`)."""
+    rows = [t for t in trains if (t["note"] or "").startswith("slsqp_fd ")
+            and "base" not in t["note"]]
+    its = [t["newton_iterations"] for t in rows]
+    secs = [t["solve_s"] for t in rows]
+    return {"solves": len(rows), "newton_iterations": its, "solve_s": secs,
+            "starts": [(t["warm"] or {}).get("start", "cold") for t in rows],
+            "total_newton_iterations": sum(its), "total_solve_s": sum(secs)}
+
+
+def committed_normwise(level, space, point):
+    """F's committed norm-wise errors at (level, space, point), or None."""
+    path = FD_RECORDS.get(level)
+    if path is None or not path.exists():
+        return None
+    data = json.loads(path.read_text())
+    rec = next((r for r in data["records"] if r["space"] == space), None)
+    p = None if rec is None else next((q for q in rec["points"] if q["point"] == point), None)
+    if p is None:
+        return None
+    return {"file": str(path.relative_to(ROOT)), "sha256": sha256(path),
+            "normwise_rel_dF": p["normwise_rel_dF"],
+            "normwise_rel_dmean_full": p["normwise_rel_dmean_full"]}
 
 
 def sha256(path):
@@ -122,8 +187,9 @@ def compare(fd, adj):
     return rel, (float(np.max(np.abs(fd - adj))) / big if big > 0 else math.inf)
 
 
-def check(binary, space, out_dir, level=0):
-    """Run the check in one space at training level `level`; return its record."""
+def check(binary, space, out_dir, level=0, warm=False):
+    """Run the check in one space at training level `level` (of F_w with
+    `warm`, module docs); return its record."""
     verify_meshes(level)
     cfg = LEVELS[level]
     out_dir = Path(out_dir)
@@ -157,12 +223,19 @@ def check(binary, space, out_dir, level=0):
         centre = 0.5 * (np.array(sp["lower"]) + np.array(sp["upper"]))
         ledger = Ledger(1.0, 1e6)  # a check, not a budgeted run: ~11 days
         problem = driver.Problem(sp, {"F": 1.0, "mean_full": 1.0})
-        run = driver.Run(ev, ledger, Anchor.from_file(anchor_path), problem, "slsqp_fd")
+        if warm:
+            seen = Recorder(ev)
+            run = driver.Run(seen, ledger, Anchor.from_file(anchor_path), problem,
+                             "slsqp_fd_warm")
+        else:
+            run = driver.Run(ev, ledger, Anchor.from_file(anchor_path), problem, "slsqp_fd")
         points = []
         for name, x in (("theta0", x0), ("interior", x0 + 0.25 * (centre - x0))):
             u = problem.u_of(x)
+            n0 = len(seen.trains) if warm else 0
             base = run.train(u, gradient=False, note="fd check base")
             g = driver.fd_gradient(run, u)
+            warm_trains = seen.trains[n0:] if warm else None
             adj = run.train(u, gradient=True, note="fd check adjoint")
             fd_rec = run.fd_gradients[-1]
             rel_f, norm_f = compare(g["dF"], adj["dF"])
@@ -183,6 +256,11 @@ def check(binary, space, out_dir, level=0):
                                                          "base_resolved", "cost_fe")},
                            "components": rows, "normwise_rel_dF": norm_f,
                            "normwise_rel_dmean_full": norm_m, "pass": ok})
+            if warm:
+                points[-1].update(warm_reference(
+                    ev, anchor_path, problem, u,
+                    {"base": base, "gradient": g, "record": fd_rec, "norm_f": norm_f,
+                     "norm_m": norm_m, "trains": warm_trains}, adj, level, space, name))
             for row in rows:
                 print(f"space {space} {name} {row['name']} {row['side']}: dF FD "
                       f"{row['fd_dF']:.9e} adj {row['adjoint_dF']:.9e} rel {row['rel_dF']}; "
@@ -201,11 +279,77 @@ def check(binary, space, out_dir, level=0):
            "charged": {c: {"entries": v["entries"], "forward_solves": v["forward_solves"],
                            "adjoint_solves": v["adjoint_solves"]} for c, v in totals.items()},
            "wall_s": time.monotonic() - t0, "load": os.getloadavg()}
+    if warm:
+        rec.update(method="slsqp_fd_warm", stencil_start="base",
+                   gate=("stop" if any(p["gate"]["verdict"] == "stop" for p in points)
+                         else "proceed"))
     if level != 0:
         rec.update(val_level=cfg["val_level"], val_mesh_sha256=sha256(cfg["val_mesh"]),
                    anchor={"file": str(anchor_path.relative_to(ROOT)),
                            "sha256": sha256(anchor_path)})
     return rec
+
+
+def warm_reference(ev, anchor_path, problem, u, warm, adj, level, space, name):
+    """`--warm` at one point (module docs): F's cold FD gradient once more on
+    the same evaluator as a reference, the warm and cold stencil costs and the
+    stop gate against F's committed record. `warm` holds F_w's base value,
+    gradient, gradient record, norm-wise errors and the `train` replies of
+    its base and stencil."""
+    g, fd_rec = warm["gradient"], warm["record"]
+    for c in fd_rec["components"]:
+        if c.get("start") != "same_mesh":
+            raise driver.WiringError(f"F_w stencil {c['name']} did not start from the base")
+    cold_seen = Recorder(ev)
+    cold = driver.Run(cold_seen, Ledger(1.0, 1e6), Anchor.from_file(anchor_path), problem,
+                      "slsqp_fd")
+    cbase = cold.train(u, gradient=False, note="fd check cold base")
+    cg = driver.fd_gradient(cold, u)
+    crec = cold.fd_gradients[-1]
+    if [c["side"] for c in crec["components"]] != [c["side"] for c in fd_rec["components"]]:
+        raise driver.WiringError("F_w and F took different stencil sides")
+    rel_cf, norm_cf = compare(cg["dF"], adj["dF"])
+    rel_cm, norm_cm = compare(cg["dmean_full"], adj["dmean_full"])
+    big_f = float(np.max(np.abs(adj["dF"])))
+    big_m = float(np.max(np.abs(adj["dmean_full"])))
+    wcost = stencil_costs(warm["trains"])
+    ccost = stencil_costs(cold_seen.trains)
+    if wcost["solves"] != fd_rec["solves"] or ccost["solves"] != crec["solves"]:
+        raise driver.WiringError("stencil cost rows are not the gradients' solves")
+    bases = [t for t in warm["trains"] if t["note"] == "fd check base"]
+    cold_base = [t for t in cold_seen.trains if t["note"] == "fd check cold base"]
+    prior = committed_normwise(level, space, name)
+    gate = {"factor": GATE_FACTOR, "committed_f": prior, "verdict": "no_committed_record"}
+    if prior is not None:
+        gate["ratio_dF"] = warm["norm_f"] / prior["normwise_rel_dF"]
+        gate["ratio_dmean_full"] = warm["norm_m"] / prior["normwise_rel_dmean_full"]
+        gate["verdict"] = ("stop" if max(gate["ratio_dF"], gate["ratio_dmean_full"])
+                           > GATE_FACTOR else "proceed")
+    return {
+        "cold_reference": {
+            "base": {"F": cbase["F"], "mean_full": cbase["mean_full"],
+                     "same_as_warm_base": (cbase["F"], cbase["mean_full"])
+                     == (warm["base"]["F"], warm["base"]["mean_full"])},
+            "components": [{"name": c["name"], "side": c["side"], "h": c["h"],
+                            "fd_dF": float(cg["dF"][k]), "rel_dF": rel_cf[k],
+                            "fd_dmean_full": float(cg["dmean_full"][k]),
+                            "rel_dmean_full": rel_cm[k],
+                            "warm_minus_cold_dF": float(g["dF"][k] - cg["dF"][k]),
+                            "warm_minus_cold_dmean_full":
+                                float(g["dmean_full"][k] - cg["dmean_full"][k])}
+                           for k, c in enumerate(crec["components"])],
+            "normwise_rel_dF": norm_cf, "normwise_rel_dmean_full": norm_cm,
+            "normwise_warm_minus_cold_dF": float(np.max(np.abs(g["dF"] - cg["dF"]))) / big_f,
+            "normwise_warm_minus_cold_dmean_full":
+                float(np.max(np.abs(g["dmean_full"] - cg["dmean_full"]))) / big_m},
+        "cost": {"base": [{k: t[k] for k in ("newton_iterations", "solve_s")}
+                          for t in bases + cold_base],
+                 "warm_stencil": wcost, "cold_stencil": ccost,
+                 "warm_over_cold_newton_iterations":
+                     wcost["total_newton_iterations"] / ccost["total_newton_iterations"],
+                 "warm_over_cold_solve_s": wcost["total_solve_s"] / ccost["total_solve_s"]},
+        "gate": gate,
+    }
 
 
 def main(argv=None):
@@ -216,13 +360,17 @@ def main(argv=None):
     ap.add_argument("--level", type=int, choices=sorted(LEVELS), default=0,
                     help="training level: 0 the L0 CI model (default), 1 the main "
                          "session's L1 training model with its L2 validation model")
+    ap.add_argument("--warm", action="store_true",
+                    help="check method F_w (#1224: stencil solves warm-started from the base) "
+                         "with F's cold gradient as a same-process reference")
     a = ap.parse_args(argv)
     if a.out.exists():
         raise SystemExit(f"refusing to overwrite {a.out}")
     verify_meshes(a.level)
     import tempfile
     with tempfile.TemporaryDirectory(prefix="motor-fd-gradient-check-") as work:
-        records = [check(a.binary, space, Path(work) / space, a.level) for space in ("a", "b")]
+        records = [check(a.binary, space, Path(work) / space, a.level, a.warm)
+                   for space in ("a", "b")]
     sources = {name: sha256(HERE / name) for name in ("driver.py", "fd_gradient_check.py",
                                                       "evaluator.py", "ledger.py")}
     sources["crates/geode-core/tests/common/icem_harness.rs"] = sha256(
@@ -234,12 +382,23 @@ def main(argv=None):
         check_name = "method F forward differences vs the adjoint, L1 primary training model"
         scope = ("the main session's models (training L1 on the frozen θ0 mesh, validation L2) "
                  "and its registered anchor; a check, not main data")
-    record = {"issue": 1218, "check": check_name, "scope": scope,
+    if a.warm:
+        check_name = check_name.replace("method F forward differences",
+                                        "method F_w forward differences (warm-started stencils)")
+        scope += ("; #1224 protocol §2 accuracy gate of F_w, with F's cold gradient as a "
+                  "same-process reference")
+        for rel in ("crates/geode-core/tests/common/icem_remesh.rs",
+                    "crates/geode-core/tests/common/icem_experiment2.rs"):
+            sources[rel] = sha256(ROOT / rel)
+    record = {"issue": 1224 if a.warm else 1218, "check": check_name, "scope": scope,
               "norm_tol": NORM_TOL, "component_tol": COMPONENT_TOL, "negligible": NEGLIGIBLE,
               "status": "PASS" if all(r["status"] == "PASS" for r in records) else "FAIL",
               "binary_sha256": sha256(a.binary), "source_sha256": sources,
               "threads": {"RAYON_NUM_THREADS": "1", "GEODE_NUM_THREADS": "1"},
               "records": records}
+    if a.warm:
+        record.update(method="slsqp_fd_warm", stencil_start="base", gate_factor=GATE_FACTOR,
+                      gate=("stop" if any(r["gate"] == "stop" for r in records) else "proceed"))
     if a.level != 0:
         record = {"level": a.level, **record}
     a.out.write_text(json.dumps(record, indent=1) + "\n")

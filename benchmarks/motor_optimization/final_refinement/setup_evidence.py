@@ -36,6 +36,11 @@ def _source_hashes(observed, expected, label):
 
 #: The registered #1218 ablation block of an FD-ablation session.json.
 ABLATION={'issue':1218,'methods':['slsqp','slsqp_fd'],'arms':{'slsqp':'A_prime','slsqp_fd':'F'},'post_hoc':True}
+#: The registered #1224 block of an F_w-arm session.json (repeat 1 only).
+WARM_ABLATION={'issue':1224,'methods':['slsqp','slsqp_fd_warm'],'arms':{'slsqp':'A_prime','slsqp_fd_warm':'F_w'},
+               'repeats':[1],'post_hoc':True}
+#: The ablation block of each post-hoc setup cohort.
+ABLATIONS={'fd_ablation':ABLATION,'fd_warm_ablation':WARM_ABLATION}
 L0_MESH='benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh'
 
 
@@ -48,11 +53,13 @@ def check(records, *, frozen, inputs, source, git_repo, reviewed_commit, cohort=
     cohort='fd_ablation' checks a #1218 `session.py --fd-ablation` setup: the
     main session's setup with no L0 model or L0 calibration. Its frozen-start
     preflight still moves the committed L0 mesh, bound by the reviewed sources.
+    cohort='fd_warm_ablation' checks a #1224 `session.py --fd-warm-ablation`
+    setup the same way, with its own ablation block (WARM_ABLATION).
     """
-    if cohort not in ('main','fd_ablation'):raise ValueError('unknown setup cohort')
+    if cohort not in ('main','fd_ablation','fd_warm_ablation'):raise ValueError('unknown setup cohort')
     session=records['session.json'];bindings=records['bindings.json'];files=source['files']
     _equal(session,frozen['session'],'frozen session')
-    if cohort=='fd_ablation' and (_exact(session.get('ablation'))!=_exact(ABLATION) or set(session.get('models',{}))!={'L1'}
+    if cohort in ABLATIONS and (_exact(session.get('ablation'))!=_exact(ABLATIONS[cohort]) or set(session.get('models',{}))!={'L1'}
             or 'training_L0' in frozen['inputs'] or 'calibration_secondary.json' in bindings.get('files',{})):
         raise ValueError('changed registered FD-ablation session')
     if (session.get('label')!=cohort or session.get('budget_fe')!=120. or session.get('checkpoint_fe')!=60.

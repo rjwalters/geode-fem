@@ -4,7 +4,9 @@ Each mutation replaces one exact snippet in a private copy of the harness,
 runs the fake-evaluator tests of `test_fd_gradient.py` (no FEM), and is
 *killed* when a test fails with an assertion. The mutations the issue
 names are marked [#1218]: an uncharged FD solve, and the backward-step and
-refusal paths.
+refusal paths. The #1224 mutations of method F_w (base-started stencil
+solves), its queue, session and recovery, and the `--warm` modes of the two
+scripts are marked [#1224] where the issue names them.
 
     benchmarks/motor_optimization/harness/pyrun.sh \\
         benchmarks/motor_optimization/harness/fd_gradient_mutations.py > fd-gradient-checks.json
@@ -18,7 +20,7 @@ import tempfile
 
 HERE = Path(__file__).resolve().parent
 TESTS = ("FdGradientTests", "AblationQueueTests", "FdGradientCheckLevelTests",
-         "FdStepSweepTests")
+         "FdStepSweepTests", "FdWarmTests", "FdWarmQueueTests", "FdWarmCheckTests")
 MUTATIONS = (
     # ── [#1218] an uncharged FD solve ───────────────────────────────────
     ("fd_stencil_solve_uncharged [#1218]", "driver.py",
@@ -29,9 +31,9 @@ MUTATIONS = (
      'r = self.ev.request("check", x_bits=to_bits(xs))'),
     ("fd_stencil_charged_as_line_search", "driver.py",
      'r = self._request("train", "forward", x_bits=to_bits(xs), gradient=False,\n'
-     '                          purpose="iterate", note=note)',
+     '                          purpose="iterate", note=note, **warm)',
      'r = self._request("train", "line_search", x_bits=to_bits(xs), gradient=False,\n'
-     '                          purpose="line_search", note=note)'),
+     '                          purpose="line_search", note=note, **warm)'),
     ("fd_gradient_not_shared_by_objective_and_constraint", "driver.py",
      "    run._fd[key] = out\n", "\n"),
     # ── the gradient itself ─────────────────────────────────────────────
@@ -90,10 +92,10 @@ MUTATIONS = (
      "fires = gen != self.generation or self.mesh_bad(u)",
      "fires = gen != self.generation"),
     ("fd_stencil_is_an_optimizer_evaluation", "driver.py",
-     '        self.generation = r["generation"]\n        self.events.append(dict(self._stamp(), kind="fd_train",',
+     '        self.generation = r["generation"]\n        event = dict(self._stamp(), kind="fd_train",',
      '        self.generation = r["generation"]\n        self._train.setdefault(np.asarray(xs).tobytes(), '
      'dict(self._train[next(iter(self._train))], x=np.asarray(xs)))\n'
-     '        self.events.append(dict(self._stamp(), kind="fd_train",'),
+     '        event = dict(self._stamp(), kind="fd_train",'),
     # ── the queues ──────────────────────────────────────────────────────
     ("f_added_to_main_registry", "driver.py",
      "MAIN_METHOD_SPECS = {m: dict(s) for m, s in METHOD_SPECS.items()}",
@@ -115,17 +117,17 @@ MUTATIONS = (
      '        if main_like and recovery_inputs.get("source", {}).get("tree_clean") is not True:',
      '        if a.main and recovery_inputs.get("source", {}).get("tree_clean") is not True:'),
     ("ablation_recovery_mode_dropped", "recovery.py",
-     '        mode = "main" if args.main else "fd_ablation" if args.fd_ablation else "smoke"',
-     '        mode = "main" if args.main else "smoke"'),
+     '        mode = ("main" if args.main else "fd_ablation" if args.fd_ablation\n',
+     '        mode = ("main" if args.main\n'),
     ("ablation_recovery_allows_dirty_sources", "recovery_bindings.py",
-     'if session.get("label") in ("main", "fd_ablation") and (',
-     'if session.get("label") in ("main",) and ('),
+     'if session.get("label") in ("main", "fd_ablation", "fd_warm_ablation") and (',
+     'if session.get("label") in ("main", "fd_warm_ablation") and ('),
     # ── fd_gradient_check.py --level ────────────────────────────────────
     ("fd_check_default_level_1", "fd_gradient_check.py",
      'choices=sorted(LEVELS), default=0,', 'choices=sorted(LEVELS), default=1,'),
     ("fd_check_level_not_passed_to_check", "fd_gradient_check.py",
-     'check(a.binary, space, Path(work) / space, a.level)',
-     'check(a.binary, space, Path(work) / space)'),
+     'check(a.binary, space, Path(work) / space, a.level, a.warm)',
+     'check(a.binary, space, Path(work) / space, a.warm)'),
     ("fd_check_l1_trains_on_l0", "fd_gradient_check.py",
      '    1: {"train_mesh": MESHES / "icem_initial_sector_L1.msh",',
      '    1: {"train_mesh": MESHES / "icem_initial_sector_L0.msh",'),
@@ -169,6 +171,55 @@ MUTATIONS = (
     ("sweep_meshes_not_verified", "fd_step_sweep.py",
      '        raise SystemExit(f"refusing to overwrite {a.out}")\n    fdc.verify_meshes(a.level)',
      '        raise SystemExit(f"refusing to overwrite {a.out}")'),
+    # ── [#1224] F_w: base-started stencil solves ────────────────────────
+    ("w_stencils_cold [#1224]", "driver.py",
+     "warm_from=x if run.fd_warm else None)", "warm_from=None)"),
+    ("w_stencil_chains_from_the_previous_stencil [#1224]", "driver.py",
+     "warm_from=x if run.fd_warm else None)", "warm_from=xs if run.fd_warm else None)"),
+    ("w_base_not_retained [#1224]", "driver.py",
+     'retain = {"retain_fields": True} if self.fd_warm else {}', "retain = {}"),
+    ("w_retired_base_resolved_without_retain [#1224]", "driver.py",
+     "                            retain=run.fd_warm)", "                            retain=False)"),
+    ("w_spec_stencil_start_cold", "driver.py",
+     'letter="W", fd_stencil_start="base",', 'letter="W", fd_stencil_start="cold",'),
+    ("w_also_changes_f [#1224]", "driver.py",
+     'self.fd_warm = METHOD_SPECS[method].get("fd_stencil_start") == "base"',
+     'self.fd_warm = METHOD_SPECS[method].get("gradient") == "forward_difference"'),
+    ("w_stencil_reply_unchecked", "driver.py",
+     "        self._check_warm(r, warm)\n", "\n"),
+    ("w_train_reply_unchecked", "driver.py",
+     "        self._check_warm(r, retain)\n", "\n"),
+    ("w_spec_added_to_main_registry", "driver.py",
+     'MAIN_METHOD_SPECS = {m: dict(s) for m, s in METHOD_SPECS.items()}\n',
+     'MAIN_METHOD_SPECS = {m: dict(s) for m, s in METHOD_SPECS.items()}\n'
+     'MAIN_METHOD_SPECS["slsqp_fd_warm"] = dict(METHOD_SPECS["slsqp"], letter="W")\n'),
+    ("w_queue_two_repeats [#1224]", "fd_warm_schedule.py", "REPEATS = (1,)", "REPEATS = (1, 2)"),
+    ("w_queue_rotation_ignored", "fd_warm_schedule.py",
+     "    k = start_index % len(LETTERS)", "    k = 0"),
+    ("w_queue_accepts_cold_stencils", "fd_warm_schedule.py",
+     '            or w.get("fd_stencil_start") != "base"):', '            ):'),
+    ("w_session_runs_the_1218_queue", "session.py",
+     '    if label == "fd_warm_ablation":\n        return fd_warm_schedule.registered_jobs(FD_WARM_SPECS)',
+     '    if label == "fd_warm_ablation":\n        return fd_ablation_schedule.registered_jobs(FD_ABLATION_SPECS)'),
+    ("w_session_not_main_like", "session.py",
+     "    main_like = a.main or a.fd_ablation or a.fd_warm_ablation\n",
+     "    main_like = a.main or a.fd_ablation\n"),
+    ("w_session_block_without_repeats", "session.py",
+     '                                   "repeats": [1], "post_hoc": True}',
+     '                                   "post_hoc": True}'),
+    ("w_recovery_mode_dropped", "recovery.py",
+     '                else "fd_warm_ablation" if args.fd_warm_ablation else "smoke")',
+     '                else "smoke")'),
+    ("w_recovery_allows_dirty_sources", "recovery_bindings.py",
+     'if session.get("label") in ("main", "fd_ablation", "fd_warm_ablation") and (',
+     'if session.get("label") in ("main", "fd_ablation") and ('),
+    ("w_check_accepts_cold_stencils", "fd_gradient_check.py",
+     '        if c.get("start") != "same_mesh":', '        if False:'),
+    ("w_check_gate_factor_100", "fd_gradient_check.py",
+     "GATE_FACTOR = 10.0", "GATE_FACTOR = 100.0"),
+    ("w_sweep_stencils_cold", "fd_step_sweep.py",
+     "                xs, generation, note=note, warm_from=x if run.fd_warm else None)",
+     "                xs, generation, note=note)"),
 )
 
 
@@ -196,10 +247,11 @@ def main():
         rows.append({"name": name, "expected_result": expected, "exit_code": result.returncode,
                      "mutated_file": file, "failing_tests": failed,
                      "stderr_tail": result.stderr[-1500:]})
-    print(json.dumps({"issue": 1218, "python": sys.version,
+    print(json.dumps({"issue": 1218, "issues": [1218, 1224], "python": sys.version,
                       "scope": ("fake-evaluator tests of method F and the {A', F} queue, and the "
                                 "--level wiring of fd_gradient_check.py, and the fd_step_sweep.py "
-                                "diagnostic; no FEM"),
+                                "diagnostic; of method F_w, its {A', F_w} queue and session, and "
+                                "the --warm modes of both scripts (#1224); no FEM"),
                       "tests": ["test_fd_gradient.py " + t for t in TESTS],
                       "baseline_source_sha256": {f: hashlib.sha256(s.encode()).hexdigest()
                                                  for f, s in sorted(sources.items())},
