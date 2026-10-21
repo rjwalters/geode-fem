@@ -1,8 +1,8 @@
 # Motor paper, revision 14
 
-State: **REVISED after the v13 reviews (Opus 39/44, Fable 40/44, both advance, no critical flags). Two outstanding dependencies hold READY: `[PENDING exp2c-fd-warm]` (the post-hoc warm-started finite-difference arm F_w, issue #1224, running after this revision) and `[PENDING zenodo-doi]` (the operator's deposit of the raw-trace archive). The title is provisional until F_w's results exist.** Author: Robb Walters.
+State: **REVISED after the v13 reviews (Opus 39/44, Fable 40/44, both advance, no critical flags), with both post-hoc ablations filled in: cold-stencil F (#1218) and warm-stencil F_w (#1224). One outstanding dependency holds READY: `[PENDING zenodo-doi]`, the operator's deposit of the three-session raw-trace archive.** Author: Robb Walters.
 
-V14 states that F's stencil solves start Newton-cold (all 40 traces), adds the F_w protocol skeleton, replaces the "same path" sentence with the claim the data support (tested directly by the verifier), prints the per-gradient cost ratios and names both factors that reduce them, and fixes the v13 advisories (Fig. 5 labels and censored marker, Appendix D units and the noise wording, the split data statement, Yu et al. 2018). No earlier number changed. V13 and earlier versions are unchanged.
+V14 rebases the headline and title on the strongest finite-difference baseline. With warm-started stencils, the adjoint reaches the primary target 1.71 and 2.70 times sooner with 8 and 18 parameters; cold F's 2.47 and 4.11 are reported as the weaker baseline. Against warm finite-difference SLSQP, COBYQA's factor (about 1.8 and 2.9) is comparable to the adjoint's, so the paper now credits the adjoint and the gradient-based optimizer with comparable factors. V14 also reports the warm stencils' accuracy trade-off, discloses the rebuilt refinement binary with its 4,181-field equivalence, and verifies every new number in `verify_exp2c.py`. V13 and earlier versions are unchanged.
 
 ## Rebuild
 
@@ -13,18 +13,20 @@ uv run --with numpy==2.5.4 --with matplotlib==3.11.2 --with meshio==5.3.5 python
 uv run --with numpy==2.5.4 --with matplotlib==3.11.2 python figures/src/render_exp2.py
 python3 -I figures/src/render_exp2_validation.py
 python3 -I figures/src/render_exp2b.py
+python3 -I figures/src/render_exp2c.py
 uv run --with numpy==2.5.4 --with matplotlib==3.11.2 python figures/src/render_exp2b_figure.py
 bash ../../build.sh .
 python3 -I -B verify.py
 python3 -I -B verify_exp2.py
 python3 -I -B verify_exp2b.py
+python3 -I -B verify_exp2c.py
 # optional exact re-derivation of the ablation extracts from the raw session copy:
 EXP2B_SESSION=<copy>/exp2-fd-ablation/session EXP2B_REFINE=<refine-dir> EXP2B_SELECTION=<selection.json> python3 -I -B verify_exp2b.py
 ```
 
 `verify.py` runs `verify_exp2.py` and `verify_exp2b.py` at its end. The local class and committed `main.bbl` make the paper standalone.
 
-The stdlib verifiers independently reconstruct the numerical claims from raw arrays, without importing renderer helpers. They check 126 input hashes, original forward/gradient controls, 704 distinct FD cases, 592 Taylor windows, 3,240 candidate solve statuses, reference refinement, size normalizations, the matched study (100 runs, 213 refinement checks), and, from v11, the ledger charges of all 100 runs, the validation-charge table, training/validation objective ratios, the training-gradient FD records of both spaces and the preregistration export. This does not rerun FEM or replace independent scientific review.
+The stdlib verifiers independently reconstruct the numerical claims from raw arrays, without importing renderer helpers. They check 129 input hashes, original forward/gradient controls, 704 distinct FD cases, 592 Taylor windows, 3,240 candidate solve statuses, reference refinement, size normalizations, the matched study (100 runs, 213 refinement checks), and, from v11, the ledger charges of all 100 runs, the validation-charge table, training/validation objective ratios, the training-gradient FD records of both spaces and the preregistration export. This does not rerun FEM or replace independent scientific review.
 
 ## Raw-trace archive
 
@@ -53,3 +55,12 @@ With the optimizer held fixed, the adjoint reaches the primary target 2.47 (8 pa
 ## Post-hoc ablation data (method F and control A′)
 
 `figures/src/data/exp2b/runs.json` and `refinement.json` (`extract_exp2b.py`) are compact extracts of the 40 ablation traces and of the 90 final checks of the 14 selected designs. Each trace's SHA-256 is checked against `provenance/exp2-fd-ablation-inventory-c2bc65ff.sha256.txt` (2,118 files, digest `c2bc65ff61fb8485d14a1e2b07dadb3f9c9fa4b040ce98aa1360f46f64788a83`), taken on the host before it stopped; RFC 3161 tokens from FreeTSA and DigiCert (both 2026-10-21 06:18:42Z) and an OpenTimestamps receipt (upgrade pending at packaging) are beside it. The session ran at producer commit `5cc86ad8` (c7a.4xlarge, 15 workers, unit 66.66 s; the main session's was 70.94 s). The full session is retained in two verified copies and EBS snapshot `snap-08f4a25ff2fdd727e`. `provenance/setup/` holds the session, calibration and anchor-recomputation records (inventory-bound); `provenance/protocol-1218-export.json` exports the protocol and its freeze comment with GitHub timestamps; `refinement-tools/` holds the direct refinement's prepare/report/run scripts and cohort; `selection-check.json` records the digest of the independent selection program's output and the designs it chose (identical to the cohort, bit for bit); `fd-gradient-runtime-checks.json` (pinned at `2d4fbcfe`, in the evidence manifest) is the L0 accuracy record of F's gradients.
+
+## Warm-stencil arm data (method F_w and its control A′)
+
+`figures/src/data/exp2c/runs.json` and `refinement.json` (`extract_exp2c.py`) are compact extracts of the 20 F_w-session traces and of the 84 final checks of 13 selected designs. They are bound by SHA-256 to `provenance/exp2-fd-warm-inventory-df509322.sha256.txt` (1,180 files, digest `df5093225b52b74f622d4bfbd193c58ea24d6116eadb2f0a03b9e9830e8a2559`), which is timestamped by FreeTSA and DigiCert (22:48:56Z) and OpenTimestamps. The session ran at producer commit `669029c5` with unit 69.09 s, and is retained in two verified copies and EBS snapshot `snap-09f336c1928d1cddb`. Set `EXP2C_SESSION`, `EXP2C_REFINE` and `EXP2C_SELECTION` to re-derive the extracts from the raw copy.
+
+Other contents:
+- `gradient-checks/`: the L1 warm accuracy records, pinned at `669029c5`.
+- `binary-equivalence/`: the rebuilt refinement binary's 12 results beside the 12 original results; the verifier compares every non-timing field.
+- `provenance/protocol-1224-export.json`: the #1224 protocol and its freeze comment with GitHub timestamps.

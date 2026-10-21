@@ -756,6 +756,24 @@
       "snapshot": "figures/src/data/exp2b/fd-step-sweep-L1.json",
       "sha256": "b04b2e7db9bdd749ff429a8f3de923c6450819700e9f6e7cafb0e10065ecf601",
       "source_commit": "f94acad3f312c7d417830ff82b66a78a1ea89fb2"
+    },
+    {
+      "source": "benchmarks/motor_optimization/harness/fd-gradient-runtime-checks-L1-warm.json",
+      "snapshot": "figures/src/data/exp2c/gradient-checks/fd-gradient-runtime-checks-L1-warm.json",
+      "sha256": "dda9ac3a9d8c0edce9617889ed866e297462bfb8cc40155359ade36dd97aa1bd",
+      "source_commit": "669029c5653cb5fe4724ec0c7525ba60c770975e"
+    },
+    {
+      "source": "benchmarks/motor_optimization/harness/fd-step-sweep-L1-warm.json",
+      "snapshot": "figures/src/data/exp2c/gradient-checks/fd-step-sweep-L1-warm.json",
+      "sha256": "25b3082893f94d69dcaa165a13d88bfbb330472714960d69c6b5df8c99cd7431",
+      "source_commit": "669029c5653cb5fe4724ec0c7525ba60c770975e"
+    },
+    {
+      "source": "benchmarks/motor_optimization/harness/fd-step-sweep-L1-warm-b.json",
+      "snapshot": "figures/src/data/exp2c/gradient-checks/fd-step-sweep-L1-warm-b.json",
+      "sha256": "65dcd77b6e86c21da15fb5f02093ac781c8d692c8c53d01b5f107a2c24605bd4",
+      "source_commit": "669029c5653cb5fe4724ec0c7525ba60c770975e"
     }
   ],
   "evidence_commits": [
@@ -763,6 +781,7 @@
     "224332c526be1191183af82b610973c7778de720",
     "2d4fbcfe8479c0df30e22323d987d885a671c1fb",
     "581ee7ad40c9646f43e0d6df3de7b5a87d06f798",
+    "669029c5653cb5fe4724ec0c7525ba60c770975e",
     "74843242db03e8d57edf971420171064bf19f107",
     "8acd21ecf85d89fe077275a3c04ca70b53963d43",
     "910593bad6f64f9f01671c2632b57034e72b9c61",

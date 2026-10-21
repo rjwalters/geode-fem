@@ -4,7 +4,8 @@
   "artifact_verify": {
     "commands": [
       "python3 verify.py",
-      "python3 verify_exp2b.py"
+      "python3 verify_exp2b.py",
+      "python3 verify_exp2c.py"
     ],
     "cwd": "motor-gradient-optimization.14",
     "timeout_s": 120

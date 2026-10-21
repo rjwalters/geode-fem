@@ -305,3 +305,4 @@ print('PASS: v6 SW2/SW3 component rounding, distinct L0/L1 Taylor failure mechan
 import runpy
 runpy.run_path(str(V/'verify_exp2.py'),run_name='__main__')
 runpy.run_path(str(V/'verify_exp2b.py'),run_name='__main__')
+runpy.run_path(str(V/'verify_exp2c.py'),run_name='__main__')

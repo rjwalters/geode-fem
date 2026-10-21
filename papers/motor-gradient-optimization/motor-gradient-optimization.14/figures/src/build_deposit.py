@@ -13,17 +13,22 @@ SETS = [('exp2-main', DATA / 'exp2/provenance/exp2-main-inventory-0650f4ee.sha25
          [DATA / 'exp2/provenance' / n for n in ('exp2-main-inventory-0650f4ee.sha256.txt.ots', 'inv.digicert.tsr', 'inv.freetsa.tsr', 'inv.tsq')]),
         ('exp2-fd-ablation', DATA / 'exp2b/provenance/exp2-fd-ablation-inventory-c2bc65ff.sha256.txt',
          Path('/Volumes/Stripe/geode-results/exp2-fd-ablation-20261021/copy'),
-         sorted((DATA / 'exp2b/provenance').glob('exp2-fd-ablation-inventory-c2bc65ff.sha256.txt.*')))]
+         sorted((DATA / 'exp2b/provenance').glob('exp2-fd-ablation-inventory-c2bc65ff.sha256.txt.*'))),
+        ('exp2-fd-warm', DATA / 'exp2c/provenance/exp2-fd-warm-inventory-df509322.sha256.txt',
+         Path('/Volumes/Stripe/geode-results/exp2-fd-warm-20261021/copy'),
+         sorted((DATA / 'exp2c/provenance').glob('exp2-fd-warm-inventory-df509322.sha256.txt.*')))]
 ROOT = 'motor-paper-raw-traces'
-README = f"""Raw traces of the two optimization studies of the GEODE motor-gradient-optimization paper.
+README = f"""Raw traces of the three optimization sessions of the GEODE motor-gradient-optimization paper.
 
 Layout:
   inventories/<study>/   the SHA-256 inventory taken on each study host before it stopped,
                          with its RFC 3161 tokens (.tsr, request .tsq) and OpenTimestamps receipt (.ots)
   exp2-main/...          the preregistered matched study: 5,453 files listed in
                          exp2-main-inventory-0650f4ee.sha256.txt (digest 0650f4ee779b64c8efc32020571657f3009f3fe46a52c8adc9f8ffdf28ea6e16)
-  exp2-fd-ablation/...   the post-hoc finite-difference SLSQP ablation: 2,118 files listed in
+  exp2-fd-ablation/...   the post-hoc finite-difference SLSQP ablation (cold stencils): 2,118 files listed in
                          exp2-fd-ablation-inventory-c2bc65ff.sha256.txt (digest c2bc65ff61fb8485d14a1e2b07dadb3f9c9fa4b040ce98aa1360f46f64788a83)
+  exp2-fd-warm/...       the post-hoc warm-stencil arm F_w: 1,180 files listed in
+                         exp2-fd-warm-inventory-df509322.sha256.txt (digest df5093225b52b74f622d4bfbd193c58ea24d6116eadb2f0a03b9e9830e8a2559)
 
 Check: from {ROOT}/, `shasum -a 256 -c inventories/exp2-main/exp2-main-inventory-0650f4ee.sha256.txt` and the same for the ablation.
 Every file was hash-checked against its inventory when this archive was built. The paper package's

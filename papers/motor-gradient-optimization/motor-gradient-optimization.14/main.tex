@@ -3,11 +3,11 @@
 \usepackage{float}
 \newcommand{\Nm}{\mathrm{N\,m}}
 \newcommand{\dd}{\,\mathrm{d}}
-\title{Per core, adjoint gradients reach validated torque-ripple\\
-targets 2.5 and 4.1 times sooner than finite differences\\in a nonlinear motor model}
+\title{Per core, adjoint gradients reach validated torque-ripple targets\\
+1.7 and 2.7 times sooner than warm-started finite differences\\in a nonlinear motor model}
 \author{Robb Walters}
 \date{October 2026}
-\hypersetup{pdftitle={Per core, adjoint gradients reach validated torque-ripple targets 2.5 and 4.1 times sooner than finite differences in a nonlinear motor model},pdfauthor={Robb Walters},pdfsubject={Matched optimization, torque-ripple reproduction and discrete design-gradient verification}}
+\hypersetup{pdftitle={Per core, adjoint gradients reach validated torque-ripple targets 1.7 and 2.7 times sooner than warm-started finite differences in a nonlinear motor model},pdfauthor={Robb Walters},pdfsubject={Matched optimization, torque-ripple reproduction and discrete design-gradient verification}}
 
 \begin{document}
 \maketitle
@@ -18,24 +18,23 @@ nonlinear permanent-magnet motor in our GEODE finite-element
 implementation and compare five optimizers in a preregistered,
 budget-matched study, in an eight- and an 18-parameter shape space, judged
 by one common order-93 validation model, whose interface order exceeds the
-training model's because truncation lowers loaded torque ripple by
-7--9\% and raises cogging by 59\%. SLSQP with adjoint gradients reached torque-ripple
-targets sooner than the derivative-free COBYQA at the same training
-resolution in all 45 paired comparisons where both succeeded, by geometric
-means of 2.45--3.25 and 3.14--7.79 in the two spaces. A post-hoc ablation,
-not preregistered but run under a protocol frozen beforehand, kept SLSQP
-and replaced the adjoint by forward differences whose stencil solves start
-Newton-cold. With every run on one single-threaded core, the adjoint
-reached the primary target 2.47 and 4.11 times sooner, from every start,
-and 5.58 and 10.07 times sooner once the shared validation charges are
-excluded. The remaining factor, COBYQA against finite-difference SLSQP, is
-1.2 in the eight-parameter space, ranging from 0.70 to 2.27 across starts,
-and 1.9 in the 18-parameter space. A second post-hoc arm with warm-started
-stencils tests the strongest finite-difference competitor:
-[PENDING exp2c-fd-warm]
-Every selected target crossing met its target on a finer mesh. The
-adjoint, more than the gradient-based optimizer, accounts for SLSQP's
-advantage.
+training model's because truncation lowers loaded torque ripple by 7--9\%
+and raises cogging by 59\%. SLSQP with adjoint gradients reached
+torque-ripple targets sooner than the derivative-free COBYQA at the same
+training resolution in all 45 paired comparisons where both succeeded, by
+geometric means of 2.45--3.25 and 3.14--7.79 in the two spaces. Two
+post-hoc ablations, not preregistered but each run under a protocol frozen
+beforehand, kept SLSQP and replaced the adjoint by forward differences.
+With every run on one single-threaded core, the adjoint reached the primary
+target 1.71 and 2.70 times sooner, from every start, than the stronger
+variant, whose stencil solves start from the base state (3.23 and 6.10
+times without the shared validation charges), and 2.47 and 4.11 times
+sooner than cold-started stencils. Warm stencils halve the cost of a
+stencil solve but are less accurate on small gradient components. The
+remaining factor, COBYQA against warm finite-difference SLSQP, is about 1.8
+and 2.9, approximate across sessions, so the adjoint and the gradient-based
+optimizer contribute comparable factors to SLSQP's advantage. Every
+selected target crossing met its target on a finer mesh.
 \end{abstract}
 
 \section{Introduction}
@@ -61,16 +60,15 @@ whole-run wall time with nothing subtracted (Section~\ref{sec:optimization}).
 There SLSQP with adjoint gradients beats COBYQA, but the contrast changes
 the search strategy and the gradient together. A post-hoc ablation
 therefore keeps SLSQP and replaces the adjoint by forward differences
-(Section~\ref{sec:exp2-fd}). With the stencil solved serially and
-Newton-cold, on one core per run, the adjoint reaches the target 2.47 and
-4.11 times sooner, a ratio set mainly by the cost of the gradient, since
-both variants cross each target after the same number of validated
-designs. A second post-hoc arm with warm-started stencils tests the
-strongest finite-difference competitor: [PENDING exp2c-fd-warm]. What is
-left of the main contrast, COBYQA against finite-difference SLSQP, is small
-and start-dependent with eight parameters and about a factor of two with
-18: in the smaller space, gradient-based search without an adjoint is not
-reliably faster than the derivative-free method.
+(Section~\ref{sec:exp2-fd}). On one core per run, with the stencil solved
+serially, the adjoint reaches the target 1.71 and 2.70 times sooner than
+the stronger, warm-started variant and 2.47 and 4.11 times sooner than
+cold-started stencils, ratios set mainly by the cost of the gradient, since
+all arms cross each primary target after the same number of validated
+designs.
+What is left of the main contrast, COBYQA against warm finite-difference
+SLSQP, is about 1.8 with eight parameters and 2.9 with 18: the adjoint and
+the gradient-based optimizer contribute comparable factors.
 
 Two checks make these measurements interpretable. The ripple objective
 depends on the rotor--stator interface model: truncating harmonic coupling
@@ -370,27 +368,27 @@ Appendix~\ref{sec:cost} gives the protocol and seconds).
 \section{What transfers, and limits}\label{sec:discussion}
 Three findings should transfer beyond this motor. First, with the path
 held fixed, the adjoint's advantage over finite differences is a ratio of
-gradient costs, which scales with the number of parameters and holds for
-the finite-difference configuration measured: forward differences whose
-stencil solves run serially, one core per run, and start Newton-cold.
-Solving the stencil in parallel would shorten the wall time per gradient
-but not its compute; warm-starting it would lower both
-[PENDING exp2c-fd-warm]. The measured ratios are smaller than the
-per-gradient cost ratio because both arms pay a training solve at every
-evaluation, F requests a gradient at only some of them, and validation is
-shared. Second, the gradient-based optimizer does
-not pay by itself: without the adjoint, SLSQP was not reliably faster than
-COBYQA in the eight-parameter space, and its lead in the 18-parameter space
-was about a factor of two (Section~\ref{sec:exp2-fd}). Third, validating
+gradient costs, which scales with the number of parameters and depends on
+how the stencil is solved: warm-starting it halved the cost of a stencil
+solve and cut the adjoint's advantage from 2.47 and 4.11 to 1.71 and 2.70,
+at some cost in accuracy on small components. Solving the stencil in
+parallel would shorten the wall time per gradient but not its compute. The
+measured ratios are smaller than the per-gradient cost ratios because both
+arms pay a training solve at every evaluation, the finite-difference arms
+request a gradient at only some of them, and validation is shared. Second,
+the adjoint is not the whole advantage: against warm finite-difference
+SLSQP, COBYQA was slower from every start, by a geometric mean of about 1.8
+with eight parameters and 2.9 with 18, comparable to the adjoint's factor
+(Section~\ref{sec:exp2-fd}). Third, validating
 each incumbent compresses same-resolution ratios toward one and inflates
 SLSQP's lead over the coarse competitor D, which needs more validated
 incumbents (Section~\ref{sec:optimization}).
 
 The evidence has clear limits. It is a paired case study over five
 deterministic starts of one motor; the ratios are not population estimates.
-The ablation is post hoc, and F's forward differences carry a truncation
-error that exceeds the per-component check limit on one small component
-(Section~\ref{sec:exp2-fd}). CMA-ES and other population or
+The ablations are post hoc; F's forward differences carry a truncation
+error and F$_w$'s warm stencils a Newton-tolerance offset, each exceeding the
+per-component check limit on small components (Section~\ref{sec:exp2-fd}). CMA-ES and other population or
 multi-start methods remain untested.
 Method C ran with the preregistered settings of
 Appendix~\ref{sec:settings} and was not tuned; its low attainment bounds
@@ -411,11 +409,11 @@ with measurements on a physical motor.
 Before trusting a motor gradient, check what it differentiates: interface
 order and excitation rule change the objective or its sensitivities. On a common validation model, SLSQP with adjoint
 gradients beat derivative-free COBYQA in every comparison where both
-succeeded. A post-hoc ablation that kept SLSQP but
-used forward differences took 2.5 and 4.1 times as long with 8 and 18
-parameters on one core per run with cold-started stencils, so the adjoint,
-more than the gradient-based optimizer, accounts for that advantage
-[PENDING exp2c-fd-warm].
+succeeded. Post-hoc ablations that kept SLSQP but used forward
+differences took 1.7 and 2.7 times as long with 8 and 18 parameters on one
+core per run when the stencils were warm-started, and 2.5 and 4.1 times as
+long when they started cold, so the adjoint and the gradient-based
+optimizer contribute comparable factors to that advantage.
 
 \section*{Code and data availability}
 The original forward and gradient evidence is fixed at GEODE commit
@@ -462,27 +460,30 @@ included, as is an export of the governing preregistration comments taken
 on 2026-10-18 at 09:34~UTC, before the main session began at 18:16~UTC.
 \end{sloppypar}
 
-For the post-hoc ablation, the package holds the 40 run extracts, the
-setup records, the ablation's SHA-256 inventory of 2,118 files with its
-RFC~3161 and OpenTimestamps records, the final-check results, an export of
-its protocol; the ablation's evaluator source is
-\href{https://github.com/rjwalters/geode-fem/tree/5cc86ad81aeea4847a2608fcafde22a1bbfb6990/benchmarks/motor_optimization}{\texttt{5cc86ad8}};
-F's L1 gradient check is pinned at
+For the two post-hoc ablations, the package holds the 40 and 20 run
+extracts, the setup records, each session's SHA-256 inventory (2,118 and
+1,180 files) with its RFC~3161 and OpenTimestamps records, the final-check
+results, the comparison of the original and rebuilt refinement binaries,
+and an export of each protocol. F's evaluator source is
+\href{https://github.com/rjwalters/geode-fem/tree/5cc86ad81aeea4847a2608fcafde22a1bbfb6990/benchmarks/motor_optimization}{\texttt{5cc86ad8}},
+its L1 gradient check is pinned at
 \href{https://github.com/rjwalters/geode-fem/tree/74843242db03e8d57edf971420171064bf19f107/benchmarks/motor_optimization/harness}{\texttt{74843242}}
 and its step sweep at
-\href{https://github.com/rjwalters/geode-fem/tree/f94acad3f312c7d417830ff82b66a78a1ea89fb2/benchmarks/motor_optimization/harness}{\texttt{f94acad3}}.
-The ablation's \href{https://github.com/rjwalters/geode-fem/issues/1218}{protocol}
+\href{https://github.com/rjwalters/geode-fem/tree/f94acad3f312c7d417830ff82b66a78a1ea89fb2/benchmarks/motor_optimization/harness}{\texttt{f94acad3}};
+F$_w$'s evaluator source and L1 checks are at
+\href{https://github.com/rjwalters/geode-fem/tree/669029c5653cb5fe4724ec0c7525ba60c770975e/benchmarks/motor_optimization}{\texttt{669029c5}}.
+F's \href{https://github.com/rjwalters/geode-fem/issues/1218}{protocol}
 was posted at 22:34~UTC on 2026-10-20 and frozen by a comment at
-23:00~UTC, before the first ablation run began at 02:07~UTC on 2026-10-21;
-these are GitHub timestamps, and the protocol text was never edited. The
-raw traces of both studies, the 5,453 and 2,118 inventory-listed files with
-both inventories and their timestamp records, are packed in one archive,
-\texttt{motor-paper-raw-traces.tar.zst} (2,179,756,244 bytes, SHA-256
-\texttt{2de2132cb6b94c768ace042ad8cd8505}\allowbreak\texttt{1000aee148d520cd1843d1c10d40b2a2}), for deposit at
+23:00~UTC, before the first F run began at 02:07~UTC on 2026-10-21;
+F$_w$'s timeline is in Appendix~\ref{sec:exp2-times}. These are GitHub
+timestamps, and neither protocol text was ever edited. The raw traces of all
+three sessions, the 5,453, 2,118 and 1,180 inventory-listed files with the
+inventories and their timestamp records, are packed in one archive,
+\texttt{motor-paper-raw-traces.tar.zst} (2,609,375,627 bytes, SHA-256
+\texttt{a70a0699261e40573187a0e4007e8d4b}\allowbreak\texttt{50f608be707a31a59aaf87c650203f12}), for deposit at
 DOI [PENDING zenodo-doi]. Every file was checked against its inventory
-when the archive was built; given the unpacked ablation session, the
-package's third verifier re-derives the ablation extracts from the raw
-traces.
+when the archive was built; given the unpacked sessions, the package's
+verifiers re-derive the ablation extracts from the raw traces.
 
 \appendix
 \section{Field model details}\label{sec:fieldmodel}
@@ -853,6 +854,78 @@ Table~\ref{tab:exp2-refinement}: L2 objective, L3 change, the largest
 40-angle, tight or shifted change, and the conforming change where stator
 offsets are zero.}
 \label{tab:exp2b-refinement}\input{tables/exp2b-refinement.tex}
+\end{table}
+
+\paragraph{Paths before the crossings.}
+Up to the primary crossing the validated objectives of F and A$'$ agree
+within 0.4\% in space A and within 0.9\% at three space-B starts; at
+space-B LHS~2 and LHS~4 the iterates drift apart before the $T_{99}$
+crossing, by 29\% at the crossing validation and 18\% one validation
+before it, and at LHS~2 F uses one training evaluation fewer, yet each
+crossing comes at the same validation. F$_w$ and its A$'$ cross every
+target after the same number of validations as F from every start, except
+F$_w$'s $T_{50}$ crossing at space-B LHS~3: its third validated objective,
+$0.46F_0$, misses $T_{50}$ once the allowance is added, and its next five
+fall below the mean floor, so it crosses six validations later (the
+per-start ratio of 6.92 below).
+
+\paragraph{Warm-stencil arm F$_w$.}
+Its \href{https://github.com/rjwalters/geode-fem/issues/1224}{protocol} was
+posted at 15:18~UTC on 2026-10-21 and frozen by a comment at 17:54~UTC,
+before the first F$_w$ run began at 20:30~UTC (GitHub timestamps; the
+protocol text was never edited). The session ran on the same host type with
+15 concurrent processes and a calibrated unit of $69.09\,\mathrm{s}$; the
+anchor recomputation agreed within $2.4\times10^{-13}$, no run was
+host-contaminated, and the one-minute load peaked at 17.4. A SHA-256
+inventory of its 1,180 files was taken on the host before it stopped and
+timestamped by two RFC~3161 authorities. In space A, F$_w$ ran to the budget
+in four of five runs and converged in one, and its A$'$ converged in two,
+stopped in the solver in two and reached the budget in one; in space B all
+ten runs stopped at $T_{99}$. The other targets give F$_w$/A$'$ of 1.69 in
+space A and 2.59 ($T_{90}$) and 3.02 ($T_{50}$, with one start at 6.92) in
+space B (Table~\ref{tab:exp2c-ratios}). Of F$_w$'s 263 gradients, 262
+warm-started every stencil from its base; one, at 110 units in space-A
+LHS~2, fell back to cold stencils because its base had not been retained.
+This session's A$'$ reproduces the F session's A$'$ at the primary targets
+within 4\% in each session's units, and the selected A$'$ designs coincide
+for six of seven roles; the earliest space-B $T_{50}$ crossing differs
+because three starts cross within 1.56--1.60 units of each other and the
+timing noise reorders them.
+
+On the L1 check, F$_w$'s max-norm relative errors are 0.92 to 1.08 times
+F's at the four points, which passes the frozen gate of ten times F's, and
+its component-wise check fails at every point: SW3 of the mean gradient at
+the space-A interior point (as for F), Sr1 of the objective gradient at
+both $\theta_0$ points, and SW1, SW4 and Sr1 at the space-B interior point.
+In the step sweep at that point the forward errors of the three failing
+objective-gradient components are $-3.1\times10^{-4}$ to $-3.8\times10^{-4}$,
+$-3.1\times10^{-3}$ and $-3.0\times10^{-2}$ to $-3.1\times10^{-2}$ at steps
+of $10^{-5}$, $10^{-6}$ and $10^{-7}$\,m, and central differences at
+$10^{-6}$ bring them below $1.2\times10^{-7}$. On a single thread of the
+check host, a warm stencil takes 0.32--0.37 of a cold stencil's Newton
+iterations and 0.48--0.53 of its wall time.
+
+The final checks of F$_w$'s and its A$'$'s selected designs completed all 84
+checks of 13 designs (Table~\ref{tab:exp2b-refinement} has the
+corresponding F results). The primary check reproduces the study's
+$F_{\mathrm{val}}$ within $4.1\times10^{-4}$ relative; L3 changes $F$ by
+$-2.9\%$ to $+2.6\%$ ($-2.9\%$ to $+1.1\%$ at the crossings), the 40-angle,
+tight and shifted checks by at most $0.03\%$, and the conforming estimator
+gives $0.9\%$ to $4.4\%$ more ripple on the space-A designs. All ten target
+crossings keep their target at L3 with at least 15\% margin, every
+candidate keeps the mean floor, the closest by 0.044\%, and an independent
+selection program chose the same 13 designs, bit for bit. These checks used
+a rebuilt refinement binary: the pinned one (SHA-256 \texttt{679a40c8}) was
+deleted with its build directory and rebuilt from the same source commit,
+\texttt{63b3e3d8}, as \texttt{c75fe847}. Twelve earlier checks covering all
+seven check types, rerun with the rebuilt binary, reproduce every
+non-timing result field (4,181 fields) exactly.
+
+\begin{table}[H]\centering\small
+\caption{Warm-stencil arm: charged time units to the first attaining
+validation for A$'$ and F$_w$ (repeat~1, F$_w$ session units) and their
+ratio per start, with the geometric mean.}
+\label{tab:exp2c-ratios}\input{tables/exp2c-ratios.tex}
 \end{table}
 
 \section{Forward reproduction details}\label{sec:forward}

@@ -250,15 +250,15 @@ leaves the time-to-target comparison unchanged. At held-out currents
 0.25 and 0.75, part of space B's extra reduction is lost
 (Appendix~\ref{sec:exp2-times}).
 
-\section{Post-hoc ablation: adjoint against finite-difference gradients}\label{sec:exp2-fd}
+\section{Post-hoc ablations: adjoint against finite-difference gradients}\label{sec:exp2-fd}
 The contrast of Section~\ref{sec:optimization} changes the search strategy
-and the gradient source together. This ablation changes only how SLSQP
-obtains its gradient, and therefore what the gradient costs. It was added
-after the main outcomes were known and is not part of the preregistered
-study; its public protocol was frozen before any of its runs (Code and data
-availability).
+and the gradient source together. Two ablations change only how SLSQP
+obtains its gradient, and therefore what the gradient costs. Both were
+added after the main outcomes were known and are not part of the
+preregistered study; each public protocol was frozen before any of its
+runs (Code and data availability).
 
-\paragraph{Protocol.}
+\paragraph{Protocols.}
 Method F is the safeguarded SLSQP of A with identical bounds, constraints,
 restoration, validation policy, targets, mean floor and stopping rules.
 Only the gradients of the objective and of the mean constraint change: they
@@ -268,68 +268,76 @@ so one gradient costs $n$ extra training solves ($n=8$ in space A and 18 in
 space B). Each stencil solve is an ordinary training solve on the base
 point's mesh generation, and like every training solve in the
 preregistered training configuration it starts Newton-cold (all 40 traces
-record a cold start), so it costs as much as any training solve. A component whose forward step is unusable
+record a cold start). A component whose forward step is unusable
 (outside the box, unbuildable or on another mesh generation) takes the
-backward step, as 8\% of components did; no gradient was refused. Every
-solve is charged, and the geometry-constraint Jacobians remain analytic.
-Every run, F and A$'$ alike, is one single-threaded process, so F's $n$
-stencil solves run one after another and the time ratio is also a ratio of
-compute; solving the stencil in parallel would shorten F's wall time per
-gradient but not its compute. A is rerun unchanged in the same session as
-A$'$, so the comparison shares host, time unit and load: both methods run
-from the five starts, in both spaces, with two repeats and rotated order,
-giving 40 runs of 120 units on the L1 training model. The primary estimand
-is, per start, the repeat-1 ratio F/A$'$ of time to $T_{90}$ in space A and
-to $T_{99}$ in space B; a censored cell gives no finite ratio.
+backward step, as 8\% of components did; no gradient was refused. Method
+F$_w$, the second arm, is F except that each stencil solve starts Newton
+from its base point's retained converged state on the same mesh generation,
+which makes it the stronger finite-difference competitor. Every solve is
+charged, and the geometry-constraint Jacobians remain analytic. Every run is
+one single-threaded process, so the $n$ stencil solves run one after
+another and the time ratio is also a ratio of compute; solving the stencil
+in parallel would shorten the wall time per gradient but not its compute.
+Each arm runs with A rerun unchanged in the same session (A$'$), sharing
+host, time unit and load, from the five starts in both spaces on the L1
+training model at 120 units: F with two repeats (40 runs), F$_w$ with
+repeat~1 only (20 runs). The primary estimand is, per start, the repeat-1
+time ratio to $T_{90}$ in space A and to $T_{99}$ in space B; a censored
+cell gives no finite ratio.
 
 \paragraph{Results.}
-Both F and A$'$ reach $T_{50}$ and $T_{90}$ in space A and all three
-targets in space B from all five starts, in both repeats; neither reaches
-$T_{99}$ in space A, and no cell is censored. The adjoint reaches the
-primary target sooner from every start (Fig.~\ref{fig:exp2b}): the
-geometric-mean F/A$'$ ratio is 2.47 in space A (range 2.45--2.52) and 4.11
-in space B (3.84--4.33), and repeat 2 gives 2.49 and 4.04
-(Table~\ref{tab:exp2b-ratios}). Both cross each target after the same
-number of validations from every start. Up to the primary crossing their
-validated objectives agree within 0.4\% in space A and within 0.9\% at
-three space-B starts; at space-B LHS~2 and LHS~4 the iterates drift apart
-before the $T_{99}$ crossing, by 29\% at the crossing validation and 18\%
-one validation before it, and at LHS~2 F uses one training evaluation fewer,
-yet each crossing comes at the same validation. The gap is therefore mainly
-the cost of the gradient. Costs are in the session's unit,
-the median cold validation solve (66.66\,s). One finite-difference gradient
-costs F a median of 1.90 units with eight parameters and 4.25 with 18,
-about 0.24 units per stencil solve, while one adjoint gradient costs A$'$
-0.057 and 0.061 units: per gradient, F pays 33 and 70 times as much. Two
-factors shrink that ratio. Every training evaluation, with or without a
-gradient, costs a training solve that both arms pay (medians 0.240 and
-0.236 units for F, 0.232 and 0.245 for A$'$), so an evaluation with a
-gradient costs F 7.4 and 14.7 times as much as A$'$. And only a median 68\%
-and 77\% of F's evaluations request a gradient, the others being
-line-search evaluations, whereas A$'$ requests one at every evaluation;
-with both factors the expected ratio is 5.3 and 11.5, against the measured
-5.58 and 10.07 once validation is excluded.
-
+Both finite-difference arms and both controls reach $T_{50}$ and $T_{90}$
+in space A and all three targets in space B from all five starts; none
+reaches $T_{99}$ in space A, and no cell is censored. Against the stronger
+baseline, the adjoint reaches the primary target sooner from every start
+(Fig.~\ref{fig:exp2b}): the geometric-mean F$_w$/A$'$ ratio is 1.71 in
+space A (range 1.68--1.77) and 2.70 in space B (2.62--2.79). Against
+cold-started stencils it is 2.47 (2.45--2.52) and 4.11 (3.84--4.33), with
+repeat 2 giving 2.49 and 4.04 (Table~\ref{tab:exp2b-ratios}); compared
+across sessions, F$_w$ takes about 0.72 and 0.68 of F's time in seconds.
+All three arms cross each primary target after the same number of
+validations from every start, with one exception at a secondary target
+(Appendix~\ref{sec:exp2-times}), so each gap is mainly the cost of the
+gradient. Excluding the validation charges up to each crossing, F$_w$/A$'$
+becomes 3.23 and 6.10, and F/A$'$ 5.58 and 10.07.
 
 \begin{figure}[t]\centering
 \includegraphics[width=\linewidth]{figures/exp2b-per-start.pdf}
 \caption{Charged wall time, in minutes, to the primary target from each
-start (repeat~1): A$'$ (SLSQP with adjoint gradients) and F (the same SLSQP
-with forward-difference gradients) from the ablation session, and B (COBYQA)
-from the main study at the same starts. Minutes avoid the 6\% difference
-between the two sessions' time units. The cross marks the start from which
-B did not reach $T_{99}$; it is drawn at B's 120-unit budget. The row of
-numbers above the line gives each start's F/A$'$ ratio of charged time,
-the estimand of Table~\ref{tab:exp2b-ratios}.}
+start (repeat~1): A$'$ (SLSQP with adjoint gradients, from the F$_w$
+session), F$_w$ and F (the same SLSQP with warm- and cold-started
+forward-difference gradients, from their own sessions), and B (COBYQA,
+main study). Minutes avoid the 3--6\% differences between the sessions'
+time units. The cross marks the start from which B did not reach $T_{99}$;
+it is drawn at B's 120-unit budget. The two rows above the line give each
+start's F$_w$/A$'$ (upper) and F/A$'$ (lower) ratio of charged time within
+its own session.}
 \label{fig:exp2b}
 \end{figure}
 
-In space B all 20 runs stop at the $T_{99}$ crossing. After the crossings
-in space A, F ran to the budget in eight of ten runs, without improving on
-A$'$'s best designs (Appendix~\ref{sec:exp2-times}).
+\paragraph{Gradient cost.}
+Costs are in each session's unit, the median cold validation solve (66.66
+and 69.09\,s). One adjoint gradient costs A$'$ 0.057 and 0.061 units with
+eight and 18 parameters. One finite-difference gradient costs F 1.90 and
+4.25 units, about 0.24 units per cold stencil solve, 33 and 70 times the
+adjoint; it costs F$_w$ 0.97 and 2.36 units, against 0.054 and 0.059 for
+the adjoint in F$_w$'s session, 18 and 40 times as much. A
+warm stencil evaluation takes a median of 60 Newton iterations over its 60
+field solves, against 170 and 167 for a cold training evaluation, and is
+charged a median of 0.117 and
+0.126 units against 0.220 and 0.233 for the session's base training solves,
+about half. Two factors shrink the per-gradient ratios. Every training
+evaluation costs a training solve that both arms pay (for F, medians 0.240
+and 0.236 units against 0.232 and 0.245 for its A$'$), so an evaluation
+with a gradient costs F 7.4 and 14.7 times as much as A$'$; and only a
+median 68\% and 77\% of F's evaluations request a gradient, whereas A$'$
+requests one at every evaluation. With both factors F's expected ratio is
+5.3 and 11.5, against the measured 5.58 and 10.07 once validation is
+excluded. One of F$_w$'s 263 gradients fell back to cold stencils, at 110
+units, long after that run's crossings.
 
 \paragraph{Gradient accuracy.}
-On the L1 training model, with L2 validation as in the session and the
+On the L1 training model, with L2 validation as in the sessions and the
 frozen step, F's gradients agree with the adjoint within a max-norm relative
 error of $5.2\times10^{-4}$ to $1.9\times10^{-3}$ for $F$ and at most
 $7.2\times10^{-4}$ for the full-current mean at $\theta_0$ and an interior
@@ -337,43 +345,33 @@ point in each space, but one small component exceeds the check's
 per-component limit of $10^{-1}$ (Appendix~\ref{sec:exp2-times}). A step
 sweep at that point shows the excess to be forward-difference truncation
 error: a central difference with the same step reduces it from 0.24 to
-$2.2\times10^{-4}$ relative.
-A$'$ reproduces the main-study A within 6\% (Appendix~\ref{sec:exp2-times}).
+$2.2\times10^{-4}$ relative. Warm stencils trade accuracy for cost. F$_w$'s
+max-norm errors are 0.92 to 1.08 times F's, but its component-wise check
+fails at all four points: at three on small objective-gradient components
+(SW1, SW4 and Sr1, $9\times10^{-5}$ to $6.3\times10^{-4}$ of the largest),
+with a sign reversal on Sr1 at the space-B interior point (relative error
+1.58), and at the fourth on SW3 of the mean gradient, as for F. There
+the forward error of each failing component grows about tenfold per decade
+of decreasing step and a central difference removes it, which is the
+signature of a fixed offset in the warm-started objective (about
+$3\times10^{-9}\,\mathrm{N^2\,m^2}$) divided by the step, consistent with
+a warm stencil stopping after one Newton update at the frozen tolerance.
 
 \paragraph{The optimizer factor.}
-Against the main study, $\mathrm{B/A}=(\mathrm{B/F})(\mathrm{F/A'})$ splits
-the SLSQP-versus-COBYQA ratio approximately into an adjoint-versus-finite-difference
-factor and a factor for COBYQA against SLSQP driven by finite differences.
-Over the starts where B attains the primary target (all five in space A;
-four in space B, where B misses LHS~3), the main-study B/A geometric means
-are 3.10 and 7.79, and F/A$'$ over the same starts is 2.47 and 4.10. B/F
-per start, in each session's units, is 1.24, 1.45, 0.70, 0.95 and 2.27 in
-space A (geometric mean 1.22) and 3.84, 2.46, 1.26 and 1.12 in space B
-(1.91); in seconds, which removes the 6\% difference in time unit, the
-means are 1.30 and 2.03. The chain closes only approximately across
-sessions: (F/A$'$)(B/F) is 3.02 and 7.82 in units against 3.10 and 7.79.
-The adjoint factor is nearly the same from every start, whereas the
-optimizer factor varies from start to start: with eight parameters COBYQA
-matched or beat finite-difference SLSQP from two of five starts (B/F 0.70
-and 0.95 in units, 0.75 and 1.01 in seconds), and with 18 parameters
-finite-difference SLSQP was faster from every start. The final checks of
-F's and A$'$'s selected designs keep all ten target crossings within their
-targets at L3, with at least 15\% margin (Appendix~\ref{sec:exp2-times}).
-
-\paragraph{Warm-started stencils (method F$_w$).}
-F's cold stencil solves make it a weaker competitor than a
-finite-difference SLSQP that starts each stencil solve from the base state,
-as the derivative timings of Appendix~\ref{sec:cost} do at 0.30--0.40 of a
-cold forward per perturbed sweep. A second post-hoc arm, F$_w$, added after
-the outcomes of the main study and of F were known, measures that
-competitor under a public
-\href{https://github.com/rjwalters/geode-fem/issues/1224}{protocol} frozen
-before any of its runs. It is F except that each stencil solve starts Newton
-from the base point's converged training state on the same mesh generation,
-and it runs with an in-session A$'$ control from the five starts, repeat~1
-only, after an L1 accuracy check of the warm-started stencils. Per-start
-F$_w$/A$'$ ratios: [PENDING exp2c-fd-warm]. F$_w$ against F, across
-sessions: [PENDING exp2c-fd-warm]. Per-gradient cost and warm against cold
-stencil-solve cost: [PENDING exp2c-fd-warm]. L1 accuracy of warm-started
-stencils: [PENDING exp2c-fd-warm]. Final checks of F$_w$'s selected designs:
-[PENDING exp2c-fd-warm].
+Against the main study, $\mathrm{B/A}=(\mathrm{B/F_w})(\mathrm{F_w/A'})$
+splits the SLSQP-versus-COBYQA ratio approximately into an
+adjoint-versus-finite-difference factor and a factor for COBYQA against
+finite-difference SLSQP. Over the starts where B attains the primary target
+(all five in space A; four in space B, where B misses LHS~3), the main-study
+B/A geometric means are 3.10 and 7.79, and F$_w$/A$'$ over the same starts
+is 1.71 and 2.68. B/F$_w$ per start, in each session's units, is 1.83,
+2.07, 1.01, 1.38 and 3.23 in space A (geometric mean 1.76) and 6.11, 3.35,
+1.94 and 1.82 in space B (2.92); in seconds, which removes the 3\%
+difference in time unit, the means are 1.81 and about 3.0. The chain
+closes only approximately across sessions: (F$_w$/A$'$)(B/F$_w$) is 3.02
+and 7.82 in units against 3.10 and 7.79. Against warm finite-difference
+SLSQP, COBYQA was slower from every start, by as little as 1.01 at
+space-A LHS~2; against cold F it matched or beat SLSQP from two of five
+space-A starts (B/F 0.70 and 0.95). The final checks of the selected
+designs of all three arms keep every target crossing within its target at
+L3, with at least 15\% margin (Appendix~\ref{sec:exp2-times}).

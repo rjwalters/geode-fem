@@ -2,7 +2,7 @@
 
 Inputs: `motor-gradient-optimization.13.review/` (`verdict.md`, `review-opus.md` 39/44, `review-fable.md` 40/44; both advance, no critical flags) and the coordinator's v14 instructions of 2026-10-21. These include the operator's decision on required finding 1: a second post-hoc arm, method F_w with warm-started stencils, preregistered as issue #1224. V13 and earlier versions are unchanged.
 
-**Title: provisional.** The current title is kept for now ("Per core, adjoint gradients reach validated torque-ripple targets 2.5 and 4.1 times sooner than finite differences in a nonlinear motor model"). Its numbers are to be revisited once F_w's results exist: against warm-started stencils the adjoint's ratios will be smaller.
+**Title: provisional in the first v14 commit; rebased on F_w in the third (see the F_w addendum).** The current title is kept for now ("Per core, adjoint gradients reach validated torque-ripple targets 2.5 and 4.1 times sooner than finite differences in a nonlinear motor model"). Its numbers are to be revisited once F_w's results exist: against warm-started stencils the adjoint's ratios will be smaller.
 
 **No earlier number changed.** New derived quantities are recomputed by `verify_exp2b.py`:
 - the per-gradient ratio chain (33/70, 7.4/14.7, 5.3/11.5), from both the data and the printed inputs;
@@ -55,3 +55,35 @@ Source: the coordinator's full-text check of the author preprint, `../refs/yu201
 | Our ratio | The space-A B/A geometric means (3.10 at T90, 3.25 at T50) are recomputed by `verify_exp2.py` and asserted again beside the citation in `verify_exp2b.py`; the sentence is bound |
 | Lyu, Xu & Martins 2014 | Dropped as a lead: Yu et al. 2018 is its journal successor (same authors, same CRM study) and the 2014 paper has no Crossref/OpenAlex record (`citation-notes.md` updated) |
 | Length | Main text still pp. 1–14; abstract unchanged (236 words) |
+
+## Addendum: F_w results filled in (third v14 commit)
+
+Source: the coordinator's message with the completed #1224 run. Protocol: issue #1224 body (created 2026-10-21 15:18:46Z, never edited per GraphQL) plus the freeze comment (17:54:41Z), which covers the retained-base warm start, the accuracy gate and the component-wise caveat. First F_w run: 20:30Z. Code: PR #1225, merged as `669029c5`. **All nine `[PENDING exp2c-fd-warm]` markers are filled; the only marker left is `[PENDING zenodo-doi]`.**
+
+**New package data.**
+- `figures/src/data/exp2c/`:
+  - 20 run extracts and the 84 refinement results (`extract_exp2c.py`), hash-bound to the F_w inventory (`df509322…`, 1,180 files) and re-derived exactly from the raw session copy;
+  - setup records, inventory and RFC 3161/OTS records;
+  - refinement tools and cohort;
+  - selection check (bit-identical to the independent adapter);
+  - a #1224 protocol export.
+- The three L1 warm records, pinned at `669029c5` in the evidence manifest (129 entries).
+- The binary-equivalence record: the rebuilt binary's 12 results alongside the 12 original results, which are bound through `exp2b/refinement.json`.
+
+**New verifier.** `verify_exp2c.py` is chained from `verify.py` and listed in `.anvil.json`. With raw data it runs 5 PASS blocks; without, 4. It recomputes every new number.
+
+**Title (rebased on the strongest baseline).** "Per core, adjoint gradients reach validated torque-ripple targets 1.7 and 2.7 times sooner than warm-started finite differences in a nonlinear motor model".
+
+| Item | Resolution |
+|---|---|
+| Headline | Rebased on F_w. F_w/A′ geometric means are 1.71 (space A, T90; 1.68–1.77) and 2.70 (space B, T99; 2.62–2.79), all five starts, no censoring; 3.23 and 6.10 without validation. Cold F (2.47/4.11) is reported as the weaker baseline. F_w/F in seconds across sessions is about 0.72 and 0.68. The ratio still grows with dimension |
+| Gradient credit (changed conclusion) | Against warm FD-SLSQP the optimizer factor B/F_w is 1.76 and 2.92 (units; 1.81 and about 3.0 in seconds), matched starts, with COBYQA slower from every start (min 1.01). It is comparable to the adjoint factor (1.71, 2.68 on matched starts). **The v13/v14 sentence "the adjoint, more than the gradient-based optimizer, accounts for the advantage" is withdrawn**, and the abstract, introduction, §7 and Conclusion now say the two contribute comparable factors (the verifier asserts the old phrase is absent). Chain (F_w/A′)(B/F_w) = 3.02 and 7.82 vs B/A 3.10 and 7.79 |
+| Accuracy trade-off | Warm stencils cost about half: 0.117/0.126 units against 0.220/0.233 for base training solves, and 60 against 170/167 Newton iterations per evaluation; on the Mac, 0.32–0.37 of cold Newton iterations and 0.48–0.53 of wall time. They are less accurate on small components. Norm-wise errors are 0.92–1.08 of F's (gate passed), but the component-wise check fails at all four points: Sr1 at both θ0 points, SW1/SW4/Sr1 at the space-B interior with a sign reversal on Sr1 (1.58), and SW3 of the mean gradient at the space-A interior as for F. The space-B warm sweep shows 1/h growth and central-difference removal, i.e. a fixed objective offset of about 3e-9 N²m² |
+| Crossings | All arms cross each **primary** target after the same number of validations. **One exception** at a secondary target: F_w's T50 at space-B LHS 3, where the third validation misses T50 by the allowance and the next five fall below the mean floor (ratio 6.92). The verifier asserts exactly this exception. The introduction and §5 say "primary" |
+| Coordinator summary vs data | "0 cold fallbacks" → **1 of 263 gradients** (space-A LHS 2, at 110 units, after the run's crossings) fell back to cold stencils (`base_not_retained`). "A′ selected designs have the same keys" → **6 of 7 roles**: the space-B T50 earliest crossing differs because three starts cross within 1.56–1.60 units and timing noise reorders them. "A′ reproduces #1218's A′ within about 4%" → within 4% (max 4.04%) in each session's units. "Mac wall 0.48–0.52" → **0.48–0.53** recomputed from the record. Rebuilt binary: the coordinator's tool counted 4,175 non-timing fields; the verifier's explicit rule counts **4,181**, all identical. Other preliminary numbers (1.713, 2.704, 0.72, 0.68) agree |
+| Rounding corrections from the verifier | F_w per-gradient cost in space B is 2.36 (2.3649), not 2.37; chain product in space B is 7.82 (7.8249) |
+| Refinement and binary disclosure | 13 designs, 84 checks, all complete; 10 crossing roles on 7 designs keep targets at L3 with at least 15% margin; reproduction within 4.1e-4; selection bit-identical. App. D discloses the deleted pinned binary `679a40c8`, rebuilt at source `63b3e3d8` as `c75fe847`, with the 12-check, 7-type, 4,181-field equivalence |
+| Raw-trace archive | Rebuilt to include the F_w session: all three sessions, 5,453 + 2,118 + 1,180 files, 2,609,375,627 bytes, SHA-256 `a70a0699261e40573187a0e4007e8d4b50f608be707a31a59aaf87c650203f12`. `zstd -t` OK; member counts 5,453/2,118/1,180 plus 15 inventory and timestamp files and the README; digest re-checked. Recorded in the data statement and `deposit/deposit-record.json`; the two-session archive is kept under `motor-paper-raw-deposit/v1-two-sessions/`. Not uploaded; `[PENDING zenodo-doi]` remains |
+| Figure 5 | Adds F_w (diamonds) and a second ratio row (F_w/A′ above F/A′); the A′ shown is the F_w session's |
+| Results | Build: 0 overfull boxes, 0 undefined references, no `??`. `verify.py` 18 PASS blocks (chaining all three); `verify_exp2.py` 4; `verify_exp2b.py` 6 (8 with the raw ablation copy and the archive re-hash); `verify_exp2c.py` 4 (5 with the raw F_w copy). `numeric_consistency` and `audience_check` pass. `pending_marker`: `zenodo-doi` only. Main text pp. 1–14; 38 pages total; abstract 244 words |
+| Length | §5 restructured around both arms (Protocols, Results, Gradient cost, Gradient accuracy, The optimizer factor); F's pre-crossing path detail moved to App. D; new App. D paragraphs and Table for F_w |

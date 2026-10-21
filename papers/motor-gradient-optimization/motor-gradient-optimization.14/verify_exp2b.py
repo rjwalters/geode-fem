@@ -392,8 +392,8 @@ class _Norm(str):
 
 tex = (V / 'main.tex').read_text() + (V / 'optimization.tex').read_text(); txt = _Norm(tex)
 import re as _re0
-assert set(_re0.findall(r'\[PENDING:? ([^\]]+)\]', tex)) == {'zenodo-doi', 'exp2c-fd-warm'} and 'PENDING exp2b' not in tex
-assert r'\title{Per core, adjoint gradients reach validated torque-ripple\\' in tex and '2.5 and 4.1 times sooner than finite differences' in txt
+assert set(_re0.findall(r'\[PENDING:? ([^\]]+)\]', tex)) == {'zenodo-doi'} and 'PENDING exp2b' not in tex
+assert r'\title{Per core, adjoint gradients reach validated torque-ripple targets\\' in tex  # title rebased on F_w (verify_exp2c.py)
 # Package pointer bound to this directory (v13).
 assert V.name == 'motor-gradient-optimization.14' and ('\\texttt{papers/}\\allowbreak\\texttt{motor-gradient-optimization/}\\allowbreak\\texttt{' + V.name + '}') in tex
 assert not any(f'motor-gradient-optimization.{k}}}' in tex for k in range(1, 14))
@@ -403,29 +403,25 @@ import re as _re
 ab = tex[tex.index('\\begin{abstract}') + 16:tex.index('\\end{abstract}')]
 assert len(_re.sub(r'\$[^$]*\$', 'X', ab).replace('--', ' ').split()) <= 250
 for phrase in [
-    'With every run on one single-threaded core, the adjoint reached the primary target 2.47 and 4.11 times sooner, from every start, and 5.58 and 10.07 times sooner once the shared validation charges are excluded',
-    'COBYQA against finite-difference SLSQP, is 1.2 in the eight-parameter space, ranging from 0.70 to 2.27 across starts, and 1.9 in the 18-parameter space',
-    'on one core per run, the adjoint reaches the target 2.47 and 4.11 times sooner',
-    'so F\'s $n$ stencil solves run one after another and the time ratio is also a ratio of compute',
+    'and 2.47 and 4.11 times sooner than cold-started stencils',
+    'so the $n$ stencil solves run one after another and the time ratio is also a ratio of compute',
     'with a step of $10^{-6}$ in each coordinate\'s physical unit (metres for the lengths and offsets)',
     'as 8\\% of components did; no gradient was refused',
-    'the geometric-mean F/A$\'$ ratio is 2.47 in space A (range 2.45--2.52) and 4.11 in space B (3.84--4.33), and repeat 2 gives 2.49 and 4.04',
-    'Costs are in the session\'s unit, the median cold validation solve (66.66\\,s). One finite-difference gradient costs F a median of 1.90 units with eight parameters and 4.25 with 18, about 0.24 units per stencil solve, while one adjoint gradient costs A$\'$ 0.057 and 0.061 units: per gradient, F pays 33 and 70 times as much',
+    'Against cold-started stencils it is 2.47 (2.45--2.52) and 4.11 (3.84--4.33), with repeat 2 giving 2.49 and 4.04',
+    'Costs are in each session\'s unit, the median cold validation solve (66.66 and 69.09\\,s). One adjoint gradient costs A$\'$ 0.057 and 0.061 units with eight and 18 parameters',
     'from every start its best validated objective is within 0.4\\% of A$\'$\'s', 'was not tested; it does not affect the time to target, since every crossing happens at the same validation count',
     'F\'s gradients agree with the adjoint within a max-norm relative error of $5.2\\times10^{-4}$ to $1.9\\times10^{-3}$ for $F$ and at most $7.2\\times10^{-4}$ for the full-current mean',
     'but one small component exceeds the check\'s per-component limit of $10^{-1}$',
     'The L1 check was run after the ablation, with the frozen step and the frozen limits; it was not part of the ablation\'s protocol',
     'For every one of the eight scalar components, the finite-difference-minus-adjoint error of the mean gradient has the same sign at all four points, at L1 and at L0',
     '$-1.8$ to $-1.9\\times10^{-3}$ at L1 and $-3.0$ to $-3.1\\times10^{-3}$ at L0',
-    'took 2.5 and 4.1 times as long with 8 and 18 parameters on one core per run with cold-started stencils',
-    'A$\'$ reproduces the main-study A within 6\\%',
+    'and 2.5 and 4.1 times as long when they started cold',
     'the counterpart of our eight-parameter SLSQP-against-COBYQA ratios of 3.10--3.25. They do not compare adjoint with finite-difference gradients, which our ablation does',
-    'Both cross each target after the same number of validations from every start. Up to the primary crossing their validated objectives agree within 0.4\\% in space A and within 0.9\\% at three space-B starts; at space-B LHS~2 and LHS~4 the iterates drift apart before the $T_{99}$ crossing, by 29\\% at the crossing validation and 18\\% one validation before it, and at LHS~2 F uses one training evaluation fewer',
-    'per gradient, F pays 33 and 70 times as much',
-    'costs a training solve that both arms pay (medians 0.240 and 0.236 units for F, 0.232 and 0.245 for A$\'$), so an evaluation with a gradient costs F 7.4 and 14.7 times as much as A$\'$',
-    'with both factors the expected ratio is 5.3 and 11.5, against the measured 5.58 and 10.07 once validation is excluded',
+    'Up to the primary crossing the validated objectives of F and A$\'$ agree within 0.4\\% in space A and within 0.9\\% at three space-B starts; at space-B LHS~2 and LHS~4 the iterates drift apart before the $T_{99}$ crossing, by 29\\% at the crossing validation and 18\\% one validation before it, and at LHS~2 F uses one training evaluation fewer',
+    'One finite-difference gradient costs F 1.90 and 4.25 units, about 0.24 units per cold stencil solve, 33 and 70 times the adjoint',
+    'Every training evaluation costs a training solve that both arms pay (for F, medians 0.240 and 0.236 units against 0.232 and 0.245 for its A$\'$), so an evaluation with a gradient costs F 7.4 and 14.7 times as much as A$\'$',
+    'With both factors F\'s expected ratio is 5.3 and 11.5, against the measured 5.58 and 10.07 once validation is excluded',
     'like every training solve in the preregistered training configuration it starts Newton-cold (all 40 traces record a cold start)',
-    'as the derivative timings of Appendix~\\ref{sec:cost} do at 0.30--0.40 of a cold forward per perturbed sweep',
     'F\'s SLSQP met its stopping test in two of ten runs and ran to the budget in the other eight, whereas A$\'$ converged in four, stopped in the solver in four and reached the budget in two',
     'The last gradient of each space-A $\\theta_0$ run of F was cut off by the budget and is excluded from the cost medians',
     'it is drawn at B\'s 120-unit budget',
@@ -436,24 +432,18 @@ for phrase in [
     'SW3\'s forward error per unit step, $1.9\\times10^{3}$\\,N\\,m/m$^2$, is smaller than MH\'s ($2.8\\times10^{3}$\\,N\\,m/m$^2$) and SW2\'s ($9.7\\times10^{3}$\\,N\\,m/m$^2$), so SW3 fails because its mean-gradient slope at this design is small ($-7.7\\times10^{-3}$\\,N\\,m/m)',
     'the frozen step lies where truncation, not computational noise, dominates the forward-difference error',
     'a repeated base solve agrees bit for bit, and its forward values at $10^{-6}$ equal those of the L1 check',
-    'F\'s forward differences carry a truncation error that exceeds the per-component check limit on one small component',
-    'since both variants cross each target after the same number of validated designs',
-    'The row of numbers above the line gives each start\'s F/A$\'$ ratio of charged time',
+    'F\'s forward differences carry a truncation error and F$_w$\'s warm stencils a Newton-tolerance offset',
+    'since all arms cross each primary target after the same number of validated designs',
+    'The two rows above the line give each start\'s F$_w$/A$\'$ (upper) and F/A$\'$ (lower) ratio of charged time',
     'Validation is a median 61--65\\% of A$\'$\'s time to a target and 16--27\\% of F\'s',
-    'In space B all 20 runs stop at the $T_{99}$ crossing',
         'the SW3 component of the mean gradient is $-9.62\\times10^{-3}$ by finite differences against $-7.74\\times10^{-3}$ by the adjoint, a relative error of 0.24, on a component $8.7\\times10^{-5}$ times the largest',
-    'A$\'$\'s primary crossing times are 0.94--1.04 times those of the main-study A',
-    'the main-study B/A geometric means are 3.10 and 7.79, and F/A$\'$ over the same starts is 2.47 and 4.10',
-    'is 1.24, 1.45, 0.70, 0.95 and 2.27 in space A (geometric mean 1.22) and 3.84, 2.46, 1.26 and 1.12 in space B (1.91)',
-    'the means are 1.30 and 2.03', 'removes the 6\\% difference in time unit',
-    '(F/A$\'$)(B/F) is 3.02 and 7.82 in units against 3.10 and 7.79',
-    'with eight parameters COBYQA matched or beat finite-difference SLSQP from two of five starts (B/F 0.70 and 0.95 in units, 0.75 and 1.01 in seconds), and with 18 parameters finite-difference SLSQP was faster from every start',
-    'keep all ten target crossings within their targets at L3, with at least 15\\% margin',
+    'against cold F it matched or beat SLSQP from two of five space-A starts (B/F 0.70 and 0.95)',
+    'keep every target crossing within its target at L3, with at least 15\\% margin',
     'max-norm relative error of $5.1\\times10^{-4}$ to $1.9\\times10^{-3}$ for $F$ and $1.0\\times10^{-4}$ to $6.7\\times10^{-4}$',
     'up to $5.7\\times10^{-2}$ for SW3 at the space-B interior point',
     'calibrated unit of $66.66\\,\\mathrm{s}$, against $70.94\\,\\mathrm{s}$', 'agreed within $2.4\\times10^{-13}$', 'load peaked at 19.7',
     'inventory of the 2,118 session files',
-    'was posted at 22:34~UTC on 2026-10-20 and frozen by a comment at 23:00~UTC, before the first ablation run began at 02:07~UTC on 2026-10-21',
+    'was posted at 22:34~UTC on 2026-10-20 and frozen by a comment at 23:00~UTC, before the first F run began at 02:07~UTC on 2026-10-21',
     'All 90 checks of the 14 designs completed', 'within $6.3\\times10^{-4}$ relative',
     'L3 changes $F$ by $-2.9\\%$ to $+2.6\\%$ ($-2.9\\%$ to $+1.1\\%$ at the crossings)', 'by less than $0.03\\%$',
     'gives $1.1\\%$ to $4.4\\%$ more ripple on the space-A designs', 'with at least 15\\% margin', 'the closest by 0.044\\%',
@@ -463,7 +453,8 @@ for phrase in [
 DR = json.loads((V / 'figures/src/data/deposit/deposit-record.json').read_text())
 inv_main = (D2 / 'provenance/exp2-main-inventory-0650f4ee.sha256.txt').read_text().splitlines()
 assert DR['archive'] == 'motor-paper-raw-traces.tar.zst' and DR['uploaded'] is False and len(DR['sha256']) == 64
-assert DR['files'] == {'exp2-main': len(inv_main), 'exp2-fd-ablation': len(inventory)} == {'exp2-main': 5453, 'exp2-fd-ablation': 2118}
+inv_warm = (V / 'figures/src/data/exp2c/provenance/exp2-fd-warm-inventory-df509322.sha256.txt').read_text().splitlines()
+assert DR['files'] == {'exp2-main': len(inv_main), 'exp2-fd-ablation': len(inventory), 'exp2-fd-warm': len(inv_warm)} == {'exp2-main': 5453, 'exp2-fd-ablation': 2118, 'exp2-fd-warm': 1180}
 assert f"{DR['bytes']:,}" in tex and DR['sha256'][:32] in tex and DR['sha256'][32:] in tex and '[PENDING zenodo-doi]' in tex
 if os.environ.get('MOTOR_RAW_ARCHIVE'):
     h = hashlib.sha256()
@@ -472,4 +463,4 @@ if os.environ.get('MOTOR_RAW_ARCHIVE'):
             h.update(chunk)
     assert h.hexdigest() == DR['sha256'] and Path(os.environ['MOTOR_RAW_ARCHIVE']).stat().st_size == DR['bytes']
     print('PASS: raw-trace archive re-hashed against the deposit record.')
-print('PASS: Exp 2b tables (per-start times and ratios, validation charges, final checks) and every manuscript number; title; package pointer; only the zenodo-doi and exp2c-fd-warm pending markers.')
+print('PASS: Exp 2b tables (per-start times and ratios, validation charges, final checks) and every manuscript number; title; package pointer; only the zenodo-doi pending marker.')

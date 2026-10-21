@@ -82,41 +82,76 @@ s/geometry.pdf>] (./tables/coupling.tex) [4] (./optimization.tex [5 <./figures/
 coupling-convergence.pdf>] [6] [7] [8 <./figures/exp2-quality.pdf>] [9 <./figur
 es/exp2-time-to-target.pdf>] [10] [11 <./figures/exp2b-per-start.pdf>])
 [12] [13] [14 <./figures/design-gradients.pdf>]
-Underfull \hbox (badness 1173) in paragraph at lines 441--463
+Underfull \hbox (badness 1173) in paragraph at lines 439--461
 \OT1/cmr/m/n/10.95 (+20) final-refinement pro-gram is at [][]\OT1/cmtt/m/n/10.9
 5 3e4ee0c6[][]\OT1/cmr/m/n/10.95 (+20) . The pa-per pack-age is the di-rec-tory
  \OT1/cmtt/m/n/10.95 papers/
 [15] [16] [17] [18] (./tables/exp2-time-to-target.tex)
 (./tables/exp2-ratios.tex) [19] (./tables/exp2-refinement.tex) [20]
 (./tables/exp2-validation.tex) [21] [22] (./tables/exp2b-ratios.tex)
-(./tables/exp2b-validation.tex) [23] (./tables/exp2b-refinement.tex) [24]
-[25] [26 <./figures/refined-validation.pdf>] [27 <./figures/coupling-waveforms.
-pdf>] [28] [29 <./figures/opt120-waveforms.pdf>] [30]
-(./tables/gradient-cost.tex) [31 <./figures/model-gradients.pdf>]
-(./tables/design-points.tex) (./main.bbl [32] [33] [34] [35]) [36] (./main.aux)
+(./tables/exp2b-validation.tex) [23] (./tables/exp2b-refinement.tex)
+
+LaTeX Warning: Reference `tab:exp2c-ratios' on page 24 undefined on input line 
+886.
+
+[24] (./tables/exp2c-ratios.tex) [25] [26] [27 <./figures/refined-validation.pd
+f>] [28] [29 <./figures/coupling-waveforms.pdf>] [30] [31 <./figures/opt120-wav
+eforms.pdf>] [32] (./tables/gradient-cost.tex) [33 <./figures/model-gradients.p
+df>] (./tables/design-points.tex) (./main.bbl [34] [35] [36] [37]) [38]
+(./main.aux)
+
+LaTeX Warning: There were undefined references.
+
+
+LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
+
+
+Package rerunfilecheck Warning: File `main.out' has changed.
+(rerunfilecheck)                Rerun to get outlines right
+(rerunfilecheck)                or use package `bookmark'.
+
  )
-(see the transcript file for additional information)</usr/local/texlive/2026/te
-xmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2026/tex
-mf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2026/texm
-f-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2026/texmf
--dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/local/texlive/2026/texmf-
-dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb></usr/local/texlive/2026/texmf-di
-st/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/local/texlive/2026/texmf-dist
-/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/local/texlive/2026/texmf-dist/f
-onts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/texlive/2026/texmf-dist/fon
-ts/type1/public/amsfonts/cm/cmr12.pfb></usr/local/texlive/2026/texmf-dist/fonts
-/type1/public/amsfonts/cm/cmr17.pfb></usr/local/texlive/2026/texmf-dist/fonts/t
-ype1/public/amsfonts/cm/cmr6.pfb></usr/local/texlive/2026/texmf-dist/fonts/type
-1/public/amsfonts/cm/cmr7.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/p
-ublic/amsfonts/cm/cmr8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/publ
-ic/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/publi
-c/amsfonts/cm/cmsy6.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/
-amsfonts/cm/cmsy7.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/am
-sfonts/cm/cmsy8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsf
-onts/cm/cmti10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfo
-nts/cm/cmti8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfont
-s/cm/cmtt10.pfb>
-Output written on main.pdf (36 pages, 791396 bytes).
+(see the transcript file for additional information)
+pdfTeX warning (dest): name{table.caption.51} has been referenced but does not 
+exist, replaced by a fixed one
+
+
+pdfTeX warning (dest): name{figure.caption.50} has been referenced but does not
+ exist, replaced by a fixed one
+
+
+pdfTeX warning (dest): name{table.caption.52} has been referenced but does not 
+exist, replaced by a fixed one
+
+
+pdfTeX warning (dest): name{figure.caption.43} has been referenced but does not
+ exist, replaced by a fixed one
+
+
+pdfTeX warning (dest): name{figure.caption.44} has been referenced but does not
+ exist, replaced by a fixed one
+
+</usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb><
+/usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></
+usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></u
+sr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></us
+r/local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb></usr/
+local/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/lo
+cal/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/loca
+l/texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/
+texlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/local/te
+xlive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmr17.pfb></usr/local/texl
+ive/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmr6.pfb></usr/local/texlive
+/2026/texmf-dist/fonts/type1/public/amsfonts/cm/cmr7.pfb></usr/local/texlive/20
+26/texmf-dist/fonts/type1/public/amsfonts/cm/cmr8.pfb></usr/local/texlive/2026/
+texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2026/t
+exmf-dist/fonts/type1/public/amsfonts/cm/cmsy6.pfb></usr/local/texlive/2026/tex
+mf-dist/fonts/type1/public/amsfonts/cm/cmsy7.pfb></usr/local/texlive/2026/texmf
+-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb></usr/local/texlive/2026/texmf-d
+ist/fonts/type1/public/amsfonts/cm/cmti10.pfb></usr/local/texlive/2026/texmf-di
+st/fonts/type1/public/amsfonts/cm/cmti8.pfb></usr/local/texlive/2026/texmf-dist
+/fonts/type1/public/amsfonts/cm/cmtt10.pfb>
+Output written on main.pdf (38 pages, 800764 bytes).
 Transcript written on main.log.
 === bibtex main ===
 This is BibTeX, Version 0.99e (TeX Live 2026)
@@ -207,7 +242,7 @@ s/geometry.pdf>] (./tables/coupling.tex) [4] (./optimization.tex [5 <./figures/
 coupling-convergence.pdf>] [6] [7] [8 <./figures/exp2-quality.pdf>] [9 <./figur
 es/exp2-time-to-target.pdf>] [10] [11 <./figures/exp2b-per-start.pdf>])
 [12] [13] [14 <./figures/design-gradients.pdf>]
-Underfull \hbox (badness 1173) in paragraph at lines 441--463
+Underfull \hbox (badness 1173) in paragraph at lines 439--461
 \OT1/cmr/m/n/10.95 (+20) final-refinement pro-gram is at [][]\OT1/cmtt/m/n/10.9
 5 3e4ee0c6[][]\OT1/cmr/m/n/10.95 (+20) . The pa-per pack-age is the di-rec-tory
  \OT1/cmtt/m/n/10.95 papers/
@@ -215,11 +250,11 @@ Underfull \hbox (badness 1173) in paragraph at lines 441--463
 (./tables/exp2-ratios.tex) [19] (./tables/exp2-refinement.tex) [20]
 (./tables/exp2-validation.tex) [21] [22] (./tables/exp2b-ratios.tex)
 (./tables/exp2b-validation.tex) [23] (./tables/exp2b-refinement.tex) [24]
-[25] [26 <./figures/refined-validation.pdf>] [27 <./figures/coupling-waveforms.
-pdf>] [28] [29 <./figures/opt120-waveforms.pdf>] [30]
-(./tables/gradient-cost.tex) [31 <./figures/model-gradients.pdf>]
-(./tables/design-points.tex) (./main.bbl [32] [33] [34] [35]) [36] (./main.aux)
- )
+(./tables/exp2c-ratios.tex) [25] [26] [27 <./figures/refined-validation.pdf>]
+[28] [29 <./figures/coupling-waveforms.pdf>] [30] [31 <./figures/opt120-wavefor
+ms.pdf>] [32] (./tables/gradient-cost.tex) [33 <./figures/model-gradients.pdf>]
+ (./tables/design-points.tex) (./main.bbl [34] [35] [36] [37]) [38] (./main.aux
+) )
 (see the transcript file for additional information)</usr/local/texlive/2026/te
 xmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2026/tex
 mf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2026/texm
@@ -241,7 +276,7 @@ sfonts/cm/cmsy8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsf
 onts/cm/cmti10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfo
 nts/cm/cmti8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfont
 s/cm/cmtt10.pfb>
-Output written on main.pdf (36 pages, 791396 bytes).
+Output written on main.pdf (38 pages, 800468 bytes).
 Transcript written on main.log.
 === pdflatex -interaction=nonstopmode -halt-on-error main.tex ===
 This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex)
@@ -327,7 +362,7 @@ s/geometry.pdf>] (./tables/coupling.tex) [4] (./optimization.tex [5 <./figures/
 coupling-convergence.pdf>] [6] [7] [8 <./figures/exp2-quality.pdf>] [9 <./figur
 es/exp2-time-to-target.pdf>] [10] [11 <./figures/exp2b-per-start.pdf>])
 [12] [13] [14 <./figures/design-gradients.pdf>]
-Underfull \hbox (badness 1173) in paragraph at lines 441--463
+Underfull \hbox (badness 1173) in paragraph at lines 439--461
 \OT1/cmr/m/n/10.95 (+20) final-refinement pro-gram is at [][]\OT1/cmtt/m/n/10.9
 5 3e4ee0c6[][]\OT1/cmr/m/n/10.95 (+20) . The pa-per pack-age is the di-rec-tory
  \OT1/cmtt/m/n/10.95 papers/
@@ -335,11 +370,11 @@ Underfull \hbox (badness 1173) in paragraph at lines 441--463
 (./tables/exp2-ratios.tex) [19] (./tables/exp2-refinement.tex) [20]
 (./tables/exp2-validation.tex) [21] [22] (./tables/exp2b-ratios.tex)
 (./tables/exp2b-validation.tex) [23] (./tables/exp2b-refinement.tex) [24]
-[25] [26 <./figures/refined-validation.pdf>] [27 <./figures/coupling-waveforms.
-pdf>] [28] [29 <./figures/opt120-waveforms.pdf>] [30]
-(./tables/gradient-cost.tex) [31 <./figures/model-gradients.pdf>]
-(./tables/design-points.tex) (./main.bbl [32] [33] [34] [35]) [36] (./main.aux)
- )
+(./tables/exp2c-ratios.tex) [25] [26] [27 <./figures/refined-validation.pdf>]
+[28] [29 <./figures/coupling-waveforms.pdf>] [30] [31 <./figures/opt120-wavefor
+ms.pdf>] [32] (./tables/gradient-cost.tex) [33 <./figures/model-gradients.pdf>]
+ (./tables/design-points.tex) (./main.bbl [34] [35] [36] [37]) [38] (./main.aux
+) )
 (see the transcript file for additional information)</usr/local/texlive/2026/te
 xmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2026/tex
 mf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2026/texm
@@ -361,5 +396,5 @@ sfonts/cm/cmsy8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsf
 onts/cm/cmti10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfo
 nts/cm/cmti8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfont
 s/cm/cmtt10.pfb>
-Output written on main.pdf (36 pages, 791396 bytes).
+Output written on main.pdf (38 pages, 800468 bytes).
 Transcript written on main.log.
