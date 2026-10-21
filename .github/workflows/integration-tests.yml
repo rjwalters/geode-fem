@@ -82,14 +82,14 @@ jobs:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Restore cargo registry + target
         id: cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cargo/registry
@@ -167,7 +167,7 @@ jobs:
       - name: Save cargo registry + target
         if: steps.build.outcome == 'success' && steps.cache.outputs.cache-hit != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             ~/.cargo/registry
@@ -261,14 +261,14 @@ jobs:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Restore cargo registry + target
         id: cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cargo/registry
@@ -368,7 +368,7 @@ jobs:
       - name: Save cargo registry + target
         if: steps.build.outcome == 'success' && steps.cache.outputs.cache-hit != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             ~/.cargo/registry
@@ -494,14 +494,14 @@ jobs:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Restore cargo registry + target
         id: cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cargo/registry
@@ -530,7 +530,7 @@ jobs:
       - name: Save cargo registry + target
         if: steps.build.outcome == 'success' && steps.cache.outputs.cache-hit != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             ~/.cargo/registry
@@ -594,14 +594,14 @@ jobs:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Restore cargo registry + target
         id: cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cargo/registry
@@ -642,7 +642,7 @@ jobs:
       - name: Save cargo registry + target
         if: steps.build.outcome == 'success' && steps.cache.outputs.cache-hit != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             ~/.cargo/registry
@@ -742,14 +742,14 @@ jobs:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Restore cargo registry + target
         id: cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cargo/registry
@@ -795,7 +795,7 @@ jobs:
       - name: Save cargo registry + target
         if: steps.build.outcome == 'success' && steps.cache.outputs.cache-hit != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             ~/.cargo/registry
@@ -865,13 +865,13 @@ jobs:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry + target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -897,13 +897,13 @@ jobs:
     env:
       CARGO_TERM_COLOR: never
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Restore cargo registry + target
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cargo/registry
@@ -929,10 +929,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -960,10 +960,10 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Regenerate exact historical mesh bytes
@@ -971,7 +971,7 @@ jobs:
           python -m pip install numpy==2.5.4 gmsh==4.15.2
           python -I benchmarks/motor_optimization/final_refinement/smoke/regenerate_meshes.py \
               --out /tmp/final-refinement-meshes
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: final-refinement-meshes
           path: /tmp/final-refinement-meshes
@@ -987,16 +987,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: final-refinement-meshes
           path: /tmp/final-refinement-meshes
