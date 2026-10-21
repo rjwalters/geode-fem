@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "thread": "motor-gradient-optimization",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-21T08:40:00Z",
+      "completed": "2026-10-21T08:53:07Z"
+    }
+  },
+  "metadata": {
+    "iteration": 13,
+    "max_iterations": 10,
+    "revised_from": 12,
+    "note": "Operator-directed revision beyond max_iterations. Outstanding dependencies: [PENDING fd-step-sweep] (separate PR measuring a step sweep at the failing L1 point) and [PENDING zenodo-doi] (operator deposit of the raw-trace archive).",
+    "evidence_snapshot": {
+      "brief_mtime": 1792535733.1705203,
+      "refs_mtime": 1792535733.5861146
+    }
+  }
+}
