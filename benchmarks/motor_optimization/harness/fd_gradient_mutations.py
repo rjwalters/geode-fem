@@ -17,7 +17,8 @@ import sys
 import tempfile
 
 HERE = Path(__file__).resolve().parent
-TESTS = ("FdGradientTests", "AblationQueueTests", "FdGradientCheckLevelTests")
+TESTS = ("FdGradientTests", "AblationQueueTests", "FdGradientCheckLevelTests",
+         "FdStepSweepTests")
 MUTATIONS = (
     # ── [#1218] an uncharged FD solve ───────────────────────────────────
     ("fd_stencil_solve_uncharged [#1218]", "driver.py",
@@ -144,6 +145,30 @@ MUTATIONS = (
     ("fd_check_meshes_not_verified", "fd_gradient_check.py",
      '        raise SystemExit(f"refusing to overwrite {a.out}")\n    verify_meshes(a.level)',
      '        raise SystemExit(f"refusing to overwrite {a.out}")'),
+    # ── fd_step_sweep.py (#1218 diagnostic) ─────────────────────────────
+    ("sweep_central_uses_the_forward_base", "fd_step_sweep.py",
+     'lo = base if scheme == "forward" else stencil[("-", h)]', 'lo = base'),
+    ("sweep_divides_by_the_nominal_step", "fd_step_sweep.py",
+     'dx = plus["dx"] - (0.0 if scheme == "forward" else lo["dx"])', 'dx = h'),
+    ("sweep_remesh_not_probed", "fd_step_sweep.py",
+     'reason = run.fd_step_unusable(xs, k)', 'reason = None'),
+    ("sweep_stencil_point_not_solved_fresh", "fd_step_sweep.py",
+     '        if key not in solved:\n', '        if not solved:\n'),
+    ("sweep_base_repeat_skipped", "fd_step_sweep.py",
+     'again = run.fd_solve(x, generation, note="fd step sweep base repeat")',
+     'again = dict(base, generation=generation)'),
+    ("sweep_backward_step_is_forward", "fd_step_sweep.py",
+     'value(k, shifted(k, -h), f"fd sweep {name} -{h:g}")',
+     'value(k, shifted(k, h), f"fd sweep {name} -{h:g}")'),
+    ("sweep_no_1e-7_forward_step", "fd_step_sweep.py",
+     'FORWARD_STEPS = (1e-5, 1e-6, 1e-7)', 'FORWARD_STEPS = (1e-5, 1e-6)'),
+    ("sweep_interior_point_moved", "fd_step_sweep.py",
+     'return x0 + 0.25 * (centre - x0)', 'return x0 + 0.5 * (centre - x0)'),
+    ("sweep_default_level_0", "fd_step_sweep.py",
+     'choices=sorted(fdc.LEVELS), default=1)', 'choices=sorted(fdc.LEVELS), default=0)'),
+    ("sweep_meshes_not_verified", "fd_step_sweep.py",
+     '        raise SystemExit(f"refusing to overwrite {a.out}")\n    fdc.verify_meshes(a.level)',
+     '        raise SystemExit(f"refusing to overwrite {a.out}")'),
 )
 
 
@@ -173,7 +198,8 @@ def main():
                      "stderr_tail": result.stderr[-1500:]})
     print(json.dumps({"issue": 1218, "python": sys.version,
                       "scope": ("fake-evaluator tests of method F and the {A', F} queue, and the "
-                                "--level wiring of fd_gradient_check.py; no FEM"),
+                                "--level wiring of fd_gradient_check.py, and the fd_step_sweep.py "
+                                "diagnostic; no FEM"),
                       "tests": ["test_fd_gradient.py " + t for t in TESTS],
                       "baseline_source_sha256": {f: hashlib.sha256(s.encode()).hexdigest()
                                                  for f, s in sorted(sources.items())},

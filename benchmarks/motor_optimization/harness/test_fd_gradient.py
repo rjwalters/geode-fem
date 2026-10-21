@@ -31,7 +31,7 @@ import main_schedule  # noqa: E402
 import session  # noqa: E402
 from driver import FD_STEP, Refused, WiringError  # noqa: E402
 from evaluator import from_bits  # noqa: E402
-from test_harness import N, X0, make_run  # noqa: E402
+from test_harness import CENTRE_U, F0, N, X0, make_run  # noqa: E402
 
 #: The registered main queue and its method specs before method F existed
 #: (canonical JSON SHA-256 as `export_queue`, origin/main c08ce9e6): F must
@@ -736,6 +736,152 @@ class L1RecordTests(unittest.TestCase):
                              "PASS" if all(p["pass"] for p in rec["points"]) else "FAIL")
         self.assertEqual(data["status"], "PASS" if all(r["status"] == "PASS"
                                                        for r in data["records"]) else "FAIL")
+
+
+class FdStepSweepTests(unittest.TestCase):
+    """`fd_step_sweep.py` (#1218 diagnostic) on the fake's analytic model:
+    F_train is quadratic in x, so the forward error is exactly
+    h F''/2 = h 0.9 F0 scale / width_k^2 and the central error is roundoff;
+    the mean is linear (exact for both). No FEM."""
+
+    def sweep(self, u=None, components=("p0", "p1", "p2")):
+        import fd_step_sweep as s
+        run, fake, led, clock = fd_run()
+        u = CENTRE_U + 0.1 if u is None else u
+        return s.sweep(run, u, components), run, fake
+
+    def test_defaults_are_the_requested_diagnostic(self):
+        import fd_step_sweep as s
+        self.assertEqual(s.FORWARD_STEPS, (1e-5, 1e-6, 1e-7))
+        self.assertEqual(s.CENTRAL_STEPS, (1e-5, 1e-6))
+        self.assertEqual(s.COMPONENTS, ("SW3", "MH", "SW2"))
+        self.assertEqual(FD_STEP, 1e-6)  # the frozen protocol step is untouched
+        sp = {"x0": [1.0, 2.0], "lower": [0.0, 0.0], "upper": [4.0, 2.0]}
+        np.testing.assert_array_equal(s.point_x(sp, "theta0"), [1.0, 2.0])
+        # fd_gradient_check's interior point: x0 + 0.25 (centre - x0).
+        np.testing.assert_array_equal(s.point_x(sp, "interior"), [1.25, 1.75])
+
+    def test_forward_error_is_the_truncation_and_central_removes_it(self):
+        rec, run, fake = self.sweep()
+        u = run.problem.u_of(np.array(rec["x"]))
+        exact_dF, exact_dm = exact_gradients(run, u)
+        for comp in rec["components"]:
+            k = comp["component"]
+            curv = 0.9 * F0 * fake.scale / fake.width[k] ** 2  # F''/2
+            got = {(r["scheme"], r["step"]): r for r in comp["schemes"]}
+            self.assertEqual(sorted(got), [("central", 1e-6), ("central", 1e-5),
+                                           ("forward", 1e-7), ("forward", 1e-6),
+                                           ("forward", 1e-5)])
+            for (scheme, h), r in got.items():
+                self.assertTrue(r["usable"])
+                self.assertAlmostEqual(r["dF"]["adjoint"], exact_dF[k], places=15)
+                self.assertAlmostEqual(r["dx"], h if scheme == "forward" else 2 * h,
+                                       delta=1e-15)
+                if scheme == "forward":
+                    # (the fake's own roundoff floor shows at 1e-7)
+                    self.assertAlmostEqual(r["dF"]["signed_err"] / (curv * r["dx"]), 1.0,
+                                           delta={1e-5: 1e-4, 1e-6: 1e-3, 1e-7: 5e-2}[h])
+                else:
+                    self.assertLess(r["dF"]["abs_err"], 1e-3 * curv * h)
+                self.assertLess(abs(r["dmean_full"]["signed_err"]), 1e-8)
+                self.assertAlmostEqual(r["dmean_full"]["adjoint"], exact_dm[k], places=15)
+
+    def test_every_stencil_value_is_a_charged_value_solve_on_the_base_generation(self):
+        rec, run, fake = self.sweep()
+        tr = trains(fake)
+        # base, 5 distinct stencil points per component, the adjoint, the repeat
+        self.assertEqual(len(tr), 1 + 5 * 3 + 1 + 1)
+        self.assertEqual([bool(f.get("gradient")) for f in tr],
+                         [False] * 16 + [True, False])
+        self.assertEqual(rec["solves"], 1 + 5 * 3)
+        self.assertEqual(sum(1 for op, _ in fake.requests if op == "check"), 5 * 3)
+        x = np.array(rec["x"])
+        self.assertEqual(from_bits(tr[-1]["x_bits"]), x.tolist())
+        self.assertEqual(rec["base_repeat"]["generation"], rec["generation"])
+        self.assertEqual(rec["base_repeat"]["dF_abs"], 0.0)
+        for comp in rec["components"]:
+            self.assertEqual(len(comp["stencil"]), 5)
+            for st in comp["stencil"]:
+                self.assertIsNone(st["unusable"])
+                sign = 1.0 if st["side"] == "+" else -1.0
+                self.assertAlmostEqual(st["dx"], sign * st["step"], delta=1e-15)
+
+    def test_a_stencil_point_that_would_remesh_is_never_solved(self):
+        u = np.array(CENTRE_U, dtype=float)
+        u[0] = 0.95 - 5e-6  # +1e-5 in p0 (width 1) crosses the fake's remesh rule
+        rec, run, fake = self.sweep(u=u, components=("p0",))
+        for op, f in fake.requests:
+            if op == "train":
+                self.assertLessEqual(from_bits(f["x_bits"])[0], 0.95)
+        rows = {(r["scheme"], r["step"]): r for r in rec["components"][0]["schemes"]}
+        self.assertFalse(rows[("forward", 1e-5)]["usable"])
+        self.assertIsNone(rows[("forward", 1e-5)]["dF"]["fd"])
+        self.assertFalse(rows[("central", 1e-5)]["usable"])
+        self.assertTrue(rows[("forward", 1e-6)]["usable"])
+        self.assertTrue(rows[("central", 1e-6)]["usable"])
+        bad = [st for st in rec["components"][0]["stencil"] if st["unusable"]]
+        self.assertEqual([(st["side"], st["step"], st["unusable"]) for st in bad],
+                         [("+", 1e-5, "would_remesh")])
+
+    def test_main_defaults_to_the_failing_l1_point_and_verifies_meshes(self):
+        import fd_step_sweep as s
+        seen = []
+
+        def fake_sweep(binary, level, space, point, components, out_dir):
+            seen.append((level, space, point, components))
+            return {"components": []}
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "rec-1218-sweep.json"
+            with patch.object(s, "run_sweep", fake_sweep), \
+                    patch.object(s.fdc, "verify_meshes") as vm, \
+                    patch.object(s, "sha256", return_value="0" * 64), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(s.main(["--binary", "bin", "--out", str(out)]), 0)
+            vm.assert_called_once_with(1)
+            self.assertEqual(seen, [(1, "a", "interior", ("SW3", "MH", "SW2"))])
+            rec = json.loads(out.read_text())
+            self.assertEqual((rec["level"], rec["protocol_step"]), (1, FD_STEP))
+            self.assertIn("fd_step_sweep.py", rec["source_sha256"])
+            with self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
+                s.main(["--binary", "bin", "--out", str(out)])
+
+
+class FdStepSweepRecordTests(unittest.TestCase):
+    """The committed L1 record of `fd_step_sweep.py` (#1218 diagnostic)."""
+
+    def test_committed_l1_sweep_record_is_consistent(self):
+        import fd_gradient_check as c
+        import fd_step_sweep as s
+        data = json.loads((HERE / "fd-step-sweep-L1.json").read_text())
+        self.assertEqual((data["issue"], data["level"], data["protocol_step"]),
+                         (1218, 1, FD_STEP))
+        self.assertEqual(data["forward_steps"], list(s.FORWARD_STEPS))
+        self.assertEqual(data["central_steps"], list(s.CENTRAL_STEPS))
+        self.assertEqual(data["components"], list(s.COMPONENTS))
+        rec = data["record"]
+        self.assertEqual((rec["space"], rec["point"], rec["level"], rec["val_level"]),
+                         ("a", "interior", 1, 2))
+        self.assertEqual(rec["train_msh_sha256"], L1_TRAIN_SHA256)
+        self.assertEqual(rec["mesh_sha256"], L1_TRAIN_SHA256)
+        self.assertEqual(rec["val_mesh_sha256"], c.FROZEN_SHA256["icem_initial_sector_L2.msh"])
+        self.assertEqual(rec["anchor"]["sha256"], hashlib.sha256(
+            (HERE.parent / "anchor.json").read_bytes()).hexdigest())
+        self.assertEqual(rec["base_repeat"]["generation"], rec["generation"])
+        self.assertEqual(rec["charged"]["adjoint"]["entries"], 1)
+        self.assertEqual(rec["charged"]["remesh"]["entries"], 0)
+        self.assertEqual(rec["solves"], 1 + 5 * len(s.COMPONENTS))
+        self.assertEqual(rec["charged"]["forward"]["entries"], rec["solves"] + 2)
+        for comp in rec["components"]:
+            self.assertEqual(len(comp["schemes"]), 5)
+            for r in comp["schemes"]:
+                self.assertTrue(r["usable"])
+                for dq in ("dF", "dmean_full"):
+                    e = r[dq]
+                    self.assertAlmostEqual(e["signed_err"], e["fd"] - e["adjoint"], delta=1e-15)
+        # The sweep's forward 1e-6 values are the L1 check's (same point).
+        self.assertEqual(data["reproduction"]["file"], "benchmarks/motor_optimization/"
+                         "harness/fd-gradient-runtime-checks-L1.json")
+        self.assertEqual(len(data["reproduction"]["components"]), len(s.COMPONENTS))
 
 
 if __name__ == "__main__":

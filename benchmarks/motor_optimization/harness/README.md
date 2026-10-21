@@ -45,7 +45,8 @@ only) is in `../runs/pilot/`, with its `SUMMARY.md`.
 | `session.py` | The run manifest: gated calibration, then scheduling; requires explicit `--main`, `--fd-ablation` or `--smoke`. Main uses five methods (A–E); `--fd-ablation` the #1218 {A′, F} queue; both require a witnessed build receipt. |
 | `fd_ablation_schedule.py` | The #1218 {A′, F} ablation queue (40 jobs; `session.py --fd-ablation`). The 100-job main queue is unchanged. |
 | `fd_gradient_check.py`, `fd-gradient-runtime-checks.json`, `fd-gradient-runtime-checks-L1.json` | Method F's forward-difference gradient against the adjoint through the process (#1218): on the L0 CI model (default), and with `--level 1` on the main session's L1 training model. |
-| `test_fd_gradient.py`, `fd_gradient_mutations.py`, `fd-gradient-checks.json` | Method F, ablation-queue and `fd_gradient_check.py --level` tests without FEM, and their mutation record (#1218). |
+| `fd_step_sweep.py`, `fd-step-sweep-L1.json` | Diagnostic (#1218): forward (1e-5, 1e-6, 1e-7) and central (1e-5, 1e-6) differences against the adjoint at the failing L1 point; F's frozen protocol unchanged. |
+| `test_fd_gradient.py`, `fd_gradient_mutations.py`, `fd-gradient-checks.json` | Method F, ablation-queue and `fd_gradient_check.py --level` and `fd_step_sweep.py` tests without FEM, and their mutation record (#1218). |
 | `export_queue.py` | Export the same 100-job main queue for prelaunch inspection, without FEM/calibration. |
 | `summarize_session.py` | Writes `SUMMARY.md` for a session directory. |
 | `summarize_pilot.py` | The pilot analysis (#1198): attainment, budget profile, feasibility, failures, host load, quality-versus-cost curves (`curves.csv`, `quality_vs_cost.svg`) and method C's held-out-current diagnostic, into the session's `SUMMARY.md`. |
@@ -1287,3 +1288,26 @@ negligibility rule. Its absolute error, 1.9e-3, is the same as SW3's at θ0
 (1.8e-3, relative 1.8e-2). This is the frozen step's noise floor on a small
 component, not an O(1) wiring error. Space B passes at both points (worst
 component 1.4e-2, CPR7 backward at θ0). The step was not retuned.
+
+`fd_step_sweep.py` measures what that error is (a diagnostic only: F's
+frozen protocol and step are unchanged). At the failing point (L1, space A
+interior), for SW3, MH and SW2, it takes forward differences at 1e-5, 1e-6
+and 1e-7 and central differences at 1e-5 and 1e-6. All are value-only
+`train` replies on the base's mesh generation, against the adjoint. The base
+is re-solved at the end. The record is `fd-step-sweep-L1.json`, with its log
+beside it. The error is **forward-difference truncation**, not noise:
+
+- For every component and both quantities, the forward error divided by h is
+  constant to about 3 digits over the two decades. SW3 dmean_full gives
+  −1866 / −1880 / −1881 and SW2 dF gives 6918 / 6912 / 6908, so the error
+  falls 10× per decade of h.
+- Central differences remove it. At 1e-6, SW3 dmean_full is −7.7385e-3
+  against the adjoint's −7.7402e-3 (relative 2.2e-4, against 0.24 forward).
+  The 1e-5 → 1e-6 drop is about 100×, as h² predicts.
+- No noise floor shows down to 1e-7. The re-solved base is bit-identical
+  (cold Newton start), and the sweep's forward 1e-6 values equal the L1
+  check's bit for bit.
+
+SW3's failing relative error comes from its small gradient, not a larger
+error. The mean has a curvature of the usual size (h f''/2 ≈ 1.9e-3 at
+1e-6) on a slope of only 7.7e-3.
