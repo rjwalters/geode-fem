@@ -217,5 +217,33 @@ both cohorts.
 The closed-capture loader (`study_selection.load`, `capture_archive`,
 `trace_archive`) remains bound to the 100-run main queue. The ablation
 session has no closed capture (operator ruling, 2026-10-20), so its records
-reach `select` through an adapter over the verified copy.
+reach `select` through `ablation_selection.py`, an adapter over the verified
+copy (precedent: the main study's direct refinement, #1185 comment
+6284369486):
+
+    python -I ablation_selection.py --copy COPY --inventory INVENTORY \
+        --inventory-sha256 RETAINED_DIGEST --session SESSION_DIR \
+        --git-repo REPO --reviewed-commit PRODUCER_COMMIT --out selection.json
+
+It replaces only the capture. The inventory (`sha256sum` lines, paths relative
+to `COPY`) must match the separately retained digest and live outside the copy.
+The session tree must match it file for file, and every byte read is re-checked.
+`queue.json` must equal `fd_ablation_schedule.registered_jobs` exactly, and the
+journalled traces must be exactly those 40 jobs. Each job needs one eligible
+terminal attempt; a host-contaminated attempt is kept, rejected, and its clean
+rerun is selected. Missing, extra, renamed or duplicate traces are refused. The
+scientific checks are study_selection's own, through minimally parameterised
+`setup_evidence.check(cohort=...)` and `study_selection._assemble(cohort=...,
+queue=...)`, whose defaults are the main study. `trace_archive.py` is a pinned
+capture tool and stays byte-identical. The adapter's generation loader applies
+the same journal and trace checks (reusing `_trace`) to the ablation session,
+reading only through the inventory. They cover the replayed setup (no L0 model),
+ledger prefixes, geometry/discrete-guard/mesh evidence and complete design
+identity. The output carries `selection` and `plan = check_plan.make_plan(selection,
+include_conforming=True)`, plus an `evidence` block in place of the capture
+digest. Remote process absence, host attestation and the witnessed build are
+not re-established. Recovery generations and diagnostic repairs are refused.
+`test_ablation_selection.py` runs it on a synthetic 40-run copy built on the
+real frozen setup. `ablation_mutations.py` (run in CI) checks that every
+targeted mutation is killed.
 

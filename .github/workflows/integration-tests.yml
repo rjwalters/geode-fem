@@ -983,3 +983,12 @@ jobs:
         run: |
           python -I benchmarks/motor_optimization/final_refinement/mutation_checks.py \
               > /tmp/selection-mutations.json
+
+      - name: FD-ablation adapter mutation checks (#1218 verified-copy selection)
+        # The {A', F} ablation has no closed capture (operator ruling
+        # 2026-10-20); ablation_selection.py selects from a verified copy
+        # checked against its SHA-256 inventory. Every targeted mutation of
+        # the adapter and of its main-cohort-preserving refactors must be killed.
+        run: |
+          python -I benchmarks/motor_optimization/final_refinement/ablation_mutations.py \
+              > /tmp/ablation-selection-mutations.json
