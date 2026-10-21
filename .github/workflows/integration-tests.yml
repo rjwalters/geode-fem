@@ -883,6 +883,39 @@ jobs:
         run: |
           cargo test -p geode-optimize
 
+  motor-fw-evaluator-mutations:
+    # Issue #1224: method F_w's per-request stencil start in the evaluator
+    # (tests/common/icem_harness.rs, icem_remesh.rs). Every [#1224] Rust
+    # mutation of benchmarks/motor_optimization/harness/mutation_checks.py
+    # must be killed by motor_experiment2_harness / motor_experiment2_domain,
+    # in particular a retained (base) solve that warm-starts from an earlier
+    # one, which would make F_w's base solves differ from F's. Each mutation
+    # rebuilds only the test binaries; the script restores every file.
+    name: motor F_w evaluator mutation checks (rust, linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore cargo registry + target
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-core-tests-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-core-tests-
+
+      - name: F_w evaluator mutations ([#1224])
+        run: python3 -I benchmarks/motor_optimization/harness/mutation_checks.py --tag '#1224'
+
   motor-harness-driver:
     # Issue #1195: the Python driver of the experiment-2 optimizer harness
     # (benchmarks/motor_optimization/harness/): charging, the exact budget

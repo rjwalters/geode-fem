@@ -1019,6 +1019,32 @@ fn warm_protocol<Sp: Space>(space: impl Fn() -> FrozenSpace<Sp>) {
     assert!(again.get("warm").is_none());
     assert_eq!(values(&again), values(&stencil_cold));
 
+    // A LATER retained solve, after retained solves, stencils and default
+    // requests in the same session, is still F's solve at that point, bit
+    // for bit (Newton iterations included): retaining never warm-starts the
+    // base or any other training solve of F_w (#1224 protocol §1). Value
+    // and gradient requests alike.
+    let mut later = interior(&sp);
+    later[2] += 3e-6;
+    for gradient in [false, true] {
+        let mut p = later.clone();
+        p[3] += if gradient { 2e-6 } else { 0.0 };
+        let r = train_with(
+            &mut s,
+            &p,
+            json!({"retain_fields": true, "gradient": gradient}),
+        );
+        assert_eq!(r["ok"], true, "{r}");
+        assert_eq!(r["warm"]["retained"], true);
+        let own = train(&mut fresh(), &p, gradient, "iterate");
+        assert_eq!(values(&r), values(&own), "gradient {gradient}");
+        assert_eq!(solve_counts(&r), solve_counts(&own));
+    }
+    // And a stencil from the first base after them still starts from it.
+    let w2 = train_with(&mut s, &xs, json!({"warm_from_bits": x_bits(&x)}));
+    assert_eq!(w2["warm"]["start"], "same_mesh", "{w2}");
+    assert_eq!(values(&w2), values(&warm));
+
     // Malformed or contradictory fields: refused before any solve, charged,
     // the session alive and its bases unchanged.
     for bad in [
@@ -1079,11 +1105,48 @@ fn retained_bases_are_the_newest_distinct_points() {
     for k in 1..=n {
         assert!(s.warm_base(&x_bits(&pt(k))).is_some(), "{k}");
     }
+    // Re-retaining the newest point replaces its entry: no duplicate, so
+    // the oldest kept point (pt(1)) is not evicted.
+    train_with(&mut s, &pt(n), json!({"retain_fields": true}));
+    for k in 1..=n {
+        assert!(
+            s.warm_base(&x_bits(&pt(k))).is_some(),
+            "{k} after re-retaining {n}"
+        );
+    }
     // Retaining a kept point again makes it the newest, not a duplicate.
     train_with(&mut s, &pt(1), json!({"retain_fields": true}));
     train_with(&mut s, &pt(0), json!({"retain_fields": true}));
     assert!(s.warm_base(&x_bits(&pt(1))).is_some());
     assert!(s.warm_base(&x_bits(&pt(2))).is_none());
+
+    // A base re-solved at the same x_bits on another generation (a retired
+    // base re-solved after a remesh) replaces the stale entry, and that is
+    // the one a stencil finds: here generation 7, so the stencil on
+    // generation 0 starts cold and says why, instead of using the stale
+    // generation-0 fields.
+    let b = x_bits(&pt(3));
+    let stale = s.warm_base(&b).expect("retained").clone();
+    assert_eq!(stale.generation, 0);
+    s.retain_base(
+        b.clone(),
+        icem_remesh::WarmFields {
+            generation: 7,
+            ..stale
+        },
+    );
+    assert_eq!(s.warm_base(&b).unwrap().generation, 7);
+    let mut st = pt(3);
+    st[1] += 1e-6;
+    let r = train_with(&mut s, &st, json!({"warm_from_bits": b}));
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(r["warm"]["start"], "cold", "{r}");
+    assert_eq!(r["warm"]["reason"], "base_on_other_generation");
+    assert_eq!(r["warm"]["base_generation"], 7);
+    // Every other kept base is still there (one entry per point).
+    for k in [0usize, 1].into_iter().chain(4..=n) {
+        assert!(s.warm_base(&x_bits(&pt(k))).is_some(), "{k}");
+    }
 }
 
 #[test]

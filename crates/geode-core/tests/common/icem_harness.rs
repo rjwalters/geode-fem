@@ -463,9 +463,12 @@ impl<Sp: Space> Session<Sp> {
             .map(|(_, w)| w)
     }
 
-    /// Keep `fields` as the stencil base at `bits` (the newest; the oldest of
-    /// more than [`WARM_BASES`] is dropped).
-    fn retain_base(&mut self, bits: Vec<u64>, fields: WarmFields) {
+    /// Keep `fields` as the stencil base at `bits`, as a `retain_fields`
+    /// request does: it replaces any older entry at `bits` (a base re-solved
+    /// on a new generation is the one later found), becomes the newest, and
+    /// the oldest of more than [`WARM_BASES`] is dropped. Public for the CI
+    /// target only.
+    pub fn retain_base(&mut self, bits: Vec<u64>, fields: WarmFields) {
         self.warm_bases.retain(|(b, _)| *b != bits);
         self.warm_bases.push((bits, fields));
         if self.warm_bases.len() > WARM_BASES {
