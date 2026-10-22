@@ -51,7 +51,8 @@ These "above" sentences were left as they were, because each already names a fre
 |---|---|---|
 | Feedline (drawn, label) | teal, teal | teal, teal (unchanged) |
 | Resonator outline, label; (d) branch | orange, orange; orange | orange, orange; orange (unchanged) |
-| Island (a), island lead (b), island branch of (d) and its labels | blue | blue (unchanged) |
+| Island (a), island lead (b), island branch of (d) and its labels | blue | blue (unchanged), except $L_J$ |
+| $L_J$ in (d): coil and label | blue | purple (the junction's colour) |
 | Junction in (a) | not drawn; label "Junction" black | drawn as the sheet plus a small marker; label purple `#7B3FA0` |
 | Junction in (b) | sheet orange, label "1 × 1 µm, 4 triangles" orange | sheet purple, label "junction, 1 × 1 µm, 4 triangles" purple |
 | Ground | outline `#5F6B73` in (a); label "Ground" `#4D565C`; (c) sheet GRAY `#72777D`; (d) rail black | one grey `#5F6B73`: outline (a), label, sheet (c), rail and ground symbols (d) |
@@ -62,9 +63,9 @@ These "above" sentences were left as they were, because each already names a fre
 | "length L (total_length)" | second line of the orange resonator label | its own green label with a green leader to the meander |
 | k in (d) | grey | grey (unchanged; a circuit coupling, not a design parameter) |
 
-The caption adds the qubit island "(blue, as in (b) and (d))" and "the junction (purple, as in (b)) joins the island to ground". It also states the rule: "Each label has the colour of the object it names; the design parameters are annotated in green."
+The caption adds the qubit island "(blue, as in (b) and (d))" and "the junction (purple, as in (b) and as $L_J$ in (d)) joins the island to ground". It also states the rule: "Each label has the colour of the object it names; the design parameters are annotated in green."
 
-In (d), $L_J$ is the junction's inductance, but it is drawn in the island branch's blue, as the instruction asked ("the island branch of the circuit (d) stays blue").
+In (d), $L_J$ is the junction's inductance, so on the coordinator's follow-up its coil and label are purple, like the junction in (a) and (b). $C_\Sigma$, $L_s$, the "island" label and the branch wires stay blue. `check_v20_colours()` asserts the colours of both the $L_J$ and the $L_s$ coils.
 
 **Figures 2–5, checked for the same inconsistency**
 

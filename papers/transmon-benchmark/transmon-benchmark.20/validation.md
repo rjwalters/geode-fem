@@ -24,7 +24,8 @@ run. Inputs: `main` at `e74285bf`. Python 3.14, run as `python3.14 -I`.
   - the stretched-strip label set back to blue;
   - Figure 2's two-marker key removed;
   - Figure 5's extrapolated shape-derivative steps set back to green;
-  - the mapped band set back to green.
+  - the mapped band set back to green;
+  - the $L_J$ coil in Figure 1(d) set back to blue.
 - Every edited page rendered and inspected: page 1 (author block, abstract,
   Section 1), Figures 1, 2 and 5, page 17 (the new paragraph) and page 19.
 - v1–v19 unchanged.

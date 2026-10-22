@@ -1919,7 +1919,7 @@ def check_v20():
     assert "Independent Researcher / ZSpaceLabs.ai" in TEX[TEX.index("\\author{"):TEX.index("\\date{")]
     # Item 3: Figure 1's caption states the colour rule.
     contains("Each label has the colour of the object it names; the design parameters are annotated in green.")
-    contains("the junction (purple, as in (b)) joins the island to ground")
+    contains("the junction (purple, as in (b) and as $L_J$ in (d)) joins the island to ground")
     print("v20 guards: affiliation, the qubit frequency named and defined, where the shift comes from, Figure 1 colours")
 
 

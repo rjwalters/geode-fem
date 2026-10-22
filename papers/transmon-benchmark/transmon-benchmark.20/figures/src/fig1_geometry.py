@@ -18,8 +18,8 @@ circuit of Section 3.3, a schematic.
 
 v20 (coauthor clarity revision) uses one colour scheme: each label has the colour
 of the object it names (feedline teal, resonator orange, island blue in every
-panel, ground GROUND, box wall black), the junction has its own colour, JUNCTION,
-in (a) and (b) instead of the resonator's orange, and the design-parameter
+panel except L_J, ground GROUND, box wall black), the junction has its own colour, JUNCTION,
+in (a) and (b) instead of the resonator's orange and for L_J (coil and label) in (d), and the design-parameter
 annotations (c, L, the stretched strip and the translation by delta c) share one
 annotation colour, PARAM, distinct from every object colour.
 """
@@ -151,13 +151,13 @@ def main():
     d.plot([.30, .30], [ty, .70], color=BLUE, lw=1)
     coil(d, .30, .53, .70, n=3, color=BLUE)
     d.plot([.30, .30], [.53, .47], color=BLUE, lw=1)
-    coil(d, .30, .25, .47, n=3, color=BLUE)
+    coil(d, .30, .25, .47, n=3, color=JUNCTION)   # v20: L_J is the junction
     d.plot([.30, .30], [.25, gy], color=BLUE, lw=1)
     d.plot([.20], [ty], 'o', color=BLUE, ms=3)
     d.text(.20, ty + .05, 'island', fontsize=8, color=BLUE, ha='center', va='bottom')
     d.text(.02, .60, '$C_\\Sigma$', fontsize=8.5, color=BLUE, ha='left')
     d.text(.37, .615, '$L_s$', fontsize=8.5, color=BLUE, va='center')
-    d.text(.37, .36, '$L_J$', fontsize=8.5, color=BLUE, va='center')
+    d.text(.37, .36, '$L_J$', fontsize=8.5, color=JUNCTION, va='center')
     # resonator
     d.plot([.70, .88], [ty, ty], color=ORANGE, lw=1)
     d.plot([.70, .70], [ty, .55], color=ORANGE, lw=1); coil(d, .70, .30, .55, n=3, color=ORANGE)

@@ -273,7 +273,7 @@ def check_v20_colours(load, plt):
             'Ground': 'GROUND', 'Box wall': None, 'length $L$\n(total_length)': 'PARAM', '$c$': 'PARAM',
             'stretched strip': 'PARAM', 'translated\nby $\\Delta c$': 'PARAM',
             'junction,\n1 × 1 µm,\n4 triangles': 'JUNCTION', 'island\nlead': 'BLUE', 'island': 'BLUE',
-            'resonator': 'ORANGE', '$C_\\Sigma$': 'BLUE', '$L_s$': 'BLUE', '$L_J$': 'BLUE'}
+            'resonator': 'ORANGE', '$C_\\Sigma$': 'BLUE', '$L_s$': 'BLUE', '$L_J$': 'JUNCTION'}
     for label, key in want.items():
         assert label in texts, label
         got = hexc(texts[label].get_color())
@@ -286,6 +286,13 @@ def check_v20_colours(load, plt):
     for ax in (a, b):
         fills = {hexc(pc.get_facecolor()[0]) for pc in ax.collections if isinstance(pc, PolyCollection)}
         assert style['JUNCTION'] in fills and style['ORANGE'] not in (fills if ax is b else set()), fills
+    # (d): L_J is the junction, so its coil is the junction colour; the rest of the island branch (C_Sigma, L_s,
+    # the wires) stays blue. Coils are Arc patches: the L_s coil spans y 0.53-0.70, the L_J coil y 0.25-0.47.
+    from matplotlib.patches import Arc
+    arcs = [p for p in d.patches if isinstance(p, Arc) and abs(p.center[0] - .30) < 1e-9]
+    lj = {hexc(p.get_edgecolor()) for p in arcs if p.center[1] < .5}
+    ls = {hexc(p.get_edgecolor()) for p in arcs if p.center[1] > .5}
+    assert lj == {style['JUNCTION']} and ls == {style['BLUE']}, (lj, ls)
     # The c dimension and the delta-c arrow are in the annotation colour.
     arrows = [t for t in a.texts if t.get_text() == '' and t.arrow_patch is not None]
     assert len(arrows) == 2 and all(hexc(t.arrow_patch.get_edgecolor()) == style['PARAM'] for t in arrows)
@@ -502,7 +509,7 @@ def check_manuscript():
                     'The two-node circuit of Section~\\ref{sec:junction}',
                     'with the scalar trace-averaged permittivity (blue) and the sapphire tensor (orange)',
                     'Each label has the colour of the object it names; the design parameters are annotated in green',
-                    'the junction (purple, as in (b)) joins the island to ground']:
+                    'the junction (purple, as in (b) and as $L_J$ in (d)) joins the island to ground']:
         assert wording in norm, wording
     assert 'converged estimate' not in norm and 'conv.' not in norm
 

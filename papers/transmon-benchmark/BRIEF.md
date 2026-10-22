@@ -29,8 +29,8 @@ conflicts with the sections below, it wins; v19's section stands otherwise.
   kept. Every "x % above" sentence names the frequency ("qubit frequencies",
   not "qubits"), at most once per sentence.
 - **Figures:** one colour scheme. Each label has the colour of the object it
-  names; the junction has its own colour (purple) in Figure 1(a, b); the
-  island stays blue in (a), (b) and (d); the design-parameter annotations
+  names; the junction has its own colour (purple) in Figure 1(a, b) and
+  for $L_J$ in (d); the rest of the island stays blue; the design-parameter annotations
   are green, and the caption says so. Figure 2's pair-extrapolation key shows
   both markers. Figure 5 keeps one colour per method and draws the mapped
   band in the estimate-band grey. Figures 3 and 4 are unchanged.
