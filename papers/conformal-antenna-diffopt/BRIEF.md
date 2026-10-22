@@ -1,11 +1,25 @@
 ---
 title: "Shape-Adjoint Design of a Curved Conformal 2.4 GHz Patch Antenna on a Fixed 1.6 mm Board with a Differentiable Open-Radiator FEM"
-author: "Robb Walters"
+author: "Robb Walters, 2AM Logic; Crutcher Dunnavant, ZSpaceLabs.ai"
 venue: arxiv
 documentclass: anvil-paper
 anonymous: false
 web_search: true
 ---
+
+# v10 — v1 Zenodo release, 2026-10-22 — CURRENT
+
+**Current state: `conformal-antenna-diffopt.10/` (draft, not reviewed), 22 pages.**
+v10 = v9 with release metadata only (operator, geode-fem#1231). No other
+wording or number changed and no computation was run; v1–v9 stay immutable.
+Where this section conflicts with the sections below, it wins.
+
+- **Authors:** Robb Walters, "2AM Logic"; Crutcher Dunnavant, "ZSpaceLabs.ai"
+  (second author since the operator ruling of 2026-10-22, which superseded
+  the v5 "solo author" line). Each author has their own `\normalsize`
+  affiliation line. The `[PENDING coauthor-affiliation]` marker is gone.
+- **DOI:** the paper's reserved Zenodo DOI, 10.5281/zenodo.21480892, is under
+  the date on the title page. v10 is the v1 Zenodo release version.
 
 # Amendment for v5 (operator rulings, 2026-10-13/14)
 

@@ -5,7 +5,7 @@ skill: paper
 paper_number: 3
 documentclass: anvil-paper
 anonymous: false
-status_of_inputs: "Main study (#1185, 100 runs) and post-hoc ablations F (#1218, cold stencils) and F_w (#1224, warm stencils) complete and hash-bound; current package motor-gradient-optimization.18 (draft, not reviewed); v16 reviews 42/44 and 40/44; Zenodo DOI and coauthor affiliation pending"
+status_of_inputs: "Main study (#1185, 100 runs) and post-hoc ablations F (#1218, cold stencils) and F_w (#1224, warm stencils) complete and hash-bound; current package motor-gradient-optimization.19 (v1 Zenodo release of v18, not reviewed; paper DOI 10.5281/zenodo.23580548, raw-trace archive DOI 10.5281/zenodo.23580550); v16 reviews 42/44 and 40/44"
 claim: "Test whether exact field gradients reduce time to a validated motor-design target beyond calibrated simple models, and how that advantage depends on useful shape freedom."
 audience: "Computational electromagnetics, electric-machine optimization, and differentiable scientific computing researchers"
 venue_target: "Select from the validated main-study contribution; use the generic paper class initially"
@@ -20,8 +20,13 @@ science_card_id: 3
 The operator designated this work as GEODE's third paper on 2026-10-16,
 alongside the transmon and conformal-antenna papers. This brief establishes
 the research project. The operator requested the first manuscript on
-2026-10-16. **Current state (2026-10-22):** the package is
-`motor-gradient-optimization.18/`, a draft (not yet reviewed) reader-clarity
+2026-10-16. **Current state (2026-10-22) — CURRENT:** the package is
+`motor-gradient-optimization.19/`, the v1 Zenodo release of v18 (not yet
+reviewed; operator, geode-fem#1231). V19 changes only release metadata: each
+author's own affiliation (Robb Walters, 2AM Logic; Crutcher Dunnavant,
+ZSpaceLabs.ai), the paper's DOI 10.5281/zenodo.23580548 under the date, and
+the raw-trace archive's reserved DOI 10.5281/zenodo.23580550 in place of
+`[PENDING zenodo-doi]`. No pending marker remains. V18 was a reader-clarity
 revision of v17 for a reader from tensor compilers and ML systems: design
 spaces renamed S8/S18 and the ablation arms FD-cold/FD-warm, annotated
 geometry, cost vocabulary, and a gradient/optimizer decomposition of the
@@ -31,10 +36,10 @@ READY-WITH-AUDIT-FLAGS on the unlinked package path. The package reports
 the preregistered main study (#1185) and two post-hoc ablations under
 protocols frozen before any run: FD-cold (F in the records), cold-started
 forward-difference stencils (#1218), and FD-warm (F_w), warm-started
-stencils (#1224). Outstanding: `[PENDING zenodo-doi]`, the operator's
-deposit of the raw-trace archive (2,790,582,024 bytes, SHA-256
+stencils (#1224). The raw-trace archive (2,790,582,024 bytes, SHA-256
 `1dfbf388…a1b98b07`, unchanged since v17; the v16 archive
-`a70a0699…203f12` is superseded), and `[PENDING coauthor-affiliation]`.
+`a70a0699…203f12` is superseded) has the reserved DOI
+10.5281/zenodo.23580550; the deposit itself is the operator's.
 All earlier versions are unchanged.
 
 **Current headline.** Per core, with SLSQP held fixed, adjoint gradients
@@ -46,7 +51,7 @@ the gradient factor is 1.71--2.47 and 2.68--4.10 and the optimizer factor
 finite-difference baselines. The adjoint cuts the gradient's share of the
 time to target from 45--77% to about 5%.
 
-The author line is Robb Walters and Crutcher Dunnavant (operator ruling 2026-10-22; his affiliation is pending). Venue remains open.
+The author line is Robb Walters (2AM Logic) and Crutcher Dunnavant (ZSpaceLabs.ai) (operator ruling 2026-10-22; affiliations in v19). Venue remains open.
 
 
 ## Motivation
