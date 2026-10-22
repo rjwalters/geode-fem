@@ -1,0 +1,9 @@
+# Yu, Lyu, Xu & Martins 2018: full-text check (author preprint, MDO Lab)
+
+Yin Yu, Zhoujie Lyu, Zelu Xu, Joaquim R. R. A. Martins, "On the influence of optimization algorithm and initial design on wing aerodynamic shape optimization", *Aerospace Science and Technology* 75 (2018) 183–199. doi:10.1016/j.ast.2018.01.016. I read the author preprint (34 pp., mdolab.engin.umich.edu) on 2026-10-21. The PDF is not redistributed here.
+
+Findings relevant to the motor paper:
+- **No finite-difference-gradient arm.** All six gradient-based optimizers (SNOPT, SLSQP, PSQP, IPOPT, GCMMA, CONMIN) use the ADflow discrete adjoint, verified against complex step. The paper therefore does NOT measure adjoint vs FD gradients. Do not cite it as a prior measurement of that contrast.
+- **Optimizer benchmark at 8 variables.** Eight twist variables, coarse L3 grid, RANS/SA, CRM wing. The gradient-based optimizers are compared with three gradient-free ones (NOMAD, ALPSO, NSGA2). All except NSGA2 reach the same optimum, within 0.1 drag count. The gradient-free methods are 4× (NOMAD) to more than 100× (NSGA2) more expensive (conclusions). NOMAD needs 16× the iterations of the best gradient-based optimizers (§4). This is the analogue of the motor paper's A-vs-B (SLSQP vs COBYQA) contrast, at the same dimension.
+- **Motivation statement.** "...gradients computed using finite-difference approximations... As the number of design variables increases, the cost of this computation becomes prohibitive. Adjoint methods... evaluate the gradients with a cost that is independent of the number of design variables" (introduction). The motor F/A′ ablation quantifies exactly this.
+- It is the journal successor of the Lyu, Xu & Martins (2014) conference benchmark: same authors and same CRM study. Cite this record instead of the 2014 lead, which has no Crossref/OpenAlex record.
