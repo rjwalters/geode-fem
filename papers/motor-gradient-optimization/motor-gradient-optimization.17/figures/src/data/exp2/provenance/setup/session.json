@@ -1,0 +1,168 @@
+{
+ "issue": 1201,
+ "label": "main",
+ "session_id": "main-20261018T181644Z",
+ "budget_fe": 120.0,
+ "checkpoint_fe": 60.0,
+ "unit_seconds": 70.935572288,
+ "weights": {
+  "validation_eval": 1.0,
+  "train_forward_eval": 0.25889547333794816,
+  "adjoint_eval": 0.0583800062285613,
+  "validation_solve": 0.016666666666666666,
+  "train_forward_solve": 0.004314924555632469,
+  "adjoint_solve": 0.000973000103809355,
+  "validation_solves_per_eval": 60,
+  "train_solves_per_eval": 60
+ },
+ "theta0_train": {
+  "F": 0.008514893620421599,
+  "fractions": [
+   0.0,
+   0.5,
+   1.0
+  ],
+  "mean_full": 1.443787788642649,
+  "means": [
+   2.6561063983034614e-06,
+   0.6625523819938508,
+   1.443787788642649
+  ],
+  "stds": [
+   0.011900980863386455,
+   0.040484093675800054,
+   0.08206277130441035
+  ],
+  "x": [
+   0.007,
+   0.007,
+   0.019,
+   0.004,
+   0.0023,
+   0.001,
+   0.00825,
+   0.001
+  ]
+ },
+ "models": {
+  "L1": {
+   "train_mesh": "/home/ubuntu/geode-fem/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L1.msh",
+   "train_level": 1,
+   "train_mesh_sha256": "c4526a26904c73f68ba0987f0ca8995bcc0095f0e7936399d5920e167f35d7f5",
+   "theta0_train": {
+    "F": 0.008514893620421599,
+    "fractions": [
+     0.0,
+     0.5,
+     1.0
+    ],
+    "mean_full": 1.443787788642649,
+    "means": [
+     2.6561063983034614e-06,
+     0.6625523819938508,
+     1.443787788642649
+    ],
+    "stds": [
+     0.011900980863386455,
+     0.040484093675800054,
+     0.08206277130441035
+    ],
+    "x": [
+     0.007,
+     0.007,
+     0.019,
+     0.004,
+     0.0023,
+     0.001,
+     0.00825,
+     0.001
+    ]
+   },
+   "weights": {
+    "validation_eval": 1.0,
+    "train_forward_eval": 0.25889547333794816,
+    "adjoint_eval": 0.0583800062285613,
+    "validation_solve": 0.016666666666666666,
+    "train_forward_solve": 0.004314924555632469,
+    "adjoint_solve": 0.000973000103809355,
+    "validation_solves_per_eval": 60,
+    "train_solves_per_eval": 60
+   }
+  },
+  "L0": {
+   "train_mesh": "/home/ubuntu/geode-fem/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh",
+   "train_level": 0,
+   "train_mesh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "theta0_train": {
+    "F": 0.008584802316480341,
+    "fractions": [
+     0.0,
+     0.5,
+     1.0
+    ],
+    "mean_full": 1.4475011967377953,
+    "means": [
+     -1.2762695889873867e-06,
+     0.6647621484399627,
+     1.4475011967377953
+    ],
+    "stds": [
+     0.010143707533005912,
+     0.040559028337584756,
+     0.08268538404262374
+    ],
+    "x": [
+     0.007,
+     0.007,
+     0.019,
+     0.004,
+     0.0023,
+     0.001,
+     0.00825,
+     0.001
+    ]
+   },
+   "weights": {
+    "validation_eval": 1.0,
+    "train_forward_eval": 0.052417845251232484,
+    "adjoint_eval": 0.011507495445103912,
+    "validation_solve": 0.016666666666666666,
+    "train_forward_solve": 0.000873630754187208,
+    "adjoint_solve": 0.00019179159075173187,
+    "validation_solves_per_eval": 60,
+    "train_solves_per_eval": 60
+   }
+  }
+ },
+ "primary_model": "L1",
+ "evaluator": {
+  "binary": "/home/ubuntu/exp2-main/build-record/icem_harness_eval",
+  "train_mesh": "/home/ubuntu/geode-fem/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L1.msh",
+  "val_mesh": "/home/ubuntu/geode-fem/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+  "anchor": "/home/ubuntu/geode-fem/benchmarks/motor_optimization/anchor.json",
+  "train_level": 1,
+  "val_level": 2,
+  "build_receipt": "/home/ubuntu/exp2-main/build-record/build-receipt.json"
+ },
+ "starts": "/home/ubuntu/geode-fem/benchmarks/motor_optimization/harness/starts.json",
+ "procs": 15,
+ "linear_algebra": {
+  "system": "Linux",
+  "machine": "x86_64",
+  "macos_version": "",
+  "numpy": "2.5.4",
+  "scipy": "1.18.1",
+  "numpy_blas": "scipy-openblas",
+  "numpy_blas_version": "0.3.34.106.0",
+  "numpy_lapack": "scipy-openblas",
+  "numpy_lapack_version": "0.3.34.106.0",
+  "scipy_blas": "scipy-openblas",
+  "scipy_blas_version": "0.3.31.dev",
+  "scipy_lapack": "scipy-openblas",
+  "scipy_lapack_version": "0.3.31.dev"
+ },
+ "anchor_recomputation": {
+  "file": "/home/ubuntu/exp2-main/main/anchor_preflight.json",
+  "sha256": "bde4e260e549a134e6632333439fb18c8ebe7d25b6dcf541d5b6715cb0ea2628"
+ }
+}
