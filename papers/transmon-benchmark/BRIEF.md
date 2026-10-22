@@ -5,7 +5,7 @@ skill: pub
 venue_target: "arXiv preprint (physics.comp-ph, cross-list quant-ph); possible later submission to a computational-physics journal"
 audience: "Computational electromagnetics practitioners and superconducting-qubit design engineers; secondary: open-source scientific-software community"
 length_target: "8-12 pages two-column (or ~15 single-column), 4-6 figures"
-authors: "Robb Walters, Independent Researcher; Crutcher Dunnavant (second author, affiliation pending) — operator ruling 2026-10-22, superseding the 2026-10-13 solo-author ruling; author contributions and the AI-orchestrated development in Section 8"
+authors: "Robb Walters, Independent Researcher; Crutcher Dunnavant, Independent Researcher / ZSpaceLabs.ai (second author) — operator ruling 2026-10-22, superseding the 2026-10-13 solo-author ruling; author contributions and the AI-orchestrated development in Section 8"
 status_of_inputs: "Agreement + CPU cell + GPU correctness FINAL; GPU performance = declared future work"
 web_search: true
 claim_area: "cross-solver validation of open-source finite-element electromagnetics solvers on superconducting-qubit geometries"
@@ -14,9 +14,37 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 
 # Brief: the transmon cross-validation benchmark paper
 
-## v19 — reader-clarity revision and coauthor, 2026-10-22 — CURRENT
+## v20 — coauthor clarity revision, 2026-10-22 — CURRENT
 
-**Current state: `transmon-benchmark.19/` (draft, not reviewed), 20 pages.**
+**Current state: `transmon-benchmark.20/` (draft, not reviewed), 21 pages.**
+v20 = v19 revised for coauthor Crutcher Dunnavant's review of v19. No number
+changed and no new computation; v1–v19 stay immutable. Where this section
+conflicts with the sections below, it wins; v19's section stands otherwise.
+
+- **Affiliation:** Crutcher Dunnavant, "Independent Researcher /
+  ZSpaceLabs.ai" (exact string, in the class's `\normalsize` affiliation
+  line). The `[PENDING coauthor-affiliation]` marker is gone.
+- **Qubit frequency:** Section 1's first paragraph defines it as the linear
+  eigenfrequency of the junction's (plasma) mode, with the $f_{01}$ footnote
+  kept. Every "x % above" sentence names the frequency ("qubit frequencies",
+  not "qubits"), at most once per sentence.
+- **Figures:** one colour scheme. Each label has the colour of the object it
+  names; the junction has its own colour (purple) in Figure 1(a, b) and
+  for $L_J$ in (d); the rest of the island stays blue; the design-parameter annotations
+  are green, and the caption says so. Figure 2's pair-extrapolation key shows
+  both markers. Figure 5 keeps one colour per method and draws the mapped
+  band in the estimate-band grey. Figures 3 and 4 are unchanged.
+- **Where the shift comes from:** a Discussion paragraph, pointed to from
+  Section 1. geode-fem runs in f64, and Palace is built from
+  `reference/palace/docker/Dockerfile`, which sets no single-precision
+  option. The codes agree to $2\times10^{-4}\%$ on the qubit frequency on
+  shared meshes. Palace is a frequency-domain FE eigensolver, not FDTD. The
+  error lies in the discretization (the input mesh), and refinement moves
+  both codes up together. "Bounded", never "certified" or "proven".
+
+## v19 — reader-clarity revision and coauthor, 2026-10-22
+
+**State at v19: `transmon-benchmark.19/` (draft, not reviewed), 20 pages.**
 v19 = v18 revised against a pre-read lens of v18 for Crutcher Dunnavant, who is
 now a coauthor (a tensor-compiler/ML-systems engineer, not a qubit or EM-FEM
 specialist). No new results; no solver or `cargo` run. v1–v18 stay immutable.
