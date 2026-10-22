@@ -1,0 +1,139 @@
+{
+ "issue": 1201,
+ "label": "fd_warm_ablation",
+ "session_id": "fd_warm_ablation-20261021T203040Z",
+ "budget_fe": 120.0,
+ "checkpoint_fe": 60.0,
+ "unit_seconds": 69.088454188,
+ "weights": {
+  "validation_eval": 1.0,
+  "train_forward_eval": 0.2628532445462391,
+  "adjoint_eval": 0.060027388971749925,
+  "validation_solve": 0.016666666666666666,
+  "train_forward_solve": 0.004380887409103985,
+  "adjoint_solve": 0.0010004564828624987,
+  "validation_solves_per_eval": 60,
+  "train_solves_per_eval": 60
+ },
+ "theta0_train": {
+  "F": 0.008514893620421599,
+  "fractions": [
+   0.0,
+   0.5,
+   1.0
+  ],
+  "mean_full": 1.443787788642649,
+  "means": [
+   2.6561063983034614e-06,
+   0.6625523819938508,
+   1.443787788642649
+  ],
+  "stds": [
+   0.011900980863386455,
+   0.040484093675800054,
+   0.08206277130441035
+  ],
+  "x": [
+   0.007,
+   0.007,
+   0.019,
+   0.004,
+   0.0023,
+   0.001,
+   0.00825,
+   0.001
+  ]
+ },
+ "models": {
+  "L1": {
+   "train_mesh": "/home/ubuntu/geode-fem/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L1.msh",
+   "train_level": 1,
+   "train_mesh_sha256": "c4526a26904c73f68ba0987f0ca8995bcc0095f0e7936399d5920e167f35d7f5",
+   "theta0_train": {
+    "F": 0.008514893620421599,
+    "fractions": [
+     0.0,
+     0.5,
+     1.0
+    ],
+    "mean_full": 1.443787788642649,
+    "means": [
+     2.6561063983034614e-06,
+     0.6625523819938508,
+     1.443787788642649
+    ],
+    "stds": [
+     0.011900980863386455,
+     0.040484093675800054,
+     0.08206277130441035
+    ],
+    "x": [
+     0.007,
+     0.007,
+     0.019,
+     0.004,
+     0.0023,
+     0.001,
+     0.00825,
+     0.001
+    ]
+   },
+   "weights": {
+    "validation_eval": 1.0,
+    "train_forward_eval": 0.2628532445462391,
+    "adjoint_eval": 0.060027388971749925,
+    "validation_solve": 0.016666666666666666,
+    "train_forward_solve": 0.004380887409103985,
+    "adjoint_solve": 0.0010004564828624987,
+    "validation_solves_per_eval": 60,
+    "train_solves_per_eval": 60
+   }
+  }
+ },
+ "primary_model": "L1",
+ "evaluator": {
+  "binary": "target/build-record-fd-warm-1224/icem_harness_eval",
+  "train_mesh": "/home/ubuntu/geode-fem/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L1.msh",
+  "val_mesh": "/home/ubuntu/geode-fem/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+  "anchor": "/home/ubuntu/geode-fem/benchmarks/motor_optimization/anchor.json",
+  "train_level": 1,
+  "val_level": 2,
+  "build_receipt": "/home/ubuntu/geode-fem/target/build-record-fd-warm-1224/build-receipt.json"
+ },
+ "starts": "/home/ubuntu/geode-fem/benchmarks/motor_optimization/harness/starts.json",
+ "procs": 15,
+ "linear_algebra": {
+  "system": "Linux",
+  "machine": "x86_64",
+  "macos_version": "",
+  "numpy": "2.5.4",
+  "scipy": "1.18.1",
+  "numpy_blas": "scipy-openblas",
+  "numpy_blas_version": "0.3.34.106.0",
+  "numpy_lapack": "scipy-openblas",
+  "numpy_lapack_version": "0.3.34.106.0",
+  "scipy_blas": "scipy-openblas",
+  "scipy_blas_version": "0.3.31.dev",
+  "scipy_lapack": "scipy-openblas",
+  "scipy_lapack_version": "0.3.31.dev"
+ },
+ "ablation": {
+  "issue": 1224,
+  "methods": [
+   "slsqp",
+   "slsqp_fd_warm"
+  ],
+  "arms": {
+   "slsqp": "A_prime",
+   "slsqp_fd_warm": "F_w"
+  },
+  "repeats": [
+   1
+  ],
+  "post_hoc": true
+ },
+ "anchor_recomputation": {
+  "file": "/home/ubuntu/exp2-fd-warm/session/anchor_preflight.json",
+  "sha256": "562ed16e82986401caff054db144dd7ec2dfa2b0b490346d273fa490c1cfe2d2"
+ }
+}

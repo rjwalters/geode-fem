@@ -1,0 +1,228 @@
+{
+ "_lookup": {
+  "date": "2026-10-21",
+  "services": [
+   "api.crossref.org/works/{doi}",
+   "api.crossref.org/works?query.bibliographic=",
+   "api.openalex.org/works/doi:{doi}"
+  ],
+  "request_identity": "User-Agent \"citation-check/1.0\"; no email, mailto or user identifier sent",
+  "abstracts": {
+   "10.1002/nme.1620210813": "Abstract The calculation of sensitivity derivatives of solutions of iteratively solved systems of algebraic equations is investigated. A modified finite difference procedure is presented which improves the accuracy of the calculated derivatives. The procedure is demonstrated for a simple algebraic example as well as an element‐by element preconditioned conjugate gradient iterative solution technique applied to truss examples.",
+   "10.1080/08905459008915677": "The semi-analytical method of design sensitivity analysis that is widely used for calculating derivatives of static response with respect to design variables for structures modeled by finite elements is studied in this paper. It is shown that the method can have serious accuracy problems for shape design variables in structures modeled by beam, plate, truss, frame, and solid elements. Errors are shown to be associated with an incompatibility of the sensitivity field with the structure. An error index is developed to test the accuracy of the semi-analytical method. It characterizes the difference in errors between a general finite difference method and the semi-analytical method. A method for improving the accuracy of the semi-analytical method (when possible) is provided. Examples are presented to demonstrate the use of the error index.",
+   "10.1108/compel-02-2021-0063": "Purpose This paper aims to deal with the design optimization of a synchronous reluctance machine to be used in an X-ray tube, where the goal is to maximize the torque while keeping low the amount of material used, by means of gradient-based free-form shape optimization. Design/methodology/approach The presented approach is based on the mathematical concept of shape derivatives and allows to obtain new motor designs without the need to introduce a geometric parametrization. This paper presents an extension of a standard gradient-based free-form shape optimization algorithm to the case of multiple objective functions by determining updates, which represent a descent of all involved criteria. Moreover, this paper illustrates a way to obtain an approximate Pareto front. Findings The presented method allows to obtain optimal designs of arbitrary, non-parametric shape with very low computational cost. This paper validates the results by comparing them to a parametric geometry optimization in JMAG by means of a stochastic optimization algorithm. While the obtained designs are of similar shape, the computational time used by the gradient-based algorithm is in the order of minutes, compared to several hours taken by the stochastic optimization algorithm. Originality/value This paper applies the presented gradient-based multi-objective optimization algorithm in the context of free-form shape optimization using the mathematical concept of shape derivatives. The authors obtain a set of Pareto-optimal designs, each of which is a shape that is not represented by a fixed set of parameters. To the best of the authors’ knowledge, this approach to multi-objective free-form shape optimization is novel in the context of electric machines.",
+   "10.2514/3.48671": "Methods for calculating sensitivity derivatives for discrete structural systems are surveyed, primarily covering literature published during the past two decades. Methods are described for calculating derivatives of static displacements and stresses, eigenvalues and eigenvectors, transient structural response, and derivatives of optimum structural designs with respect to problem parameters. The survey is focused on publications developed in nonstructural fields such as electronics, controls, and physical chemistry which are directly applicable to structural problems. Most notable among the nonstructural-based methods are the adjoint variable technique from control theory, and the Green's function and FAST methods from physical chemistry.",
+   "10.2514/6.2011-3071": "In this study, the accuracy of the finite-difference sensitivities is examined in iteratively solved problems. The aim of this research is to reduce the error in the finite difference sensitivity calculations. The norm value of the finite-difference sensitivity error in the state variables is minimized with respect to the finite-difference step size. The optimum finitedifference step size is formulated as a function of the norm values of both convergence error and higher order sensitivities. In order to calculate the optimum step size, two methods are introduced. The first method is developed to calculate the convergence error in iteratively solved problem and it is based on the eigenvalue analysis of linear systems, but it can also be used for nonlinear systems. The second method is developed to estimate the higher order sensitivities which are calculated by differentiating the approximately constructed differential equation with respect to the design variables. The results show that with the proposed method, the convergence error can be accurately estimated for both linear and non-linear problems. The accuracy of the method developed for the higher order sensitivity estimation is validated with the finite-difference method. The comparison of the sensitivities calculated with the analytical and the finite-difference methods show that the developed methods can accurately estimate the optimum step size. The effects of the sensitivities calculated with the developed methods on the convergence of inverse design are examined. The results show that estimating the optimum step size with the developed methods improves the convergence of design without significantly increasing the usage of CPU time and memory of computers. © 2011 by the American Institute of Aeronautics and Astronautics, Inc. All rights reserved.",
+   "10.3390/math10060885": "Optimization using finite element analysis and the adjoint variable method to solve engineering problems appears in various application areas. However, to the best of the authors’ knowledge, there is a lack of detailed explanation on the implementation of the adjoint variable method in the context of electromagnetic modeling. This paper aimed to provide a detailed explanation of the method in the simplest possible general framework. Then, an extended explanation is offered in the context of electromagnetism. A discrete design methodology based on adjoint variables for magnetostatics was formulated, implemented, and verified. This comprehensive methodology supports both linear and nonlinear problems. The framework provides a general approach for performing a very efficient and discretely consistent sensitivity analysis for problems involving geometric and physical variables or any combination of the two. The accuracy of the implementation is demonstrated by independent verification based on an analytical test case and using the finite-difference method. The methodology was used to optimize the parameters of a superconducting energy storage device and a magnet press and the optimization of the topology of an electromagnet. The objective function of each problem was successfully decreased, and all constraints stipulated were met."
+  }
+ },
+ "10.1002/nme.1620210813": {
+  "DOI": "10.1002/nme.1620210813",
+  "title": [
+   "Sensitivity calculations for iteratively solved problems"
+  ],
+  "container-title": [
+   "International Journal for Numerical Methods in Engineering"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     1985,
+     8
+    ]
+   ]
+  },
+  "volume": "21",
+  "issue": "8",
+  "page": "1535-1546",
+  "publisher": "Wiley",
+  "type": "journal-article",
+  "author": [
+   {
+    "given": "Raphael T.",
+    "family": "Haftka"
+   }
+  ],
+  "openalex_id": "https://openalex.org/W2012322854"
+ },
+ "10.1080/08905459008915677": {
+  "DOI": "10.1080/08905459008915677",
+  "title": [
+   "Accuracy Analysis of the Semi-Analytical Method for Shape Sensitivity Calculation∗"
+  ],
+  "container-title": [
+   "Mechanics of Structures and Machines"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     1990,
+     9
+    ]
+   ]
+  },
+  "volume": "18",
+  "issue": "3",
+  "page": "407-432",
+  "publisher": "Informa UK Limited",
+  "type": "journal-article",
+  "author": [
+   {
+    "given": "Bruno",
+    "family": "Barthelemy"
+   },
+   {
+    "given": "Raphael T.",
+    "family": "Haftka"
+   }
+  ],
+  "openalex_id": "https://openalex.org/W2064928643"
+ },
+ "10.1108/compel-02-2021-0063": {
+  "DOI": "10.1108/compel-02-2021-0063",
+  "title": [
+   "Multi-objective free-form shape optimization of a synchronous reluctance machine"
+  ],
+  "container-title": [
+   "COMPEL - The international journal for computation and mathematics in electrical and electronic engineering"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2022,
+     6,
+     3
+    ]
+   ]
+  },
+  "volume": "41",
+  "issue": "5",
+  "page": "1849-1864",
+  "publisher": "Emerald",
+  "type": "journal-article",
+  "author": [
+   {
+    "given": "Peter",
+    "family": "Gangl"
+   },
+   {
+    "given": "Stefan",
+    "family": "Köthe"
+   },
+   {
+    "given": "Christiane",
+    "family": "Mellak"
+   },
+   {
+    "given": "Alessio",
+    "family": "Cesarano"
+   },
+   {
+    "given": "Annette",
+    "family": "Mütze"
+   }
+  ],
+  "openalex_id": "https://openalex.org/W3094585164"
+ },
+ "10.2514/3.48671": {
+  "DOI": "10.2514/3.48671",
+  "title": [
+   "Sensitivity Analysis of Discrete Structural Systems"
+  ],
+  "container-title": [
+   "AIAA Journal"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     1986,
+     5
+    ]
+   ]
+  },
+  "volume": "24",
+  "issue": "5",
+  "page": "823-832",
+  "publisher": "American Institute of Aeronautics and Astronautics (AIAA)",
+  "type": "journal-article",
+  "author": [
+   {
+    "given": "Howard M.",
+    "family": "Adelman"
+   },
+   {
+    "given": "Raphael T.",
+    "family": "Haftka"
+   }
+  ],
+  "openalex_id": "https://openalex.org/W2074813493"
+ },
+ "10.2514/6.2011-3071": {
+  "DOI": "10.2514/6.2011-3071",
+  "title": [
+   "Finite-Difference Sensitivity Calculation in Iteratively Solved Problems"
+  ],
+  "container-title": [
+   "20th AIAA Computational Fluid Dynamics Conference"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2011,
+     6,
+     14
+    ]
+   ]
+  },
+  "volume": null,
+  "issue": null,
+  "page": null,
+  "publisher": "American Institute of Aeronautics and Astronautics",
+  "type": "proceedings-article",
+  "author": [
+   {
+    "given": "Sinan",
+    "family": "Eyi"
+   }
+  ],
+  "openalex_id": "https://openalex.org/W2165738121"
+ },
+ "10.3390/math10060885": {
+  "DOI": "10.3390/math10060885",
+  "title": [
+   "The Adjoint Variable Method for Computational Electromagnetics"
+  ],
+  "container-title": [
+   "Mathematics"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2022,
+     3,
+     10
+    ]
+   ]
+  },
+  "volume": "10",
+  "issue": "6",
+  "page": "885",
+  "publisher": "MDPI AG",
+  "type": "journal-article",
+  "author": [
+   {
+    "given": "Reda",
+    "family": "El Bechari"
+   },
+   {
+    "given": "Frédéric",
+    "family": "Guyomarch"
+   },
+   {
+    "given": "Stéphane",
+    "family": "Brisset"
+   }
+  ],
+  "openalex_id": "https://openalex.org/W4220799675"
+ }
+}
