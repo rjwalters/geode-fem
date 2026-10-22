@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "thread": "motor-gradient-optimization",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-22T00:07:18Z",
+      "completed": "2026-10-22T00:14:11Z"
+    }
+  },
+  "metadata": {
+    "iteration": 15,
+    "max_iterations": 10,
+    "revised_from": 14,
+    "note": "Operator-directed revision beyond max_iterations. Outstanding dependency: [PENDING zenodo-doi] (operator deposit of the three-session raw-trace archive).",
+    "evidence_snapshot": {
+      "brief_mtime": 1792535733.1705203,
+      "refs_mtime": 1792597193.803293
+    }
+  }
+}
