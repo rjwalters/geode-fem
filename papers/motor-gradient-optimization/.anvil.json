@@ -7,7 +7,7 @@
       "python3 verify_exp2b.py",
       "python3 verify_exp2c.py"
     ],
-    "cwd": "motor-gradient-optimization.15",
+    "cwd": "motor-gradient-optimization.16",
     "timeout_s": 120
   }
 }

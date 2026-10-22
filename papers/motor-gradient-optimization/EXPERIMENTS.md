@@ -2,7 +2,17 @@
 
 Requested 2026-10-17 after v2's evidence audit. Coordinate execution in Squad with Claude; #1179/#1180 already own grouped geometry and derivative validation. Do not duplicate their runs. These are proposed measurements, not completed results or preselected favorable outcomes.
 
-## Current evidence and execution status (v6)
+## Current status (v16, 2026-10-21)
+
+All requested optimization experiments have run; the sections below are the historical request and launch record.
+
+- **Main study** (#1185, preregistered): 100 runs, five methods, two spaces, complete; 213 final checks. SLSQP with adjoints beat COBYQA in all 45 paired comparisons where both succeeded.
+- **Ablation F** (#1218, post hoc, protocol frozen before any run): SLSQP with cold-started forward-difference stencils, 40 runs. F/A′ = 2.47 and 4.11.
+- **Ablation F_w** (#1224, post hoc, protocol frozen before any run): warm-started stencils, 20 runs (repeat 1 only, as the protocol fixed). F_w/A′ = 1.71 and 2.70, the paper's headline. Warm stencils are less accurate on small components at the frozen Newton tolerance.
+- **Archive:** all three sessions in `motor-paper-raw-traces.tar.zst` (2,609,375,627 bytes, SHA-256 `a70a0699…203f12`), deposit pending (`[PENDING zenodo-doi]`).
+- **Untested follow-ons:** CMA-ES and population methods; a reduced physical model (magnetic equivalent circuit); direct or semi-analytic sensitivities.
+
+## Evidence and execution status as of v6 (historical)
 
 - Experiment 1 merged as #1182 at `224332c526be1191183af82b610973c7778de720`. V6 retains fresh export/NURBS L2–L3 records, with coupling torque for harmonic fields and outer-band Arkkio only for the checked fresh conforming meshes. Fixed unscaled and physical current are distinct at Opt120's radial scale.
 - Experiment 3 merged as #1191 at `8acd21ecf85d89fe077275a3c04ca70b53963d43`. The coarse rerun reproduces all 60 saved torques before refinement; 24×24 brings cogging std agreement to 0.10%. This resolves the coarse-reference explanation at matched order, without claiming a continuum bound.

@@ -5,7 +5,7 @@ skill: paper
 paper_number: 3
 documentclass: anvil-paper
 anonymous: false
-status_of_inputs: "Revision 6 audit PASS; reviewed main harness merged; main study running; final-refinement implementation in review; performance results pending"
+status_of_inputs: "Main study (#1185, 100 runs) and post-hoc ablations F (#1218, cold stencils) and F_w (#1224, warm stencils) complete and hash-bound; current package motor-gradient-optimization.16; v15 reviews 41/44 and 40/44; only the Zenodo DOI pending"
 claim: "Test whether exact field gradients reduce time to a validated motor-design target beyond calibrated simple models, and how that advantage depends on useful shape freedom."
 audience: "Computational electromagnetics, electric-machine optimization, and differentiable scientific computing researchers"
 venue_target: "Select from the validated main-study contribution; use the generic paper class initially"
@@ -20,7 +20,23 @@ science_card_id: 3
 The operator designated this work as GEODE's third paper on 2026-10-16,
 alongside the transmon and conformal-antenna papers. This brief establishes
 the research project. The operator requested the first manuscript on
-2026-10-16. V1 is preserved unchanged and received two independent 30/44 reviews. The current manuscript is `motor-gradient-optimization.6/`, **independent audit PASS at `1dd8cdef` (zero critical flags)**. V5 received 42/44 and 39/44 independent reviews, both ADVANCE; its numerical audit then found two critical text errors. V6 corrects the SW3 rounded component difference and distinguishes the L0/L1 Taylor failure mechanisms, adds raw-record regression coverage, completes size normalization, and includes the existing waveform figure. Original reports are archived verbatim, including the v6 audit in `.6.audit/`. The auditor confirmed that no re-review was needed; earlier 42/44 and 39/44 scores belong to v5. V1–v6 remain unchanged. A non-critical Fig. 5 mean-effect caption edit is deferred to the next substantive revision. The optimization-speedup hypothesis remains open.
+2026-10-16. **Current state (2026-10-21):** the package is
+`motor-gradient-optimization.16/` (a small text revision of v15, whose
+independent reviews scored 41/44 and 40/44, both advance, no critical flags).
+It reports the preregistered main study (#1185) and two post-hoc ablations
+under protocols frozen before any run: F, cold-started forward-difference
+stencils (#1218), and F_w, warm-started stencils (#1224). The only
+outstanding dependency is `[PENDING zenodo-doi]`, the operator's deposit of
+the three-session raw-trace archive (2,609,375,627 bytes, SHA-256
+`a70a0699…203f12`). All earlier versions are unchanged.
+
+**Current headline.** Per core, with SLSQP held fixed, adjoint gradients
+reach the primary target 1.71 and 2.70 times sooner than warm-started finite
+differences (8 and 18 parameters) and 2.47 and 4.11 times sooner than
+cold-started ones. COBYQA takes about 1.8 and 2.9 times as long as warm
+finite-difference SLSQP, so against that baseline the adjoint and the
+optimizer contribute comparable factors; the split depends on the
+finite-difference variant.
 
 The author line is Robb Walters, following the operator guidance relayed by Claude in Squad message 451. Crutcher's possible coauthorship is undecided; no invitation or submission is implied. Venue remains open.
 
@@ -123,9 +139,9 @@ historical screen and report differences in scope explicitly.
 | M1: nonlinear magnetostatics | B-H residual and consistent tangent, linear-limit and manufactured/reference checks, Newton convergence and unit conventions. | Complete; solver and tests merged in #1159 |
 | M2: reference motor | Slotted geometry, physical rotation/coupling and torque waveform at each current level; spatial and angular refinement, independent reference agreement. | Paired coupling and reference refinement merged (#1169/#1172/#1191); coarse reference explains cogging gap; finite-resolution and physical-validation limits remain |
 | M3: motor shape gradients | Directional finite-difference step sweeps and Taylor checks at initial and perturbed designs; stable gradients as state tolerances tighten. | Scalar and grouped-control derivatives reviewed; scalar evidence in manuscript; validation infrastructure merged through #1194 |
-| M4: useful design freedom | Compare engineering-parameter and surface-control spaces from matched starts; establish improvements above numerical uncertainty, with the different motion conventions disclosed. | Reviewed #1201/#1202 implementation merged through #1206; main study running; complete cohort and final refinements pending |
-| M5: measured optimization cost | Same-host, same-target comparisons of SLSQP/COBYQA at L0/L1 and the empirical RBF, with setup/calibration charged and resource use recorded. CMA-ES is an explicitly untested follow-on. | Five-method main study running at N = 15; no completed main-study performance result |
-| M6: manuscript and artifacts | Freeze evidence, draft the paper, independently review claims and rendered figures, then complete the Anvil audit. | V6 independent audit passed at 1dd8cdef; full optimization experiment and subsequent manuscript revision remain open |
+| M4: useful design freedom | Compare engineering-parameter and surface-control spaces from matched starts; establish improvements above numerical uncertainty, with the different motion conventions disclosed. | Complete: 100-run main study and its 213 final checks in the paper |
+| M5: measured optimization cost | Same-host, same-target comparisons of SLSQP/COBYQA at L0/L1 and the empirical RBF, with setup/calibration charged and resource use recorded. CMA-ES is an explicitly untested follow-on. | Complete: main study plus ablations F (#1218, 40 runs) and F_w (#1224, 20 runs); CMA-ES untested |
+| M6: manuscript and artifacts | Freeze evidence, draft the paper, independently review claims and rendered figures, then complete the Anvil audit. | Package v16; v15 reviewed 41/44 and 40/44; Zenodo deposit and merge to main pending (operator) |
 
 M2 includes independent reference refinement and M3 includes verified scalar gradients. Opt120 candidate validation is merged. The fixed 8/18-variable optimization protocol is preregistered on #1185; amendments 1–6 and the amendment-6 addendum governed the pilot, and adopted amendments 7/8 govern the main study. The harness #1196 merged at `89e6c4e127a5fbef7e4b2e0f10b90e70bd1193b4`; the 36-run development-host pilot merged in PR #1200 at `43db1c626bdc2367f896905d7807979789ee22b3`. It recorded 13 failures: 11 construction failures and two fresh-mesh minimum-angle failures. These loaded-host observations are feasibility/budget evidence only and do not enter the audited manuscript. Smoke runs are not benchmark evidence. Reviewed safeguards, coarse-model methods and session recovery merged through [PR #1206](https://github.com/rjwalters/geode-fem/pull/1206) at `9486a9da58beeca91968d4d3608f06b998abff45`. The main study is running from that source; completed cohort evidence and M4/M5 comparisons remain pending. [PR #1207](https://github.com/rjwalters/geode-fem/pull/1207) contains the final-selection/refinement/reporting pipeline and awaits independent review. The dated launch status, prioritized experimental requests and required handoff data are in [EXPERIMENTS.md](EXPERIMENTS.md).
 
@@ -218,7 +234,7 @@ The slotless screen is reproducible but is not a nonlinear-motor result.
 The artifact-verification command now checks actual forward/gradient records, reference reruns, candidate validation and cost ratios and v5/v6 audit corrections. A passing slotless screen alone cannot satisfy that requirement.
 
 Keep the project brief mutable and manuscript versions immutable under
-Anvil. The current manuscript is `motor-gradient-optimization.6/`, with a local LaTeX class, references, data-backed figures and a pinned evidence manifest. V1–v6 remain immutable; subsequent results enter a new version. Review and audit state must come from the completed
+Anvil. The current manuscript is `motor-gradient-optimization.16/`, with a local LaTeX class, references, data-backed figures, a pinned evidence manifest and four chained verifiers. Earlier versions remain immutable; subsequent results enter a new version. Review and audit state must come from the completed
 workflow; project designation does not confer those states.
 
 The operator requested continued paper improvement; the configured iteration cap is six, following the v5 audit corrections. This does not confer review approval or authorize publication.
