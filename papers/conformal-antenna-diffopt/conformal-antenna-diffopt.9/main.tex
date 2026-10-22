@@ -27,7 +27,9 @@
 \title{Adjoint Shape Optimization of a Conformal 2.4\,GHz Patch Antenna:
 EM Solves to Target Against Gradient-Free Search at Several Settings}
 \author{Robb Walters\\
-  {\normalsize Independent Researcher}}
+  {\normalsize Independent Researcher}
+  \and Crutcher Dunnavant\\
+  {\normalsize [PENDING coauthor-affiliation]}}
 \date{October 2026}
 
 \begin{document}
@@ -1072,24 +1074,25 @@ adjoint helps at the refined level is not tested.
 \section{How geode-fem Was Designed and Built}
 \label{sec:built}
 
-geode-fem implements the whiteroom operator specification of Crutcher
-Dunnavant \citep{dunnavant2026whiteroom}, whose four layers restate Palace's
-cited source as pure functions, fused primitives, tensor operations and a
-small graph-evaluation calculus. Dunnavant also gave design input on the
-solver's operator layer and contributed code: the migration to Rust 2024, the
-Metal (Apple GPU) backend, the present layout of the core crate and the
-examples, and the geode-util crate. The rest of the code, the experiments and
-the text of this paper were produced by AI models working as role-separated
-agents: Anthropic's Claude (Opus, Fable and Sonnet models, through Claude
-Code) and OpenAI's GPT Sol and GPT Astra models (via Codex). The agents were
-coordinated by Loom \citep{loom}, an issue, worktree and pull-request
-workflow, and by Squad, a message room the agents share. Nearly every
-change was reviewed by a separate agent session. The agent reviews of the
-experiments behind this paper recomputed the reported numbers from the
-archived records, and the script that checks this paper's text against
-those records was mutation-tested. The human author directed the research,
-made every scoping and claim decision, and takes responsibility for the
-content.
+geode-fem implements the whiteroom operator specification
+\citep{dunnavant2026whiteroom}, whose four layers restate Palace's cited
+source as pure functions, fused primitives, tensor operations and a small
+graph-evaluation calculus. C.D. wrote that specification, gave design input
+on the solver's operator layer, contributed code (the migration to Rust
+2024, the Metal (Apple GPU) backend, the present layout of the core crate
+and the examples, and the geode-util crate) and reviewed this paper. The
+rest of the code, the experiments and the text of this paper were produced
+by AI models working as role-separated agents: Anthropic's Claude (Opus,
+Fable and Sonnet models, through Claude Code) and OpenAI's GPT Sol and GPT
+Astra models (via Codex). The agents were coordinated by Loom
+\citep{loom}, an issue, worktree and pull-request workflow, and by Squad,
+a message room the agents share. Nearly every change was reviewed by a
+separate agent session. The agent reviews of the experiments behind this
+paper recomputed the reported numbers from the archived records, and the
+script that checks this paper's text against those records was
+mutation-tested. R.W. directed the research, ran the agents, made every
+scoping and claim decision, and takes responsibility for the results and
+the content.
 
 \section{Reproducibility}
 \label{sec:repro}
@@ -1158,10 +1161,8 @@ resonance another $4.3$\,MHz and further refinement moves it up again, so we
 estimate that the mesh-limit design misses $2.400$\,GHz by $1$ to $13$\,MHz.
 
 \paragraph{Acknowledgments.}
-We thank Crutcher Dunnavant for the whiteroom specification, for his
-design input to the solver's operator layer and for his contributions to
-the codebase. The AI-orchestrated development of geode-fem and of this
-paper is described in Section~\ref{sec:built}.
+The authors' contributions and the AI-orchestrated development of
+geode-fem and of this paper are described in Section~\ref{sec:built}.
 
 \bibliographystyle{plainnat}
 \bibliography{refs}

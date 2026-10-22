@@ -731,11 +731,12 @@ def check_section9():
     sec = section("\\section{How geode-fem Was Designed and Built}", "\\section{Reproducibility}")
     words = len(re.sub(r"\\[a-zA-Z]+(\{[^}]*\})?|[{}]", " ", sec).split())
     assert 150 <= words <= 250, words
-    for s in ["Crutcher Dunnavant \\citep{dunnavant2026whiteroom}", "Dunnavant also gave design input",
+    for s in ["the whiteroom operator specification \\citep{dunnavant2026whiteroom}", "C.D. wrote that specification, gave design input",
+              "and reviewed this paper", "R.W. directed the research, ran the agents",
               "Anthropic's Claude (Opus, Fable and Sonnet models, through Claude Code)",
-              "OpenAI's GPT Sol and GPT Astra models (via Codex)", "Loom \\citep{loom}", "takes responsibility for the content"]:
+              "OpenAI's GPT Sol and GPT Astra models (via Codex)", "Loom \\citep{loom}", "takes responsibility for the results and the content"]:
         assert s in sec, s
-    for bad in ["commit", "trailer", "pull requests that", "L1--L4"]:
+    for bad in ["commit", "trailer", "pull requests that", "L1--L4", "Dunnavant", "human author"]:
         assert bad not in sec, bad
     assert "github.com/crutcher/palace_whiteroom" in (HERE / "refs.bib").read_text()
 
@@ -755,6 +756,9 @@ def check_voice():
             continue
         assert "never called a converged value" in ctx, ctx
     assert "\\author{Robb Walters\\\\" in TEX and TEX.count("\\author") == 1
+    auth = TEX[TEX.index("\\author{"):TEX.index("\\date{")]
+    assert "\\and Crutcher Dunnavant\\\\" in auth and "[PENDING coauthor-affiliation]" in auth
+    assert "@" not in auth and "We thank Crutcher" not in TEX
     assert ("\\title{Adjoint Shape Optimization of a Conformal 2.4\\,GHz Patch Antenna:\n"
             "EM Solves to Target Against Gradient-Free Search at Several Settings}") in TEX
     assert "Solve Counts" not in TEX and "solve count" not in NBODY.lower()
