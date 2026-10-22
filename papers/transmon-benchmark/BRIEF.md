@@ -5,7 +5,7 @@ skill: pub
 venue_target: "arXiv preprint (physics.comp-ph, cross-list quant-ph); possible later submission to a computational-physics journal"
 audience: "Computational electromagnetics practitioners and superconducting-qubit design engineers; secondary: open-source scientific-software community"
 length_target: "8-12 pages two-column (or ~15 single-column), 4-6 figures"
-authors: "Robb Walters (solo), Independent Researcher — operator ruling 2026-10-13; Crutcher Dunnavant to be offered coauthorship at review; AI-orchestrated development described in its own section (v11)"
+authors: "Robb Walters, Independent Researcher; Crutcher Dunnavant (second author, affiliation pending) — operator ruling 2026-10-22, superseding the 2026-10-13 solo-author ruling; author contributions and the AI-orchestrated development in Section 8"
 status_of_inputs: "Agreement + CPU cell + GPU correctness FINAL; GPU performance = declared future work"
 web_search: true
 claim_area: "cross-solver validation of open-source finite-element electromagnetics solvers on superconducting-qubit geometries"
@@ -14,7 +14,33 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 
 # Brief: the transmon cross-validation benchmark paper
 
-## v13 — reframing revision, 2026-10-15 (tracker #1063, rulings on #1129) — CURRENT
+## v19 — reader-clarity revision and coauthor, 2026-10-22 — CURRENT
+
+**Current state: `transmon-benchmark.19/` (draft, not reviewed), 20 pages.**
+v19 = v18 revised against a pre-read lens of v18 for Crutcher Dunnavant, who is
+now a coauthor (a tensor-compiler/ML-systems engineer, not a qubit or EM-FEM
+specialist). No new results; no solver or `cargo` run. v1–v18 stay immutable.
+Where this section conflicts with the sections below, it wins; the v13 rulings
+stand except the authorship ruling.
+
+- **Coauthor (operator ruling 2026-10-22):** authors Robb Walters, then
+  Crutcher Dunnavant, plain order, no equal-contribution footnote, no email
+  for him; his affiliation is the literal marker `[PENDING
+  coauthor-affiliation]` until he supplies it. §8 carries an
+  author-contributions statement by initials: C.D. wrote the L1–L4 whiteroom
+  specification (palace_whiteroom citation kept), gave design input and review
+  on the operator layer, and contributed the code listed since v11; R.W. ran
+  the research and the agents and is responsible for the results. Supersedes
+  the 2026-10-13 "solo author" ruling and the v18 coauthorship NOTE.
+- **Terminology:** element order $p$, convergence rate $r$, adaptive
+  "passes", "Palace runs" (with "step" and "probe"); "bound" (theorem,
+  capacitance only), "cap" (circuit model), "band" (extrapolation range only;
+  $L_s$, $k$ have "fitted ranges").
+- **Title:** unchanged (ruled). The lens's concern and a proposed alternative
+  are in v19's changelog under "For the operator".
+
+## v13 — reframing revision, 2026-10-15 (tracker #1063, rulings on #1129)
+
 
 **v13 = v12 revised against the Opus and Fable reviews of v12, the operator's
 2026-10-15 rulings on #1129, and the #1129 follow-up runs (PR #1131).** Where
