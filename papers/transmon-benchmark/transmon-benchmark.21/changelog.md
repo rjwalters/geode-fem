@@ -14,6 +14,7 @@ v20 → v21 is the v1 Zenodo release of v20, on the operator's instructions (geo
 | Robb Walters's affiliation | `Independent Researcher` → `2AM Logic`. |
 | Crutcher Dunnavant's affiliation | `Independent Researcher / ZSpaceLabs.ai` → `ZSpaceLabs.ai`. The format is unchanged: each author on their own line with their own `\normalsize` affiliation. |
 | Paper DOI | `DOI: 10.5281/zenodo.23580545` (linked to doi.org) under the date on the title page. The class has no DOI hook, so the line is added to `\date`. |
+| Reproducibility footnote (Section 11) | "Archival DOI to be added at deposit." and the `% TODO(operator): Zenodo DOI` comment → "This paper's PDF and \LaTeX{} source are archived at doi:10.5281/zenodo.23580545" (linked). The sentence giving the geode-fem URL is kept. Coordinator instruction on PR #1234. |
 | Source header comment | Names v21. |
 
 **Pending markers removed:** none. v20 already had no pending marker, and v21 has none.
@@ -22,8 +23,6 @@ v20 → v21 is the v1 Zenodo release of v20, on the operator's instructions (geo
 - The issue #1231 Judge nits (the precision-argument qualifier and the Figure 1 caption
   exemption). They are deferred to a later revision.
 - The title.
-- The Section 11 (Reproducibility) footnote "Archival DOI to be added at deposit." and the source comment
-  `% TODO(operator): Zenodo DOI` beside it. The verifier still pins them as the open TODO.
 
 ## Verifier
 
@@ -31,10 +30,12 @@ v20 → v21 is the v1 Zenodo release of v20, on the operator's instructions (geo
 - `AUTHOR` pins the new author block;
 - `check_v20()`'s affiliation check now expects `ZSpaceLabs.ai` alone;
 - `V20_SHA` pins v20's `main.tex` beside v10–v19;
+- the footnote pin names the DOI, and `OPEN_TODOS` is empty (no `TODO` line remains);
 - new `check_v21()`, which pins:
   - the date-and-DOI block;
   - no `PENDING` and no "Independent Researcher" in `main.tex`;
-  - v21 equal to v20 apart from the header comment and the author and date blocks.
+  - the Reproducibility footnote, and no `TODO` in `main.tex`;
+  - v21 equal to v20 apart from the header comment, the author and date blocks and that footnote.
 
 `verify_figures.py` is unchanged; the figures are v20's bytes.
 
@@ -48,7 +49,4 @@ v20 → v21 is the v1 Zenodo release of v20, on the operator's instructions (geo
 
 ## For the operator
 
-- The Section 11 (Reproducibility) footnote still reads "Archival DOI to be added at deposit." It sits after the
-  geode-fem source URL, and the `TODO(operator): Zenodo DOI` comment is beside it. Resolving
-  them is a wording change, and this release does not include it.
 - Independent v20/v21 reviews are still pending.

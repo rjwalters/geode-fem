@@ -1932,16 +1932,24 @@ def check_v20():
 def check_v21():
     """v21, the v1 Zenodo release of v20: each author's affiliation and the paper's DOI; nothing else changed."""
     assert TEX[TEX.index("\\date{"):TEX.index("\\begin{document}")] == DATE
-    assert "PENDING" not in TEX and "Independent Researcher" not in TEX and TEX.count("zenodo.23580545") == 2
+    assert "PENDING" not in TEX and "Independent Researcher" not in TEX and TEX.count("zenodo.23580545") == 4
+    assert "TODO" not in TEX and "Archival DOI to be added" not in TEX
     v20 = (HERE.parent / "transmon-benchmark.20" / "main.tex").read_text()
+    # The Reproducibility footnote: the deposit placeholder and its TODO comment become the paper's DOI.
+    old_fn = ("\\url{https://github.com/rjwalters/geode-fem}. Archival DOI to be added at\ndeposit.}\n"
+              "% TODO(operator): Zenodo DOI\n")
+    new_fn = ("\\url{https://github.com/rjwalters/geode-fem}. This paper's PDF and \\LaTeX{}\nsource are archived at\n"
+              "\\href{https://doi.org/10.5281/zenodo.23580545}{doi:10.5281/zenodo.23580545}.}\n")
+    assert v20.count(old_fn) == 1 and TEX.count(new_fn) == 1
     old_block = v20[v20.index("\\author{"):v20.index("\\begin{document}")]
     new_block = TEX[TEX.index("\\author{"):TEX.index("\\begin{document}")]
     old_head = v20[:v20.index("\\documentclass")]
     new_head = TEX[:TEX.index("\\documentclass")]
     assert old_head.startswith("%% transmon-benchmark.20 ") and new_head.startswith("%% transmon-benchmark.21 ")
     assert new_head.count("\n") == 5 and all(line.startswith("%%") for line in new_head.splitlines()[:4])
-    assert TEX.replace(new_block, old_block).replace(new_head, old_head, 1) == v20
-    print("v21 guards: each author's affiliation, the paper's DOI, no PENDING marker, v20 otherwise unchanged")
+    assert TEX.replace(new_block, old_block).replace(new_head, old_head, 1).replace(new_fn, old_fn) == v20
+    print("v21 guards: each author's affiliation, the paper's DOI (title page and Reproducibility footnote), "
+          "no PENDING marker or TODO, v20 otherwise unchanged")
 
 
 def af_wall_note(ctl):
@@ -1999,7 +2007,9 @@ def check_operator_items():
     assert ack == ACK, ack
     assert BODY.count("AI-orchestrated") == 1 and "Claude" not in ack and "Codex" not in ack
     phrase("\\footnote{The geode-fem source is public at \\url{https://github.com/rjwalters/geode-fem}. "
-           "Archival DOI to be added at deposit.}")
+           "This paper's PDF and \\LaTeX{} source are archived at "
+           "\\href{https://doi.org/10.5281/zenodo.23580545}{doi:10.5281/zenodo.23580545}.}")   # v21
+    absent("Archival DOI to be added")
     assert [line for line in TEX.splitlines() if "TODO" in line] == OPEN_TODOS
     assert "TODO" not in BODY
     assert "PENDING" not in TEX   # v20: the affiliation marker is replaced
@@ -2129,7 +2139,8 @@ ACK = ("\\paragraph{Acknowledgments.} We thank the Palace and DeviceLayout.jl de
        "SingleTransmon example and its frequencies. Section~\\ref{sec:built} gives the author contributions and the "
        "AI-orchestrated development. ")
 # Operator ruling (2026-10-15): the acknowledgment is approved as written; only the DOI marker stays open.
-OPEN_TODOS = ["% TODO(operator): Zenodo DOI"]
+# v21: the DOI is in the Reproducibility footnote, so no TODO stays open.
+OPEN_TODOS = []
 
 
 def main():

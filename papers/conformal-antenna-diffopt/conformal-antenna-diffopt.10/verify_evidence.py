@@ -850,14 +850,20 @@ def check_v10_release():
     """v10, the v1 Zenodo release of v9: each author's affiliation and the paper's DOI; nothing else changed."""
     assert TEX[TEX.index("\\author{"):TEX.index("\\date{")] == AUTHOR_V10
     assert TEX[TEX.index("\\date{"):TEX.index("\\begin{document}")] == DATE_V10
-    assert "PENDING" not in TEX and "Independent Researcher" not in TEX and TEX.count("zenodo.21480892") == 2
+    assert "PENDING" not in TEX and "Independent Researcher" not in TEX and TEX.count("zenodo.21480892") == 4
+    assert "add at deposit" not in TEX
     v9 = (HERE.parent / "conformal-antenna-diffopt.9" / "main.tex").read_text()
+    # The Reproducibility footnote: the deposit placeholder comment becomes the paper's DOI.
+    old_fn = "\\url{https://github.com/rjwalters/geode-fem}.}\n% Archival DOI: add at deposit.\n"
+    new_fn = ("\\url{https://github.com/rjwalters/geode-fem}. This paper's PDF and \\LaTeX{}\nsource are archived at\n"
+              "\\href{https://doi.org/10.5281/zenodo.21480892}{doi:10.5281/zenodo.21480892}.}\n")
+    assert v9.count(old_fn) == 1 and TEX.count(new_fn) == 1
     assert hashlib.sha256(v9.encode()).hexdigest() == V9_SHA, "v9 main.tex changed"
     old_block = v9[v9.index("\\author{"):v9.index("\\begin{document}")]
     new_block = TEX[TEX.index("\\author{"):TEX.index("\\begin{document}")]
     old_head, new_head = v9.splitlines()[0], TEX.splitlines()[0]
     assert old_head.startswith("%% conformal-antenna-diffopt.9.") and new_head.startswith("%% conformal-antenna-diffopt.10 ")
-    assert TEX.replace(new_block, old_block).replace(new_head, old_head) == v9
+    assert TEX.replace(new_block, old_block).replace(new_head, old_head).replace(new_fn, old_fn) == v9
 
 
 def check_prior_versions():

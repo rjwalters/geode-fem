@@ -13,6 +13,7 @@ directories are unchanged (`verify_evidence.py` diffs them against the merge bas
 | Robb Walters's affiliation | `Independent Researcher` → `2AM Logic`. |
 | Crutcher Dunnavant's affiliation | the `coauthor-affiliation` pending marker → `ZSpaceLabs.ai`. Each author keeps their own `\normalsize` affiliation line, the format the transmon paper uses. |
 | Paper DOI | `DOI: 10.5281/zenodo.21480892` (linked to doi.org) under the date on the title page. The class has no DOI hook, so the line is added to `\date`. |
+| Reproducibility footnote | The `% Archival DOI: add at deposit.` source comment → the footnote after the geode-fem URL now adds "This paper's PDF and \LaTeX{} source are archived at doi:10.5281/zenodo.21480892" (linked). Coordinator instruction on PR #1234. |
 | Source header comment | Names v10. |
 
 **Pending markers removed:** the `coauthor-affiliation` pending marker (author block). None remain in
@@ -27,8 +28,8 @@ directories are unchanged (`verify_evidence.py` diffs them against the merge bas
 - new `check_v10_release()`, which pins:
   - the author block and the date-and-DOI block;
   - no `PENDING` and no "Independent Researcher" in `main.tex`;
-  - v9's `main.tex` by SHA-256, and v10 equal to it apart from the header line and the
-    author and date blocks;
+  - v9's `main.tex` by SHA-256, and v10 equal to it apart from the header line, the
+    author and date blocks and the Reproducibility footnote;
 - `check_voice()`: the author check no longer expects the marker, and the date check allows the
   DOI line after the date;
 - `check_prior_versions()` covers v1–v9.

@@ -26,9 +26,11 @@ immutable. Where this section conflicts with the sections below, it wins.
   This supersedes the v20 string "Independent Researcher / ZSpaceLabs.ai".
 - **DOI:** the paper's reserved Zenodo DOI, 10.5281/zenodo.23580545, is
   under the date on the title page.
+- **Reproducibility footnote:** "Archival DOI to be added at deposit." and its
+  `TODO(operator)` comment are replaced by "This paper's PDF and \LaTeX{}
+  source are archived at doi:10.5281/zenodo.23580545". No TODO remains.
 - **Deferred:** the issue #1231 Judge nits (the precision-argument qualifier
-  and the Figure 1 caption exemption), and the Section 11 footnote "Archival
-  DOI to be added at deposit." with its `TODO(operator)` comment.
+  and the Figure 1 caption exemption).
 
 ## v20 — coauthor clarity revision, 2026-10-22
 
