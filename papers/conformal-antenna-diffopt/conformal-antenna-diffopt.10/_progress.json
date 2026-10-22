@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "thread": "conformal-antenna-diffopt",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-22T23:00:00Z",
+      "completed": "2026-10-22T23:59:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 10,
+    "max_iterations": 4,
+    "revised_from": 9,
+    "operator_override": true,
+    "operator_note": "v1 Zenodo release of v9 (geode-fem#1231): each author's own affiliation (Robb Walters, 2AM Logic; Crutcher Dunnavant, ZSpaceLabs.ai) and the paper's DOI 10.5281/zenodo.21480892 on the title page. No other text, figure or number changed; no computation run. No pending marker remains. No Anvil max_iterations gate on paper revisions (operator ruling)."
+  }
+}

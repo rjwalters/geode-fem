@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "thread": "motor-gradient-optimization",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-22T23:00:00Z",
+      "completed": "2026-10-22T23:59:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 19,
+    "max_iterations": 10,
+    "revised_from": 18,
+    "note": "v1 Zenodo release of v18 (operator, geode-fem#1231): each author's own affiliation (Robb Walters, 2AM Logic; Crutcher Dunnavant, ZSpaceLabs.ai), the paper's DOI 10.5281/zenodo.23580548 on the title page, and the raw-trace archive's reserved DOI 10.5281/zenodo.23580550 in place of the zenodo-doi pending marker. No other text, figure or number changed; no computation run. No pending marker remains.",
+    "evidence_snapshot": {
+      "brief_mtime": 1792638669.1807315,
+      "refs_mtime": 1792597193.803293
+    }
+  }
+}

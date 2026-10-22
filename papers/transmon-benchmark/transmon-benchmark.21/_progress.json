@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-22T23:00:00+00:00",
+      "completed": "2026-10-22T23:59:00+00:00"
+    }
+  },
+  "metadata": {
+    "iteration": 21,
+    "max_iterations": 20,
+    "revised_from": 20,
+    "status": "DRAFT",
+    "authorization": "v1 Zenodo release of v20 on the operator's instructions (geode-fem#1231): each author's own affiliation and the paper's reserved DOI on the title page. No other text, figure or number changed and no computation run. No review score or audit is claimed or carried forward.",
+    "source_paper_commit": "9c4db241 (main, transmon-benchmark.20 as merged)",
+    "scope": "v21 = v20 with Robb Walters's affiliation 2AM Logic, Crutcher Dunnavant's affiliation ZSpaceLabs.ai and DOI 10.5281/zenodo.23580545 under the date; 21 pages",
+    "pending_dependencies": [
+      "Section 11 footnote 'Archival DOI to be added at deposit.' and its TODO(operator) comment (wording, not in this release)",
+      "operator decision on the title (see v19 changelog 'For the operator')",
+      "the issue #1231 Judge nits (precision-argument qualifier, Figure 1 caption exemption), deferred",
+      "independent v21 paper reviews (release gate: both >= 40/44)"
+    ],
+    "evidence_snapshot": {
+      "brief_mtime": null,
+      "refs_mtime": null
+    }
+  }
+}

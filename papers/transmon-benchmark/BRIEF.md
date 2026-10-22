@@ -5,7 +5,7 @@ skill: pub
 venue_target: "arXiv preprint (physics.comp-ph, cross-list quant-ph); possible later submission to a computational-physics journal"
 audience: "Computational electromagnetics practitioners and superconducting-qubit design engineers; secondary: open-source scientific-software community"
 length_target: "8-12 pages two-column (or ~15 single-column), 4-6 figures"
-authors: "Robb Walters, Independent Researcher; Crutcher Dunnavant, Independent Researcher / ZSpaceLabs.ai (second author) — operator ruling 2026-10-22, superseding the 2026-10-13 solo-author ruling; author contributions and the AI-orchestrated development in Section 8"
+authors: "Robb Walters, 2AM Logic; Crutcher Dunnavant, ZSpaceLabs.ai (second author) — operator ruling 2026-10-22, superseding the 2026-10-13 solo-author ruling; author contributions and the AI-orchestrated development in Section 8"
 status_of_inputs: "Agreement + CPU cell + GPU correctness FINAL; GPU performance = declared future work"
 web_search: true
 claim_area: "cross-solver validation of open-source finite-element electromagnetics solvers on superconducting-qubit geometries"
@@ -14,9 +14,25 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 
 # Brief: the transmon cross-validation benchmark paper
 
-## v20 — coauthor clarity revision, 2026-10-22 — CURRENT
+## v21 — v1 Zenodo release, 2026-10-22 — CURRENT
 
-**Current state: `transmon-benchmark.20/` (draft, not reviewed), 21 pages.**
+**Current state: `transmon-benchmark.21/` (draft, not reviewed), 21 pages.**
+v21 = v20 with release metadata only (operator, geode-fem#1231). No other
+wording or number changed and no computation was run; v1–v20 stay
+immutable. Where this section conflicts with the sections below, it wins.
+
+- **Affiliations:** Robb Walters, "2AM Logic"; Crutcher Dunnavant,
+  "ZSpaceLabs.ai". Each author has their own `\normalsize` affiliation line.
+  This supersedes the v20 string "Independent Researcher / ZSpaceLabs.ai".
+- **DOI:** the paper's reserved Zenodo DOI, 10.5281/zenodo.23580545, is
+  under the date on the title page.
+- **Deferred:** the issue #1231 Judge nits (the precision-argument qualifier
+  and the Figure 1 caption exemption), and the Section 11 footnote "Archival
+  DOI to be added at deposit." with its `TODO(operator)` comment.
+
+## v20 — coauthor clarity revision, 2026-10-22
+
+**State at v20: `transmon-benchmark.20/` (draft, not reviewed), 21 pages.**
 v20 = v19 revised for coauthor Crutcher Dunnavant's review of v19. No number
 changed and no new computation; v1–v19 stay immutable. Where this section
 conflicts with the sections below, it wins; v19's section stands otherwise.
