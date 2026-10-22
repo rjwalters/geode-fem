@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1205",
-  "loom_commit": "b39a4185d591a57b1c6e13bf0c645368776d9e01",
+  "loom_version": "0.19.1209",
+  "loom_commit": "bd5c60210e2d233769a8c08af04de6c89341c9dd",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -788,7 +788,8 @@
     ".loom/scripts/tests/fixtures/champion-workflows/claude-bot-deploy-plan.yml",
     ".loom/scripts/tests/fixtures/champion-workflows/publish-npm.yml",
     ".loom/scripts/tests/lib/post-merge-cleanup-harness.sh",
-    ".loom/scripts/tests/test-tools-first-clean-install.sh"
+    ".loom/scripts/tests/test-tools-first-clean-install.sh",
+    ".loom/scripts/tests/test-resync-installed-host-optout.sh"
   ],
   "last_resync": "2026-10-22",
   "requires_daemon": "0.19.1088"
