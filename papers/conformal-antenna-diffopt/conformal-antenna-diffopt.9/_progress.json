@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "thread": "conformal-antenna-diffopt",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-22T00:00:00Z",
+      "completed": "2026-10-22T06:00:00Z"
+    },
+    "figures": {
+      "state": "done",
+      "started": "2026-10-22T00:00:00Z",
+      "completed": "2026-10-22T06:00:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 9,
+    "max_iterations": 4,
+    "revised_from": 8,
+    "operator_override": true,
+    "operator_note": "Revision against outside-reader feedback from Crutcher Dunnavant on v8 (terminology, geometry diagram, ISM claim, figure referents); text and figures only, no new experiment; venue arxiv (Zenodo only); no Anvil max_iterations gate on paper revisions (operator ruling)."
+  }
+}
