@@ -39,6 +39,32 @@ MUTATIONS = [
     ("drop_earlier_failed_run", 'r.eligible_run is True, "run_not_eligible"',
      'r.eligible_run is True and r.stop_reason != "failed", "run_not_eligible"'),
     ("rounded_geometry", 'struct.pack(">d", value).hex()', 'struct.pack(">d", round(value, 8)).hex()'),
+    # #1218: the FD-ablation cohort, and the main cohort left unchanged.
+    ("ablation_admits_main_methods", 'COHORTS = {"main": METHODS, "fd_ablation": ("A", "F")}',
+     'COHORTS = {"main": METHODS, "fd_ablation": ("A", "B", "F")}'),
+    ("ablation_roles_use_bare_letters", "labels = ARMS.get(cohort, {m: m for m in methods})",
+     "labels = {m: m for m in methods}"),
+    ("ablation_crossings_from_any_repeat", 'r.repeat == 1 and audit[r.record_id]',
+     '(r.repeat == 1 or cohort != "main") and audit[r.record_id]'),
+    ("main_output_gains_cohort_fields", 'if cohort != "main":\n        out.update(',
+     'if True:\n        out.update('),
+    ("main_cells_gain_arm_labels", 'if cohort != "main":\n                    cell["arm"]',
+     'if True:\n                    cell["arm"]'),
+    ("main_accepts_method_F", "        _metadata(r, methods)\n",
+     '        _metadata(r, METHODS + ("F",))\n'),
+    # #1224: the F_w cohort, and the main and #1218 cohorts left unchanged.
+    ("warm_admits_method_F", 'COHORTS["fd_warm_ablation"] = ("A", "W")',
+     'COHORTS["fd_warm_ablation"] = ("A", "F", "W")'),
+    ("warm_roles_use_the_f_label", 'ARMS["fd_warm_ablation"] = {"A": "A_prime", "W": "F_w"}',
+     'ARMS["fd_warm_ablation"] = {"A": "A_prime", "W": "F"}'),
+    ("warm_accepts_repeat_2", "        if cohort in REPEAT1_ONLY and r.repeat != 1:\n",
+     "        if False:\n"),
+    ("fd_ablation_becomes_repeat1_only", 'REPEAT1_ONLY = ("fd_warm_ablation",)',
+     'REPEAT1_ONLY = ("fd_warm_ablation", "fd_ablation")'),
+    ("warm_output_claims_1218", 'preregistration=PREREGISTRATIONS.get(cohort))',
+     'preregistration=PREREGISTRATIONS["fd_ablation"])'),
+    ("fd_ablation_output_claims_1224", 'preregistration=PREREGISTRATIONS.get(cohort))',
+     'preregistration=PREREGISTRATIONS["fd_warm_ablation"])'),
 ]
 
 
@@ -56,6 +82,8 @@ def main():
             root = Path(td)
             (root / "selection.py").write_text(candidate)
             (root / "test_selection.py").write_text(tests)
+            # The #1218 check-plan test imports the (unmutated) planner.
+            (root / "check_plan.py").write_text((HERE / "check_plan.py").read_text())
             p = subprocess.run([sys.executable, "-I", str(root / "test_selection.py")],
                                capture_output=True, text=True, timeout=30)
         passed = p.returncode == 0 if name == "baseline" else (

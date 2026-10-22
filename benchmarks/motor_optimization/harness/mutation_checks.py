@@ -317,6 +317,45 @@ MUTATIONS = [
     ("validation_record_without_geometry_evidence [#1201]", DRV,
      'h_nonnegative=g["admissible"], geometry=g["detail"], **values)',
      'h_nonnegative=g["admissible"], geometry=None, **values)'),
+    # #1224 (method F_w): the evaluator's per-request stencil start. F_w's
+    # base and other training solves must stay F's; each stencil starts
+    # from its own retained base on that base's generation. The first two
+    # survived the first review (#1225 Judge) and are pinned since.
+    ("retaining_eval_chains_from_previous_retained [#1224]", REM,
+     "        let (ev, last) = self.evaluate_inner(p, gradient, None)?;\n"
+     "        let fields = if self.cfg.warm == WarmStart::Previous {",
+     "        let chained = self.last.as_ref().map(|l| WarmFields { generation: l.generation, "
+     "initials: l.initials.clone() });\n"
+     "        let (ev, last) = self.evaluate_inner(p, gradient, Some(chained.as_ref()))?;\n"
+     "        self.last = Some(LastFields { generation: last.generation, mesh: TriMesh { "
+     "nodes: Vec::new(), tris: Vec::new() }, parts: Vec::new(), initials: last.initials.clone() });\n"
+     "        let fields = if self.cfg.warm == WarmStart::Previous {"),
+    ("base_dedupe_dropped [#1224]", RS,
+     "        self.warm_bases.retain(|(b, _)| *b != bits);\n", "\n"),
+    ("stencil_ignores_its_base [#1224]", RS,
+     "                    .evaluate_from(&mut self.train, &x, gradient, base)",
+     "                    .evaluate_from(&mut self.train, &x, gradient, None)"),
+    ("explicit_start_generation_filter_dropped [#1224]", REM,
+     "                    .filter(|w| w.generation == prepared.generation)\n", "\n"),
+    ("base_eviction_dropped [#1224]", RS,
+     "        if self.warm_bases.len() > WARM_BASES {", "        if false {"),
+    ("cold_reason_swapped [#1224]", RS,
+     '(_, None) => ("cold", Some("base_not_retained")),',
+     '(_, None) => ("cold", Some("base_on_other_generation")),'),
+    ("default_request_warm_from_latest_base [#1224]", RS,
+     "            TrainStart::Default => self.space.evaluate(&mut self.train, &x, gradient),",
+     "            TrainStart::Default => self.space.evaluate_from(&mut self.train, &x, gradient, "
+     "self.warm_bases.last().map(|(_, w)| w)),"),
+    ("explicit_start_enters_the_previous_history [#1224]", REM,
+     "        self.evaluate_inner(p, gradient, Some(start))\n            .map(|(ev, _)| ev)",
+     "        let (ev, last) = self.evaluate_inner(p, gradient, Some(start))?;\n"
+     "        self.last = Some(last);\n        Ok(ev)"),
+    ("stencil_also_retained [#1224]", RS,
+     "                let base_generation = warm_base.flatten();",
+     "                let base_generation = warm_base.flatten();\n"
+     "                if let Some(b) = self.warm_base(bits).cloned() { self.retain_base(x_bits(&x), b); }"),
+    ("retain_reply_without_retaining [#1224]", RS,
+     "                self.retain_base(x_bits(&x), fields);\n", "                let _ = fields;\n"),
 ]
 
 
@@ -384,15 +423,35 @@ RUNNERS = {RS: run_rust, DOM: run_domain, LOOP: run_loop, REM: run_remesher,
 
 def main(argv=None):
     """All mutations, or `--only NAME [NAME ...]` (a spot check; the
-    committed log is always a full run)."""
+    committed log is always a full run), or `--tag TAG`: the mutations whose
+    name carries `[TAG]` (CI runs `--tag '#1224'`, the Rust mutations of
+    method F_w's evaluator start). A filtered run checks only the baselines
+    its mutations need, so `--tag '#1224'` needs cargo but no Python
+    environment."""
     argv = sys.argv[1:] if argv is None else argv
     muts = MUTATIONS
-    if argv[:1] == ["--only"]:
-        muts = [m for m in MUTATIONS if m[0] in set(argv[1:])]
+    baselines = (("python", run_python), ("rust", run_rust),
+                 ("domain", run_domain), ("loop", run_loop))
+    if argv[:1] in (["--only"], ["--tag"]):
+        if argv[:1] == ["--only"]:
+            muts = [m for m in MUTATIONS if m[0] in set(argv[1:])]
+        else:
+            if len(argv) != 2:
+                raise SystemExit("--tag takes one tag")
+            muts = [m for m in MUTATIONS if f"[{argv[1]}]" in m[0]]
+            if not muts:
+                raise SystemExit(f"no mutation is tagged [{argv[1]}]")
+        needed = {RUNNERS.get(m[1], run_python) for m in muts}
+        # The remesher runner is the domain and evaluator targets; the loop
+        # runner also runs the evaluator target.
+        if run_remesher in needed:
+            needed |= {run_domain, run_rust}
+        if run_loop in needed:
+            needed.add(run_rust)
+        baselines = tuple((n, r) for n, r in baselines if r in needed)
     originals = {f: f.read_text() for f in {m[1] for m in MUTATIONS}}
     try:
-        for name, runner in (("python", run_python), ("rust", run_rust),
-                             ("domain", run_domain), ("loop", run_loop)):
+        for name, runner in baselines:
             rc, failed, _ = runner()
             print(f"baseline {name}: exit {rc}, failed {failed}", flush=True)
             assert rc == 0 and not failed, f"{name} baseline must pass"

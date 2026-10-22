@@ -9,7 +9,9 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from selection import Design, Validation, select  # noqa: E402
+from selection import COHORTS, Design, Validation, select  # noqa: E402
+import check_plan  # noqa: E402
+import hashlib  # noqa: E402
 
 
 def design(x=0.0, **settings):
@@ -229,6 +231,234 @@ class SelectionTests(unittest.TestCase):
                         {"repeat": True}, {"budget_seconds": 0}, {"ordinal": -1}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 selection([record(**changes)])
+
+
+#: select() of `main_cohort()` under the pre-#1218 selection.py (origin/main
+#: c08ce9e6), canonical JSON SHA-256: the main cohort's selection must stay
+#: byte-identical with the FD-ablation cohort added (#1218).
+MAIN_SELECTION_SHA256 = "95d22dc388d518b5fa54c9ebf7657f4a110e292a2d2ad556bd745294345fa30e"
+#: select() of `ablation_cohort()` with cohort="fd_ablation" under the
+#: pre-#1224 selection.py (origin/main f94acad3): the #1218 cohort's
+#: selection must stay byte-identical with the F_w cohort added (#1224).
+FD_ABLATION_SELECTION_SHA256 = "35d3cffb308734698d0d6428c07c8b5722db8663102c98c95a9246a73600e357"
+
+
+def main_cohort():
+    """A deterministic 100-run-shaped synthetic main cohort (A-E)."""
+    rng = random.Random(1218)
+    rows = []
+    for repeat in (1, 2):
+        for space in ("a", "b"):
+            for start in range(5):
+                for method in "ABCDE":
+                    run = f"{method}_{space}_{start}_r{repeat}"
+                    for ordinal in range(rng.randrange(0, 4)):
+                        f = rng.choice([0.6, 0.3, 0.05, 0.004, 1e-7]) * rng.uniform(0.5, 1.5)
+                        rows.append(Validation(
+                            run, f"{rng.getrandbits(256):064x}", method, space, start, repeat,
+                            ordinal, design(round(rng.uniform(-1, 1), 3)),
+                            rng.uniform(0.0, 130.0), 120.0, f,
+                            rng.choice([1.0026, 1.0024, 1.01]),
+                            eligible_run=rng.random() > 0.1,
+                            host_contaminated=rng.random() < 0.05, completed=rng.random() > 0.05,
+                            geometry_admissible=rng.random() > 0.1, discrete_pass=True,
+                            mesh_pass=rng.random() > 0.05,
+                            stop_reason=rng.choice(["budget", "T99", "failed"])))
+    return rows
+
+
+def ablation_cohort(letters="AF", seed=1218):
+    """A deterministic 40-run-shaped synthetic {A', F} cohort (repeats 1 and
+    2), or with `letters="AW"` and repeat 1 the 20-run {A', F_w} one."""
+    rng = random.Random(seed)
+    rows = []
+    for repeat in ((1, 2) if letters == "AF" else (1,)):
+        for space in ("a", "b"):
+            for start in range(5):
+                for method in letters:
+                    run = f"{method}_{space}_{start}_r{repeat}"
+                    for ordinal in range(rng.randrange(0, 4)):
+                        f = rng.choice([0.6, 0.3, 0.05, 0.004, 1e-7]) * rng.uniform(0.5, 1.5)
+                        rows.append(Validation(
+                            run, f"{rng.getrandbits(256):064x}", method, space, start, repeat,
+                            ordinal, design(round(rng.uniform(-1, 1), 3)),
+                            rng.uniform(0.0, 130.0), 120.0, f,
+                            rng.choice([1.0026, 1.0024, 1.01]),
+                            eligible_run=rng.random() > 0.1,
+                            host_contaminated=rng.random() < 0.05, completed=rng.random() > 0.05,
+                            geometry_admissible=rng.random() > 0.1, discrete_pass=True,
+                            mesh_pass=rng.random() > 0.05,
+                            stop_reason=rng.choice(["budget", "T99", "failed"])))
+    return rows
+
+
+def digest(out):
+    return hashlib.sha256(json.dumps(out, sort_keys=True, separators=(",", ":"),
+                                     allow_nan=False).encode()).hexdigest()
+
+
+def ablation(rows, **changes):
+    return selection(rows, cohort="fd_ablation", **changes)
+
+
+class FdAblationSelectionTests(unittest.TestCase):
+    """#1218 protocol §6: the {A', F} session's representatives (per arm
+    and space), earliest repeat-1 crossings and θ0, under the same
+    amendment-8 rules; the main cohort's selection unchanged."""
+
+    def test_main_selection_is_byte_identical(self):
+        rows = main_cohort()
+        self.assertEqual(len(rows), 157)
+        out = selection(rows)
+        self.assertEqual(digest(out), MAIN_SELECTION_SHA256)
+        self.assertEqual(out, selection(rows, cohort="main"))
+        self.assertNotIn("cohort", out)
+        self.assertTrue(all("arm" not in c for c in out["cells"]))
+        self.assertEqual(COHORTS["main"], tuple("ABCDE"))
+
+    def test_cohorts_do_not_accept_each_others_methods(self):
+        with self.assertRaises(ValueError):
+            selection([record(method="F")])
+        for m in "BCDE":
+            with self.subTest(method=m), self.assertRaises(ValueError):
+                ablation([record(method=m)])
+        with self.assertRaises(ValueError):
+            selection([], cohort="pilot")
+
+    def test_ablation_cells_are_both_arms_both_spaces_with_theta0(self):
+        self.assertEqual(COHORTS["fd_ablation"], ("A", "F"))
+        out = ablation([])
+        self.assertEqual(out["cohort"], "fd_ablation")
+        self.assertEqual(out["arms"], {"A": "A_prime", "F": "F"})
+        self.assertIn("#1218", out["preregistration"])
+        roles = [c["role"] for c in out["cells"]]
+        self.assertEqual(roles, [f"{arm}/{sp}/{k}" for arm in ("A_prime", "F") for sp in ("a", "b")
+                                 for k in ("representative", "T50", "T90", "T99")])
+        self.assertEqual({c["arm"] for c in out["cells"]}, {"A_prime", "F"})
+        self.assertEqual(out["jobs"][0]["roles"], ["theta0"])
+        self.assertEqual(len(out["jobs"]), 1)
+
+    def test_ablation_applies_the_amendment8_rules(self):
+        rows = [
+            # F space a: best objective (representative) is repeat 2; the
+            # earliest repeat-1 crossing is a different, faster record.
+            record(run_id="F_a_lhs1_r2", method="F", start_index=1, repeat=2, f_val=1e-9,
+                   elapsed_seconds=5.0, design=design(1.0)),
+            record(run_id="F_a_lhs2_r1", method="F", start_index=2, f_val=0.004,
+                   elapsed_seconds=30.0, design=design(2.0)),
+            record(run_id="F_a_lhs3_r1", method="F", start_index=3, f_val=0.004,
+                   elapsed_seconds=90.0, design=design(3.0)),
+            # A' space a: the better objective is contaminated (rejected).
+            record(run_id="A_a_theta0_r1", method="A", f_val=0.05, design=design(4.0)),
+            record(run_id="A_a_lhs1_r1", method="A", start_index=1, f_val=1e-9,
+                   host_contaminated=True, design=design(5.0)),
+            # F space b: inadmissible and below the mean floor (rejected).
+            record(run_id="F_b_theta0_r1", method="F", space="b", geometry_admissible=False,
+                   f_val=1e-9, design=design(6.0)),
+            record(run_id="F_b_lhs1_r1", method="F", space="b", start_index=1, f_val=1e-9,
+                   mean_full=1.0024, design=design(7.0)),
+        ]
+        out = ablation(rows)
+        cells = {c["role"]: c for c in out["cells"]}
+        self.assertEqual(cells["F/a/representative"]["record_id"], "F_a_lhs1_r2:0")
+        for target in ("T50", "T90", "T99"):
+            self.assertEqual(cells[f"F/a/{target}"]["record_id"], "F_a_lhs2_r1:0")
+        self.assertEqual(cells["A_prime/a/representative"]["record_id"], "A_a_theta0_r1:0")
+        self.assertEqual(cells["A_prime/a/T50"]["record_id"], "A_a_theta0_r1:0")
+        self.assertEqual(cells["A_prime/a/T90"]["record_id"], "A_a_theta0_r1:0")
+        self.assertEqual(cells["A_prime/a/T99"]["status"], "unavailable")
+        self.assertEqual(cells["F/b/representative"]["reason"], "no_feasible_representative")
+        reasons = {r["record"]["run_id"]: r["rejection_reasons"] for r in out["records"]}
+        self.assertIn("host_contaminated_or_unknown", reasons["A_a_lhs1_r1"])
+        self.assertIn("geometry_not_admissible", reasons["F_b_theta0_r1"])
+        self.assertIn("mean_floor_not_met", reasons["F_b_lhs1_r1"])
+        # θ0 is always a job and every selected design references it.
+        theta0 = next(j for j in out["jobs"] if "theta0" in j["roles"])
+        self.assertTrue(all(j["theta0_design_key"] == theta0["design_key"] for j in out["jobs"]))
+        self.assertEqual(len(out["jobs"]), 4)  # theta0 + three distinct designs
+
+    def test_ablation_selection_feeds_the_check_plan(self):
+        out = ablation([record(method="F", f_val=0.001), record(run_id="a2", method="A",
+                                                                f_val=0.002, design=design(2.0))])
+        plan = check_plan.make_plan(out, include_conforming=True)
+        self.assertEqual(len(plan["jobs"]), 3 * 7)
+        self.assertEqual(plan["selection_manifest_sha256"], hashlib.sha256(json.dumps(
+            out, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest())
+
+    def test_a_prime_and_main_a_never_share_role_names(self):
+        main_roles = {c["role"] for c in selection([])["cells"]}
+        ablation_roles = {c["role"] for c in ablation([])["cells"]}
+        self.assertFalse(main_roles & ablation_roles)
+
+
+def warm(rows, **changes):
+    return selection(rows, cohort="fd_warm_ablation", **changes)
+
+
+class FdWarmSelectionTests(unittest.TestCase):
+    """#1224 protocol §7: the {A', F_w} session's representatives and
+    earliest crossings under the same rules, repeat 1 only; the main and
+    #1218 cohorts' selections unchanged."""
+
+    def test_main_and_fd_ablation_selections_are_byte_identical(self):
+        self.assertEqual(digest(selection(main_cohort())), MAIN_SELECTION_SHA256)
+        rows = ablation_cohort()
+        self.assertEqual(len(rows), 58)
+        self.assertEqual(digest(ablation(rows)), FD_ABLATION_SELECTION_SHA256)
+        self.assertEqual(COHORTS["fd_ablation"], ("A", "F"))
+
+    def test_warm_cohort_is_a_prime_and_f_w(self):
+        self.assertEqual(COHORTS["fd_warm_ablation"], ("A", "W"))
+        out = warm([])
+        self.assertEqual(out["cohort"], "fd_warm_ablation")
+        self.assertEqual(out["arms"], {"A": "A_prime", "W": "F_w"})
+        self.assertIn("#1224", out["preregistration"])
+        self.assertIn("post-hoc", out["preregistration"])
+        roles = [c["role"] for c in out["cells"]]
+        self.assertEqual(roles, [f"{arm}/{sp}/{k}" for arm in ("A_prime", "F_w")
+                                 for sp in ("a", "b")
+                                 for k in ("representative", "T50", "T90", "T99")])
+        self.assertEqual({c["arm"] for c in out["cells"]}, {"A_prime", "F_w"})
+        self.assertEqual(len(out["jobs"]), 1)
+
+    def test_cohorts_do_not_accept_each_others_methods_or_repeats(self):
+        for m in "BCDEF":
+            with self.subTest(method=m), self.assertRaises(ValueError):
+                warm([record(method=m)])
+        with self.assertRaises(ValueError):
+            ablation([record(method="W")])
+        with self.assertRaises(ValueError):
+            selection([record(method="W")])
+        with self.assertRaisesRegex(ValueError, "repeat 1 only"):
+            warm([record(method="W", repeat=2)])
+        # The #1218 cohort keeps its repeat 2.
+        try:
+            out = ablation([record(method="F", repeat=2)])
+        except ValueError as error:
+            self.fail(f"the #1218 cohort refused repeat 2: {error}")
+        self.assertEqual(out["records"][0]["eligible"], True)
+
+    def test_warm_applies_the_amendment8_rules(self):
+        rows = ablation_cohort("AW", seed=1224)
+        self.assertTrue(all(r.repeat == 1 for r in rows))
+        out = warm(rows)
+        # The same rules as the #1218 cohort: relabel W -> F and A' stays.
+        relabelled = ablation([replace(r, method="F" if r.method == "W" else r.method)
+                               for r in rows])
+        self.assertEqual([(c["kind"], c["space"], c["status"], c["record_id"])
+                          for c in out["cells"]],
+                         [(c["kind"], c["space"], c["status"], c["record_id"])
+                          for c in relabelled["cells"]])
+        self.assertEqual([r["decision"] for r in out["records"]],
+                         [r["decision"] for r in relabelled["records"]])
+        plan = check_plan.make_plan(out, include_conforming=True)
+        self.assertEqual(plan["selection_manifest_sha256"], digest(out))
+
+    def test_warm_roles_never_share_names_with_the_other_cohorts(self):
+        roles = {c["role"] for c in warm([])["cells"]}
+        self.assertFalse(roles & {c["role"] for c in selection([])["cells"]})
+        self.assertEqual({r for r in roles if not r.startswith("A_prime/")}
+                         & {c["role"] for c in ablation([])["cells"]}, set())
 
 
 if __name__ == "__main__":

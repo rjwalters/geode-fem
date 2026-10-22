@@ -14,7 +14,7 @@ MUTATIONS = (
      "test_real_child_receipt_pins_snapshot_without_requiring_mutable_target"),
     ("changing_source_accepted", "build_provenance.py", 'if source_probe(repo) != source or environment_probe(repo, env) != build_env:',
      'if False:', "test_dirty_or_changing_sources_never_publish_success"),
-    ("main_build_gate_skipped", "session.py", 'if a.main or a.build_receipt is not None:', 'if False:',
+    ("main_build_gate_skipped", "session.py", 'if main_like or a.build_receipt is not None:', 'if False:',
      "test_main_without_receipt_stops_before_calibration_or_preflight"),
 )
 

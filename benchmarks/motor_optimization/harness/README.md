@@ -39,10 +39,16 @@ only) is in `../runs/pilot/`, with its `SUMMARY.md`.
 | `crates/geode-core/examples/icem_harness_eval.rs` | The evaluator process, one per run: JSON lines over stdin/stdout. |
 | `crates/geode-core/tests/common/icem_harness.rs` | `Session::handle`: the requests and their charges, built on `RemeshEvaluator`, `Validator::accept`, `Anchor` and `CostLedger`. |
 | `crates/geode-core/tests/motor_experiment2_harness.rs` | CI target. |
-| `driver.py` | The problem scaling, the charged `Run` (the validation policy and attainment), and methods A, B and C. |
+| `driver.py` | The problem scaling, the charged `Run` (the validation policy and attainment), and methods A–E, F (#1218) and F_w (#1224). |
 | `ledger.py`, `acceptance.py`, `evaluator.py`, `surrogate.py` | The driver's ledger, its independent copy of the acceptance rule, the process client, and the RBF model. |
 | `run.py` | One run: a fresh process, a fresh ledger, one trace. |
-| `session.py` | The run manifest: gated calibration, then scheduling; requires explicit `--main` or `--smoke`. Main uses five methods and requires a witnessed build receipt. |
+| `session.py` | The run manifest: gated calibration, then scheduling; requires explicit `--main`, `--fd-ablation`, `--fd-warm-ablation` or `--smoke`. Main uses five methods (A–E); `--fd-ablation` the #1218 {A′, F} queue; `--fd-warm-ablation` the #1224 {A′, F_w} queue; all three require a witnessed build receipt. |
+| `fd_ablation_schedule.py` | The #1218 {A′, F} ablation queue (40 jobs; `session.py --fd-ablation`). The 100-job main queue is unchanged. |
+| `fd_warm_schedule.py` | The #1224 {A′, F_w} queue (20 jobs, repeat 1; `session.py --fd-warm-ablation`). The main and #1218 queues are unchanged. |
+| `fd_gradient_check.py`, `fd-gradient-runtime-checks.json`, `fd-gradient-runtime-checks-L1.json` | Method F's forward-difference gradient against the adjoint through the process (#1218): on the L0 CI model (default), and with `--level 1` on the main session's L1 training model. |
+| `fd_step_sweep.py`, `fd-step-sweep-L1.json` | Diagnostic (#1218): forward (1e-5, 1e-6, 1e-7) and central (1e-5, 1e-6) differences against the adjoint at the failing L1 point; F's frozen protocol unchanged. |
+| `fd-gradient-runtime-checks-L1-warm.json`, `fd-step-sweep-L1-warm.json`, `fd-step-sweep-L1-warm-b.json` | Method F_w's L1 accuracy gate (#1224 protocol §2): `fd_gradient_check.py --level 1 --warm`, with F's cold gradient as a same-process reference, and `fd_step_sweep.py --warm` at space A's and space B's interior points. |
+| `test_fd_gradient.py`, `fd_gradient_mutations.py`, `fd-gradient-checks.json` | Method F, ablation-queue and `fd_gradient_check.py --level` and `fd_step_sweep.py` tests without FEM, and their mutation record (#1218); method F_w, its queue and session, and the `--warm` modes (#1224). |
 | `export_queue.py` | Export the same 100-job main queue for prelaunch inspection, without FEM/calibration. |
 | `summarize_session.py` | Writes `SUMMARY.md` for a session directory. |
 | `summarize_pilot.py` | The pilot analysis (#1198): attainment, budget profile, feasibility, failures, host load, quality-versus-cost curves (`curves.csv`, `quality_vs_cost.svg`) and method C's held-out-current diagnostic, into the session's `SUMMARY.md`. |
@@ -1219,3 +1225,170 @@ binaries are not included; their hashes and recorded build inputs are retained.
 The matching `*-runtime-checks.json` summaries identify exact source snapshots
 and distinguish changed test fixtures from unchanged numerical code. Extract
 into a new directory and verify every member against its manifest before use.
+
+## Method F and the {A′, F} ablation (#1218)
+
+A post-hoc ablation, outside the preregistered #1185 study. Method F
+`slsqp_fd` is method A's safeguarded SLSQP with restarts, with the same
+bounds, constraints, restoration, validation, targets and stopping rules,
+and the analytic geometry Jacobians. Only the objective and mean-constraint
+gradients change: they are forward differences of `train` value replies
+(`gradient: false`), step 1e-6 in each component's unit, base value reused
+(n + 1 forward solves per gradient: 9 in space A, 19 in space B). Every request is an
+ordinary charged request of the run.
+
+- **Same generation.** Before a stencil point is solved, the evaluator's
+  existing `check` request (read-only: no remesh, no solve, no state
+  change) computes the current training reference's moved positions there
+  and reports whether the remesh policy would fire. A stencil
+  point that would remesh is never solved. A stencil reply off the base's
+  generation, or with a remesh event, is a `WiringError`.
+- **Backward step.** A forward step that leaves the box, is not buildable
+  (what A's `train` requires), or would remesh is replaced by the backward
+  step for that component. Admissibility (h ≥ 0) is not required, so F
+  differences wherever A gets an adjoint gradient (protocol-freeze ruling 1
+  on #1218). When both fail, the
+  gradient is refused on A's `derivative_undefined` path. Nothing more is
+  returned at that point, and restoration starts from the last admissible
+  evaluated point *before* it, because the refused point has a value.
+- **Same refusals as A.** At a buildable point whose design derivative is
+  undefined, F refuses `derivative_undefined` before its value request,
+  exactly where A's gradient request is refused (0 solves).
+- **Retired base.** If the base value is on a retired generation, the base
+  is solved once more on the current reference (n + 2 solves). If that
+  would remesh, the gradient is refused.
+
+`session.py --fd-ablation` runs the 40-job queue of `fd_ablation_schedule.py`
+(label `fd_ablation`). The cohort is θ0 and lhs1–4, spaces a and b, repeats
+1 and 2, with {A′, F} rotated by the start index and reversed on repeat 2.
+The setup is the main session's: start preflight, anchor recomputation, the
+gated unit calibration, a build receipt, clean sources and the host rule. No
+L0 model is calibrated. The main registry (`driver.MAIN_METHOD_SPECS`,
+A–E), its queue and its export are unchanged; `test_fd_gradient.py` pins
+their canonical hashes. Recovery: `recovery.py --fd-ablation`.
+
+On the L0 CI model (`fd-gradient-runtime-checks.json`), F's gradient agrees
+with the adjoint to a norm-wise relative 5.2e-4 (A) and 1.9e-3 (B). Component-wise,
+the worst cases are 6e-3 (A) and 5.7e-2 (B, a small SW3 component). Those
+are the accuracy F gets at the frozen step.
+
+`fd_gradient_check.py --level 1` runs the same check, with the same step and
+the same bounds, on the main session's training model: L1 on the frozen θ0
+mesh (`icem_initial_sector_L1.msh`, SHA-256 c4526a26…). Validation follows the
+primary session (`session.py --main` / `--fd-ablation`), L2 on
+`icem_initial_sector_L2.msh` against the registered `anchor.json`. The check
+never validates. Both meshes are gitignored and hash-checked before any
+process starts. The L1 record (`fd-gradient-runtime-checks-L1.json`, log
+beside it) is **FAIL** on the component-wise bound, in one place only.
+Norm-wise, F agrees with the adjoint everywhere: dF 5.4e-4 / 5.2e-4 (A θ0 /
+interior) and 1.9e-3 / 1.8e-3 (B), and dmean_full 1.0e-4 / 1.1e-4 (A) and
+7.2e-4 / 6.3e-4 (B), all within the 5e-3 bound. Component-wise, the worst
+cases are within 1e-1 except at space A's interior point. There, SW3's
+dmean_full is −9.62e-3 by FD against −7.74e-3 by the adjoint (relative 0.24).
+That component is 9e-5 of the largest, so it counts under the 1e-6
+negligibility rule. Its absolute error, 1.9e-3, is the same as SW3's at θ0
+(1.8e-3, relative 1.8e-2). This is the frozen step's noise floor on a small
+component, not an O(1) wiring error. Space B passes at both points (worst
+component 1.4e-2, CPR7 backward at θ0). The step was not retuned.
+
+`fd_step_sweep.py` measures what that error is (a diagnostic only: F's
+frozen protocol and step are unchanged). At the failing point (L1, space A
+interior), for SW3, MH and SW2, it takes forward differences at 1e-5, 1e-6
+and 1e-7 and central differences at 1e-5 and 1e-6. All are value-only
+`train` replies on the base's mesh generation, against the adjoint. The base
+is re-solved at the end. The record is `fd-step-sweep-L1.json`, with its log
+beside it. The error is **forward-difference truncation**, not noise:
+
+- For every component and both quantities, the forward error divided by h is
+  constant to about 3 digits over the two decades. SW3 dmean_full gives
+  −1866 / −1880 / −1881 and SW2 dF gives 6918 / 6912 / 6908, so the error
+  falls 10× per decade of h.
+- Central differences remove it. At 1e-6, SW3 dmean_full is −7.7385e-3
+  against the adjoint's −7.7402e-3 (relative 2.2e-4, against 0.24 forward).
+  The 1e-5 → 1e-6 drop is about 100×, as h² predicts.
+- No noise floor shows down to 1e-7. The re-solved base is bit-identical
+  (cold Newton start), and the sweep's forward 1e-6 values equal the L1
+  check's bit for bit.
+
+SW3's failing relative error comes from its small gradient, not a larger
+error. The mean has a curvature of the usual size (h f''/2 ≈ 1.9e-3 at
+1e-6) on a slope of only 7.7e-3.
+
+## Method F_w and the {A′, F_w} arm (#1224)
+
+A post-hoc arm, added after the #1185 and #1218 outcomes were known, and
+outside the preregistered study. Method F_w `slsqp_fd_warm` (letter W) is
+method F in every respect but one: each stencil solve starts Newton from the
+base point's converged training state on the same mesh generation instead of
+cold. The step, the backward fallback, the Newton tolerance and convergence
+test, every refusal and every charge are F's. `test_fd_gradient.py` checks
+the parity: end to end on the fake, F_w sends F's requests in F's order with
+F's charges, and only the two warm-start fields below differ.
+
+**Why not `WarmStart::Previous`.** The evaluator's `Previous` start chains:
+each evaluation starts from the one before it. In a stencil that is the
+previous stencil point, and in an optimizer run the previous optimizer
+point. That would change the base and every non-stencil training solve too.
+So the evaluator has an explicit per-request start instead
+(`icem_harness.rs`, `icem_remesh.rs`):
+
+- `train` with `retain_fields: true` is the same evaluation as without it
+  (same start, same reply values). The evaluator also keeps its converged
+  `A_z` fields, keyed by the request's `x_bits`, with their generation (the
+  last 16 distinct points, `WARM_BASES`). F_w sends this on every training
+  solve of its own, since any of them can become a stencil base. A base
+  re-solved on the current generation (a retired base) is retained the same
+  way.
+- `train` with `warm_from_bits` (the base's `x_bits`) starts every Newton
+  solve of the evaluation from that base's fields, when they live on the
+  generation the evaluation lands on (`RemeshEvaluator::evaluate_from`, the
+  `SameMesh` start of `Previous`). Otherwise it starts cold. Nothing is
+  retained from such a request. Each stencil solve names its own base, never
+  another stencil point.
+- The reply carries `warm` (`start: same_mesh | cold` and a reason). The
+  driver refuses a reply that ignores the fields (`WiringError`). It records
+  each stencil's start, Newton iterations and solve seconds in the gradient
+  record, so a cold fallback (an evicted base) is visible, not silent.
+- A request with neither field is handled exactly as before, and its reply
+  is unchanged. A, F, every validation and the main and #1218 queues send
+  neither (pinned by hash tests).
+
+`session.py --fd-warm-ablation` runs the 20 jobs of `fd_warm_schedule.py`
+(label `fd_warm_ablation`): θ0 and lhs1–4, spaces a and b, repeat 1 only,
+with {A′, F_w} rotated by the start index as on #1218's repeat 1. The setup is
+#1218's. Recovery: `recovery.py --fd-warm-ablation`. Selection:
+`final_refinement/ablation_selection.py --cohort fd_warm_ablation`.
+
+**L1 accuracy gate** (`fd-gradient-runtime-checks-L1-warm.json`, log beside
+it). The check uses F's points, step and criteria. At each point it also
+recomputes F's cold gradient in the same process, and that reproduces F's
+committed L1 record bit for bit.
+
+- **Norm-wise, F_w matches F.** dF 5.8e-4 / 5.4e-4 (A θ0 / interior) and
+  1.9e-3 / 1.7e-3 (B), against F's 5.4e-4 / 5.2e-4 and 1.9e-3 / 1.8e-3.
+  dmean_full 1.0e-4 / 1.1e-4 (A) and 7.1e-4 / 6.2e-4 (B). The ratio to F is
+  0.92–1.08 everywhere, far inside the 10× stop gate (`gate: proceed`).
+- **Component-wise, F_w is worse on the smallest components.** The record
+  is FAIL at all four points (F: at A interior only). The failures are dF
+  components 1e-4 to 6e-4 of the largest. Sr1 is 0.14 (A θ0), 0.16 (B θ0)
+  and 1.58 (B interior, with the wrong sign); SW4 0.53 and SW1 0.23 (B
+  interior). F gets these components to ≤ 6e-4. A warm-started solve stops
+  after one Newton update, once the residual is under the unchanged
+  tolerance. The cold base took about three updates. The two converged
+  states differ at the tolerance level, and that difference divided by h
+  reaches the small components. F's cold stencils follow the base's own
+  Newton path, so the same error cancels in the difference.
+- `fd-step-sweep-L1-warm-b.json` shows this directly at B interior. The
+  forward error grows as 1/h (Sr1 dF relative 0.16 / 1.6 / 15 at 1e-5 /
+  1e-6 / 1e-7). It is a tolerance floor, not truncation, and central
+  differences remove it (1.6e-6 at 1e-6). At A interior
+  (`fd-step-sweep-L1-warm.json`) the large components behave as F's.
+
+**Cost.** A warm-started stencil solve mostly takes 1 Newton update per
+operating point: 60 per evaluation of 60 operating points, up to 79–120 for
+a few in space B. A cold one takes 176–186. Warm is 0.32–0.37 of the
+iterations. Its wall time is 0.48–0.52 of a
+cold stencil solve (5.8 s against 12.2 s per evaluation in space A, on this
+Mac at one thread). The time ratio is higher than the iteration ratio
+because assembly and the torque evaluation do not shrink.
+

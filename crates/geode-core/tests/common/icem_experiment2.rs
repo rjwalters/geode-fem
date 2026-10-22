@@ -83,7 +83,7 @@ use crate::icem_cp_design::CpDesignPoint;
 use crate::icem_design::{DesignPoint, Mode};
 use crate::icem_remesh::{
     CpSpace, DesignEvaluation, EvalError, EvaluatorConfig, FreshMeshRecord, IcemRemesher,
-    MeshSource, RemeshEvaluator, ScalarSpace, Space, quality_json, trigger_json,
+    MeshSource, RemeshEvaluator, ScalarSpace, Space, WarmFields, quality_json, trigger_json,
 };
 use crate::icem_shape::Objective;
 
@@ -300,6 +300,42 @@ impl<Sp: Space> FrozenSpace<Sp> {
     ) -> Result<SpaceEvaluation<Sp>, Exp2Error> {
         let p = self.embed(x)?;
         let full = ev.evaluate(&p, gradient)?;
+        Ok(self.wrap(x, full))
+    }
+
+    /// [`evaluate`](Self::evaluate), exactly, also returning the converged
+    /// fields ([`RemeshEvaluator::evaluate_retaining`]; #1224).
+    ///
+    /// # Errors
+    ///
+    /// [`Exp2Error`].
+    pub fn evaluate_retaining(
+        &self,
+        ev: &mut RemeshEvaluator<Sp>,
+        x: &[f64],
+        gradient: bool,
+    ) -> Result<(SpaceEvaluation<Sp>, WarmFields), Exp2Error> {
+        let p = self.embed(x)?;
+        let (full, fields) = ev.evaluate_retaining(&p, gradient)?;
+        Ok((self.wrap(x, full), fields))
+    }
+
+    /// [`evaluate`](Self::evaluate) with every Newton solve started from
+    /// `start` on its own generation, else cold
+    /// ([`RemeshEvaluator::evaluate_from`]; #1224).
+    ///
+    /// # Errors
+    ///
+    /// [`Exp2Error`].
+    pub fn evaluate_from(
+        &self,
+        ev: &mut RemeshEvaluator<Sp>,
+        x: &[f64],
+        gradient: bool,
+        start: Option<&WarmFields>,
+    ) -> Result<SpaceEvaluation<Sp>, Exp2Error> {
+        let p = self.embed(x)?;
+        let full = ev.evaluate_from(&p, gradient, start)?;
         Ok(self.wrap(x, full))
     }
 

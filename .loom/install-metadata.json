@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1196",
-  "loom_commit": "87e5cf2d87aae146e97e8bbba81ceec5faf9337f",
+  "loom_version": "0.19.1205",
+  "loom_commit": "b39a4185d591a57b1c6e13bf0c645368776d9e01",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -383,7 +383,6 @@
     ".loom/scripts/tests/fixtures/config_resolver/README.md",
     ".loom/scripts/tests/lib/bg-proc-trap.sh",
     ".loom/scripts/tests/lib/daemon-update-fixtures.sh",
-    ".loom/scripts/tests/lib/heredoc-body-safety.sh",
     ".loom/scripts/tests/lib/launchd-sandbox.sh",
     ".loom/scripts/tests/lib/live-state-sandbox.sh",
     ".loom/scripts/tests/lib/require-daemon-bin.sh",
@@ -776,8 +775,21 @@
     ".claude/commands/loom/orphan-stack-replacement.md",
     ".loom/roles/orphan-stack-replacement.md",
     ".loom/scripts/tests/test-champion-out-of-band-ac-gate-switch.sh",
-    ".loom/scripts/tests/test-guide-work-log-rotation.sh"
+    ".loom/scripts/tests/test-guide-work-log-rotation.sh",
+    ".loom/scripts/tests/test-ci-wait-prompt-consistency.sh",
+    ".loom/hooks/tests/test-guard-secret-scan.sh",
+    ".loom/scripts/tests/fixtures/champion-workflows/cases.tsv",
+    ".loom/scripts/tests/fixtures/champion-workflows/ci-adds-contents-write.yml",
+    ".loom/scripts/tests/fixtures/champion-workflows/ci-comment-mentions-privileges.yml",
+    ".loom/scripts/tests/fixtures/champion-workflows/ci-environment-gated.yml",
+    ".loom/scripts/tests/fixtures/champion-workflows/ci-github-token-only.yml",
+    ".loom/scripts/tests/fixtures/champion-workflows/ci-pull-request-target.yml",
+    ".loom/scripts/tests/fixtures/champion-workflows/ci-with-cloudflare-secret.yml",
+    ".loom/scripts/tests/fixtures/champion-workflows/claude-bot-deploy-plan.yml",
+    ".loom/scripts/tests/fixtures/champion-workflows/publish-npm.yml",
+    ".loom/scripts/tests/lib/post-merge-cleanup-harness.sh",
+    ".loom/scripts/tests/test-tools-first-clean-install.sh"
   ],
-  "last_resync": "2026-10-20",
+  "last_resync": "2026-10-22",
   "requires_daemon": "0.19.1088"
 }

@@ -904,3 +904,323 @@ fn every_mesh_decision_uses_its_own_spaces_motion() {
     let ma = sa.handle(&json!({"op": "mesh_check", "x_bits": x_bits(&xa)}));
     assert_eq!(ma["status"], "ok", "{ma}");
 }
+
+// ── Warm-started stencil solves (#1224, method F_w) ─────────────────────
+
+/// The value fields of a `train` reply that do not depend on the clock.
+fn values(r: &Value) -> Value {
+    json!({"F": r["F"], "dF": r["dF"], "means": r["means"], "stds": r["stds"],
+        "mean_full": r["mean_full"], "dmean_full": r["dmean_full"],
+        "generation": r["generation"], "event": r["event"], "quality": r["quality"],
+        "newton_iterations": r["newton_iterations"], "solves": r["solves"],
+        "x_bits": r["x_bits"], "status": r["status"]})
+}
+
+/// Charge categories and solve counts of a reply (no seconds).
+fn solve_counts(r: &Value) -> BTreeMap<String, (u64, u64)> {
+    charges(r)
+        .into_iter()
+        .map(|(k, (_, f, a))| (k, (f, a)))
+        .collect()
+}
+
+fn train_with(s: &mut Session<impl Space>, x: &[f64], extra: Value) -> Value {
+    let mut req = json!({"op": "train", "x_bits": x_bits(x), "gradient": false,
+        "purpose": "iterate"});
+    for (k, v) in extra.as_object().unwrap() {
+        req[k] = v.clone();
+    }
+    s.handle(&req)
+}
+
+fn warm_protocol<Sp: Space>(space: impl Fn() -> FrozenSpace<Sp>) {
+    let fresh = || {
+        session(
+            space(),
+            fd_cfg(),
+            &l0(),
+            &l0(),
+            None,
+            MeshSource::Fixed(String::new()),
+        )
+        .unwrap()
+    };
+    let sp = space();
+    let x = interior(&sp);
+    // A stencil point of the frozen step in component 0.
+    let mut xs = x.clone();
+    xs[0] += 1e-6;
+    let mut other = x.clone();
+    other[1] += 1e-6;
+    // F's requests: no warm field, so no `warm` in the reply.
+    let mut cold = fresh();
+    let base_cold = train(&mut cold, &x, false, "iterate");
+    let stencil_cold = train(&mut cold, &xs, false, "iterate");
+    assert!(base_cold.get("warm").is_none() && stencil_cold.get("warm").is_none());
+    assert!(cold.warm_base(&x_bits(&x)).is_none());
+
+    let mut s = fresh();
+    // A retained base is the same evaluation as F's base, bit for bit.
+    let base = train_with(&mut s, &x, json!({"retain_fields": true}));
+    assert_eq!(base["ok"], true, "{base}");
+    assert_eq!(values(&base), values(&base_cold));
+    assert_eq!(solve_counts(&base), solve_counts(&base_cold));
+    assert_eq!(base["warm"], json!({"retained": true, "generation": 0}));
+    let kept = s.warm_base(&x_bits(&x)).expect("retained base").clone();
+    assert_eq!(kept.generation, 0);
+    assert_eq!(kept.initials.len(), 3);
+    assert!(kept.initials.iter().all(|c| c.len() == DEGREES.len()));
+
+    // The stencil starts from the base: same mesh, the Newton tolerance
+    // reached in fewer iterations, the same charges as F's cold stencil.
+    let warm = train_with(&mut s, &xs, json!({"warm_from_bits": x_bits(&x)}));
+    assert_eq!(warm["ok"], true, "{warm}");
+    assert_eq!(
+        warm["warm"],
+        json!({"from_x_bits": x_bits(&x), "start": "same_mesh", "reason": null,
+            "base_generation": 0})
+    );
+    assert_eq!(warm["generation"], 0);
+    assert!(warm["event"].is_null());
+    assert_eq!(solve_counts(&warm), solve_counts(&stencil_cold));
+    let (wi, ci) = (
+        warm["newton_iterations"].as_u64().unwrap(),
+        stencil_cold["newton_iterations"].as_u64().unwrap(),
+    );
+    assert!(wi < ci, "warm {wi} cold {ci} Newton iterations");
+    // Converged to the same (tight, 1e-12) tolerance: the values agree far
+    // below the stencil's own change, and are not the base's.
+    let f = |r: &Value, k: &str| r[k].as_f64().unwrap();
+    let step = (f(&stencil_cold, "F") - f(&base_cold, "F")).abs();
+    assert!(step > 0.0);
+    assert!((f(&warm, "F") - f(&stencil_cold, "F")).abs() < 1e-3 * step);
+    assert!(
+        (f(&warm, "mean_full") - f(&stencil_cold, "mean_full")).abs()
+            < 1e-9 * f(&stencil_cold, "mean_full").abs()
+    );
+    // A stencil is never a base, and it left the base in place.
+    assert!(s.warm_base(&x_bits(&xs)).is_none());
+    assert_eq!(s.warm_base(&x_bits(&x)), Some(&kept));
+
+    // From a point that is not retained: cold, recorded, and F's cold
+    // stencil to the bit.
+    let miss = train_with(&mut s, &xs, json!({"warm_from_bits": x_bits(&other)}));
+    assert_eq!(miss["ok"], true, "{miss}");
+    assert_eq!(
+        miss["warm"],
+        json!({"from_x_bits": x_bits(&other), "start": "cold",
+            "reason": "base_not_retained", "base_generation": null})
+    );
+    assert_eq!(values(&miss), values(&stencil_cold));
+
+    // A default request after all this is still F's, to the bit: the
+    // retained bases change no other evaluation.
+    let again = train(&mut s, &xs, false, "iterate");
+    assert!(again.get("warm").is_none());
+    assert_eq!(values(&again), values(&stencil_cold));
+
+    // A LATER retained solve, after retained solves, stencils and default
+    // requests in the same session, is still F's solve at that point, bit
+    // for bit (Newton iterations included): retaining never warm-starts the
+    // base or any other training solve of F_w (#1224 protocol §1). Value
+    // and gradient requests alike.
+    let mut later = interior(&sp);
+    later[2] += 3e-6;
+    for gradient in [false, true] {
+        let mut p = later.clone();
+        p[3] += if gradient { 2e-6 } else { 0.0 };
+        let r = train_with(
+            &mut s,
+            &p,
+            json!({"retain_fields": true, "gradient": gradient}),
+        );
+        assert_eq!(r["ok"], true, "{r}");
+        assert_eq!(r["warm"]["retained"], true);
+        let own = train(&mut fresh(), &p, gradient, "iterate");
+        assert_eq!(values(&r), values(&own), "gradient {gradient}");
+        assert_eq!(solve_counts(&r), solve_counts(&own));
+    }
+    // And a stencil from the first base after them still starts from it.
+    let w2 = train_with(&mut s, &xs, json!({"warm_from_bits": x_bits(&x)}));
+    assert_eq!(w2["warm"]["start"], "same_mesh", "{w2}");
+    assert_eq!(values(&w2), values(&warm));
+
+    // Malformed or contradictory fields: refused before any solve, charged,
+    // the session alive and its bases unchanged.
+    for bad in [
+        json!({"retain_fields": true, "warm_from_bits": x_bits(&x)}),
+        json!({"retain_fields": 1}),
+        json!({"warm_from_bits": "x"}),
+        json!({"warm_from_bits": [1.5]}),
+    ] {
+        let e = train_with(&mut s, &xs, bad.clone());
+        assert_eq!(e["ok"], false, "{bad}: {e}");
+        assert_eq!(charges(&e).keys().collect::<Vec<_>>(), ["forward"], "{bad}");
+    }
+    assert_eq!(s.warm_base(&x_bits(&x)), Some(&kept));
+    assert!(s.warm_base(&x_bits(&xs)).is_none());
+}
+
+#[test]
+fn warm_started_stencils_space_a() {
+    let r = icem::load_reference();
+    warm_protocol(|| space_a(&r));
+}
+
+#[test]
+fn warm_started_stencils_space_b() {
+    let r = icem::load_reference();
+    warm_protocol(|| space_b(&r));
+}
+
+#[test]
+fn retained_bases_are_the_newest_distinct_points() {
+    let r = icem::load_reference();
+    let sp = space_a(&r);
+    let x = interior(&sp);
+    let mut s = session(
+        space_a(&r),
+        SessionConfig {
+            train_degrees: vec![0],
+            ..fd_cfg()
+        },
+        &l0(),
+        &l0(),
+        None,
+        MeshSource::Fixed(String::new()),
+    )
+    .unwrap();
+    let pt = |k: usize| {
+        let mut p = x.clone();
+        p[0] += 1e-6 * k as f64;
+        p
+    };
+    let n = icem_harness::WARM_BASES;
+    for k in 0..=n {
+        let e = train_with(&mut s, &pt(k), json!({"retain_fields": true}));
+        assert_eq!(e["ok"], true, "{e}");
+    }
+    // The oldest of WARM_BASES + 1 is dropped; the rest are kept.
+    assert!(s.warm_base(&x_bits(&pt(0))).is_none());
+    for k in 1..=n {
+        assert!(s.warm_base(&x_bits(&pt(k))).is_some(), "{k}");
+    }
+    // Re-retaining the newest point replaces its entry: no duplicate, so
+    // the oldest kept point (pt(1)) is not evicted.
+    train_with(&mut s, &pt(n), json!({"retain_fields": true}));
+    for k in 1..=n {
+        assert!(
+            s.warm_base(&x_bits(&pt(k))).is_some(),
+            "{k} after re-retaining {n}"
+        );
+    }
+    // Retaining a kept point again makes it the newest, not a duplicate.
+    train_with(&mut s, &pt(1), json!({"retain_fields": true}));
+    train_with(&mut s, &pt(0), json!({"retain_fields": true}));
+    assert!(s.warm_base(&x_bits(&pt(1))).is_some());
+    assert!(s.warm_base(&x_bits(&pt(2))).is_none());
+
+    // A base re-solved at the same x_bits on another generation (a retired
+    // base re-solved after a remesh) replaces the stale entry, and that is
+    // the one a stencil finds: here generation 7, so the stencil on
+    // generation 0 starts cold and says why, instead of using the stale
+    // generation-0 fields.
+    let b = x_bits(&pt(3));
+    let stale = s.warm_base(&b).expect("retained").clone();
+    assert_eq!(stale.generation, 0);
+    s.retain_base(
+        b.clone(),
+        icem_remesh::WarmFields {
+            generation: 7,
+            ..stale
+        },
+    );
+    assert_eq!(s.warm_base(&b).unwrap().generation, 7);
+    let mut st = pt(3);
+    st[1] += 1e-6;
+    let r = train_with(&mut s, &st, json!({"warm_from_bits": b}));
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(r["warm"]["start"], "cold", "{r}");
+    assert_eq!(r["warm"]["reason"], "base_on_other_generation");
+    assert_eq!(r["warm"]["base_generation"], 7);
+    // Every other kept base is still there (one entry per point).
+    for k in [0usize, 1].into_iter().chain(4..=n) {
+        assert!(s.warm_base(&x_bits(&pt(k))).is_some(), "{k}");
+    }
+}
+
+#[test]
+fn explicit_starts_use_their_own_generation_and_leave_the_history() {
+    use icem_remesh::{EvaluatorConfig, RemeshEvaluator, StartUsed, WarmFields, WarmStart};
+    let r = icem::load_reference();
+    let sp = space_a(&r);
+    let x = interior(&sp);
+    let mut xs = x.clone();
+    xs[0] += 1e-6;
+    let mut y = x.clone();
+    y[2] += 1e-4;
+    let cfg = |warm: WarmStart| {
+        let mut c: EvaluatorConfig = fd_cfg().training();
+        c.warm = warm;
+        c
+    };
+    let make = |warm| {
+        RemeshEvaluator::<ScalarSpace>::new(
+            &l0(),
+            ScalarSpace::geo(&sp.base),
+            &r,
+            cfg(warm),
+            MeshSource::Fixed(String::new()),
+        )
+        .unwrap()
+    };
+    let bits = |e: &icem_experiment2::SpaceEvaluation<ScalarSpace>| {
+        (
+            e.f.to_bits(),
+            e.means.iter().map(|m| m.to_bits()).collect::<Vec<_>>(),
+        )
+    };
+    // Cold configuration: evaluate_retaining is evaluate, plus the fields.
+    let mut e = make(WarmStart::Cold);
+    let plain = sp.evaluate(&mut make(WarmStart::Cold), &x, false).unwrap();
+    let (base, w) = sp.evaluate_retaining(&mut e, &x, false).unwrap();
+    assert_eq!(bits(&base), bits(&plain));
+    assert_eq!(base.full.start, StartUsed::Cold);
+    assert_eq!(w.generation, 0);
+    let cold_xs = sp.evaluate(&mut make(WarmStart::Cold), &xs, false).unwrap();
+    // From the base on its own generation: the SameMesh start.
+    let warm = sp.evaluate_from(&mut e, &xs, false, Some(&w)).unwrap();
+    assert_eq!(warm.full.start, StartUsed::SameMesh);
+    let its = |e: &icem_experiment2::SpaceEvaluation<ScalarSpace>| {
+        e.full
+            .currents
+            .iter()
+            .map(|c| c.newton_iterations)
+            .sum::<usize>()
+    };
+    assert!(its(&warm) < its(&cold_xs));
+    // Fields of another generation, or none: cold, to the bit.
+    let other = WarmFields {
+        generation: 9,
+        ..w.clone()
+    };
+    for start in [Some(&other), None] {
+        let c = sp.evaluate_from(&mut e, &xs, false, start).unwrap();
+        assert_eq!(c.full.start, StartUsed::Cold);
+        assert_eq!(bits(&c), bits(&cold_xs));
+    }
+    // Previous configuration: an explicit start does not enter the
+    // history. evaluate(x), evaluate_from(xs), evaluate(y) is evaluate(x),
+    // evaluate(y) to the bit, and y starts from x's fields.
+    let mut p = make(WarmStart::Previous);
+    sp.evaluate(&mut p, &x, false).unwrap();
+    let stencil = sp.evaluate_from(&mut p, &xs, false, None).unwrap();
+    assert_eq!(stencil.full.start, StartUsed::Cold);
+    let y1 = sp.evaluate(&mut p, &y, false).unwrap();
+    let mut q = make(WarmStart::Previous);
+    let (_, wq) = sp.evaluate_retaining(&mut q, &x, false).unwrap();
+    assert_eq!(wq, w);
+    let y2 = sp.evaluate(&mut q, &y, false).unwrap();
+    assert_eq!(y1.full.start, StartUsed::SameMesh);
+    assert_eq!(bits(&y1), bits(&y2));
+}

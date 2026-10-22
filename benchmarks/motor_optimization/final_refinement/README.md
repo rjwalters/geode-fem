@@ -200,3 +200,70 @@ as a measured process-tree peak. Historical process replay makes no claim about
 current process state. These receipts are local witnessed evidence, not signatures
 or independent scientific approval; full-study analysis and manuscript review
 remain publication requirements.
+
+## The #1218 FD-ablation cohort
+
+`selection.select(..., cohort="fd_ablation")` selects the post-hoc {A′, F}
+session (#1218 protocol §6) under the same amendment-8 rules. Representatives
+are taken per arm (A′, F) and per space, earliest crossings come from repeat 1
+only, and θ0 is always included. Roles are labelled by arm
+(`A_prime/a/representative`, `F/b/T90`) so they never collide with the main
+cohort's roles. The output records `cohort`, `arms` and the post-hoc status.
+`check_plan.make_plan` takes the result unchanged. The default `main` cohort
+(A–E) is byte-identical to its pre-#1218 output, which `test_selection.py`
+pins on a synthetic 100-run cohort. `mutation_checks.py` (run in CI) covers
+both cohorts.
+
+The closed-capture loader (`study_selection.load`, `capture_archive`,
+`trace_archive`) remains bound to the 100-run main queue. The ablation
+session has no closed capture (operator ruling, 2026-10-20), so its records
+reach `select` through `ablation_selection.py`, an adapter over the verified
+copy (precedent: the main study's direct refinement, #1185 comment
+6284369486):
+
+    python -I ablation_selection.py --copy COPY --inventory INVENTORY \
+        --inventory-sha256 RETAINED_DIGEST --session SESSION_DIR \
+        --git-repo REPO --reviewed-commit PRODUCER_COMMIT --out selection.json
+
+It replaces only the capture. The inventory (`sha256sum` lines, paths relative
+to `COPY`) must match the separately retained digest and live outside the copy.
+The session tree must match it file for file, and every byte read is re-checked.
+`queue.json` must equal `fd_ablation_schedule.registered_jobs` exactly, and the
+journalled traces must be exactly those 40 jobs. Each job needs one eligible
+terminal attempt; a host-contaminated attempt is kept, rejected, and its clean
+rerun is selected. Missing, extra, renamed or duplicate traces are refused. The
+scientific checks are study_selection's own, through minimally parameterised
+`setup_evidence.check(cohort=...)` and `study_selection._assemble(cohort=...,
+queue=...)`, whose defaults are the main study. `trace_archive.py` is a pinned
+capture tool and stays byte-identical. The adapter's generation loader applies
+the same journal and trace checks (reusing `_trace`) to the ablation session,
+reading only through the inventory. They cover the replayed setup (no L0 model),
+ledger prefixes, geometry/discrete-guard/mesh evidence and complete design
+identity. The output carries `selection` and `plan = check_plan.make_plan(selection,
+include_conforming=True)`, plus an `evidence` block in place of the capture
+digest. Remote process absence, host attestation and the witnessed build are
+not re-established. Recovery generations and diagnostic repairs are refused.
+`test_ablation_selection.py` runs it on a synthetic 40-run copy built on the
+real frozen setup. `ablation_mutations.py` (run in CI) checks that every
+targeted mutation is killed.
+
+## The #1224 F_w cohort
+
+The post-hoc {A′, F_w} arm (#1224) goes through the same two steps. Its
+durability is #1218's (protocol §5), so it has no closed capture either.
+
+- `selection.select(..., cohort="fd_warm_ablation")`: letters A (A′) and W
+  (F_w), roles `A_prime/...` and `F_w/...`, the same amendment-8 rules, and
+  repeat 1 only (a repeat-2 record is refused). The output records
+  `cohort`, `arms` and the #1224 post-hoc status.
+- `ablation_selection.py --cohort fd_warm_ablation`: the same verified-copy
+  checks, against `fd_warm_schedule.registered_jobs` (20 jobs), the
+  `fd_warm_ablation` session label and its ablation block
+  (`setup_evidence.WARM_ABLATION`).
+
+The `main` and `fd_ablation` outputs are byte-identical to their pre-#1224
+ones. `test_selection.py` pins both selections on synthetic cohorts, and
+`test_ablation_selection.py` pins the #1218 adapter's output on its fixture.
+`test_ablation_selection.py` also runs the F_w cohort on a synthetic 20-run
+copy, and both mutation suites include the F_w mutations.
+

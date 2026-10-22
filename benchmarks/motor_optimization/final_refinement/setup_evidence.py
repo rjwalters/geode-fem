@@ -34,16 +34,35 @@ def _source_hashes(observed, expected, label):
     if observed != expected:raise ValueError(label+' changed reviewed sources')
 
 
-def check(records, *, frozen, inputs, source, git_repo, reviewed_commit):
+#: The registered #1218 ablation block of an FD-ablation session.json.
+ABLATION={'issue':1218,'methods':['slsqp','slsqp_fd'],'arms':{'slsqp':'A_prime','slsqp_fd':'F'},'post_hoc':True}
+#: The registered #1224 block of an F_w-arm session.json (repeat 1 only).
+WARM_ABLATION={'issue':1224,'methods':['slsqp','slsqp_fd_warm'],'arms':{'slsqp':'A_prime','slsqp_fd_warm':'F_w'},
+               'repeats':[1],'post_hoc':True}
+#: The ablation block of each post-hoc setup cohort.
+ABLATIONS={'fd_ablation':ABLATION,'fd_warm_ablation':WARM_ABLATION}
+L0_MESH='benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh'
+
+
+def check(records, *, frozen, inputs, source, git_repo, reviewed_commit, cohort='main'):
     """Recompute setup records after capture and input byte verification.
 
     `inputs` are local paths for the already authenticated frozen artifacts.
     This function is also exercised on real live setup records as a schema probe;
     such a probe supplies no closed-study or optimizer eligibility evidence.
+    cohort='fd_ablation' checks a #1218 `session.py --fd-ablation` setup: the
+    main session's setup with no L0 model or L0 calibration. Its frozen-start
+    preflight still moves the committed L0 mesh, bound by the reviewed sources.
+    cohort='fd_warm_ablation' checks a #1224 `session.py --fd-warm-ablation`
+    setup the same way, with its own ablation block (WARM_ABLATION).
     """
+    if cohort not in ('main','fd_ablation','fd_warm_ablation'):raise ValueError('unknown setup cohort')
     session=records['session.json'];bindings=records['bindings.json'];files=source['files']
     _equal(session,frozen['session'],'frozen session')
-    if (session.get('label')!='main' or session.get('budget_fe')!=120. or session.get('checkpoint_fe')!=60.
+    if cohort in ABLATIONS and (_exact(session.get('ablation'))!=_exact(ABLATIONS[cohort]) or set(session.get('models',{}))!={'L1'}
+            or 'training_L0' in frozen['inputs'] or 'calibration_secondary.json' in bindings.get('files',{})):
+        raise ValueError('changed registered FD-ablation session')
+    if (session.get('label')!=cohort or session.get('budget_fe')!=120. or session.get('checkpoint_fe')!=60.
             or type(session.get('procs')) is not int or session['procs']<1
             or session['unit_seconds']<=0 or session.get('primary_model')!='L1'):
         raise ValueError('changed registered main session')
@@ -129,7 +148,10 @@ def check(records, *, frozen, inputs, source, git_repo, reviewed_commit):
             or pre.get('base_commit')!=reviewed_commit):raise ValueError('invalid frozen-start preflight')
     _source_hashes(pre['source_sha256'],{n:files[producer_source.HARNESS+n] for n in
                    ('start_preflight.py','make_starts.py','evaluator.py','run.py','resource_usage.py')},'start preflight')
-    _equal(pre['mesh_sha256'],{str(i):frozen['inputs']['training_L'+str(i)]['sha256'] for i in (0,1)},'start preflight meshes')
+    if cohort=='main':
+        _equal(pre['mesh_sha256'],{str(i):frozen['inputs']['training_L'+str(i)]['sha256'] for i in (0,1)},'start preflight meshes')
+    else:
+        _equal(pre['mesh_sha256'],{'0':files[L0_MESH],'1':frozen['inputs']['training_L1']['sha256']},'start preflight meshes')
     if [(e.get('space'),e.get('level')) for e in pre['sessions']]!=[('a',0),('a',1),('b',0),('b',1)]:
         raise ValueError('incomplete start preflight matrix')
     geometry_definitions={}
@@ -156,7 +178,8 @@ def check(records, *, frozen, inputs, source, git_repo, reviewed_commit):
                     type(c.get(k)) is not int or c[k]!=0 for c in reply['charges'] for k in ('forward_solves','adjoint_solves')):
                 raise ValueError('starting-design feasibility or no-FEM rule failed')
     combine=_functions(git_repo,reviewed_commit,'session.py',{'median','combine_calibrations'})['combine_calibrations']
-    for label,key in (('L1','calibration_primary.json'),('L0','calibration_secondary.json')):
+    calibrations=(('L1','calibration_primary.json'),('L0','calibration_secondary.json'))
+    for label,key in calibrations if cohort=='main' else calibrations[:1]:
         envelope=records[key];cal=envelope['calibration'];host=cal['host']
         if (envelope.get('accepted_for_dispatch') is not True or host.get('gate') is not True
                 or host.get('host_contaminated') is not False or host.get('monitor_error') is not None
