@@ -5,7 +5,7 @@ skill: pub
 venue_target: "arXiv preprint (physics.comp-ph, cross-list quant-ph); possible later submission to a computational-physics journal"
 audience: "Computational electromagnetics practitioners and superconducting-qubit design engineers; secondary: open-source scientific-software community"
 length_target: "8-12 pages two-column (or ~15 single-column), 4-6 figures"
-authors: "Robb Walters, 2AM Logic; Crutcher Dunnavant, ZSpaceLabs.ai (second author) — operator ruling 2026-10-22, superseding the 2026-10-13 solo-author ruling; author contributions and the AI-orchestrated development in Section 8"
+authors: "Robb Walters, 2AM Logic; Crutcher Dunnavant, ZSpaceLabs.ai (second author) — operator ruling 2026-10-22, superseding the 2026-10-13 solo-author ruling; author contributions and the AI-orchestrated development in Section 11 (the last section since v23)"
 status_of_inputs: "Agreement + CPU cell + GPU correctness FINAL; GPU performance = declared future work"
 web_search: true
 claim_area: "cross-solver validation of open-source finite-element electromagnetics solvers on superconducting-qubit geometries"
@@ -14,7 +14,56 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 
 # Brief: the transmon cross-validation benchmark paper
 
-## v22 — short title, 2026-10-22 — CURRENT
+## v23 — reading-flow revision, 2026-10-23 — CURRENT
+
+**Current state: `transmon-benchmark.23/` (draft, not reviewed), 21 pages.**
+v23 = v22 revised for reading flow (geode-fem#1231): the flow review's S and M
+proposals for an interested non-specialist reader, and the two deferred #1231
+Judge nits. No number, result, claim scope, title, author, DOI or reference
+changed and no computation was run; v1–v22 stay immutable. Where this section
+conflicts with the sections below, it wins.
+
+- **Order:** the GEODE-FEM paragraph precedes the main-result paragraph in
+  Section 1 ("Two solvers appear ..."); Section 3 is 3.1 device and meshes, 3.2
+  junction and circuit, 3.3 geode-fem (so Eq. port precedes the eigenvalue
+  derivative that cites it) and is titled "Device, Models and Solvers"; Figure 3
+  sits (`[t]`) after "A second refinement family"; "Why the qubit is approached
+  from below" follows "Where the shift comes from" in the Discussion; the
+  contributions section is the last section, Section 11, "Author Contributions
+  and How geode-fem Was Built", after Reproducibility and the Acknowledgments
+  (whose approved wording is unchanged and points forward to it).
+- **Terms at first use:** "final" design (Section 1, where the targets are
+  given; "the 3.0/4.0 GHz design" is gone); "Palace run" as the cost unit
+  (Section 1 parenthetical); "static route" (Section 1); "ladder" (Section 3.1);
+  "unmodified device" (Section 6); family a / family b only (no "first/second
+  family"); bound, cap, estimate with its band, and computed value mapped to
+  the Table 6 tiers in a Section 1 paragraph.
+- **Tier rename:** "Measured" is now **Computed** (Tables 6 and 7, captions and
+  text); "measurement" keeps its laboratory sense; "measured" survives only as
+  a verb.
+- **Abstract (199 words):** labels for 7.0/8.0 % (initial, final) and the
+  baseline for 7.3–9.6 % and 2.7–3.3 % ("above their published values");
+  "within 0.7 % at the example's own discretization"; "Palace's adaptive
+  refinement" (not "adaptive Palace runs").
+- **Caveat discipline:** "rule fixed after the static route; consistency check,
+  not a blind prediction" is in full once (Section 1) and in Table 6; Section 5
+  and 6 keep short forms; the Conclusion's repeat is dropped.
+- **#1231 Judge nits applied:** the precision argument is scoped "on the levels
+  both codes ran, the two coarsest family-a levels with linear elements" ($h$,
+  $h/2$ at $p = 1$ on family a; geode-fem ran no $p = 2$, family-b or
+  scaling-law ladder); the Figure 1 caption's colour rule exempts the $k$, Vacuum, Sapphire
+  and Metal-sheets labels.
+- **Skipped (with reasons in the changelog):** moving the bound's verification
+  sentences to Reproducibility (they scope "holds by theorem" and stay beside
+  the bound); the FDTD clause is motivated, not cut.
+- **Verifier:** `check_v23()` pins the multiset of numerals in the body against
+  v22 (a whole-file diff cannot survive a reorder), plus title, authors, DOI,
+  citation set, `refs.bib`, the section and block order and each applied
+  wording; v22 `main.tex` pinned by SHA-256.
+- `papers/README.md` is not updated in this revision (parallel PRs; operator).
+
+## v22 — short title, 2026-10-22
+
 
 **Current state: `transmon-benchmark.22/` (draft, not reviewed), 21 pages.**
 v22 = v21 with the operator's short title (geode-fem#1231). No other wording

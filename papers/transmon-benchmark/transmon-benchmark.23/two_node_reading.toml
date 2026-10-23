@@ -1,0 +1,9 @@
+# Written by two_node_reading.py --write. Do not edit by hand.
+# Section 3.3's two-node circuit, forward (static route) and backward (published pair).
+l_s_band_nh = [0.113, 0.125]
+k_band = [0.0227, 0.031]
+resonator_f_r_ghz = 5.7404
+static_route_grounded_ghz = [4.449179, 4.457928]
+static_route_natural_ghz = [4.449439, 4.457928]
+published_c_sigma_ff = [98.508592, 98.641235]
+published_e_c_ghz = [0.196371, 0.196635]
