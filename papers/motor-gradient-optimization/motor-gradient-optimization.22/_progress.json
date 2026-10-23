@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "thread": "motor-gradient-optimization",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-23T16:00:00Z",
+      "completed": "2026-10-23T18:00:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 22,
+    "max_iterations": 10,
+    "revised_from": 21,
+    "note": "v21 revised for reading flow against the operator's flow review (geode-fem#1231): the design-gradient verification section now precedes the optimization study; S8/S18, L0/L1, the three studies, stencil and arm are introduced before use; the two bases of the S18 gradient factor (2.68/4.10 over four starts, 2.70/4.11 over five) are bridged once in the ablation section and the abstract, introduction and conclusion quote the five-start values; the coauthor's model statement is one positive sentence; the A-D validation story is told once; the per-session coarse-forward medians moved to Appendix D; the ablation protocol is three paragraphs; \\mu_{r,1} is renamed \\bar T_{r,1}. No number, result, claim scope, title, author, reference or DOI changed; figures, tables and the bibliography are byte-identical to v21; no computation run. Package pointer moved to v22.",
+    "evidence_snapshot": {
+      "brief_mtime": 1792638669.1807315,
+      "refs_mtime": 1792597193.803293
+    }
+  }
+}

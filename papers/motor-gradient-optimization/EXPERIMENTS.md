@@ -9,7 +9,7 @@ All requested optimization experiments have run; the sections below are the hist
 - **Main study** (#1185, preregistered): 100 runs, five methods, two spaces, complete; 213 final checks. SLSQP with adjoints beat COBYQA in all 45 of the 50 paired comparisons where both succeeded (3.10 and 7.79 at the primary targets).
 - **Ablation FD-cold** (F in the records; #1218, post hoc, protocol frozen before any run): SLSQP with cold-started forward-difference stencils, 40 runs. FD-cold/A′ = 2.47 and 4.11.
 - **Ablation FD-warm** (F_w in the records; #1224, post hoc, protocol frozen before any run): warm-started stencils, 20 runs (repeat 1 only, as the protocol fixed). FD-warm/A′ = 1.71 and 2.70, the paper's headline. V18 decomposes B/A into a gradient factor (1.71–2.47; 2.68–4.10) and an optimizer factor (1.22–1.76; 1.91–2.92) from these records; no new run. Warm stencils are less accurate on small components at the frozen Newton tolerance.
-- **Archive:** all three sessions and their final-check results in `motor-paper-raw-traces.tar.zst` (2,790,582,024 bytes, SHA-256 `1dfbf388…a1b98b07`; rebuilt for v17, unchanged since), deposited at DOI 10.5281/zenodo.23580550 (cited in v21's data statement).
+- **Archive:** all three sessions and their final-check results in `motor-paper-raw-traces.tar.zst` (2,790,582,024 bytes, SHA-256 `1dfbf388…a1b98b07`; rebuilt for v17, unchanged since), deposited at DOI 10.5281/zenodo.23580550 (cited in v22's data statement).
 - **Untested follow-ons:** CMA-ES and population methods; a reduced physical model (magnetic equivalent circuit); direct or semi-analytic sensitivities.
 
 ## Evidence and execution status as of v6 (historical)
