@@ -282,6 +282,7 @@ jobs:
         id: build
         run: |
           cargo test -p geode-core --release --features spade-mesh --no-run \
+              --test mesh_numeric_compatibility \
               --test mesh_roundtrip \
               --test mie_driven_scattering \
               --test mixed_pencil_fiber_benchmark \
@@ -379,6 +380,7 @@ jobs:
       - name: geode-core integration targets m-z (default tier)
         run: |
           cargo test -p geode-core --release --features spade-mesh \
+              --test mesh_numeric_compatibility \
               --test mesh_roundtrip \
               --test mie_driven_scattering \
               --test mixed_pencil_fiber_benchmark \
