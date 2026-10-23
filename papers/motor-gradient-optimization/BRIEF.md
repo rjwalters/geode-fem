@@ -5,7 +5,7 @@ skill: paper
 paper_number: 3
 documentclass: anvil-paper
 anonymous: false
-status_of_inputs: "Main study (#1185, 100 runs) and post-hoc ablations F (#1218, cold stencils) and F_w (#1224, warm stencils) complete and hash-bound; current package motor-gradient-optimization.21 (v20 with the coauthor's coarse/validation-simulation terminology and a future-work paragraph, not reviewed; paper DOI 10.5281/zenodo.23580548, raw-trace archive DOI 10.5281/zenodo.23580550); v16 reviews 42/44 and 40/44"
+status_of_inputs: "Main study (#1185, 100 runs) and post-hoc ablations F (#1218, cold stencils) and F_w (#1224, warm stencils) complete and hash-bound; current package motor-gradient-optimization.22 (v21 revised for reading flow: gradient verification before the optimization study, terms defined before use, one model sentence, no number changed; not reviewed; paper DOI 10.5281/zenodo.23580548, raw-trace archive DOI 10.5281/zenodo.23580550); v16 reviews 42/44 and 40/44"
 claim: "Test whether exact field gradients reduce time to a validated motor-design target beyond calibrated simple models, and how that advantage depends on useful shape freedom."
 audience: "Computational electromagnetics, electric-machine optimization, and differentiable scientific computing researchers"
 venue_target: "Select from the validated main-study contribution; use the generic paper class initially"
@@ -21,9 +21,32 @@ The operator designated this work as GEODE's third paper on 2026-10-16,
 alongside the transmon and conformal-antenna papers. This brief establishes
 the research project. The operator requested the first manuscript on
 2026-10-16. **Current state (2026-10-23) — CURRENT:** the package is
-`motor-gradient-optimization.21/` (not yet reviewed; coauthor review of v18,
-geode-fem#1231), 43 pages, main text pp. 1–19 (v20: 42, pp. 1–18). V21 is v20
-with the coauthor's two requested changes and nothing else:
+`motor-gradient-optimization.22/` (not yet reviewed), v21 revised for reading
+flow against the operator's flow review of v21 (geode-fem#1231). V22 changes
+order and wording only: the design-gradient verification section now precedes
+the optimization study and the ablations (Sections 4, 5, 6), so the adjoints
+are verified before the results that rely on them; S8/S18, L0/L1, the three
+studies, "stencil" and "arm" are introduced before first use; the two bases of
+the S18 gradient factor (2.68/4.10 over the four starts COBYQA reached, as in
+Table `tab:decomp`; 2.70/4.11 over all five) are bridged in one sentence of
+the ablation section; the introduction quotes the table's four-start values
+with the table's optimizer factors, and the abstract and conclusion the
+five-start values; the coauthor's "model" clarification is one positive
+sentence in the protocol (both simulations are physics simulations; of what
+the optimizers use, only their own search models are fitted, to coarse
+values); the A-versus-D validation story is told once; the per-session
+coarse-forward medians moved to Appendix D; the ablation protocol is three
+paragraphs; the coarse full-current mean is $\bar T_{r,1}$ (was $\mu_{r,1}$,
+which collided with $\mu_r=1.05$). Skipped: the Appendix D split and the move
+of the provenance text to a final appendix (both judged not clearly helpful
+against the byte-level pins on the data statement and Appendix D), and the
+review's suggested "below 4.2" and "about a third" paraphrases (new numbers).
+No number, result, claim scope, title, author, reference or DOI changed;
+figures, tables and the bibliography are byte-identical to v21. A v22 check in
+`verify_exp2b.py` pins the numeric multiset of the sources against the v21
+sibling (listed duplicates and deletions only, no new value), the preamble,
+DOIs, citations and every table, figure and figure source. V21 was v20 with the
+coauthor's two requested changes and nothing else:
 - terminology: the optimizers' "training model" and the scorer's "validation
   model" are now the *coarse simulation* (L1, or L0 for D and E, interface
   order 45) and the *validation simulation* (L2, order 93, never seen by an
