@@ -33,7 +33,7 @@ burn = { version = "0.21", default-features = false, features = ["std"] }
 # default features (would pull `reflection`/`train`/`xot`/`xee-xpath`/…).
 # `burn` req stayed `^0.21.0` across the whole 0.21.0→0.28.0 range, so 0.28.0
 # (latest, superset of the 0.26.0 fix) keeps the burn 0.21 pin intact.
-bunsen = { version = "0.28.0", default-features = false, features = ["std"] }
+bunsen = { version = "0.36.0", default-features = false, features = ["std"] }
 clap = { version = "4", features = ["derive"] }
 criterion = "0.5"
 # Dense / sparse linear algebra comes from `faier`, our maintained fork of
