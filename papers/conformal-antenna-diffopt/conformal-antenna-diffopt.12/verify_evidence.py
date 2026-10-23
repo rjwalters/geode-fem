@@ -531,9 +531,10 @@ def check_baselines(ts, dc):
     assert (gchk, fresh, nver, nwide) == (30, 5, 9, 21)
     assert adj["optimization_solves"] + gchk + fresh + nver + nwide == ad["n_driven_solves"] == 190
     contains(f"recorded ${ad['n_driven_solves']}$ driven solves (every forward solve the solver logged, the count "
-             f"Table~\\ref{{tab:chain}} also uses) include ${gchk + fresh + nver + nwide}$ that are not counted, leaving the "
-             f"${adj['optimization_solves']}$ of Table~\\ref{{tab:baselines}}: ${gchk + fresh}$ for the three gradient checks and a fresh evaluation of the reported design, and ${nver + nwide}$ for the "
-             f"verification sweeps (${nver}$ in-band and ${nwide}$ wide points)")
+             f"Table~\\ref{{tab:chain}} also uses) include ${gchk + fresh + nver + nwide}$ that are not counted, "
+             f"${gchk + fresh}$ for the three gradient checks and a fresh evaluation of the reported design and ${nver + nwide}$ for the "
+             f"verification sweeps (${nver}$ in-band and ${nwide}$ wide points), leaving the ${adj['optimization_solves']}$ of "
+             f"Table~\\ref{{tab:baselines}}")
     absent("include $65$ for the gradient checks")
     last = adr["trajectory"]["step"][-1]["worst_s11_db"]
     assert last > adr["optimization"]["worst_s11_db_final"]   # the reported design is the best iterate, not the last
@@ -814,8 +815,6 @@ def check_voice():
               "that coverage is what we claim", "three sizes of one problem fix no rate"]:
         assert q in concl, q
     assert "times fewer" not in concl and len(concl.split()) < 260, len(concl.split())   # v12: no near-copy of the abstract
-    for q in []:
-        assert q in concl, q
     assert "realizable width ($1.6$\\,mm, modelled as a lumped port; an intermediate design had widened it to $4.27$\\,mm" in NBODY
     assert "not cross-checked against a reference implementation" in NBODY
     assert "after every feasible sample, by its violation, without a solve" in NBODY
@@ -935,10 +934,10 @@ REFS_V11_SHA = "24a6ae6b0b719c721cc50c8e09bcfafd280c868ac280a17d30147cf922d4485f
 # table restates solve counts, hosts and times already in the text (35, 385, 805, 420, 2,535, 125, 666, 5,552,
 # 11.1, 84, 172, 90, 16, 1, 204 ...; r6i.4xlarge contributes "6" and "4"), the Conclusion names 30/230 and
 # 385, the probe sentence names 4.27, the shift signpost names 47.85 and 44.94, the fixture says 150,561
-# twice, the mesh-limit sentence names 6.4 and 13.5, sigma_0 is written twice more, Table 1 and the
+# twice, the Intro says "at $p = 1$", the mesh-limit sentence names 6.4 and 13.5, sigma_0 is written twice more, Table 1 and the
 # footnote add section/table referents. Lost: the Conclusion no longer repeats 1.6 mm and 4.3 MHz and
 # names -9 dB once, and "0 to 14 MHz" is replaced by the two drifts (14 stays in "14 parameters").
-GAINED_V12 = {"0": 1, "0.2": 1, "1": 4, "11.1": 1, "125": 2, "13.5": 1, "150{,}561": 1, "16": 3, "172": 1, "2": 3,
+GAINED_V12 = {"0": 1, "0.2": 1, "1": 5, "11.1": 1, "125": 2, "13.5": 1, "150{,}561": 1, "16": 3, "172": 1, "2": 3,
               "230": 1, "2{,}535": 1, "30": 1, "35": 2, "38": 1, "385": 3, "4": 5, "4.27": 1, "420": 1, "44.94": 1,
               "47.85": 1, "5{,}552": 1, "6": 5, "6.4": 1, "666": 1, "805": 1, "84": 1, "9.5": 4, "90": 1}
 LOST_V12 = {"1.6": 1, "14": 1, "4.3": 1, "9": 1}
@@ -965,7 +964,7 @@ SECTIONS_V12 = ["Introduction", "Method", "The Adjoint Against Gradient-Free Sea
 def number_tokens(tex):
     """Every number in the document body (comments, column-width fractions and pt lengths excluded), as written."""
     body = "\n".join(l for l in tex[tex.index("\\begin{document}"):].splitlines() if not l.lstrip().startswith("%"))
-    body = re.sub(r"\d*\.?\d+\\linewidth|\d+pt\b", "", body)   # column widths and lengths are not paper numbers
+    body = re.sub(r"\d*\.?\d+\\linewidth|\d+pt\b|\\cite[pt]?\{[^}]*\}", "", body)   # widths, lengths and cite keys are not paper numbers
     return re.findall(r"\d+(?:\{,\}\d{3})*(?:\.\d+)?", body)
 
 
@@ -994,7 +993,8 @@ def check_v12():
         if p.is_file():
             q = HERE / "figures" / p.relative_to(HERE.parent / "conformal-antenna-diffopt.11" / "figures")
             assert q.is_file() and q.read_bytes() == p.read_bytes(), q
-    assert sorted(set(re.findall(r"\\cite[pt]?\{([^}]*)\}", TEX))) == sorted(set(re.findall(r"\\cite[pt]?\{([^}]*)\}", v11)))
+    keys = lambda t: {k.strip() for g in re.findall(r"\\cite[pt]?\{([^}]*)\}", t) for k in g.split(",")}
+    assert keys(TEX) == keys(v11), keys(TEX) ^ keys(v11)   # the same references; bandler1994space is cited once more
     # every v11 table body is present verbatim (two headings renamed DOFs -> Unknowns); one table added
     tabs11 = re.findall(r"\\begin\{tabular\}.*?\\end\{tabular\}", v11, re.S)
     tabs12 = re.findall(r"\\begin\{tabular\}.*?\\end\{tabular\}", TEX, re.S)
@@ -1033,11 +1033,14 @@ def check_v12():
                "(an antenna radiating into free space rather than a closed waveguide)", "(the strip of the $+y$ edge around the probe)",
                "with $\\lambda$ the solution of that adjoint system", "(forward-mode automatic differentiation)",
                "hence $150{,}561$ unknowns at $p = 1$", "the cold optimum's $47.85$\\,MHz had become $44.94$\\,MHz by the last descents",
-               "so optimization runs on a coarse model (L1, Section~\\ref{sec:fixture})",
+               "The adjoint is implemented at first element order only, so optimization runs at $p = 1$, on a coarse mesh (L1, "
+               "Section~\\ref{sec:fixture}) where each solve is cheap",
                "We reserve \\emph{bounded} for a proven two-sided bound and use it for no result in this paper",
                "\\footnote{A parallel run with the first two terms only, $53.6$\\,MHz, was set aside"]:
         contains(s_)
     assert "\\lambda = 4 +" not in TEX and "population of $4 + \\lfloor 3\\ln n\\rfloor$ samples" in NORM
+    assert "Each gradient-free optimizer was run at two or three values" in NORM
+    assert "As in space mapping \\citep{bandler1994space}, we model" in NORM   # cited at its first Section 5 mention
 
 
 def check_prior_versions():

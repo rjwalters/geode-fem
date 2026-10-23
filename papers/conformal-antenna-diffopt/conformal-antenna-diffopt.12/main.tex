@@ -81,10 +81,11 @@ around a cylinder of radius $R_b = 100$\,mm. The board is a uniform
 $1.6$\,mm FR-4 shell that is not designed; up to 38 smooth parameters move
 the copper outline, the corners and the feed. geode-fem, a differentiable
 finite-element solver with a discrete shape adjoint, optimizes the band
-objective by L-BFGS. The adjoint is implemented at first element order, so
-optimization runs on a coarse model (L1, Section~\ref{sec:fixture}) and the
-finished design is verified, and re-centred by a fitted frequency shift, on
-finer models (Sections~\ref{sec:procedure} and~\ref{sec:results}). On the
+objective by L-BFGS. The adjoint is implemented at first element order only,
+so optimization runs at $p = 1$, on a coarse mesh (L1,
+Section~\ref{sec:fixture}) where each solve is cheap; the finished design is
+verified, and re-centred by a fitted frequency shift, on finer models
+(Sections~\ref{sec:procedure} and~\ref{sec:results}). On the
 same problem, objective, start and volume guard we run separable and full-covariance CMA-ES
 \citep{hansen2001cmaes,ros2008separable} and NEWUOA
 \citep{powell2006newuoa,zhang2023prima} over a range of settings, the same
@@ -424,7 +425,7 @@ three trajectories, each under two forward models, which isolates the
 forward solver; seed 2 also reaches $-9.5$\,dB at the same count under both.
 
 \paragraph{Settings.}
-Each optimizer was run at two or three values of its main setting
+Each gradient-free optimizer was run at two or three values of its main setting
 (Table~\ref{tab:baselines}): $\sigma_0$ for CMA-ES and the number of
 interpolation points for NEWUOA; the best CMA-ES setting is the
 smallest $\sigma_0$ tried.
@@ -437,9 +438,9 @@ model. The adjoint solve reuses the forward factorization, and the adjoint's
 start, which yields its first gradient, is counted. The adjoint run's
 recorded $190$ driven solves (every forward solve the solver logged, the
 count Table~\ref{tab:chain} also uses) include $65$ that are not counted,
-leaving the $125$ of Table~\ref{tab:baselines}: $35$ for the three gradient
-checks and a fresh evaluation of the reported design, and $30$ for the
-verification sweeps ($9$ in-band and $21$ wide points). The
+$35$ for the three gradient checks and a fresh evaluation of the reported
+design and $30$ for the verification sweeps ($9$ in-band and $21$ wide
+points), leaving the $125$ of Table~\ref{tab:baselines}. The
 finite-difference control is charged $5$ solves per guard-passing trial plus
 $190$ per gradient. The gradient-free runs' separate evaluation at
 $\mathbf{c} = 0$ is not counted, except as NEWUOA's own first evaluation, and
@@ -766,7 +767,8 @@ most $0.021$.
 \label{sec:procedure}
 
 \paragraph{Frequency space mapping.}
-A design optimized on L1 resonates higher on a finer model. We model the
+A design optimized on L1 resonates higher on a finer model. As in space
+mapping \citep{bandler1994space}, we model the
 fine response as the coarse response shifted in frequency,
 $S_{\mathrm{fine}}(f) \approx S_{\mathrm{coarse}}(f - \delta)$, fit $\delta$
 by least squares over the fine model's points, and re-optimize on the coarse

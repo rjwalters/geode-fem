@@ -42,9 +42,9 @@ names, `fig3_accuracy` and `fig4_optimizers`).
 | 1 | Body follows the Intro's three-result order (M) | Applied, the reviewer's option (a): "Antenna" and "The coarse mesh" become §2.1 The fixture (`sec:fixture`); the Baselines section precedes Forward-Model Accuracy, so the order is Method, Baselines, Accuracy, Procedure, Results. The Intro's coarse-model sentence and Table 1 point at `sec:fixture`; the artifact table's row names `sec:fixture`, `sec:accuracy` and `sec:results`. |
 | 2 | Primers next to the Names table (S) | Applied. Table 1, Figure 1 and Figure 2 are encountered together after the cost-measure paragraph and land on pages 2, 3 and 4 (Figure 1 is a full-page float, so Figure 2 cannot share page 3 with it). Both figure captions are unchanged. |
 | 3 | Related Work after Results (S) | Applied: §7, between Results and Limitations. "Position of this work" closes the Introduction, glosses "open-radiator" and points at §7. The Related Work pointer "the curvature here is mild" now cites `sec:results`, where the curvature paragraph lives. |
-| 4 | Say in the Intro why there is a coarse model (S) | Applied, one sentence after "optimizes the band objective by L-BFGS". The formal statement at the end of §2.5 stays. |
+| 4 | Say in the Intro why there is a coarse model (S) | Applied, one sentence after "optimizes the band objective by L-BFGS": the $p = 1$-only adjoint explains optimizing at $p = 1$; the coarse mesh L1 is where each solve is cheap (a rim-refined optimization is untried, Limitations). The formal statement at the end of §2.5 stays. |
 | 5 | Designs A and C not discussed before they exist (M) | Applied. The air-margin and curvature sentences move to Results as "Air margin and curvature", placed before Table 7 and "The lower-edge budget" (which now says "above" instead of citing §4); the UPML-ladder sentence stays in §4 as "Absorber". "Port-free resonance" says "design~C of Section 5" and "for design~C"; the Palace paragraph says "design~A (Section 5)". |
-| 6 | Split "Setup"; retire "several settings" (S) | Applied: "Setup", "Settings" (opens "Each optimizer was run at two or three values of its main setting") and "Counting solves" (opens the reconciliation with "The adjoint run's recorded 190 driven solves ... include 65 that are not counted, leaving the 125 of Table 2"). The wall-time sentence moved to "The forward solver and the wall-clock". |
+| 6 | Split "Setup"; retire "several settings" (S) | Applied: "Setup", "Settings" (opens "Each gradient-free optimizer was run at two or three values of its main setting") and "Counting solves" (opens the reconciliation with "The adjoint run's recorded 190 driven solves ... include 65 that are not counted, 35 for ... and 30 for ..., leaving the 125 of Table 2"). The wall-time sentence moved to "The forward solver and the wall-clock". |
 | 7 | Split "Scaling" (S) | Applied: the break is at "The adjoint's final level is set by step rejection", headed "Why some gradient-free runs end lower" (the review's "lower" meant the gradient-free runs' deeper levels, so the heading names them). The σ₀ = 1.5 caveat closes the scaling paragraph; the four-parameter sentence moves to "Where the descent stopped", where "the rectangle" needed it as antecedent. |
 | 8 | Conclusion before the back matter (S) | Applied: Limitations, Conclusion, Acknowledgments, How geode-fem Was Designed and Built, Reproducibility. The last two stay numbered sections (the class is `article`; `\appendix` would relabel the cross-references for no gain). |
 | 9 | Define fixture, open-radiator, feed band, cold, σ₀ (S) | Applied: a "Fixture" row in Table 1; "open-radiator" glossed in "Position of this work"; "feed band (the strip of the $+y$ edge around the probe)"; "from c = 0 (a cold start, −1.47 dB)"; "start from an initial step size σ₀" in Setup, and Settings names σ₀ as CMA-ES's setting. |
@@ -70,6 +70,14 @@ names, `fig3_accuracy` and `fig4_optimizers`).
 Skipped: nothing in the review was skipped outright. Two sub-options were not taken: proposal 1's
 option (b) (reorder the Intro bullets instead of the body), superseded by (a); and proposal 8's
 "unnumbered or appendix" labelling of the last two sections, for the reason in the table.
+
+## Review pass (PR 1244)
+
+- The Intro sentence no longer makes the $p = 1$-only adjoint the reason for optimizing on L1: "implemented at first element order only, so optimization runs at $p = 1$, on a coarse mesh (L1) where each solve is cheap"; re-pinned in `check_v12`.
+- "Counting solves" puts the 35 + 30 breakdown next to the 65 it decomposes, then "leaving the 125 of Table 2".
+- "Settings" says "Each gradient-free optimizer".
+- Space mapping is cited at its first Section 5 mention, `\citep{bandler1994space}` (an existing key; `main.bbl` unchanged).
+- `check_voice` lost an empty loop; the number tokenizer also ignores cite keys.
 
 ## Verifier
 
