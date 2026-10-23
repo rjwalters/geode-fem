@@ -1,5 +1,7 @@
 [workspace]
 resolver = "2"
+# The patched third-party parent is a dependency, not a workspace member.
+exclude = ["vendor/mshio"]
 
 members = [
     "crates/*",
@@ -125,3 +127,7 @@ debug = false
 [profile.test.package."*"]
 opt-level = 3
 debug = false
+
+# See vendor/mshio/FORK.md for source provenance and the bounded numeric fix.
+[patch.crates-io]
+mshio = { path = "vendor/mshio" }
