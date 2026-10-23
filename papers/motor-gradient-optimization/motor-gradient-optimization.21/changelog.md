@@ -29,9 +29,23 @@ Nothing in this study is trained.
 validation simulations." (it was "Training and validation models."). The paragraph gives each one's
 mesh level and interface order and says the optimizer never sees the validation simulation. It
 replaces the v20 sentences "Training here means querying the cheap model, not fitting: apart from
-the surrogate of method C, nothing is fitted to data." with one sentence: "A model in this paper is
-a formulation of the simulation, such as the field or interface model: nothing is trained, and no
-simulation is fitted to data." The abstract and introduction describe the pair (coarse, finer,
+the surrogate of method C, nothing is fitted to data." with two sentences: "Unqualified, *model*
+means a formulation of the simulation, such as the field or interface model; no simulation is trained
+or fitted to torque data. Of the models the optimizers use, only their own search models are fitted,
+to coarse values: C's radial-basis surrogate and COBYQA's interpolation model."
+
+The first draft of this definition (the first v21 commit) read "nothing is trained, and no simulation
+is fitted to data". The Judge (PR #1242) found that it overclaimed and dropped v20's caveat about
+method C, so it was rewritten. The new wording is scoped so that it is literally true for the whole
+paper:
+- "Unqualified" leaves out the qualified uses: the cost model, the search models, and the
+  magnetic-circuit and reduced models.
+- "Of the models the optimizers use" leaves out the fits that are not the optimizers' own: the
+  appendix cost model, the slotless angular fit's three coefficients, and the derivative-check fits.
+- "torque data" leaves out the interpolation of the tabulated M27 B–H law, which is a material
+  input; no simulation is fitted to torques.
+
+The abstract and introduction describe the pair (coarse, finer,
 never seen) but don't define it, because L0–L2 and the interface order are introduced only in
 Section 3.
 
@@ -39,9 +53,10 @@ Section 3.
 At the word level:
 - 69 tokens of the "train" family were removed: 38 in `main.tex`, including 5 `\mathrm{train}`
   subscripts and 2 uses of "trains", and 31 in `optimization.tex`. The only one left is the new
-  "nothing is trained".
+  "no simulation is trained".
 - 20 uses of "model(s)" were renamed (11 in `main.tex`, 9 in `optimization.tex`). The new definition
-  sentence adds 2 uses ("A model", "interface model").
+  sentences add 5 uses ("*model*", "interface model", "models the optimizers use", "search models",
+  "interpolation model").
 - 4 uses of "model" were qualified as "cost model".
 - 3 uses of "cheap"/"cheaper" that were attached to the renamed model were dropped.
 
@@ -124,7 +139,10 @@ multi-start methods remain untested" is kept.
 Pins on old wording now assert the new wording; none was dropped or weakened.
 - `verify_exp2.py`:
   - "at the objective currents";
-  - package link `.21`.
+  - package link `.21`;
+  - its PASS messages and comments say "coarse" (Judge, non-blocking). The record keys
+    `paired_training_F`, `train_level` and `session['training']` are the records' own names and are
+    unchanged.
 - `verify_exp2b.py`:
   - "one coarse evaluation fewer";
   - "every coarse evaluation costs a coarse forward … coarse-simulation time per coarse forward";
@@ -141,9 +159,9 @@ Pins on old wording now assert the new wording; none was dropped or weakened.
   - `PKG` → `.21`.
 
 **New v21 check** (`verify_exp2b.py`, alongside the v20 one):
-- no "train" token remains apart from "nothing is trained";
+- no "train" token remains apart from "no simulation is trained";
 - "training model", "validation model", "cheap model", "Training mesh" and "coarse-model" are absent;
-- the definition sentence is present;
+- both definition sentences are present;
 - `gangl2022multi` is cited exactly twice.
 
 Inside the repository, the check also undoes the 64 listed v21 edits (62 terminology sites, the

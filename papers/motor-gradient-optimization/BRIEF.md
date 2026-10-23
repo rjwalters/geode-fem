@@ -27,8 +27,10 @@ with the coauthor's two requested changes and nothing else:
 - terminology: the optimizers' "training model" and the scorer's "validation
   model" are now the *coarse simulation* (L1, or L0 for D and E, interface
   order 45) and the *validation simulation* (L2, order 93, never seen by an
-  optimizer), defined once in the protocol with one sentence that a model in
-  this paper is a formulation of the simulation and nothing is trained or
+  optimizer), defined once in the protocol. Two sentences there say that an
+  unqualified "model" is a formulation of the simulation, that no simulation
+  is trained or fitted to torque data, and that of the optimizers' models only
+  their own search models (C's surrogate, COBYQA's interpolation model) are
   fitted. Adjectives follow ("coarse forwards", "coarse resolution",
   "optimization mesh", "objective currents"); the appendix's cost model is
   named as one; physics and numerics uses of "model" are kept. Two figure

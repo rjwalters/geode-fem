@@ -16,8 +16,10 @@ with interface order 45, and its search is driven only by coarse values.
 Every design that becomes the method's new best, its incumbent, is rescored
 on one \emph{validation simulation}, the finer L2 mesh with interface order
 93, which no optimizer sees; only validated scores count toward a target.
-A model in this paper is a formulation of the simulation, such as the field
-or interface model: nothing is trained, and no simulation is fitted to data.
+Unqualified, \emph{model} means a formulation of the simulation, such as the
+field or interface model; no simulation is trained or fitted to torque data.
+Of the models the optimizers use, only their own search models are fitted,
+to coarse values: C's radial-basis surrogate and COBYQA's interpolation model.
 Validation is charged to the run that requests it, as in a
 design loop that must check its candidates before trusting them; this
 validate-every-incumbent rule costs methods that change incumbents often

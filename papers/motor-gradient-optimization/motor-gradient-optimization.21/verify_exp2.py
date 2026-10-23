@@ -1,4 +1,4 @@
-"""Read-only check of the matched-optimization claims (v7 onward; v11 adds ledger charges, training gradients and the export); no FEM or optimizer run.
+"""Read-only check of the matched-optimization claims (v7 onward; v11 adds ledger charges, coarse gradients and the export); no FEM or optimizer run.
 
 Binds the 100 per-run extracts to the study inventory taken before any host
 reboot, recomputes target credit from the validation records, and checks the
@@ -274,7 +274,7 @@ for m in 'ABCDE':
         n = [c['n'] for c in cs]; sh = [c['v'] / c['t'] for c in cs]; ru = [share(SUP[R[(m, sp, s, 1)]['file']]) for s in S]
         cells.append(f"{st.median(n):g} ({min(n)}--{max(n)}) & {st.median(sh):.2f} ({min(sh):.2f}--{max(sh):.2f}) & {min(ru):.2f}--{max(ru):.2f}")
     assert f"{m} & {cells[0]} & {cells[1]}" + '\\\\' in vt, m
-# Training-to-validation objective ratios at the selected designs.
+# Coarse-to-validation objective ratios at the selected designs.
 t0 = {lv: {u['theta0_train_F'] for u in SU if u['train_level'] == lv} for lv in (0, 1)}
 assert all(len(x) == 1 for x in t0.values()) and round(t0[1].pop() / F0, 3) == .887 and round(t0[0].pop() / F0, 3) == .894
 tv = {}
@@ -285,9 +285,9 @@ assert len(tv) == 31 and (round(min(tv.values()), 2), round(max(tv.values()), 2)
 assert [k for k, _ in sorted(tv.items(), key=lambda kv: kv[1])[:3]] == ['crossing/E/b/T99', 'representative/D/b', 'crossing/A/b/T99']
 assert [round(tv[k], 2) for k in ('crossing/E/b/T99', 'crossing/A/b/T99', 'representative/D/b', 'representative/B/b', 'representative/C/b')] == [.57, .71, .65, .99, 1.19]
 assert 'between 0.57 and 1.19 times its $\\theta_0$ value' in txt and "E's and A's $T_{99}$ crossings (0.57 and\n0.71) and D's best design (0.65)" in txt
-print('PASS: Exp 2 ledger charges (100 runs, 3,350 validations, inventory-bound), validation shares, non-validation ratios, Table exp2-validation, training/validation ratios.')
+print('PASS: Exp 2 ledger charges (100 runs, 3,350 validations, inventory-bound), validation shares, non-validation ratios, Table exp2-validation, coarse/validation ratios.')
 
-# V11: training-gradient FD records of both design spaces (pinned with the harness at 9486a9da).
+# V11: coarse-gradient FD records of both design spaces (pinned with the harness at 9486a9da).
 G = D / 'gradient-checks'
 man = {f['snapshot']: f for f in json.loads((V / 'evidence-manifest.json').read_text())['files']}
 for f in G.iterdir():
@@ -324,7 +324,7 @@ assert all(hashlib.sha256(c['body'].encode()).hexdigest() == c['body_sha256'] fo
 assert exj['snapshot_written_utc'].startswith('2026-10-18T09:34') and sess['session_id'] == 'main-20261018T181644Z'
 assert exj['snapshot_written_utc'] < '2026-10-18T18:16:44' and all(c['updated_at'] < '2026-10-18T18:16:44Z' for c in exj['comments'])
 assert 'on 2026-10-18 at 09:34~UTC, before the main session began at 18:16~UTC' in txt
-print('PASS: training-gradient FD records (2 spaces, 2 points, harness replies at the training tolerance) and preregistration export, pinned and hash-bound.')
+print('PASS: coarse-gradient FD records (2 spaces, 2 points, harness replies at the coarse simulation\'s tolerance) and preregistration export, pinned and hash-bound.')
 
 # v17: optional exact re-derivation of the three main-study extracts from the raw traces and final-check results.
 import os, subprocess, sys, tempfile
