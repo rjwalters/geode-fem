@@ -1,0 +1,14 @@
+\begin{tabular}{lrr}\toprule
+ & S8, $T_{90}$ & S18, $T_{99}$\\\midrule
+Total: COBYQA against adjoint SLSQP (B/A, main study) & 3.10 & 7.79\\
+\addlinespace
+\multicolumn{3}{l}{\emph{Against warm-started finite differences}}\\
+\quad Gradient factor (FD-warm/A$'$) & 1.71 & 2.68\\
+\quad Optimizer factor (B/FD-warm) & 1.76 & 2.92\\
+\quad Product & 3.02 & 7.82\\
+\addlinespace
+\multicolumn{3}{l}{\emph{Against cold-started finite differences}}\\
+\quad Gradient factor (FD-cold/A$'$) & 2.47 & 4.10\\
+\quad Optimizer factor (B/FD-cold) & 1.22 & 1.91\\
+\quad Product & 3.02 & 7.82\\
+\bottomrule\end{tabular}

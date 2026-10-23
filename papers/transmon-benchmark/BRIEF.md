@@ -1,5 +1,5 @@
 ---
-title: "Cross-validating an open-source Rust FEM solver against Palace on a superconducting transmon geometry"
+title: "An Independent Finite-Element Cross-Check of the DeviceLayout.jl Transmon"
 slug: transmon-benchmark
 skill: pub
 venue_target: "arXiv preprint (physics.comp-ph, cross-list quant-ph); possible later submission to a computational-physics journal"
@@ -14,9 +14,26 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 
 # Brief: the transmon cross-validation benchmark paper
 
-## v21 — v1 Zenodo release, 2026-10-22 — CURRENT
+## v22 — short title, 2026-10-22 — CURRENT
 
-**Current state: `transmon-benchmark.21/` (draft, not reviewed), 21 pages.**
+**Current state: `transmon-benchmark.22/` (draft, not reviewed), 21 pages.**
+v22 = v21 with the operator's short title (geode-fem#1231). No other wording
+or number changed and no computation was run; v1–v21 stay immutable. Where
+this section conflicts with the sections below, it wins.
+
+- **Title:** "An Independent Finite-Element Cross-Check of the DeviceLayout.jl
+  Transmon" (operator's choice and capitalisation). It supersedes the v13
+  ruled title, "Uniform mesh refinement underestimates the frequencies of the
+  DeviceLayout.jl transmon: an independent finite-element cross-check and
+  re-optimization", and closes the open title decision from v19's "For the
+  operator". The abstract states the convergence finding. The `title:` front
+  matter, which still held an early working title, now holds the new title.
+- **Kept:** the DOI 10.5281/zenodo.23580545 and the author block. There is no
+  pending marker. The #1231 Judge nits stay deferred.
+
+## v21 — v1 Zenodo release, 2026-10-22
+
+**State at v21: `transmon-benchmark.21/` (draft, not reviewed), 21 pages.**
 v21 = v20 with release metadata only (operator, geode-fem#1231). No other
 wording or number changed and no computation was run; v1–v20 stay
 immutable. Where this section conflicts with the sections below, it wins.
