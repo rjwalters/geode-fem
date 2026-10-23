@@ -48,9 +48,10 @@ conflicts with the sections below, it wins.
 - **Caveat discipline:** "rule fixed after the static route; consistency check,
   not a blind prediction" is in full once (Section 1) and in Table 6; Section 5
   and 6 keep short forms; the Conclusion's repeat is dropped.
-- **#1231 Judge nits applied:** the precision argument is scoped "on the two
-  coarsest levels of each ladder, the only ones both codes ran" ($h$, $h/2$ at
-  $p = 1$); the Figure 1 caption's colour rule exempts the $k$, Vacuum, Sapphire
+- **#1231 Judge nits applied:** the precision argument is scoped "on the levels
+  both codes ran, the two coarsest family-a levels with linear elements" ($h$,
+  $h/2$ at $p = 1$ on family a; geode-fem ran no $p = 2$, family-b or
+  scaling-law ladder); the Figure 1 caption's colour rule exempts the $k$, Vacuum, Sapphire
   and Metal-sheets labels.
 - **Skipped (with reasons in the changelog):** moving the bound's verification
   sentences to Reproducibility (they scope "holds by theorem" and stay beside

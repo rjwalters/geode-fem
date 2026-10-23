@@ -7,10 +7,11 @@ use; the two deferred #1231 Judge nits). No manuscript anchor gained a new
 input: `verify_evidence.py` (`check_v23()`) pins that the multiset of numerals
 in the body equals v22's, so every number below still traces to the rows of the
 earlier versions. The one wording that touches evidence is the precision
-argument in "Where the shift comes from", now scoped to the two coarsest
-levels of each ladder, the only ones both codes ran (the `same_mesh` rows of
-`benchmarks/transmon_devicelayout_crosscheck/results.toml`, $h$ and $h/2$ at
-$p = 1$), which is where the 2e-4 % figure was already checked.
+argument in "Where the shift comes from", now scoped to the levels both codes
+ran, the two coarsest family-a levels with linear elements (the `same_mesh`
+rows of `benchmarks/transmon_devicelayout_crosscheck/results.toml`, $h$ and
+$h/2$ at $p = 1$ on family a), which is where the 2e-4 % figure was already
+checked.
 
 # Evidence for v20
 

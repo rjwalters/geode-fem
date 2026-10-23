@@ -48,13 +48,13 @@
 
 \begin{abstract}
 DeviceLayout.jl's SingleTransmon example publishes qubit and resonator
-frequencies for an initial and a final design, optimized for $3.0$ and
-$4.0$\,GHz, computed with Palace on one mesh. We find them
+frequencies for an initial design and a final design optimized for $3.0$
+and $4.0$\,GHz, computed with Palace on one mesh. We find them
 discretization-limited. Palace reproduces them within $0.7\%$ at the
 example's own discretization, and the independent solver geode-fem agrees
 on shared meshes to $2\times10^{-4}\%$ (qubit) and $0.03\%$
-(resonator). All frequencies are linear eigenmodes. Palace's adaptive
-refinement, still rising, puts the initial and final designs' qubit
+(resonator). All frequencies are linear eigenmodes. Palace's
+still-rising adaptive refinement puts the initial and final designs' qubit
 frequencies $7.0\%$ and $8.0\%$ above their published values without
 extrapolation. A two-sided bound on the initial design's island
 capacitance, read through a circuit model, caps the qubit at
@@ -606,9 +606,9 @@ $5{,}944$ (final) elements by local bisection, and not at all in the six
 archived decimals at $h/2$, where Palace's logs report no bisection and
 the two codes differ only in the junction term
 (Section~\ref{sec:junction}; the counts are in the logs). Three checks
-test the estimates: a second refinement family, Palace's adaptive
-refinement, which checks only the qubit, and a common-limit fit
-(Figure~\ref{fig:initialq}).
+test the estimates: a second refinement family and Palace's adaptive
+refinement (Figure~\ref{fig:initialq}; the adaptive runs check only the
+qubit), and a common-limit fit.
 
 \paragraph{A second refinement family.}
 Family~b refines the same $h$ mesh with Palace's own uniform refinement
@@ -1063,8 +1063,8 @@ The evidence places the $7$--$8\%$ shift in the discretization, not in
 arithmetic precision or in the eigensolver. geode-fem computes in double
 precision (f64), and Palace is the build pinned in
 \path{reference/palace/docker/Dockerfile}, which sets no single-precision
-option. On the two coarsest levels of each ladder, the only ones both
-codes ran, the two codes agree on the qubit frequency to
+option. On the levels both codes ran, the two coarsest family-a levels
+with linear elements, the two codes agree on the qubit frequency to
 $2\times10^{-4}\%$, the looser of the ladder and re-optimization values
 (Sections~\ref{sec:crosscheck} and~\ref{sec:reopt}); on those levels, a
 loss of precision large enough to matter in either code would appear as a

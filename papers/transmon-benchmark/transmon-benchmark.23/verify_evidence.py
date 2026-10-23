@@ -1201,7 +1201,7 @@ def check_controls(cc, opt, slope):
     pct7 = pct(a["f_q_ghz"][-1] / cc["published"]["initial_f_ghz"][0] - 1)
     pct8 = pct(af["finest_f_q_ghz"] / af["published_ghz"][0] - 1)
     assert f"{pct7:.1f}" == "7.0" and f"{pct8:.1f}" == "8.0"
-    contains("Palace's adaptive refinement, still rising, puts the initial and final designs' qubit frequencies "
+    contains("Palace's still-rising adaptive refinement puts the initial and final designs' qubit frequencies "
              "$7.0\\%$ and $8.0\\%$ above their "
              "published values without extrapolation.")
     contains("A further check comes from Palace's adaptive mesh refinement")
@@ -1925,8 +1925,8 @@ def check_v20():
                  "geode-fem computes in double precision (f64), and Palace is the build pinned in "
                  "\\path{reference/palace/docker/Dockerfile}, which sets no single-precision option.",
                  # v23 (#1231 Judge nit 1, flow P13): the argument is scoped to the levels both codes ran.
-                 "On the two coarsest levels of each ladder, the only ones both codes ran, the two codes agree on the "
-                 "qubit frequency to $2\\times10^{-4}\\%$, the looser of the ladder and re-optimization values "
+                 "On the levels both codes ran, the two coarsest family-a levels with linear elements, the two codes "
+                 "agree on the qubit frequency to $2\\times10^{-4}\\%$, the looser of the ladder and re-optimization values "
                  "(Sections~\\ref{sec:crosscheck} and~\\ref{sec:reopt}); on those levels, a loss of precision large "
                  "enough to matter in either code would appear as a same-mesh disagreement far above that level.",
                  # v23 (flow P12): the frequency-domain statement is motivated, not a bare denial.
@@ -2067,8 +2067,8 @@ def check_v23():
         ("above their published values, estimates that lean low", 1),                    # P2: the baseline named
         ("a \\emph{ladder} is one geometry's series of uniformly refined levels", 1),   # P9
         ("The \\emph{band} is the minimum and maximum of six extrapolations", 1),        # P11
-        ("Three checks test the estimates: a second refinement family, Palace's adaptive refinement, which checks "
-         "only the qubit, and a common-limit fit (Figure~\\ref{fig:initialq})", 1),      # P5
+        ("Three checks test the estimates: a second refinement family and Palace's adaptive refinement "
+         "(Figure~\\ref{fig:initialq}; the adaptive runs check only the qubit), and a common-limit fit.", 1),  # P5
         ("The \\emph{unmodified} device is the initial design as published, before the re-optimization of "
          "Section~\\ref{sec:reopt} changes $c$, meshed as the fixture.", 1),             # P8
         ("not in the Bounded tier of Table~\\ref{tab:tiers}", 1),                        # P3
@@ -2089,6 +2089,11 @@ def check_v23():
     ]:
         pin(text, n)
     assert NORM.count("chosen after that capacitance route") == 1
+    # PR #1245 Judge: geode-fem ran only h and h/2 at p = 1 on family a; the precision argument says so, without numerals.
+    pin("On the levels both codes ran, the two coarsest family-a levels with linear elements", 1)
+    absent("the only ones both codes ran")
+    pin("the two coarsest meshes with linear elements", 1)   # Section 1
+    pin("reproduces Palace's qubit on every level both codes ran", 1)   # Conclusion
     absent("rather than a blind prediction")
     absent("a consistency check for the reason given")
     # P9: family a / family b only.
