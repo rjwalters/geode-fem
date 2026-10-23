@@ -1,11 +1,11 @@
 ---
-title: "When do field gradients pay off? A controlled study of nonlinear motor optimization"
+title: "Adjoint Gradients for Torque-Ripple Optimization of a Nonlinear Motor"
 slug: motor-gradient-optimization
 skill: paper
 paper_number: 3
 documentclass: anvil-paper
 anonymous: false
-status_of_inputs: "Main study (#1185, 100 runs) and post-hoc ablations F (#1218, cold stencils) and F_w (#1224, warm stencils) complete and hash-bound; current package motor-gradient-optimization.19 (v1 Zenodo release of v18, not reviewed; paper DOI 10.5281/zenodo.23580548, raw-trace archive DOI 10.5281/zenodo.23580550); v16 reviews 42/44 and 40/44"
+status_of_inputs: "Main study (#1185, 100 runs) and post-hoc ablations F (#1218, cold stencils) and F_w (#1224, warm stencils) complete and hash-bound; current package motor-gradient-optimization.20 (v19 with the operator's short title and two data-statement wording fixes, not reviewed; paper DOI 10.5281/zenodo.23580548, raw-trace archive DOI 10.5281/zenodo.23580550); v16 reviews 42/44 and 40/44"
 claim: "Test whether exact field gradients reduce time to a validated motor-design target beyond calibrated simple models, and how that advantage depends on useful shape freedom."
 audience: "Computational electromagnetics, electric-machine optimization, and differentiable scientific computing researchers"
 venue_target: "Select from the validated main-study contribution; use the generic paper class initially"
@@ -21,10 +21,25 @@ The operator designated this work as GEODE's third paper on 2026-10-16,
 alongside the transmon and conformal-antenna papers. This brief establishes
 the research project. The operator requested the first manuscript on
 2026-10-16. **Current state (2026-10-22) — CURRENT:** the package is
-`motor-gradient-optimization.19/`, the v1 Zenodo release of v18 (not yet
-reviewed; operator, geode-fem#1231). V19 changes only release metadata: each
-author's own affiliation (Robb Walters, 2AM Logic; Crutcher Dunnavant,
-ZSpaceLabs.ai), the paper's DOI 10.5281/zenodo.23580548 under the date, and
+`motor-gradient-optimization.20/` (not yet reviewed; operator, geode-fem#1231),
+42 pages. V20 is v19 with three changes and nothing else:
+- the operator's short title, "Adjoint Gradients for Torque-Ripple Optimization
+  of a Nonlinear Motor", in `\title` and `pdftitle`. It replaces "Per core,
+  adjoint gradients reach validated torque-ripple targets 1.7 and 2.7 times
+  sooner than warm-started finite differences in a nonlinear motor model",
+  whose factors the abstract states. The operator's choice supersedes this
+  brief's instruction to use a result-based title;
+- in the data statement, the raw-trace archive is "deposited at" DOI
+  10.5281/zenodo.23580550 (it was "for deposit at");
+- a sentence giving this paper's own DOI, 10.5281/zenodo.23580548, for its PDF
+  and LaTeX source. This is the same sentence as the other two papers'
+  Reproducibility footnotes, and it sits where the data statement gives the
+  GEODE repository URL.
+
+The `title:` front matter, which held the original working title, now holds
+the new title. V19 was the v1 Zenodo release of v18 and changed only release
+metadata: each author's own affiliation (Robb Walters, 2AM Logic; Crutcher
+Dunnavant, ZSpaceLabs.ai), the paper's DOI 10.5281/zenodo.23580548 under the date, and
 the raw-trace archive's reserved DOI 10.5281/zenodo.23580550 in place of
 `[PENDING zenodo-doi]`. No pending marker remains. V18 was a reader-clarity
 revision of v17 for a reader from tensor compilers and ML systems: design
@@ -38,8 +53,8 @@ protocols frozen before any run: FD-cold (F in the records), cold-started
 forward-difference stencils (#1218), and FD-warm (F_w), warm-started
 stencils (#1224). The raw-trace archive (2,790,582,024 bytes, SHA-256
 `1dfbf388…a1b98b07`, unchanged since v17; the v16 archive
-`a70a0699…203f12` is superseded) has the reserved DOI
-10.5281/zenodo.23580550; the deposit itself is the operator's.
+`a70a0699…203f12` is superseded) is deposited at DOI
+10.5281/zenodo.23580550.
 All earlier versions are unchanged.
 
 **Current headline.** Per core, with SLSQP held fixed, adjoint gradients
@@ -51,7 +66,7 @@ the gradient factor is 1.71--2.47 and 2.68--4.10 and the optimizer factor
 finite-difference baselines. The adjoint cuts the gradient's share of the
 time to target from 45--77% to about 5%.
 
-The author line is Robb Walters (2AM Logic) and Crutcher Dunnavant (ZSpaceLabs.ai) (operator ruling 2026-10-22; affiliations in v19). Venue remains open.
+The author line is Robb Walters (2AM Logic) and Crutcher Dunnavant (ZSpaceLabs.ai) (operator ruling 2026-10-22; affiliations since v19). Venue remains open.
 
 
 ## Motivation

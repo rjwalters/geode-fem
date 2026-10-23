@@ -1,0 +1,206 @@
+{
+ "_lookup": {
+  "date": "2026-10-21",
+  "services": [
+   "api.crossref.org (works/{doi} and bibliographic search)",
+   "api.openalex.org (search and abstracts)"
+  ],
+  "request_identity": "User-Agent \"litcheck/1.0\"; no email, mailto or user identifier sent",
+  "abstracts": {
+   "10.3390/en10121962": "OpenAlex abstract",
+   "10.1016/j.compfluid.2009.09.013": "none available; cited only for what its title states",
+   "10.1137/100786125": "OpenAlex abstract",
+   "10.1145/2168773.2168777": "OpenAlex abstract",
+   "10.1016/j.paerosci.2019.05.002": "none available; cited only for what its title states"
+  },
+  "not_found": {
+   "Lyu, Xu & Martins (2014), Benchmarking optimization algorithms for wing aerodynamic design optimization, ICCFD8": "no Crossref or OpenAlex record (title search returns only other works); not cited"
+  }
+ },
+ "10.3390/en10121962": {
+  "DOI": "10.3390/en10121962",
+  "title": [
+   "A Review of Design Optimization Methods for Electrical Machines"
+  ],
+  "container-title": [
+   "Energies"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2017,
+     11,
+     24
+    ]
+   ]
+  },
+  "volume": "10",
+  "issue": "12",
+  "page": "1962",
+  "article-number": null,
+  "publisher": "MDPI AG",
+  "type": "journal-article",
+  "author": [
+   {
+    "given": "Gang",
+    "family": "Lei"
+   },
+   {
+    "given": "Jianguo",
+    "family": "Zhu"
+   },
+   {
+    "given": "Youguang",
+    "family": "Guo"
+   },
+   {
+    "given": "Chengcheng",
+    "family": "Liu"
+   },
+   {
+    "given": "Bo",
+    "family": "Ma"
+   }
+  ]
+ },
+ "10.1016/j.compfluid.2009.09.013": {
+  "DOI": "10.1016/j.compfluid.2009.09.013",
+  "title": [
+   "Numerical sensitivity analysis for aerodynamic optimization: A survey of approaches"
+  ],
+  "container-title": [
+   "Computers &amp; Fluids"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2010,
+     3
+    ]
+   ]
+  },
+  "volume": "39",
+  "issue": "3",
+  "page": "373-391",
+  "article-number": null,
+  "publisher": "Elsevier BV",
+  "type": "journal-article",
+  "author": [
+   {
+    "given": "Jacques E.V.",
+    "family": "Peter"
+   },
+   {
+    "given": "Richard P.",
+    "family": "Dwight"
+   }
+  ]
+ },
+ "10.1137/100786125": {
+  "DOI": "10.1137/100786125",
+  "title": [
+   "Estimating Computational Noise"
+  ],
+  "container-title": [
+   "SIAM Journal on Scientific Computing"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2011,
+     1
+    ]
+   ]
+  },
+  "volume": "33",
+  "issue": "3",
+  "page": "1292-1314",
+  "article-number": null,
+  "publisher": "Society for Industrial & Applied Mathematics (SIAM)",
+  "type": "journal-article",
+  "author": [
+   {
+    "given": "Jorge J.",
+    "family": "Moré"
+   },
+   {
+    "given": "Stefan M.",
+    "family": "Wild"
+   }
+  ]
+ },
+ "10.1145/2168773.2168777": {
+  "DOI": "10.1145/2168773.2168777",
+  "title": [
+   "Estimating Derivatives of Noisy Simulations"
+  ],
+  "container-title": [
+   "ACM Transactions on Mathematical Software"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2012,
+     4
+    ]
+   ]
+  },
+  "volume": "38",
+  "issue": "3",
+  "page": "1-21",
+  "article-number": null,
+  "publisher": "Association for Computing Machinery (ACM)",
+  "type": "journal-article",
+  "author": [
+   {
+    "given": "Jorge J.",
+    "family": "Moré"
+   },
+   {
+    "given": "Stefan M.",
+    "family": "Wild"
+   }
+  ]
+ },
+ "10.1016/j.paerosci.2019.05.002": {
+  "DOI": "10.1016/j.paerosci.2019.05.002",
+  "title": [
+   "Effective adjoint approaches for computational fluid dynamics"
+  ],
+  "container-title": [
+   "Progress in Aerospace Sciences"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2019,
+     10
+    ]
+   ]
+  },
+  "volume": "110",
+  "issue": null,
+  "page": "100542",
+  "article-number": "100542",
+  "publisher": "Elsevier BV",
+  "type": "journal-article",
+  "author": [
+   {
+    "given": "Gaetan K.W.",
+    "family": "Kenway"
+   },
+   {
+    "given": "Charles A.",
+    "family": "Mader"
+   },
+   {
+    "given": "Ping",
+    "family": "He"
+   },
+   {
+    "given": "Joaquim R.R.A.",
+    "family": "Martins"
+   }
+  ]
+ }
+}
