@@ -1,7 +1,13 @@
 [workspace]
 resolver = "2"
 # The patched third-party parent is a dependency, not a workspace member.
-exclude = ["vendor/mshio"]
+exclude = [
+    "vendor/mshio",
+    "vendor/candle-core-0.10.2",
+    "vendor/tch-0.22.0",
+    "vendor/torch-sys-0.22.0",
+    "vendor/zip-9.0.5",
+]
 
 members = [
     "crates/*",
@@ -131,3 +137,9 @@ debug = false
 # See vendor/mshio/FORK.md for source provenance and the bounded numeric fix.
 [patch.crates-io]
 mshio = { path = "vendor/mshio" }
+
+# Archive compatibility/security fork; see security/zip-compat/README.md.
+candle-core = { path = "vendor/candle-core-0.10.2" }
+tch = { path = "vendor/tch-0.22.0" }
+torch-sys = { path = "vendor/torch-sys-0.22.0" }
+zip = { path = "vendor/zip-9.0.5" }
