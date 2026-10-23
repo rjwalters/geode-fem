@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "thread": "motor-gradient-optimization",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-23T04:00:00Z",
+      "completed": "2026-10-23T05:00:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 21,
+    "max_iterations": 10,
+    "revised_from": 20,
+    "note": "v20 with the coauthor's two requested changes (geode-fem#1231): the optimizers' \"training model\" and the scorer's \"validation model\" become the coarse simulation and the validation simulation throughout (adjectives likewise; the appendix's cost model is named as one; an unqualified model here is a simulation formulation, no simulation is trained or fitted to torque data, and of the optimizers' models only their search models are fitted), and a short future-work paragraph closes the Discussion (second-order and gradient-enhanced population methods, parallel starts, synchronous reluctance rotors; citing gangl2022multi, already in refs.bib). Two figure legends relabelled to match (exp2-time-to-target, decomp); no data, number, reference entry or DOI changed; no computation run. Package pointer moved to v21.",
+    "evidence_snapshot": {
+      "brief_mtime": 1792638669.1807315,
+      "refs_mtime": 1792597193.803293
+    }
+  }
+}

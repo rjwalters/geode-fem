@@ -5,7 +5,7 @@ skill: paper
 paper_number: 3
 documentclass: anvil-paper
 anonymous: false
-status_of_inputs: "Main study (#1185, 100 runs) and post-hoc ablations F (#1218, cold stencils) and F_w (#1224, warm stencils) complete and hash-bound; current package motor-gradient-optimization.20 (v19 with the operator's short title and two data-statement wording fixes, not reviewed; paper DOI 10.5281/zenodo.23580548, raw-trace archive DOI 10.5281/zenodo.23580550); v16 reviews 42/44 and 40/44"
+status_of_inputs: "Main study (#1185, 100 runs) and post-hoc ablations F (#1218, cold stencils) and F_w (#1224, warm stencils) complete and hash-bound; current package motor-gradient-optimization.21 (v20 with the coauthor's coarse/validation-simulation terminology and a future-work paragraph, not reviewed; paper DOI 10.5281/zenodo.23580548, raw-trace archive DOI 10.5281/zenodo.23580550); v16 reviews 42/44 and 40/44"
 claim: "Test whether exact field gradients reduce time to a validated motor-design target beyond calibrated simple models, and how that advantage depends on useful shape freedom."
 audience: "Computational electromagnetics, electric-machine optimization, and differentiable scientific computing researchers"
 venue_target: "Select from the validated main-study contribution; use the generic paper class initially"
@@ -20,9 +20,28 @@ science_card_id: 3
 The operator designated this work as GEODE's third paper on 2026-10-16,
 alongside the transmon and conformal-antenna papers. This brief establishes
 the research project. The operator requested the first manuscript on
-2026-10-16. **Current state (2026-10-22) — CURRENT:** the package is
-`motor-gradient-optimization.20/` (not yet reviewed; operator, geode-fem#1231),
-42 pages. V20 is v19 with three changes and nothing else:
+2026-10-16. **Current state (2026-10-23) — CURRENT:** the package is
+`motor-gradient-optimization.21/` (not yet reviewed; coauthor review of v18,
+geode-fem#1231), 43 pages, main text pp. 1–19 (v20: 42, pp. 1–18). V21 is v20
+with the coauthor's two requested changes and nothing else:
+- terminology: the optimizers' "training model" and the scorer's "validation
+  model" are now the *coarse simulation* (L1, or L0 for D and E, interface
+  order 45) and the *validation simulation* (L2, order 93, never seen by an
+  optimizer), defined once in the protocol. Two sentences there say that an
+  unqualified "model" is a formulation of the simulation, that no simulation
+  is trained or fitted to torque data, and that of the optimizers' models only
+  their own search models (C's surrogate, COBYQA's interpolation model) are
+  fitted. Adjectives follow ("coarse forwards", "coarse resolution",
+  "optimization mesh", "objective currents"); the appendix's cost model is
+  named as one; physics and numerics uses of "model" are kept. Two figure
+  legends are relabelled to match, with unchanged data;
+- a short future-work paragraph closing the Discussion: second-order and
+  gradient-enhanced population or multistart methods and parallel starts, all
+  untested and bounded by validation and coarse forwards, and synchronous
+  reluctance rotors as a next problem (citing gangl2022multi, already in
+  `refs.bib`).
+
+V20 was v19 with three changes:
 - the operator's short title, "Adjoint Gradients for Torque-Ripple Optimization
   of a Nonlinear Motor", in `\title` and `pdftitle`. It replaces "Per core,
   adjoint gradients reach validated torque-ripple targets 1.7 and 2.7 times
