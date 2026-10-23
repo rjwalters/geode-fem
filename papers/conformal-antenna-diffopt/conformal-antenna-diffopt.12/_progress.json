@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "thread": "conformal-antenna-diffopt",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-23T16:00:00Z",
+      "completed": "2026-10-23T18:30:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 12,
+    "max_iterations": 4,
+    "revised_from": 11,
+    "operator_override": true,
+    "operator_note": "Reading-flow revision from a non-specialist flow review (geode-fem#1231): body reordered (Method, Baselines, Accuracy, Procedure, Results, Related Work, Limitations, Conclusion, back matter), primer block (Table 1, Figures 1 and 2) in the Introduction, one cost table, glosses. No number, claim, title, author, DOI or reference changed; no computation run. No Anvil max_iterations gate on paper revisions (operator ruling)."
+  }
+}

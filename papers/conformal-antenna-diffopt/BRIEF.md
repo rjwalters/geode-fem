@@ -7,9 +7,34 @@ anonymous: false
 web_search: true
 ---
 
-# v11 — short title, 2026-10-22 — CURRENT
+# v12 — reading flow, 2026-10-23 — CURRENT
 
-**Current state: `conformal-antenna-diffopt.11/` (draft, not reviewed), 22 pages.**
+**Current state: `conformal-antenna-diffopt.12/` (draft, not reviewed), 23 pages.**
+v12 = v11 reordered and glossed for reading flow, from a flow review for an interested
+non-specialist reader (geode-fem#1231). No number, result, claim scope, title, author, DOI or
+reference changed and no computation was run; v1–v11 stay immutable. Where this section
+conflicts with the sections below, it wins.
+
+- **Body order:** Introduction (with Table 1 of names and Figures 1 and 2 as a primer block,
+  and "Position of this work" as its last paragraph), Method (opening with the fixture),
+  The Adjoint Against Gradient-Free Search, Forward-Model Accuracy, Design Procedure,
+  Results, Related Work, Limitations, Conclusion, Acknowledgments, How geode-fem Was
+  Designed and Built, Reproducibility. The body now follows the Introduction's three-result
+  order and designs A and C are not discussed before Design Procedure introduces them.
+- **Added:** one table of wall-clock costs (solves, host, time) built from numbers already in
+  v11; glosses for fixture, open-radiator, feed band, cold start, σ₀, UPML, λ and dual
+  arithmetic; the point counts behind the two "worst" quantities; the signpost that the
+  space-mapping shift is re-fitted at each descent; "unknowns" as the one noun for the count.
+- **Trimmed:** the Conclusion no longer repeats the abstract; the Results "Cost" paragraph is
+  the cost table; the set-aside 53.6 MHz run is a footnote.
+- **Kept:** the title, the DOI 10.5281/zenodo.21480892, the author block, `refs.bib`,
+  `figures/` and `main.bbl`, all byte-identical to v11's. `check_v12()` pins the multiset of
+  numbers in `main.tex` against v11's with its exact delta. There is no pending marker.
+- `changelog.md` maps every proposal of the review to its resolution; none was skipped.
+
+# v11 — short title, 2026-10-22
+
+**State at v11: `conformal-antenna-diffopt.11/` (draft, not reviewed), 22 pages.**
 v11 = v10 with the operator's short title (geode-fem#1231). No other wording or number
 changed and no computation was run; v1–v10 stay immutable. Where this section conflicts with
 the sections below, it wins.
