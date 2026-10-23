@@ -71,7 +71,7 @@ optimizer factor (COBYQA against finite-difference SLSQP).
 Table~\ref{tab:decomp} gives the main result. On one core per run, with
 the finite-difference stencil (one perturbed coarse solve per parameter)
 solved serially, the gradient factor is 1.71--2.47 with eight parameters
-and 2.70--4.11 with 18, and the optimizer factor is 1.22--1.76 and
+and 2.68--4.10 with 18, and the optimizer factor is 1.22--1.76 and
 1.91--2.92. The range in each factor is the gap between the two
 finite-difference baselines: stencil solves warm-started from the base
 point's solution (FD-warm) or started from zero (FD-cold). The gradient
@@ -129,11 +129,11 @@ saving is worth in time to a validated target. The accuracy of a
 finite-difference gradient also depends on its step relative to the
 function's computational noise, which \citet{more2011estimating} show how
 to estimate and \citet{more2012estimating} use to choose a near-optimal
-step; our finite-difference arms instead use one step fixed in advance.
+step; our finite-difference baselines instead use one step fixed in advance.
 For iteratively solved problems the perturbed solves' convergence error
 enters as well: \citet{haftka1985sensitivity} gives a modified procedure
 that improves such derivatives and \citet{eyi2011finite} chooses the step
-from an estimate of that error, whereas our warm-started arm keeps the
+from an estimate of that error, whereas our warm-started baseline keeps the
 frozen tolerance and reports the resulting error. The direct method, one
 linearized solve per parameter \citep{adelman1986sensitivity}, and the
 semi-analytic method, which can be inaccurate for shape variables

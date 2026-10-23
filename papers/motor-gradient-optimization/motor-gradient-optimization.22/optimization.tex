@@ -18,7 +18,7 @@ Every design that becomes the method's new best, its incumbent, is rescored
 on one \emph{validation simulation}, the finer L2 mesh with interface order
 93, which no optimizer sees; only validated scores count toward a target.
 Both are physics simulations, the nonlinear finite-element model of
-Section~\ref{sec:model} at two mesh levels and interface orders, neither
+Section~\ref{sec:model} at coarser and finer mesh levels and interface orders, neither
 fitted to torque data nor corrected against validation; of what the
 optimizers use, only their own search models, C's radial-basis surrogate
 and COBYQA's interpolation model, are fitted, to coarse values.
@@ -416,8 +416,8 @@ adjoint SLSQP, and an optimizer factor, COBYQA against finite-difference
 SLSQP. Table~\ref{tab:decomp} gives both splits over the starts where B
 attains the primary target (all five in S8; four in S18, where B misses
 LHS~3). Over those four starts the FD-warm/A$'$ and FD-cold/A$'$ means are
-2.68 and 4.10, against 2.70 and 4.11 over all five starts; the abstract,
-introduction and conclusion quote the five-start values.
+2.68 and 4.10, against 2.70 and 4.11 over all five starts; the abstract
+and conclusion quote the five-start values.
 Of SLSQP's 3.10-fold (S8) and 7.79-fold (S18) advantage over
 COBYQA, the gradient accounts for a factor of 1.71--2.47 and 2.68--4.10, and
 the optimizer for 1.22--1.76 and 1.91--2.92. The lower gradient factor and

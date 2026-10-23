@@ -29,7 +29,8 @@ are verified before the results that rely on them; S8/S18, L0/L1, the three
 studies, "stencil" and "arm" are introduced before first use; the two bases of
 the S18 gradient factor (2.68/4.10 over the four starts COBYQA reached, as in
 Table `tab:decomp`; 2.70/4.11 over all five) are bridged in one sentence of
-the ablation section, and the abstract, introduction and conclusion quote the
+the ablation section; the introduction quotes the table's four-start values
+with the table's optimizer factors, and the abstract and conclusion the
 five-start values; the coauthor's "model" clarification is one positive
 sentence in the protocol (both simulations are physics simulations; of what
 the optimizers use, only their own search models are fitted, to coarse

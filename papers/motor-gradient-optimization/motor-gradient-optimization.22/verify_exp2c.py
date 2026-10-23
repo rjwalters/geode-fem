@@ -305,9 +305,9 @@ for phrase in [
     'warm-starting it halved the cost of a stencil solve and cut the gradient factor from 2.47 and 4.11 to 1.71 and 2.70, at some cost in accuracy on small components',
     'COBYQA against finite-difference SLSQP contributes the remaining 1.2 to 1.8 with 8 parameters and 1.9 to 2.9 with 18',
     "The adjoint cuts the gradient's share of the time to target from 45--77\\% to about 5\\%, so validation and coarse-simulation evaluations bound the end-to-end gain",
-    # v22: the introduction quotes the five-start S18 gradient factor like the abstract; Section 6 bridges it to Table decomp's four-start values; the Discussion recap carries no numbers.
-    'the gradient factor is 1.71--2.47 with eight parameters and 2.70--4.11 with 18, and the optimizer factor is 1.22--1.76 and 1.91--2.92',
-    "Over those four starts the FD-warm/A$'$ and FD-cold/A$'$ means are 2.68 and 4.10, against 2.70 and 4.11 over all five starts; the abstract, introduction and conclusion quote the five-start values",
+    # v22: the introduction quotes Table decomp's four-start S18 gradient factor with the table's optimizer factors; Section 6 bridges it to the five-start values of the abstract and conclusion; the Discussion recap carries no numbers.
+    'Table~\\ref{tab:decomp} gives the main result. On one core per run, with the finite-difference stencil (one perturbed coarse solve per parameter) solved serially, the gradient factor is 1.71--2.47 with eight parameters and 2.68--4.10 with 18, and the optimizer factor is 1.22--1.76 and 1.91--2.92',
+    "Over those four starts the FD-warm/A$'$ and FD-cold/A$'$ means are 2.68 and 4.10, against 2.70 and 4.11 over all five starts; the abstract and conclusion quote the five-start values",
     'optimizer factor, and both matter (Table~\\ref{tab:decomp}). Second, with the optimization path held fixed, the gradient factor is a ratio of end-to-end times, not of gradient costs',
     'the optimizer factor, COBYQA against finite-difference SLSQP, made up the rest',
     'per-gradient cost ratios of 18--70 became end-to-end ratios of 1.71--4.11',

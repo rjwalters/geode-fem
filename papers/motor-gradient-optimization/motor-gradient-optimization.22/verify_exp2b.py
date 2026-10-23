@@ -569,7 +569,7 @@ assert txt.count('coarse simulation') >= 10 and txt.count('validation simulation
 # v22: the three "not fitted" statements of v21 (protocol paragraph, methods paragraph, Table tab:methods caption) are one positive
 # sentence. It is scoped so that it stays literally true: the cost model, the slotless fit and the derivative-check fits are not
 # "what the optimizers use", and the tabulated B-H law is a material input, not torque data.
-MODEL_V22 = ('Both are physics simulations, the nonlinear finite-element model of Section~\\ref{sec:model} at two mesh levels and interface orders, '
+MODEL_V22 = ('Both are physics simulations, the nonlinear finite-element model of Section~\\ref{sec:model} at coarser and finer mesh levels and interface orders, '
              'neither fitted to torque data nor corrected against validation; of what the optimizers use, only their own search models, '
              "C's radial-basis surrogate and COBYQA's interpolation model, are fitted, to coarse values.")
 assert MODEL_V22 in txt and txt.count('fitted to torque data') == 1 and 'is trained' not in txt
@@ -581,6 +581,7 @@ assert tex.count('\\citep{gangl2022multi}') == 1 and tex.count('gangl2022multi')
 assert tex.index('\\section{Motor model}') < tex.index('\\section{Design-gradient verification}') < tex.index('\\input{optimization}') < tex.index('\\section{What transfers, and limits}') < tex.index('\\section{Conclusion}')
 for phrase in ['\\paragraph{FD-cold.}', '\\paragraph{FD-warm.}', '\\paragraph{Controls and estimand.}', 'We call the methods of an ablation its \\emph{arms}.',
                'Both finite-difference arms and both A$\'$ controls reach', 'the finite-difference stencil (one perturbed coarse solve per parameter) solved serially',
+               'our finite-difference baselines instead use one step fixed in advance', 'whereas our warm-started baseline keeps the frozen tolerance',  # Judge: "arm" is not used before Section 6 defines it
                'the eight scalar design parameters that form the smaller design space, S8, and the 55 control points whose grouped offsets the larger space, S18, adds',
                'The 18-parameter space S18 (Section~\\ref{sec:optimization}) adds ten offsets', 'on the two coarsest meshes, L0 and L1 (Section~\\ref{sec:meshes})',
                'The forward comparisons of Section~\\ref{sec:coupling-results} use Arkkio for both couplings', 'the derivative study of Section~\\ref{sec:gradients} pairs',
@@ -595,14 +596,16 @@ for phrase in ['\\paragraph{FD-cold.}', '\\paragraph{FD-warm.}', '\\paragraph{Co
                'Method & Optimizer or search model & Gradient & Coarse simulation', '$\\bar T_{r,1}\\geq1.0025\\,\\bar T_{r,1}(\\theta_0)$', '$\\bar T_{r,1}/\\bar T_{r,1}(\\theta_0)-1.0025\\geq0$']:
     assert phrase in txt, phrase
 assert '\\mu_{r,1}' not in tex and tex.count('$\\mu_r=1.05$') == 1  # the coarse mean is \bar T_{r,1}; \mu_r stays the relative permeability
+_main, _opt = (V / 'main.tex').read_text(), (V / 'optimization.tex').read_text()
+assert not _re0.search(r'\barms?\b', _main[:_main.index('\\input{optimization}')] + _opt[:_opt.index('\\section{Post-hoc ablations')]), '"arm" used before Section 6 defines it'
 assert tex.count("Against D, the") == 1 and txt.count('1.15--1.16') == 1 and txt.count('1.92--3.19') == 1  # the A-D validation story is told once, in "Validation charges"
 # Inside the repository, v22 is pinned against the v21 sibling: the same title block, authors, date and DOIs; the same bibliography,
 # class, tables, figures and figure sources, byte for byte; and the same numbers. The multiset of numeric tokens of main.tex +
 # optimization.tex differs from v21's only by the listed duplicates (a bridging sentence, the cost-table range, the package pointer,
 # cross-references) and deletions (a Discussion recap and an Appendix D paragraph now stated once in the main text).
 V21 = V.parent / 'motor-gradient-optimization.21'
-V22_NUM_ADDED = {'0.216': 1, '0.245': 1, '2': 3, '2.70': 2, '22': 2, '4': 1, '4.11': 2}
-V22_NUM_REMOVED = {'1.15': 1, '1.16': 1, '1.22': 1, '1.71': 1, '1.76': 1, '1.91': 1, '1.92': 1, '18': 1, '2.47': 1, '2.68': 1, '2.92': 1, '21': 2, '3.19': 1, '4.10': 1}
+V22_NUM_ADDED = {'0.216': 1, '0.245': 1, '2': 3, '2.70': 1, '22': 2, '4': 1, '4.11': 1}
+V22_NUM_REMOVED = {'1.15': 1, '1.16': 1, '1.22': 1, '1.71': 1, '1.76': 1, '1.91': 1, '1.92': 1, '18': 1, '2.47': 1, '2.92': 1, '21': 2, '3.19': 1}
 if V.name == PKG and (V21 / 'main.tex').exists():
     import collections as _co
     assert sha(V21 / 'main.tex') == 'fb3b266dad3a4d00374a871acab2c7557a978d09c3ae1abca30f7ce9b8c38b4c' and sha(V21 / 'optimization.tex') == 'b1c6970571a917cc2b4bfbcd66a77cc2ef98eb2300ccfdec0790c7d48c120716', 'v21 sources changed'
