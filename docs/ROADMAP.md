@@ -1,6 +1,6 @@
 # GEODE-FEM roadmap
 
-_Last updated: 2026-10-04._ This is the single source for where the project is going. Each item links to a GitHub epic, and the epic holds the phase plan, its goldens and its acceptance criteria. When an epic changes scope, update this file in the same PR.
+_Last updated: 2026-10-24._ This is the single source for where the project is going. Each item links to a GitHub epic, and the epic holds the phase plan, its goldens and its acceptance criteria. When an epic changes scope, update this file in the same PR.
 
 ## Direction
 
@@ -57,7 +57,7 @@ v0.8.0 contents, as merged:
 | #836 | **Higher-order accuracy.** p=2 Nédélec through driven, eigen, lumped/wave/hybrid ports, sensitivities and the CLI `element_order`, then curved geometry | #838: order-generic element space + driven solver | **Merged:** P1a #838, P1b #857, P2 #871, P3a #884. **Open:** P3b (hybrid ports at p=2), P4 (sensitivities at p=2), P5 (CLI `element_order`), P6 (curved geometry, likely v0.10.0). In flight: the wave-port gauge fix #888 (PR #892), with its p=2 follow-up #894 |
 | #841 | **Differentiable EDA.** N-port S, material, roughness, dispersion, port-mode (β, ε_eff, Z₀) and lossy-Q gradients, CLI shape parameters, and `geode optimize` (L-BFGS-B / MMA) | #842: N-port S gradients through wave/filled/mixed/walled specs | **Merged:** P1 #842, P3a #859, P3b #872, P5a #883, P6a #873. **Open:** P2a (material physics), P2b (conductor/wall physics, lossy-eigen f and Q), P4 (adaptive PROM), P5b (CLI coverage for P2–P4), P6b (`geode optimize`) |
 | #835 | **Adaptive meshing.** H(curl) a-posteriori estimator, conforming bisection, the solve→estimate→mark→refine loop, goal-oriented DWR, port-driven refinement, CLI `adaptive_mesh`, and hp | #840: explicit-residual estimator, validated on effectivity | **Merged:** P1 #840, P2 #860, P3 #868, and the P3 boundary residuals #879. **Open:** P4 (goal-oriented DWR), P5 (port-face consistency), P6 (CLI `adaptive_mesh`), P7 (hp) |
-| #837 | **Periodic / Floquet.** Zero-phase periodic BCs, Bloch band structure, Floquet ports (TE + TM, diffraction orders), CLI `geode mesh --periodic`, and infinite-array scan impedance | #839: zero-phase periodic BCs | **Merged:** P1 #839, P2 #858, P3a #870. **Open:** P3b (higher Floquet orders and diffraction), P4a/P4b (CLI, schema, `geode mesh --periodic`), P5 (optional: infinite-array scan impedance) |
+| #837 | **Periodic / Floquet.** Zero-phase periodic BCs, Bloch band structure, Floquet ports (TE + TM, diffraction orders), CLI `geode mesh --periodic`, and infinite-array scan impedance | #839: zero-phase periodic BCs | **Merged:** P1 #839, P2 #858, P3a #870. **Open:** P3b (higher Floquet orders and diffraction), P4a/P4b (CLI, schema, `geode mesh --periodic`). P5 (infinite-array scan impedance) moved to #1252 as its Phase 2 |
 
 **Sequencing.** #838 is the **first solver-core merge** of v0.9, because every other epic builds on the order-generic element space. After it:
 
@@ -74,6 +74,28 @@ v0.8.0 contents, as merged:
 - #836 Phase 5a's same-mesh p=1-vs-p=2 difference becomes one component of the AMR estimator, not a second estimator.
 
 **v0.8 hardening:** #824 / #828 / #831 / #834 / #845 shipped in v0.8.0. Carried into v0.9: #850, the bound-mode hole guard for the PML/dielectric solvers.
+
+## Design programs (opened 2026-10-24)
+
+Three epics turn the differentiable stack toward results that end in measured hardware or a public dataset. They came out of a 2026-10-24 roadmap brainstorm of ten proposals, five in semiconductors/EDA and five in other EM domains. Each epic carries its phases, acceptance criteria, kill criteria and cost estimates. Every spend or public-release phase is operator-gated.
+
+| Epic | Program | First phase(s) | Depends on |
+|---|---|---|---|
+| #1251 | **Open-PDK IC flow.** GEODE as a differentiable third backend of the IHP SG13G2 open EM flow: an adjoint-designed freeform mm-wave transformer/balun, checked against Palace, taped out on an MPW and probe-measured; plus `geode calibrate` (stack fitting on the adjoint Jacobian) and `geode driven --corners` | #1254: volumetric σ + `∂/∂σ` (delivers the σ item of #841 P2a). #1255: layout schema v2 for IC stacks | #841 P2a/P2b (calibration), #841 P6b (`geode optimize`), #836 P5 (p=2 column) |
+| #1252 | **Wide-scan phased-array element.** Min-max over scan angle and frequency with a Floquet-port shape adjoint and 50–200 freeform parameters, measured in a waveguide simulator | #1256: Floquet-port S adjoint via the −k_t transpose solve | #837 P3a (merged) for P1; #837 P3b + P4b for P2 (adopts #837 P5) |
+| #1253 | **GEODE-Bench.** A gradient-labelled unstructured-mesh EM dataset with Sobolev-trained surrogates and an optimization-transfer metric | #1257: dataset exporter and schema | #837 P4b for the Floquet task only |
+
+**Gates:**
+- #1251's tapeout waits on its Phase 2 kill gate: the IHP 400 pH inductor must match Palace (|ΔQ/Q| ≤ 5%).
+- #1253's headline waits on its Phase 3 ablation: does gradient supervision improve optimization transfer?
+
+**Parked from the brainstorm** (revisit when a partner appears or a kill test is run):
+- motor rotor built and dyno-tested;
+- die-to-die (UCIe-class) link co-design;
+- gradient-designed substrate isolation;
+- power-delivery impedance shaping;
+- surface-participation-optimized superconducting resonators;
+- GPU matrix-free adjoint at 10–50M DOF.
 
 ## v0.10.0 and later
 
