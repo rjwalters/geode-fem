@@ -14,7 +14,17 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 
 # Brief: the transmon cross-validation benchmark paper
 
-## v23 — reading-flow revision, 2026-10-23 — CURRENT
+## v24 — published on Zenodo (v1), 2026-10-25 — CURRENT
+
+**Published.** `transmon-benchmark.24/` is the paper of record for Zenodo v1, 21 pages.
+
+- **DOI (this version):** 10.5281/zenodo.23580545, https://zenodo.org/records/23580545
+- **Concept DOI (all versions; cite and link this one):** 10.5281/zenodo.23580544
+- **Files:** `walters-dunnavant-2026-transmon-benchmark-v1.pdf` and `walters-dunnavant-2026-transmon-benchmark-v1-source.zip` (builds with pdflatex alone), md5-verified against the upload.
+- **v24 vs v23:** a corresponding-author footnote on Robb Walters (robb@2amlogic.com) is the only change (operator request before publishing, PR #1268). Coauthor Crutcher Dunnavant approved the v1 release.
+- **Revisions from here** go up as new versions of the same Zenodo record (v2, ...); the concept DOI stays the same. Open v2 items are in geode-fem#1231.
+
+## v23 — reading-flow revision, 2026-10-23
 
 **Current state: `transmon-benchmark.23/` (draft, not reviewed), 21 pages.**
 v23 = v22 revised for reading flow (geode-fem#1231): the flow review's S and M
