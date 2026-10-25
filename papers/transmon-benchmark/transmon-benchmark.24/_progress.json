@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-25T00:00:00Z",
+      "completed": "2026-10-25T00:00:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 24,
+    "max_iterations": 20,
+    "revised_from": 23,
+    "status": "DRAFT",
+    "authorization": "v22 revised for reading flow (geode-fem#1231): the flow review's S and M proposals and the two deferred Judge nits. No number, result, claim scope, title, author, DOI or reference changed and no computation run. No review score or audit is claimed or carried forward.",
+    "source_paper_commit": "c1b17a23 (main, transmon-benchmark.22 as merged)",
+    "scope": "v23 = v22 with the geode-fem paragraph before the main result, the tier words mapped to Table 6, Section 3 reordered (device, models, solver), Figure 3 beside its paragraphs, the from-below heuristic in the Discussion, the contributions section last, the Computed tier, one name per design and per family, and the #1231 nits; 21 pages",
+    "pending_dependencies": [
+      "independent v23 paper reviews (release gate: both >= 40/44)"
+    ],
+    "evidence_snapshot": {
+      "brief_mtime": null,
+      "refs_mtime": null
+    },
+    "note": "Corresponding-author footnote added to the author block (Robb Walters, robb@2amlogic.com), at the operator's request before the Zenodo v1 publish (geode-fem#1231). The footnote is the only text change; title, authors, affiliations, DOI, numbers, figures, tables and bibliography are unchanged from v23; no computation run."
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "thread": "motor-gradient-optimization",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-25T00:00:00Z",
+      "completed": "2026-10-25T00:00:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 23,
+    "max_iterations": 10,
+    "revised_from": 22,
+    "note": "Corresponding-author footnote added to the author block (Robb Walters, robb@2amlogic.com), at the operator's request before the Zenodo v1 publish (geode-fem#1231). The footnote is the only text change; title, authors, affiliations, DOI, numbers, figures, tables and bibliography are unchanged from v22; no computation run.",
+    "evidence_snapshot": {
+      "brief_mtime": 1792638669.1807315,
+      "refs_mtime": 1792597193.803293
+    }
+  }
+}
