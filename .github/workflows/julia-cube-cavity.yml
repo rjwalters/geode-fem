@@ -116,7 +116,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Julia 1.10
         uses: julia-actions/setup-julia@v2
@@ -125,14 +125,14 @@ jobs:
           version: '1.10'
 
       - name: Cache Julia depot
-        uses: julia-actions/cache@v2
+        uses: julia-actions/cache@v3
         with:
           # Keyed off Project.toml so the libarpack JLL only re-downloads
           # when dependencies actually change.
           cache-name: julia-cube-cavity-${{ hashFiles('reference/julia/Project.toml') }}
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
@@ -447,7 +447,7 @@ jobs:
 
       - name: Upload Julia sidecar + agreement artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: julia-cube-cavity-artifacts
           path: |

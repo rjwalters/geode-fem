@@ -63,7 +63,7 @@ jobs:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install libarpack2-dev and pkg-config
         run: |
@@ -76,7 +76,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache cargo registry + target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -339,7 +339,7 @@ jobs:
       RUST_BACKTRACE: short
       GEODE_REQUIRE_GMSH: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -351,7 +351,7 @@ jobs:
           gmsh --version
 
       - name: Cache cargo registry + target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -391,7 +391,7 @@ jobs:
       RUST_BACKTRACE: short
       GEODE_REQUIRE_GMSH: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -403,7 +403,7 @@ jobs:
           gmsh --version
 
       - name: Cache cargo registry + target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
