@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-26
+
+This release lands the library side of the four v0.9 roadmap epics, the solver work behind them, and the evidence behind the three papers published on Zenodo on 2026-10-25. The epics' remaining CLI phases ship in v0.10.0. It covers:
+
+- **Differentiable EDA (Epic #841):**
+  - N-port S-matrix sensitivities with respect to material and shape parameters, including hybrid port-mode terms (#842, #859, #872);
+  - CLI driven sensitivities (`∂S`, `∂Z₀`, `∂ε_eff`) on named groups with `--check-gradient` (#883);
+  - a new `geode-optimize` crate with the L-BFGS-B and MMA optimizer core (#873).
+- **p=2 elements (Epic #836):** an order-pluggable H(curl) space (#838), the p=2 driven operator and its port and wall terms, p=2 eigen on tagged meshes (#871) and p=2 geometric wave ports (#884). Library only.
+- **Adaptive meshing (Epic #835):** an H(curl) a-posteriori error estimator, newest-vertex bisection, and a solve, estimate, mark and refine loop (#868). Library only.
+- **Periodic structures (Epic #837):** zero-phase and Bloch-phase periodic boundaries, band-structure eigen solves, and Floquet ports with oblique plane-wave drive (#870). Library only.
+- **Solvers:**
+  - AMS is the default preconditioner of the assembled iterative driven solve (#930);
+  - dense and sparse linear algebra come from `faier`, our faer fork, at 0.25.2 (#972);
+  - the iterative solves take a residual-replacement cap (#943, #987).
+- **Security:** dependency updates clear the open RustSec and TLS advisories (#1237).
+- **Paper evidence:**
+  - the DeviceLayout.jl transmon cross-check against Palace, with bounded `C_Σ` brackets;
+  - the curved conformal 2.4 GHz patch fixture family, its refinement study and its copper-only design.
+
 **Breaking (`geode-core` library):**
 - `DrivenSolution` gains an `order: ElementOrder` field, and `DrivenError` gains `UnsupportedAtOrder` and `SpaceMeshMismatch` (#838). Code that builds `DrivenSolution` literals or matches `DrivenError` exhaustively must be updated.
 - `GradientNullCount` gains `betti_1`, `loop_harmonics_bound` and `loop_harmonics_exact`, `SpaceCavityModes` gains `warnings`, and `LossyCavityWarning` gains `HarmonicFieldsPresent` (#882). Struct literals of the first two and exhaustive matches or irrefutable patterns on `LossyCavityWarning` must be updated.
@@ -1110,6 +1130,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `real_transmon_matrix_free_matches_direct` now runs its matrix-free leg with AMS-CG. Every physical mode must match direct LU within `1e-4` relative, in both directions. Gradient near-kernel modes (`|λ| ≤ 1e-12`) are matched by an absolute floor. It requests 30 modes, because the 23 numerical copies of the gradient near-kernel nearest `σ` fill the first six (the old count). The comparison runs over the λ window both lists cover, and the test fails if fewer than two physical modes are compared. Measured: 7 physical modes (3.4528 to 26.09 GHz), worst rel-diff 2.1e-9; 264 971 AMS inner-CG iterations; 116 min wall (66 min CPU) on a heavily loaded host (load 20 to 197). The 6-mode run, at load ~23, took 69 min.
   - `real_transmon_ams_beats_jacobi` compares the inner-CG totals of the same 3-step shift-invert Lanczos run under each preconditioner. A full 96-step AMS run, about 264k iterations, would sit next to a Jacobi number that is only a lower bound. Jacobi's budget exhaustion is accepted only as that exact error. The budget is then used as a lower bound on Jacobi's total, and the ≥5× bar is gated against it. Measured: Jacobi > 266 216 against AMS-lite 8 229, at least 32.35×, 22.7 min at load ~23.
   - Allowlist reasons in `scripts/ci-test-coverage-ignored-allowlist.txt` now give the measured times. Both tests stay over the 20-min CI cap.
+
+### Security
+
+Dependency updates that clear RustSec and TLS advisories (#1237):
+- compatible Rust dependencies and TLS crates are patched in `Cargo.lock` (#1236);
+- the Gmsh parser no longer uses its lexical backend, and numeric input is unchanged (#1239);
+- Ratatui's core is updated to remove a vulnerable LRU (#1247);
+- the legacy ZIP backends are replaced and Tokio is updated (#1249).
 
 ## [0.8.0] - 2026-10-04
 
