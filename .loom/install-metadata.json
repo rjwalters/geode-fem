@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1227",
-  "loom_commit": "3f8d69bdce593a6d9fdb798414fa4453cc018c6b",
+  "loom_version": "0.19.1236",
+  "loom_commit": "290e83f9bf9c8b7ff5c9b33f871bfce5bcd95090",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -505,7 +505,6 @@
     ".loom/scripts/tests/test-install-reinstall-safety.sh",
     ".loom/scripts/tests/test-install-source-guard.sh",
     ".loom/scripts/tests/test-install-stash-scope.sh",
-    ".loom/scripts/tests/test-install-sync-labels.sh",
     ".loom/scripts/tests/test-jq-reserved-word-args.sh",
     ".loom/scripts/tests/test-judge-fallback-cap.sh",
     ".loom/scripts/tests/test-judge-payload-drop-guard.sh",
@@ -802,6 +801,6 @@
     ".loom/hooks/tests/test-guard-background-subagents.sh",
     ".loom/hooks/tests/test-guard-worktree-paths.sh"
   ],
-  "last_resync": "2026-10-26",
+  "last_resync": "2026-10-30",
   "requires_daemon": "0.19.1146"
 }
