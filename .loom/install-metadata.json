@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1250",
-  "loom_commit": "b95c0def26e0ae706f1f6efa9086325c8f10d529",
+  "loom_version": "0.19.1253",
+  "loom_commit": "dc75531b3445740462cb8d6dea16e931f876f285",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -801,8 +801,10 @@
     ".loom/hooks/tests/test-guard-worktree-paths.sh",
     ".loom/scripts/tests/test-champion-merge-risk-self-release.sh",
     ".loom/scripts/tests/test-guide-park-record-precedence.sh",
-    ".loom/scripts/tests/test-merge-pr-stacked-child-branch-delete.sh"
+    ".loom/scripts/tests/test-merge-pr-stacked-child-branch-delete.sh",
+    ".loom/docs/ratification-lane.md",
+    ".loom/scripts/tests/test-doctor-champion-hold-conflict.sh"
   ],
-  "last_resync": "2026-11-01",
+  "last_resync": "2026-11-02",
   "requires_daemon": "0.19.1146"
 }
