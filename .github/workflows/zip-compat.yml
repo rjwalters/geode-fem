@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@1.120.0
       - name: Install checksum-pinned LibTorch 2.9 CPU archive
         shell: bash
         run: |
@@ -36,7 +36,7 @@ jobs:
             --extract-sha256 22de42abde933be46ce843467930bd0190b72271bfa2c11f84db95591a9834f1
       - name: Retain test results and failure logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: zip-compat-results
           path: |
