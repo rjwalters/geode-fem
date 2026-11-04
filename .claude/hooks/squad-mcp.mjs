@@ -29,7 +29,7 @@
 // repo in one room — rather than to the working directory.
 //
 // stdout belongs to the MCP stdio transport: diagnostics go to stderr only.
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -74,6 +74,33 @@ const primaryRoot = mainWorktreeRoot(installedRoot) ?? installedRoot;
 // sibling squad source of its own.
 const roots =
   primaryRoot === installedRoot ? [installedRoot] : [primaryRoot, installedRoot];
+
+/**
+ * `mcpServers.squad.env` from the first readable `.mcp.json` among the roots,
+ * or {}. Some harnesses start the launcher bare, without the env block Claude
+ * Code would pass; the value lives in `.mcp.json`, so read it from there.
+ */
+function mcpJsonEnv() {
+  for (const root of [installedRoot, primaryRoot]) {
+    try {
+      const env = JSON.parse(readFileSync(join(root, ".mcp.json"), "utf8"))
+        ?.mcpServers?.squad?.env;
+      if (env && typeof env === "object") return env;
+    } catch {
+      // missing or malformed — try the next root
+    }
+  }
+  return {};
+}
+
+// A real environment value always wins; .mcp.json only fills what is unset.
+if (!process.env.SQUAD_RUNTIME || !process.env.SQUAD_DIR) {
+  const fallback = mcpJsonEnv();
+  for (const key of ["SQUAD_RUNTIME", "SQUAD_DIR"]) {
+    if (!process.env[key] && typeof fallback[key] === "string" && fallback[key])
+      process.env[key] = fallback[key];
+  }
+}
 
 const spec = process.env.SQUAD_RUNTIME;
 if (!spec) {
