@@ -30,6 +30,7 @@
 mod backend;
 mod capacitance;
 mod check;
+mod dataset;
 mod dispersion;
 mod driven;
 mod eigen;
@@ -231,6 +232,16 @@ struct RunArgs {
     /// specs and for eigen.
     #[arg(long, value_name = "PATH")]
     touchstone: Option<PathBuf>,
+    /// driven / eigen with a `sensitivity` section: also write one
+    /// gradient-labelled dataset sample (Zarr v2 directory store: mesh,
+    /// parameters, edge-DOF and cell-centre field, observables, gradients
+    /// of every observable w.r.t. every parameter, provenance) to DIR
+    /// (created if missing; same-named files are overwritten). Layout:
+    /// docs/dataset-schema.md. Rejected before solving without a
+    /// `sensitivity` section, for wave-port or adaptive-sweep driven specs
+    /// and for extract. Without this flag nothing extra is written.
+    #[arg(long, value_name = "DIR")]
+    dataset: Option<PathBuf>,
 }
 
 /// `geode driven` / `geode extract` arguments: the shared run arguments
@@ -375,7 +386,8 @@ impl App for Cli {
                 let _par = threads.map(apply_thread_cap);
                 let result = backend::confirm(a.backend).and_then(|()| {
                     let (out, ts) = (a.outdir.as_deref(), a.touchstone.as_deref());
-                    driven::run(&a.spec, prov.clone(), out, ts, opts, check_gradient)
+                    let ds = a.dataset.as_deref();
+                    driven::run(&a.spec, prov.clone(), out, ts, opts, check_gradient, ds)
                 });
                 finish("driven", prov, a.output.as_deref(), result)
             }
@@ -390,8 +402,14 @@ impl App for Cli {
                     )),
                     None => backend::confirm(a.backend),
                 };
-                let result =
-                    result.and_then(|()| eigen::run(&a.spec, prov.clone(), a.outdir.as_deref()));
+                let result = result.and_then(|()| {
+                    eigen::run(
+                        &a.spec,
+                        prov.clone(),
+                        a.outdir.as_deref(),
+                        a.dataset.as_deref(),
+                    )
+                });
                 finish("eigen", prov, a.output.as_deref(), result)
             }
             Command::Extract(sa) => {
@@ -401,6 +419,11 @@ impl App for Cli {
                 let prov = Self::provenance(&a.spec, threads);
                 let _par = threads.map(apply_thread_cap);
                 let result = backend::confirm(a.backend).and_then(|()| {
+                    if a.dataset.is_some() {
+                        return Err(CliError::InvalidSpec(
+                            "--dataset is supported by geode driven and geode eigen only".into(),
+                        ));
+                    }
                     let (out, ts) = (a.outdir.as_deref(), a.touchstone.as_deref());
                     extract::run(&a.spec, prov.clone(), out, ts, opts)
                 });

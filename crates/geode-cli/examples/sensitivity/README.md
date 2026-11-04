@@ -27,6 +27,12 @@ disagrees with the central difference by more than `1e-4`.
   port-loaded adjoint (one LU per frequency serves the forward and the
   adjoint solve).
 
+* `eigen_box_cavity.json` (issue #1257): the lossless `3 × 1 × 4.06` PEC
+  box cavity mesh (`ε_r = 2` throughout, simple low modes) with `∂f/∂ε_r`
+  of the two lowest modes by Hellmann–Feynman. With `--dataset DIR` this
+  and `driven_spiral.json` are the two gradient-labelled dataset samples
+  (see `docs/dataset-schema.md`).
+
 ```sh
 geode capacitance crates/geode-cli/examples/sensitivity/capacitance_coax.json -o c.json
 geode inductance  crates/geode-cli/examples/sensitivity/inductance_triax.toml -o l.json
