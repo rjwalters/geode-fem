@@ -63,6 +63,14 @@
 //!   never touches the p=1 edge layout). Regions bind to **named volume
 //!   groups** ([`MaterialDesign::from_named_groups`]), so a design survives
 //!   re-meshing / refinement.
+//! * **Complex directions** ([`EpsDirection`], Phase 2a, issue #1259): any
+//!   parameter that reaches the forward only through a region's `ε(ω)` —
+//!   `tan δ` at fixed `ε′` (`∂ε = −jε′`, so `∂g/∂tan δ = ε′∂g/∂ε″`), `ε′` at
+//!   fixed `tan δ` (`∂ε = 1 − j tan δ`), or a dispersive-model parameter
+//!   whose `∂ε(ω)/∂θ` the caller supplies — is the same contraction
+//!   `∂A_base = −ω²(∂ε)M_R` and the same filled-port chain
+//!   `∂y = k₀²∂ε/(2β)`, with zero extra solves. A direction on a region a
+//!   hybrid port face reads is a typed `Unsupported`.
 //! * **Filled port** ([`SDesign::port_fill`]): a geometric wave port whose
 //!   [`crate::driven::ports::PortMedium`] follows a design region. With
 //!   `β² = k₀²ε_tμ_t − (μ_t/μ_n)k_c²` and `y = β/μ_t`,
@@ -213,6 +221,9 @@ use crate::shape::{BoundaryMotionDof, FreeformBoundaryMorph};
 
 const PHASE_2A: &str =
     "Epic #841 Phase 2a: dispersive, anisotropic and conductive (σ) material parameters";
+const PHASE_2A_HYBRID_FACE: &str = "Epic #841 Phase 2a follow-on: per-ω complex material \
+                                    directions on a touched hybrid port face (the 2-D pencil \
+                                    takes constant ε directions today)";
 const PHASE_2B: &str = "Epic #841 Phase 2b: wall parameters and moving impedance walls";
 const PHASE_3B_GEOMETRIC: &str = "Epic #841 Phase 3b moves hybrid port faces only: a geometric \
                                   wave port's modes are fixed user-supplied edge profiles";
@@ -317,6 +328,73 @@ pub struct MaterialDesign {
     pub eps_prime: bool,
     /// `ε″` (loss, `ε = ε′ − jε″`) of every region is a parameter.
     pub eps_dprime: bool,
+    directions: Vec<EpsDirection>,
+}
+
+/// A material parameter given by its **complex permittivity direction**
+/// `∂ε/∂θ` on one design region (Epic #841 Phase 2a, issue #1259).
+///
+/// The region's `A_base` derivative is the one the `ε′`/`ε″` columns use,
+/// `∂A_base = −ω²·(∂ε/∂θ)(ω)·M_R`, so any parameter that reaches the
+/// forward only through `ε(ω)` of the region — `tan δ` at fixed `ε′`
+/// (`∂ε = −jε′`), `ε′` at fixed `tan δ` (`∂ε = 1 − j tan δ`), or a
+/// dispersive-model parameter (Debye `ε_∞, Δε, τ`, Drude `ω_p, γ`,
+/// Djordjevic–Sarkar `ε_r, tan δ`) — costs zero extra solves: the caller
+/// supplies `∂ε(ω)/∂θ` (the models live in the CLI crate) and core
+/// contracts it. The convention is `ε = ε′ − jε″`, as everywhere here.
+#[derive(Clone)]
+pub struct EpsDirection {
+    /// The region the parameter acts on.
+    pub region: usize,
+    /// Display name.
+    pub name: String,
+    d_eps: std::sync::Arc<dyn Fn(f64) -> c64 + Send + Sync>,
+}
+
+impl std::fmt::Debug for EpsDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EpsDirection")
+            .field("region", &self.region)
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
+}
+
+impl EpsDirection {
+    /// A direction `∂ε/∂θ` as a function of the angular frequency ω.
+    pub fn new(
+        region: usize,
+        name: impl Into<String>,
+        d_eps: impl Fn(f64) -> c64 + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            region,
+            name: name.into(),
+            d_eps: std::sync::Arc::new(d_eps),
+        }
+    }
+
+    /// `tan δ` of a region at **fixed `ε′`**: `ε = ε′(1 − j tan δ)`, so
+    /// `∂ε/∂tan δ = −jε′` and `∂g/∂tan δ = ε′ ∂g/∂ε″`.
+    pub fn tan_delta(region: usize, name: impl Into<String>, eps_prime: f64) -> Self {
+        Self::new(region, name, move |_| c64::new(0.0, -eps_prime))
+    }
+
+    /// `ε′` of a region at **fixed `tan δ`**: `ε = ε′(1 − j tan δ)`, so
+    /// `∂ε/∂ε′ = 1 − j tan δ` (the `tan δ·∂g/∂ε″` term a bare `ε′` column
+    /// omits).
+    pub fn eps_prime_at_fixed_tan_delta(
+        region: usize,
+        name: impl Into<String>,
+        tan_delta: f64,
+    ) -> Self {
+        Self::new(region, name, move |_| c64::new(1.0, -tan_delta))
+    }
+
+    /// `∂ε/∂θ` at angular frequency `omega`.
+    pub fn at(&self, omega: f64) -> c64 {
+        (self.d_eps)(omega)
+    }
 }
 
 impl MaterialDesign {
@@ -355,6 +433,7 @@ impl MaterialDesign {
             names,
             eps_prime: true,
             eps_dprime: true,
+            directions: Vec::new(),
         })
     }
 
@@ -399,6 +478,38 @@ impl MaterialDesign {
         self.eps_prime = eps_prime;
         self.eps_dprime = eps_dprime;
         self
+    }
+
+    /// This design with extra complex-direction parameters (appended after
+    /// the `ε′`/`ε″` columns, in order).
+    ///
+    /// # Errors
+    ///
+    /// [`SSensitivityError::InvalidDesign`] if a direction names a region
+    /// that does not exist.
+    pub fn with_directions(
+        mut self,
+        directions: Vec<EpsDirection>,
+    ) -> Result<Self, SSensitivityError> {
+        if let Some(d) = directions.iter().find(|d| d.region >= self.names.len()) {
+            return Err(SSensitivityError::InvalidDesign(format!(
+                "material parameter `{}` names region {}, but the design has {}",
+                d.name,
+                d.region,
+                self.names.len()
+            )));
+        }
+        self.directions = directions;
+        Ok(self)
+    }
+
+    /// The complex-direction parameters.
+    pub fn directions(&self) -> &[EpsDirection] {
+        &self.directions
+    }
+
+    fn has_params(&self) -> bool {
+        self.eps_prime || self.eps_dprime || !self.directions.is_empty()
     }
 
     /// Number of regions.
@@ -871,6 +982,13 @@ pub enum SParam {
         /// Region index ([`MaterialDesign::names`]).
         region: usize,
     },
+    /// Complex-direction parameter `column` ([`MaterialDesign::directions`]):
+    /// `∂ε/∂θ(ω)` on its region (Epic #841 Phase 2a). Ordered after the
+    /// `ε′`/`ε″` columns.
+    EpsDirection {
+        /// Index into [`MaterialDesign::directions`].
+        column: usize,
+    },
     /// Shape column `column`.
     Shape {
         /// Column index ([`ShapeDesign::names`]).
@@ -1338,6 +1456,7 @@ struct Prepared<'n> {
     params: Vec<SParam>,
     eps: Vec<c64>,
     region_masses: Vec<RegionMass>,
+    directions: Vec<EpsDirection>,
     shape: Option<ShapeData>,
 }
 
@@ -1466,7 +1585,7 @@ fn hybrid_face_design(
     let n_tris = proj.tri_mesh.n_tris();
     let n_nodes2 = proj.tri_mesh.n_nodes();
     // Material: which design region each face triangle follows.
-    let region_of_tri: Vec<Option<usize>> = match material.filter(|m| m.eps_prime || m.eps_dprime) {
+    let region_of_tri: Vec<Option<usize>> = match material.filter(|m| m.has_params()) {
         Some(m) => match &face.tet_of_tri {
             Some(tets) => tets.iter().map(|&t| m.region_of_tet[t]).collect(),
             None => {
@@ -1577,6 +1696,21 @@ fn hybrid_face_design(
                     }
                     None => None,
                 }
+            }
+            SParam::EpsDirection { column } => {
+                let d = &material.expect("direction implies a design").directions[column];
+                if region_name[d.region].is_some() {
+                    return Err(unsupported(
+                        format!(
+                            "complex-direction material parameter `{}` on a hybrid port face",
+                            d.name
+                        ),
+                        PHASE_2A_HYBRID_FACE,
+                        "use ε′/ε″ columns for regions the hybrid port face reads, or keep the \
+                         direction region off the face",
+                    ));
+                }
+                None
             }
             SParam::Shape { column } => match &vel2[column] {
                 Some(v) => {
@@ -1732,6 +1866,7 @@ impl<'n> Prepared<'n> {
             if m.eps_dprime {
                 params.extend((0..m.n_regions()).map(|region| SParam::EpsDoublePrime { region }));
             }
+            params.extend((0..m.directions.len()).map(|column| SParam::EpsDirection { column }));
         }
         let shape_cols = design.shape.as_ref().map_or(0, ShapeDesign::n_columns);
         params.extend((0..shape_cols).map(|column| SParam::Shape { column }));
@@ -1806,7 +1941,7 @@ impl<'n> Prepared<'n> {
         for (p, spec) in net.wave.iter().enumerate() {
             let index = n_lumped + p;
             let fill = design.port_fill.get(p).copied().flatten();
-            let touched: Vec<usize> = match material.filter(|m| m.eps_prime || m.eps_dprime) {
+            let touched: Vec<usize> = match material.filter(|m| m.has_params()) {
                 Some(m) => tets_on_faces(&face_tets, spec.faces())
                     .into_iter()
                     .filter(|&t| m.region_of_tet[t].is_some())
@@ -1987,7 +2122,7 @@ impl<'n> Prepared<'n> {
         // --- Region indicator masses (order-generic, through the space) -----
         let mut region_masses = Vec::new();
         if let Some(m) = material
-            && (m.eps_prime || m.eps_dprime)
+            && m.has_params()
         {
             for r in 0..m.n_regions() {
                 let ind: Vec<c64> = m
@@ -2044,6 +2179,7 @@ impl<'n> Prepared<'n> {
             params,
             eps: eps.to_vec(),
             region_masses,
+            directions: material.map(|m| m.directions.clone()).unwrap_or_default(),
             shape,
         })
     }
@@ -2295,6 +2431,13 @@ impl<'n> Prepared<'n> {
                             }
                             (Some(r), SParam::EpsDoublePrime { region }) if r == region => {
                                 c64::new(omega * omega, 0.0) / (ch.beta * 2.0) * c64::new(0.0, -1.0)
+                            }
+                            (Some(r), SParam::EpsDirection { column })
+                                if r == self.directions[column].region =>
+                            {
+                                // ∂y = k₀²·(∂ε/∂θ)/(2β), the same chain as ε′.
+                                c64::new(omega * omega, 0.0) * self.directions[column].at(omega)
+                                    / (ch.beta * 2.0)
                             }
                             _ => zero,
                         }
@@ -2802,6 +2945,13 @@ impl<'n> Prepared<'n> {
                 SParam::EpsDoublePrime { region } => {
                     for (o, &z) in out[i].iter_mut().zip(&mass_z[region]) {
                         *o = z * c64::new(0.0, omega2);
+                    }
+                }
+                SParam::EpsDirection { column } => {
+                    let d = &self.directions[column];
+                    let scale = d.at(omega) * (-omega2);
+                    for (o, &z) in out[i].iter_mut().zip(&mass_z[d.region]) {
+                        *o = z * scale;
                     }
                 }
                 SParam::Shape { .. } => {}

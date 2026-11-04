@@ -145,6 +145,36 @@ impl DjordjevicSarkar {
     }
 }
 
+impl DjordjevicSarkar {
+    /// `(∂ε/∂ε_r, ∂ε/∂tan δ)` at `hz` of the **whole fitted model** at the
+    /// datasheet point `(eps_r, tan_delta)` and `f_ref_hz` (band corners
+    /// fixed; Epic #841 Phase 2a, issue #1259). The fit couples both
+    /// parameters into `(ε∞, Δε)`, so with `G(f) = g(f)/L`:
+    ///
+    /// ```text
+    /// ε(f)   = ε_r + ε_r·tan δ·K·(G(f) − Re G(f_ref)),   K = L·ln 10/span
+    /// ∂ε/∂ε_r   = 1 + tan δ·K·(G(f) − Re G(f_ref))
+    /// ∂ε/∂tan δ = ε_r·K·(G(f) − Re G(f_ref))
+    /// ```
+    ///
+    /// in the solver's `ε = ε′ − jε″` convention (`Im ε ≤ 0`).
+    pub fn d_eps_d_datasheet(
+        &self,
+        hz: f64,
+        eps_r: f64,
+        tan_delta: f64,
+        f_ref_hz: f64,
+    ) -> (c64, c64) {
+        let (f1, f2) = (self.f_low_hz, self.f_high_hz);
+        let l = (f2 / f1).log10();
+        let span = (f_ref_hz / f1).atan() - (f_ref_hz / f2).atan();
+        let k = l * std::f64::consts::LN_10 / span;
+        let im_g = ((hz / f2).atan() - (hz / f1).atan()) / std::f64::consts::LN_10;
+        let dg = c64::new((re_g(hz, f1, f2) - re_g(f_ref_hz, f1, f2)) / l, im_g / l);
+        (c64::new(1.0, 0.0) + dg * (tan_delta * k), dg * (eps_r * k))
+    }
+}
+
 /// `Re g(f) = ½·log₁₀((f₂² + f²)/(f₁² + f²))`.
 fn re_g(hz: f64, f1: f64, f2: f64) -> f64 {
     0.5 * ((f2 * f2 + hz * hz) / (f1 * f1 + hz * hz)).log10()
@@ -217,6 +247,40 @@ impl Debye {
             e += c64::new(p.delta_eps / d, -p.delta_eps * wt / d);
         }
         e
+    }
+}
+
+impl Debye {
+    /// `∂ε/∂ε∞` (always `1`), `∂ε/∂Δε_k` and `∂ε/∂τ_k` at `hz` for pole
+    /// `k` (Epic #841 Phase 2a): with `ε = ε∞ + Σ Δε_k/(1 + jωτ_k)`,
+    /// `∂/∂Δε_k = 1/(1 + jωτ_k)`, `∂/∂τ_k = −jωΔε_k/(1 + jωτ_k)²`.
+    ///
+    /// # Panics
+    ///
+    /// If `k` is not a pole index.
+    pub fn d_eps_d_pole(&self, hz: f64, k: usize) -> (c64, c64) {
+        let w = 2.0 * std::f64::consts::PI * hz;
+        let p = &self.poles[k];
+        let den = c64::new(1.0, w * p.tau_s);
+        let inv = c64::new(1.0, 0.0) / den;
+        (inv, c64::new(0.0, -w * p.delta_eps) * inv * inv)
+    }
+}
+
+impl Drude {
+    /// `(∂ε/∂ε∞, ∂ε/∂ω_p, ∂ε/∂γ)` at `hz`, from
+    /// `ε = ε∞ − ω_p²/(ω² − jγω)`: `∂ε∞ = 1`, `∂ω_p = −2ω_p/D`,
+    /// `∂γ = −jωω_p²/D²` with `D = ω² − jγω`. `γ = 0` (lossless) is a
+    /// regular point of the derivative.
+    pub fn d_eps(&self, hz: f64) -> (c64, c64, c64) {
+        let w = 2.0 * std::f64::consts::PI * hz;
+        let (wp, g) = (self.omega_p_rad_s, self.gamma_rad_s);
+        let inv = c64::new(1.0, 0.0) / c64::new(w * w, -g * w);
+        (
+            c64::new(1.0, 0.0),
+            inv * (-2.0 * wp),
+            c64::new(0.0, -w * wp * wp) * inv * inv,
+        )
     }
 }
 
@@ -609,5 +673,106 @@ mod tests {
         bad(drude(1.0, f64::NAN, 1e9), "omega_p_rad_s");
         bad(drude(1.0, 1e10, -1.0), "gamma_rad_s");
         bad(drude(1.0, 1e10, f64::INFINITY), "gamma_rad_s");
+    }
+
+    /// Central FD of `f` at `x` with relative step `1e-6`.
+    fn fd(f: impl Fn(f64) -> c64, x: f64) -> c64 {
+        let h = 1e-6 * x.abs().max(1e-30);
+        (f(x + h) - f(x - h)) / (2.0 * h)
+    }
+
+    fn close(a: c64, b: c64) {
+        assert!(
+            (a - b).norm() <= 1e-6 * b.norm().max(1e-12),
+            "{a:?} vs {b:?}"
+        );
+    }
+
+    #[test]
+    fn ds_derivative_matches_fd_of_the_whole_fit() {
+        let (f1, f2, fr) = (1e3, 1e12, 1e9);
+        let (er, td) = (4.3, 0.02);
+        let m = DjordjevicSarkar::fit(er, td, fr, f1, f2).unwrap();
+        for hz in [1e8, 1e9, 5e9, 3e10] {
+            let (d_er, d_td) = m.d_eps_d_datasheet(hz, er, td, fr);
+            close(
+                d_er,
+                fd(
+                    |x| DjordjevicSarkar::fit(x, td, fr, f1, f2).unwrap().eps(hz),
+                    er,
+                ),
+            );
+            close(
+                d_td,
+                fd(
+                    |x| DjordjevicSarkar::fit(er, x, fr, f1, f2).unwrap().eps(hz),
+                    td,
+                ),
+            );
+        }
+        // At f_ref the datasheet point is reproduced: ∂Re ε/∂ε_r = 1, ∂ε/∂tanδ = −jε_r.
+        let (d_er, d_td) = m.d_eps_d_datasheet(fr, er, td, fr);
+        close(d_er, c64::new(1.0, -td));
+        close(d_td, c64::new(0.0, -er));
+    }
+
+    #[test]
+    fn debye_multi_pole_derivatives_match_fd() {
+        let poles = [
+            DebyePole {
+                delta_eps: 1.5,
+                tau_s: 1e-11,
+            },
+            DebyePole {
+                delta_eps: 0.7,
+                tau_s: 3e-10,
+            },
+        ];
+        let m = Debye::new(2.0, &poles).unwrap();
+        for hz in [1e8, 1e9, 2e10] {
+            for k in 0..2 {
+                let (d_de, d_tau) = m.d_eps_d_pole(hz, k);
+                let with = |de: f64, tau: f64| {
+                    let mut ps = poles;
+                    ps[k] = DebyePole {
+                        delta_eps: de,
+                        tau_s: tau,
+                    };
+                    Debye::new(2.0, &ps).unwrap().eps(hz)
+                };
+                close(d_de, fd(|x| with(x, poles[k].tau_s), poles[k].delta_eps));
+                close(d_tau, fd(|x| with(poles[k].delta_eps, x), poles[k].tau_s));
+            }
+            close(
+                c64::new(1.0, 0.0),
+                fd(|x| Debye::new(x, &poles).unwrap().eps(hz), 2.0),
+            );
+        }
+    }
+
+    #[test]
+    fn drude_derivatives_match_fd_including_lossless() {
+        for gamma in [0.0, 1e12] {
+            let m = Drude::new(3.0, 1.2e16, gamma).unwrap();
+            for hz in [1e13, 1e14, 5e14] {
+                let (d_inf, d_wp, d_g) = m.d_eps(hz);
+                close(
+                    d_inf,
+                    fd(|x| Drude::new(x, 1.2e16, gamma).unwrap().eps(hz), 3.0),
+                );
+                close(
+                    d_wp,
+                    fd(|x| Drude::new(3.0, x, gamma).unwrap().eps(hz), 1.2e16),
+                );
+                // γ = 0: FD on the passive side (γ ≥ 0 is the model's domain).
+                let h = 1e-6 * 1e12;
+                let g_fd = if gamma == 0.0 {
+                    (Drude::new(3.0, 1.2e16, h).unwrap().eps(hz) - m.eps(hz)) / h
+                } else {
+                    fd(|x| Drude::new(3.0, 1.2e16, x).unwrap().eps(hz), gamma)
+                };
+                close(d_g, g_fd);
+            }
+        }
     }
 }
