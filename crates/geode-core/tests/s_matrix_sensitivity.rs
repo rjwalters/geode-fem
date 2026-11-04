@@ -43,7 +43,7 @@ use geode_core::driven::s_sensitivity::{
 };
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, ElementOrder, IterativeSettings,
-    SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel,
+    SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel, SurfaceRoughness, WallParam,
 };
 use geode_core::mesh::{TetMesh, pec_interior_mask_from_triangles};
 use geode_core::shape::apply_node_motion;
@@ -184,6 +184,7 @@ fn label(sw: &SSensitivitySweep, i: usize) -> String {
         SParam::EpsDoublePrime { region } => format!("eps''[{region}]"),
         SParam::Sigma { region } => format!("sigma[{region}]"),
         SParam::Shape { column } => format!("shape[{column}]"),
+        SParam::Wall { wall, param } => format!("wall[{wall}].{param:?}"),
     }
 }
 
@@ -249,7 +250,7 @@ fn shift_eps(eps: &[c64], regions: &[Option<usize>], prm: SParam, h: f64) -> Vec
     let (region, d) = match prm {
         SParam::EpsPrime { region } => (region, c64::new(h, 0.0)),
         SParam::EpsDoublePrime { region } => (region, c64::new(0.0, -h)),
-        SParam::Shape { .. } | SParam::Sigma { .. } => return eps.to_vec(),
+        SParam::Shape { .. } | SParam::Sigma { .. } | SParam::Wall { .. } => return eps.to_vec(),
     };
     eps.iter()
         .zip(regions)
@@ -379,6 +380,7 @@ fn mixed_design(m: &Mixed) -> SDesign {
         ),
         shape: Some(m.shape.clone()),
         port_fill: vec![None],
+        wall_params: vec![],
     }
 }
 
@@ -551,6 +553,7 @@ fn two_lumped_ports_full_table_matches_fd() {
         ),
         shape: Some(shape.clone()),
         port_fill: vec![],
+        wall_params: vec![],
     };
     let omegas = [2.0, 2.7];
     let net = SNetwork {
@@ -869,6 +872,7 @@ fn filled_sens(f: &Filled, o: &SSensitivityOptions) -> SSensitivitySweep {
         ),
         shape: None,
         port_fill: vec![Some(0), None],
+        wall_params: vec![],
     };
     s_matrix_sensitivity_sweep::<B>(&net, &[1.9, 2.3], &design, o, &device()).unwrap()
 }
@@ -1028,6 +1032,7 @@ fn walled_wave_ports_material_and_shape_match_fd() {
         ),
         shape: Some(shape.clone()),
         port_fill: vec![],
+        wall_params: vec![],
     };
     let space = HcurlSpace::build(mesh, ElementOrder::P1);
     let net = SNetwork {
@@ -1289,6 +1294,7 @@ fn untouched_hybrid_ports_are_admitted_and_touched_ones_differentiated() {
     // their face on their own, Phase 3b).
     let bound = SDesign {
         port_fill: vec![Some(0)],
+        wall_params: vec![],
         ..design.clone()
     };
     let err =
@@ -1552,6 +1558,7 @@ fn scope_fences_are_loud_typed_errors() {
         ),
         shape: None,
         port_fill: vec![Some(0)],
+        wall_params: vec![],
     };
     expect_unsupported(run(&net_m, &bound, &opts()), "Phase 2a");
 
@@ -1568,6 +1575,7 @@ fn scope_fences_are_loud_typed_errors() {
     };
     let unbound = SDesign {
         port_fill: vec![],
+        wall_params: vec![],
         ..bound.clone()
     };
     let err = run(&net_v, &unbound, &opts());
@@ -1891,6 +1899,7 @@ fn volumetric_sigma_matches_fd_and_the_mutations_are_caught() {
         ),
         shape: None,
         port_fill: vec![],
+        ..SDesign::default()
     };
     let run = |with_sigma: bool, o: &SSensitivityOptions| {
         let net = SNetwork {
@@ -1968,5 +1977,277 @@ fn volumetric_sigma_matches_fd_and_the_mutations_are_caught() {
         let bad = worst(&run(true, &faulted(fault)));
         eprintln!("MUTATION | sigma {name} | rel_err = {bad:.3e}");
         assert!(bad > 10.0 * TOL, "{name}: the FD check failed to catch it");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 10. Wall-parameter columns (Epic #841 Phase 2b, issue #1260)
+// ---------------------------------------------------------------------------
+
+/// Two wave ports and a Leontovich top wall of `model` (other walls PEC):
+/// `∂S/∂θ` of `param` through the adjoint vs a central FD of the walled wave
+/// forward with the model's parameter shifted by `±h`. `shift(model, h)`
+/// returns the model with the parameter moved by `h`.
+fn wall_param_case(
+    spec: &str,
+    model: SurfaceImpedanceModel,
+    params: &[WallParam],
+    shift: &dyn Fn(SurfaceImpedanceModel, WallParam, f64) -> SurfaceImpedanceModel,
+    h_of: &dyn Fn(WallParam) -> f64,
+) -> SSensitivitySweep {
+    let g = guide();
+    let mesh = &g.mesh;
+    let edges = mesh.edges();
+    let tol = 1e-9;
+    let on_top = |f: &[u32; 3]| {
+        f.iter()
+            .all(|&v| (mesh.nodes[v as usize][1] - B_DIM).abs() < tol)
+    };
+    let top: Vec<[u32; 3]> = g
+        .sidewall_faces
+        .iter()
+        .copied()
+        .filter(|f| on_top(f))
+        .collect();
+    let pec: Vec<[u32; 3]> = g
+        .sidewall_faces
+        .iter()
+        .copied()
+        .filter(|f| !on_top(f))
+        .collect();
+    let mask = pec_interior_mask_from_triangles(&edges, &[pec.as_slice()]);
+    let bcs = DrivenBcs {
+        pec_interior_mask: &mask,
+    };
+    let eps = vec![c64::new(1.0, 0.0); mesh.n_tets()];
+    let ports = [
+        wave_port(mesh, &g.port1_faces, 0.0, 1),
+        wave_port(mesh, &g.port2_faces, LEN, 1),
+    ];
+    let specs: Vec<WavePortSpec> = ports.iter().cloned().map(WavePortSpec::from).collect();
+    let design = SDesign {
+        wall_params: params.iter().map(|&p| (0, p)).collect(),
+        ..SDesign::default()
+    };
+    let space = HcurlSpace::build(mesh, ElementOrder::P1);
+    let walls = [SurfaceImpedanceBc {
+        triangles: &top,
+        model,
+    }];
+    let net = SNetwork {
+        space: &space,
+        mesh,
+        materials: DrivenMaterials::Scalar(&eps),
+        sigma_tet: None,
+        bcs: &bcs,
+        lumped: &[],
+        wave: &specs,
+        surfaces: &walls,
+    };
+    let omegas = [2.2, 2.6];
+    let sw = s_matrix_sensitivity_sweep::<B>(&net, &omegas, &design, &opts(), &device()).unwrap();
+    let errs = fd_check(spec, &sw, |prm, h| {
+        let m = match prm {
+            SParam::Wall { param, .. } => shift(model, param, h * h_of(param)),
+            _ => model,
+        };
+        let w = [SurfaceImpedanceBc {
+            triangles: &top,
+            model: m,
+        }];
+        solve_wave_port_sweep_with_mode::<B>(
+            mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &bcs,
+            &ports,
+            &w,
+            &omegas,
+            SolverMode::Direct,
+            &device(),
+        )
+        .unwrap()
+        .into_iter()
+        .map(|p| p.s)
+        .collect()
+    });
+    for e in errs {
+        assert!(e <= TOL, "{spec}: rel_err {e}");
+    }
+    sw
+}
+
+fn shift_wall_model(m: SurfaceImpedanceModel, p: WallParam, h: f64) -> SurfaceImpedanceModel {
+    use SurfaceImpedanceModel as M;
+    match (m, p) {
+        (M::GoodConductor { sigma }, WallParam::Sigma) => M::GoodConductor { sigma: sigma + h },
+        (M::RoughConductor { sigma, roughness }, WallParam::Sigma) => M::RoughConductor {
+            sigma: sigma + h,
+            roughness,
+        },
+        (
+            M::RoughConductor {
+                sigma,
+                roughness: SurfaceRoughness::HammerstadJensen { rms },
+            },
+            WallParam::RmsRoughness,
+        ) => M::RoughConductor {
+            sigma,
+            roughness: SurfaceRoughness::HammerstadJensen { rms: rms + h },
+        },
+        (
+            M::RoughConductor {
+                sigma,
+                roughness:
+                    SurfaceRoughness::Huray {
+                        ball_radius,
+                        n_balls,
+                        tile_area,
+                    },
+            },
+            WallParam::BallRadius,
+        ) => M::RoughConductor {
+            sigma,
+            roughness: SurfaceRoughness::Huray {
+                ball_radius: ball_radius + h,
+                n_balls,
+                tile_area,
+            },
+        },
+        (
+            M::RoughConductor {
+                sigma,
+                roughness:
+                    SurfaceRoughness::Huray {
+                        ball_radius,
+                        n_balls,
+                        tile_area,
+                    },
+            },
+            WallParam::BallDensity,
+        ) => M::RoughConductor {
+            sigma,
+            roughness: SurfaceRoughness::Huray {
+                ball_radius,
+                n_balls: n_balls + h * tile_area,
+                tile_area,
+            },
+        },
+        (M::London { lambda_l }, WallParam::LondonDepth) => M::London {
+            lambda_l: lambda_l + h,
+        },
+        _ => panic!("parameter {p:?} not on this model"),
+    }
+}
+
+/// `∂S/∂σ` (good conductor), `∂S/∂σ`, `∂S/∂Δ` (Hammerstad–Jensen at
+/// `Δ/δ ≈ 1`, where the `∂K/∂δ` term of `∂c/∂σ` matters), `∂S/∂a`, `∂S/∂ρ`
+/// (Huray) and `∂S/∂λ_L` (London) vs FD through the walled forward.
+#[test]
+fn wall_parameter_columns_match_fd() {
+    // Absolute central-difference step H (fd_check's), unit scale.
+    let scale = |_: WallParam| 1.0;
+    wall_param_case(
+        "walled: good conductor",
+        SurfaceImpedanceModel::GoodConductor { sigma: 40.0 },
+        &[WallParam::Sigma],
+        &shift_wall_model,
+        &scale,
+    );
+    // δ = √(2/(ωσ)) ≈ 0.14 at ω = 2.4, σ = 40; Δ = 0.15 → Δ/δ ≈ 1.
+    wall_param_case(
+        "walled: Hammerstad-Jensen",
+        SurfaceImpedanceModel::RoughConductor {
+            sigma: 40.0,
+            roughness: SurfaceRoughness::HammerstadJensen { rms: 0.15 },
+        },
+        &[WallParam::Sigma, WallParam::RmsRoughness],
+        &shift_wall_model,
+        &scale,
+    );
+    wall_param_case(
+        "walled: Huray",
+        SurfaceImpedanceModel::RoughConductor {
+            sigma: 40.0,
+            roughness: SurfaceRoughness::Huray {
+                ball_radius: 0.1,
+                n_balls: 3.0,
+                tile_area: 0.5,
+            },
+        },
+        &[
+            WallParam::Sigma,
+            WallParam::BallRadius,
+            WallParam::BallDensity,
+        ],
+        &shift_wall_model,
+        &scale,
+    );
+    wall_param_case(
+        "walled: London",
+        SurfaceImpedanceModel::London { lambda_l: 0.1 },
+        &[WallParam::LondonDepth],
+        &shift_wall_model,
+        &scale,
+    );
+}
+
+/// Saturation is reported, not an error: at `Δ/δ ≫ 1` the Hammerstad–Jensen
+/// `∂S/∂Δ` is ≈ 0, the sweep succeeds, and every point carries the note.
+#[test]
+fn saturated_roughness_is_flagged_not_an_error() {
+    let sw = wall_param_case(
+        "walled: HJ saturated",
+        SurfaceImpedanceModel::RoughConductor {
+            sigma: 40.0,
+            roughness: SurfaceRoughness::HammerstadJensen { rms: 10.0 },
+        },
+        &[WallParam::RmsRoughness],
+        &shift_wall_model,
+        &|_| 1.0,
+    );
+    for pt in &sw.points {
+        assert_eq!(pt.wall_notes.len(), 1, "saturation flagged at every ω");
+        let mag = pt.ds[0].iter().map(|z| z.norm()).fold(0.0, f64::max);
+        assert!(mag < 1e-3, "saturated gradient ≈ 0, got {mag}");
+    }
+}
+
+/// A parameter the wall's model does not carry is an invalid design.
+#[test]
+fn wall_parameter_not_on_model_is_invalid() {
+    let g = guide();
+    let mesh = &g.mesh;
+    let eps = vec![c64::new(1.0, 0.0); mesh.n_tets()];
+    let mask = g.pec_interior_mask();
+    let bcs = DrivenBcs {
+        pec_interior_mask: &mask,
+    };
+    let ports = [wave_port(mesh, &g.port1_faces, 0.0, 1)];
+    let specs: Vec<WavePortSpec> = ports.iter().cloned().map(WavePortSpec::from).collect();
+    let space = HcurlSpace::build(mesh, ElementOrder::P1);
+    let top: Vec<[u32; 3]> = g.sidewall_faces.iter().copied().take(2).collect();
+    let walls = [SurfaceImpedanceBc {
+        triangles: &top,
+        model: SurfaceImpedanceModel::London { lambda_l: 0.1 },
+    }];
+    let net = SNetwork {
+        space: &space,
+        mesh,
+        materials: DrivenMaterials::Scalar(&eps),
+        sigma_tet: None,
+        bcs: &bcs,
+        lumped: &[],
+        wave: &specs,
+        surfaces: &walls,
+    };
+    for (wall, param) in [(0, WallParam::Sigma), (3, WallParam::LondonDepth)] {
+        let design = SDesign {
+            wall_params: vec![(wall, param)],
+            ..SDesign::default()
+        };
+        let err =
+            s_matrix_sensitivity_sweep::<B>(&net, &[2.4], &design, &opts(), &device()).unwrap_err();
+        assert!(matches!(err, SSensitivityError::InvalidDesign(_)), "{err}");
     }
 }

@@ -206,14 +206,14 @@ use crate::driven::ports::{
 use crate::driven::shape::{Dual, nedelec_local_dual};
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, DrivenSource,
-    ElementOrder, SolverMode, SurfaceImpedanceBc, validate_driven_surfaces,
+    ElementOrder, SolverMode, SurfaceImpedanceBc, WallParam, validate_driven_surfaces,
 };
 use crate::mesh::{TET_LOCAL_FACES, TaggedTetMesh, TetMesh};
 use crate::shape::{BoundaryMotionDof, FreeformBoundaryMorph};
 
 const PHASE_2A: &str =
     "Epic #841 Phase 2a: dispersive, anisotropic and conductive (σ) material parameters";
-const PHASE_2B: &str = "Epic #841 Phase 2b: wall parameters and moving impedance walls";
+const PHASE_2B: &str = "Epic #841 Phase 2b (moving impedance walls: the surface Dual twin)";
 const PHASE_3B_GEOMETRIC: &str = "Epic #841 Phase 3b moves hybrid port faces only: a geometric \
                                   wave port's modes are fixed user-supplied edge profiles";
 const PHASE_3B_PAIR: &str = "Epic #841 Phase 3b differentiates simple face modes only: a \
@@ -858,6 +858,14 @@ pub struct SDesign {
     /// [`SParam::EpsDoublePrime`]). Binding a hybrid port is an invalid
     /// design: its modes follow its face `ε` on their own (Phase 3b).
     pub port_fill: Vec<Option<usize>>,
+    /// Impedance-wall parameters (Epic #841 Phase 2b, issue #1260): each
+    /// `(wall, param)` is one gradient column `∂S/∂θ` of the wall at index
+    /// `wall` of [`SNetwork::surfaces`], in the order given (after the
+    /// shape columns). The wall's model must carry the parameter
+    /// ([`crate::driven::solve::SurfaceImpedanceModel::d_weak_coefficient`]).
+    /// Each is `(∂c_Γ/∂θ) · l_qᵀ S_Γ x_p` through the same zero-extra-solve
+    /// reciprocity identity as the material columns.
+    pub wall_params: Vec<(usize, WallParam)>,
 }
 
 /// One design parameter, in the flat order of the gradient tables: every
@@ -898,6 +906,28 @@ pub enum SParam {
         /// Column index ([`ShapeDesign::names`]).
         column: usize,
     },
+    /// Parameter `param` of impedance wall `wall` ([`SNetwork::surfaces`]
+    /// index; [`SDesign::wall_params`]). Where a roughness loss factor has
+    /// saturated the column is ≈ 0 and the point's
+    /// [`SSensitivityPoint::wall_notes`] flags it.
+    Wall {
+        /// Wall index into [`SNetwork::surfaces`].
+        wall: usize,
+        /// The differentiated wall parameter.
+        param: WallParam,
+    },
+}
+
+/// A non-fatal wall-parameter condition at one ω
+/// ([`SSensitivityPoint::wall_notes`]): the roughness loss factor of wall
+/// `wall` sits on its plateau (`K → 2` Hammerstad–Jensen, the Huray
+/// plateau), so the column of `param` is ≈ 0 by saturation, not by error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WallNote {
+    /// Wall index into [`SNetwork::surfaces`].
+    pub wall: usize,
+    /// The saturated parameter.
+    pub param: WallParam,
 }
 
 /// The driven forward whose S matrix is differentiated: the inputs of
@@ -1048,6 +1078,9 @@ pub struct SSensitivityPoint {
     /// reported channel of every hybrid wave port (port order, then channel
     /// order). Empty otherwise.
     pub port_modes: Vec<PortModeEntry>,
+    /// Saturated roughness wall-parameter columns at this ω (empty when
+    /// none; Epic #841 Phase 2b).
+    pub wall_notes: Vec<WallNote>,
 }
 
 /// The port-mode observables of one reported channel of a hybrid wave port
@@ -1197,6 +1230,7 @@ pub fn s_matrix_sensitivity_sweep<B: Backend>(
             } else {
                 Vec::new()
             },
+            wall_notes: prep.wall_notes(omega),
         });
     }
     Ok(SSensitivitySweep {
@@ -1364,6 +1398,9 @@ struct Prepared<'n> {
     params: Vec<SParam>,
     eps: Vec<c64>,
     region_masses: Vec<RegionMass>,
+    /// Interior-remapped `S_Γ` triplets of every impedance wall that has a
+    /// wall-parameter column (`None` for the others).
+    wall_masses: Vec<Option<Vec<(usize, usize, f64)>>>,
     shape: Option<ShapeData>,
 }
 
@@ -1613,6 +1650,8 @@ fn hybrid_face_design(
                     None => None,
                 }
             }
+            // Walls do not touch the 2-D port-face design.
+            SParam::Wall { .. } => None,
             SParam::Shape { column } => match &vel2[column] {
                 Some(v) => {
                     debug_assert_eq!(v.len(), n_nodes2);
@@ -1773,6 +1812,28 @@ impl<'n> Prepared<'n> {
         }
         let shape_cols = design.shape.as_ref().map_or(0, ShapeDesign::n_columns);
         params.extend((0..shape_cols).map(|column| SParam::Shape { column }));
+        for &(wall, param) in &design.wall_params {
+            let Some(bc) = net.surfaces.get(wall) else {
+                return Err(SSensitivityError::InvalidDesign(format!(
+                    "wall parameter {param:?} names wall {wall}, but the network has {} \
+                     impedance wall(s)",
+                    net.surfaces.len()
+                )));
+            };
+            // Probe at an arbitrary ω: whether the model carries `param` is
+            // ω-independent.
+            match bc.model.d_weak_coefficient(1.0, param) {
+                Ok(Some(_)) => {}
+                Ok(None) => {
+                    return Err(SSensitivityError::InvalidDesign(format!(
+                        "wall {wall}'s model ({:?}) has no parameter {param:?}",
+                        bc.model
+                    )));
+                }
+                Err(e) => return Err(e.into()),
+            }
+            params.push(SParam::Wall { wall, param });
+        }
         if design.port_fill.len() > net.wave.len() {
             return Err(SSensitivityError::InvalidDesign(format!(
                 "port_fill has {} entries for {} wave port(s)",
@@ -1821,7 +1882,8 @@ impl<'n> Prepared<'n> {
                 return Err(unsupported(
                     format!("a shape column moving impedance wall {i} (node {n})"),
                     PHASE_2B,
-                    "pin the wall nodes in the morph (PEC walls may move)",
+                    "pin the wall nodes in the morph (PEC walls may move); the wall \
+                     *parameter* columns (SDesign::wall_params) are supported",
                 ));
             }
         }
@@ -2052,6 +2114,13 @@ impl<'n> Prepared<'n> {
             }
         }
 
+        let mut wall_masses: Vec<Option<Vec<(usize, usize, f64)>>> = vec![None; net.surfaces.len()];
+        for &(wall, _) in &design.wall_params {
+            if wall_masses[wall].is_none() {
+                wall_masses[wall] = Some(op.surface_mass_triplets(wall).0);
+            }
+        }
+
         let shape = match (&design.shape, moving) {
             (Some(s), Some(mv)) => {
                 let tet_edges = mesh.tet_edges();
@@ -2082,6 +2151,7 @@ impl<'n> Prepared<'n> {
             params,
             eps: eps.to_vec(),
             region_masses,
+            wall_masses,
             shape,
         })
     }
@@ -2854,6 +2924,25 @@ impl<'n> Prepared<'n> {
                     }
                 }
                 SParam::Shape { .. } => {}
+                SParam::Wall { wall, param } => {
+                    // ∂A/∂θ = (∂c_Γ/∂θ) S_Γ: z = lᵀ S_Γ r, scaled by ∂c_Γ/∂θ.
+                    let Some(g) = self.net.surfaces[wall]
+                        .model
+                        .d_weak_coefficient(omega, param)
+                        .ok()
+                        .flatten()
+                    else {
+                        continue;
+                    };
+                    let trips = self.wall_masses[wall].as_ref().expect("wall mass prepared");
+                    for (q, (l, r)) in lefts.iter().zip(rights).enumerate() {
+                        let mut z = zero;
+                        for &(row, col, v) in trips {
+                            z += l[row] * r[col] * v;
+                        }
+                        out[i][q] = z * g.dc;
+                    }
+                }
             }
         }
 
@@ -2964,6 +3053,24 @@ impl<'n> Prepared<'n> {
             local[p] += 1;
         }
         out
+    }
+
+    /// The saturated roughness wall-parameter columns at `omega`.
+    fn wall_notes(&self, omega: f64) -> Vec<WallNote> {
+        self.params
+            .iter()
+            .filter_map(|prm| match *prm {
+                SParam::Wall { wall, param } => {
+                    let g = self.net.surfaces[wall]
+                        .model
+                        .d_weak_coefficient(omega, param)
+                        .ok()
+                        .flatten()?;
+                    g.saturated.then_some(WallNote { wall, param })
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     /// The exposed forward / dual fields at one ω (full DOF length).

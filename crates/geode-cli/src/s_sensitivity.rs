@@ -215,6 +215,7 @@ fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
         material,
         shape,
         port_fill,
+        wall_params: vec![],
     };
     // The library's flat order: every region's ε′ (if selected), then ε″,
     // then the shape columns.

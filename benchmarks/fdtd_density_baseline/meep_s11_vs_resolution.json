@@ -1,0 +1,365 @@
+{
+  "schema": "geode-meep-s11-vs-resolution/1",
+  "issue": "#1088 (Part of; not closed by this increment)",
+  "note": "Index of every committed Meep S11 curve. It points into meep_runs/ and copies no spectrum. R3, R6 and R8 are not run (out of scope, operator hold 2026-10-15). Regenerate with meep_v2_verify.py --write-index.",
+  "curves": [
+    {
+      "id": "v1_initial_R1",
+      "harness": "v1 (matched_antenna.py / diag_antenna.py)",
+      "status": "known-biased, diagnosis only",
+      "geometry": "v1 matched model",
+      "design": "initial (patch_conformal_L0)",
+      "resolution_cells_per_mm": 1.0,
+      "mpi_ranks": 4,
+      "wall_seconds": 309.88636789,
+      "sum_rank_peak_rss_gib": 1.8365287780761719,
+      "estimated_cells": 4637952,
+      "dip_ghz": 2.7,
+      "dip_db": -7.101570096626536,
+      "dip_is_interior": false,
+      "window_ghz": [
+        2.2,
+        2.7
+      ],
+      "temporal_tolerance_met": true,
+      "host": {
+        "kind": "local",
+        "cpu": "Apple M3 Ultra",
+        "os": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+        "record": "meep_runs/environment.json"
+      },
+      "spectrum": {
+        "record": "meep_runs/initial_R1.json",
+        "path": "snapshots[-1].s11 / frequency_ghz"
+      }
+    },
+    {
+      "id": "v1_initial_R2",
+      "harness": "v1 (matched_antenna.py / diag_antenna.py)",
+      "status": "known-biased, diagnosis only",
+      "geometry": "v1 matched model",
+      "design": "initial (patch_conformal_L0)",
+      "resolution_cells_per_mm": 2.0,
+      "mpi_ranks": 32,
+      "wall_seconds": 1829.241692009,
+      "sum_rank_peak_rss_gib": 14.45748519897461,
+      "estimated_cells": 37103616,
+      "dip_ghz": 2.2,
+      "dip_db": -2.714499244192941,
+      "dip_is_interior": false,
+      "window_ghz": [
+        2.2,
+        2.7
+      ],
+      "temporal_tolerance_met": true,
+      "host": {
+        "kind": "aws",
+        "instance_type": "r8g.8xlarge",
+        "region": "us-east-1",
+        "launch_utc": "2026-10-13T15:07:25+00:00",
+        "record": "meep_runs/aws_pilot/environment.json"
+      },
+      "spectrum": {
+        "record": "meep_runs/aws_pilot/initial_R2.json",
+        "path": "snapshots[-1].s11 / frequency_ghz"
+      }
+    },
+    {
+      "id": "v1_initial_R4",
+      "harness": "v1 (matched_antenna.py / diag_antenna.py)",
+      "status": "known-biased, diagnosis only",
+      "geometry": "v1 matched model",
+      "design": "initial (patch_conformal_L0)",
+      "resolution_cells_per_mm": 4.0,
+      "mpi_ranks": 32,
+      "wall_seconds": 21299.544037972,
+      "sum_rank_peak_rss_gib": 73.06596374511719,
+      "estimated_cells": 296266752,
+      "dip_ghz": 2.2,
+      "dip_db": -12.222764578631775,
+      "dip_is_interior": false,
+      "window_ghz": [
+        2.2,
+        2.7
+      ],
+      "temporal_tolerance_met": true,
+      "host": {
+        "kind": "aws",
+        "instance_type": "r8g.8xlarge",
+        "region": "us-east-2",
+        "launch_utc": "2026-10-15T03:37:05+00:00",
+        "record": "meep_runs/aws_r4/environment.json"
+      },
+      "spectrum": {
+        "record": "meep_runs/aws_r4/initial_R4.json",
+        "path": "snapshots[-1].s11 / frequency_ghz"
+      }
+    },
+    {
+      "id": "v1_diag_flat_R2",
+      "harness": "v1 (matched_antenna.py / diag_antenna.py)",
+      "status": "known-biased, diagnosis only",
+      "geometry": "flat",
+      "design": "initial (patch_conformal_L0)",
+      "resolution_cells_per_mm": 2.0,
+      "mpi_ranks": 32,
+      "wall_seconds": 1682.5773062199996,
+      "sum_rank_peak_rss_gib": 14.464649200439453,
+      "estimated_cells": 37103616,
+      "dip_ghz": 2.3351351097520303,
+      "dip_db": -17.731338793368195,
+      "dip_is_interior": true,
+      "window_ghz": [
+        1.6,
+        3.0
+      ],
+      "temporal_tolerance_met": true,
+      "host": {
+        "kind": "aws",
+        "instance_type": "r8g.8xlarge",
+        "region": "us-east-2",
+        "launch_utc": "2026-10-15T15:08:17+00:00",
+        "record": "meep_runs/diag/environment.json"
+      },
+      "spectrum": {
+        "record": "meep_runs/diag/flat_R2.json",
+        "path": "snapshots[-1].s11 / frequency_ghz"
+      }
+    },
+    {
+      "id": "v1_diag_bent_R2",
+      "harness": "v1 (matched_antenna.py / diag_antenna.py)",
+      "status": "known-biased, diagnosis only",
+      "geometry": "bent",
+      "design": "initial (patch_conformal_L0)",
+      "resolution_cells_per_mm": 2.0,
+      "mpi_ranks": 32,
+      "wall_seconds": 1923.8759752389997,
+      "sum_rank_peak_rss_gib": 14.476837158203125,
+      "estimated_cells": 37103616,
+      "dip_ghz": 2.086940252220974,
+      "dip_db": -13.113136602638406,
+      "dip_is_interior": true,
+      "window_ghz": [
+        1.6,
+        3.0
+      ],
+      "temporal_tolerance_met": true,
+      "host": {
+        "kind": "aws",
+        "instance_type": "r8g.8xlarge",
+        "region": "us-east-2",
+        "launch_utc": "2026-10-15T15:08:17+00:00",
+        "record": "meep_runs/diag/environment.json"
+      },
+      "spectrum": {
+        "record": "meep_runs/diag/bent_R2.json",
+        "path": "snapshots[-1].s11 / frequency_ghz"
+      }
+    },
+    {
+      "id": "v2_flat_R2.5",
+      "harness": "v2 (matched_antenna_v2.py, 19/19 mutations caught)",
+      "status": "production",
+      "geometry": "flat",
+      "design": "initial (patch_conformal_L0)",
+      "resolution_cells_per_mm": 2.5,
+      "mpi_ranks": 16,
+      "wall_seconds": 6899.656145206,
+      "sum_rank_peak_rss_gib": 19.960678100585938,
+      "cgroup_peak_gib": 19.117450714111328,
+      "estimated_cells": 72327360,
+      "dip_ghz": 2.3683263892858974,
+      "dip_db": -29.234084942901973,
+      "dip_is_interior": true,
+      "window_ghz": [
+        1.6,
+        3.0
+      ],
+      "temporal_tolerance_met": true,
+      "host": {
+        "kind": "aws",
+        "instance_type": "r8g.8xlarge",
+        "region": "us-east-1",
+        "launch_utc": "2026-10-15T20:57:47+00:00",
+        "record": "meep_runs/v2/environment.json"
+      },
+      "spectrum": {
+        "record": "meep_runs/v2/c_flat_R2.5.json",
+        "path": "snapshots[-1].s11 / frequency_ghz"
+      }
+    },
+    {
+      "id": "v2_bent_R2.5",
+      "harness": "v2 (matched_antenna_v2.py, 19/19 mutations caught)",
+      "status": "production",
+      "geometry": "bent",
+      "design": "initial (patch_conformal_L0)",
+      "resolution_cells_per_mm": 2.5,
+      "mpi_ranks": 16,
+      "wall_seconds": 6902.883245923999,
+      "sum_rank_peak_rss_gib": 19.963825225830078,
+      "cgroup_peak_gib": 19.121116638183594,
+      "estimated_cells": 72327360,
+      "dip_ghz": 2.3667259081214134,
+      "dip_db": -23.409528524702182,
+      "dip_is_interior": true,
+      "window_ghz": [
+        1.6,
+        3.0
+      ],
+      "temporal_tolerance_met": true,
+      "host": {
+        "kind": "aws",
+        "instance_type": "r8g.8xlarge",
+        "region": "us-east-1",
+        "launch_utc": "2026-10-15T20:57:47+00:00",
+        "record": "meep_runs/v2/environment.json"
+      },
+      "spectrum": {
+        "record": "meep_runs/v2/c_bent_R2.5.json",
+        "path": "snapshots[-1].s11 / frequency_ghz"
+      }
+    },
+    {
+      "id": "v2_bent_R5",
+      "harness": "v2 (matched_antenna_v2.py, 19/19 mutations caught)",
+      "status": "production",
+      "geometry": "bent",
+      "design": "initial (patch_conformal_L0)",
+      "resolution_cells_per_mm": 5,
+      "mpi_ranks": 32,
+      "wall_seconds": 52857.71684883,
+      "sum_rank_peak_rss_gib": 135.86888122558594,
+      "cgroup_peak_gib": 134.17770767211914,
+      "estimated_cells": 577987200,
+      "dip_ghz": 2.3611052663646195,
+      "dip_db": -27.237048382754438,
+      "dip_is_interior": true,
+      "window_ghz": [
+        1.6,
+        3.0
+      ],
+      "temporal_tolerance_met": true,
+      "host": {
+        "kind": "aws",
+        "instance_type": "r8g.8xlarge",
+        "region": "us-east-1",
+        "launch_utc": "2026-10-15T20:57:47+00:00",
+        "record": "meep_runs/v2/environment.json"
+      },
+      "spectrum": {
+        "record": "meep_runs/v2/c_bent_R5.json",
+        "path": "snapshots[-1].s11 / frequency_ghz"
+      }
+    }
+  ],
+  "optimized_geometry": {
+    "status": "not run",
+    "dumps_committed": {
+      "benchmarks/patch_antenna_conformal/geometry/L0_combined_64.json": "3e95e5016864951db1c21d070dfff6b1802fe9cf994816d122ebfc749d3f5b71",
+      "benchmarks/patch_antenna_conformal/geometry/L1_combined_64.json": "1d0e44dd91184b5d8aa666249c00622767de967f7706dd609038de2f3805a6ad",
+      "benchmarks/patch_antenna_conformal/geometry/rbD_L1_copper_38_sm45.json": "1454c7c750dbc78ff6626b35754f4183d08bb163d45a0d259e19a21e7d38156c"
+    },
+    "headline_dump": "benchmarks/patch_antenna_conformal/geometry/rbD_L1_copper_38_sm45.json",
+    "blocker": "Harness v2 builds a Yee-aligned rectangular patch from patch_w/patch_l/probe_inset. The dumps hold free-form outlines (32 outline + 4 corner + 2 feed DOFs), so loading one needs a polygon-to-Yee-sheet loader and a re-verified harness. Both are out of scope for #1088 as curated, and the R5 run would take about 18 h (52,858 s at the initial geometry).",
+    "no_new_aws_spend": true
+  },
+  "cost_to_accuracy": {
+    "reference": {
+      "palace_p3_ghz": 2.36597,
+      "geode_rim_extrapolated_band_ghz": [
+        2.37235,
+        2.37951
+      ],
+      "note": "Palace p3 is the same model on a finite mesh, not a converged value: the GEODE extrapolations put the converged dip 6-14 MHz above it. A tolerance below that spread cannot be established against the extrapolated band."
+    },
+    "tolerances_mhz": [
+      1.0,
+      5.0,
+      10.0
+    ],
+    "host_type": "AWS r8g.8xlarge (32 vCPU Graviton4, 256 GiB)",
+    "rows": [
+      {
+        "solver": "Meep v2 bent_R2.5",
+        "dip_ghz": 2.3667259081214134,
+        "wall_seconds": 6902.883245923999,
+        "peak_rss_gib": 19.121116638183594,
+        "output": "full 1.6-3.0 GHz spectrum",
+        "error_vs_palace_p3_mhz": 0.7559081214134622,
+        "distance_to_extrapolated_band_mhz": {
+          "best_case": 5.62409187858659,
+          "worst_case": 12.784091878586423
+        },
+        "meets_tolerance_vs_palace_p3_mhz": [
+          1.0,
+          5.0,
+          10.0
+        ],
+        "meets_tolerance_vs_extrapolated_band_mhz": []
+      },
+      {
+        "solver": "Meep v2 bent_R5",
+        "dip_ghz": 2.3611052663646195,
+        "wall_seconds": 52857.71684883,
+        "peak_rss_gib": 134.17770767211914,
+        "output": "full 1.6-3.0 GHz spectrum",
+        "error_vs_palace_p3_mhz": -4.864733635380425,
+        "distance_to_extrapolated_band_mhz": {
+          "best_case": 11.244733635380477,
+          "worst_case": 18.40473363538031
+        },
+        "meets_tolerance_vs_palace_p3_mhz": [
+          5.0,
+          10.0
+        ],
+        "meets_tolerance_vs_extrapolated_band_mhz": []
+      },
+      {
+        "solver": "GEODE P1 X1 combined rung (n_dofs 1738557, 19 solves)",
+        "dip_ghz": 2.36595,
+        "wall_seconds": 11018.6,
+        "peak_rss_gib": 208.104,
+        "output": "one dip plus the shape gradient",
+        "error_vs_palace_p3_mhz": -0.019999999999686935,
+        "distance_to_extrapolated_band_mhz": {
+          "best_case": 6.399999999999739,
+          "worst_case": 13.559999999999572
+        },
+        "meets_tolerance_vs_palace_p3_mhz": [
+          1.0,
+          5.0,
+          10.0
+        ],
+        "meets_tolerance_vs_extrapolated_band_mhz": []
+      }
+    ],
+    "ratios_meep_R2.5_over_geode": {
+      "wall": 0.6264755273740765,
+      "rss": 0.09188250412382075
+    },
+    "convergence_established": false,
+    "note": "Two Meep resolutions cannot establish an order; Meep R5 is farther from Palace p3 than R2.5."
+  },
+  "runtime_scaling_arithmetic": {
+    "cells_at_R250": 2520000000000,
+    "cells_at_R14": 442552320,
+    "ratio": 5694.241982507288,
+    "file_states_2.52e12": true,
+    "file_states_5700x": true,
+    "file_cells_at_R250": 2520000000000,
+    "file_ratio": 5694.241982507289
+  },
+  "aws_spend": {
+    "this_increment_usd": 0.0,
+    "cumulative_conservative_estimate_usd": 55.7,
+    "cap_usd": 250,
+    "note": "Estimate at the table rate from #1153, not an AWS bill. No instance was launched here."
+  },
+  "verdict": {
+    "forward_solve_only": true,
+    "optimizer_comparison": "#1090",
+    "text": "The committed data do not show GEODE cheaper than Meep for this forward solve. At the one rung with a GEODE cost, Meep R2.5 reaches the same error against Palace p3 in 0.63x the time and 0.09x the memory, and returns the whole spectrum. Against the extrapolated reference neither solver is within the reference uncertainty. The title hypothesis (FEM cheaper by a moderate factor) is therefore not supported on this evidence, but it is not decided: GEODE has one cost rung, Meep has two non-monotone resolutions, and the optimized-geometry pair and the optimizer comparison are open."
+  }
+}

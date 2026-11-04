@@ -505,6 +505,7 @@ fn assert_library_parity(report: &Value, s: &Value) {
         ),
         // The guide fills both port faces: the port media follow it.
         port_fill: vec![Some(1), Some(1)],
+        wall_params: vec![],
     };
     let sw = s_matrix_sensitivity_sweep::<B>(
         &net,

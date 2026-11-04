@@ -2746,6 +2746,13 @@ A layout without nets has one conductor group per layer, as before
 issue #720, and `--analysis driven` (the default) produces the same
 script, mesh and starter spec as before.
 
+**Finite conductivity (issue #1255).** A conductor layer may carry an
+optional `conductivity_s_m` (S/m, `> 0`). With `--analysis driven`, the
+starter spec then lists that layer's group (and any net it belongs to)
+under `boundary_conditions.leontovich` instead of `pec`; unset layers stay
+PEC. Every layer of one net must use the same value. The geometry and mesh
+are unchanged.
+
 ### Static-extraction starter specs (`--analysis`, issue #720)
 
 `--analysis capacitance` and `--analysis inductance` build the mesh and

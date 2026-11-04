@@ -25,7 +25,8 @@ optimization here, and no paper text.
   - the three stator offsets are 1.3e-8 to 1.5e-7 m above their 0 bound.
 
   With these offsets the construction reproduces every material interface
-  of both exports to at most 7.0e-16 m in both directions. That includes
+  of both exports to at most 7.05e-16 m in both directions (6.16e-16 m at
+  iteration 120; `logs/boundary_check_cp.log`). That includes
   the rotor surface, which the 9 scalars missed by 1.4 mm (#1176).
 - **Moved-mesh forward.** On the initial mesh moved to the full
   iteration-120 design, the full-current mean torque is 1.49857 N m at L2.
