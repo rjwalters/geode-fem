@@ -317,6 +317,10 @@ pub struct MaterialDesign {
     pub eps_prime: bool,
     /// `ε″` (loss, `ε = ε′ − jε″`) of every region is a parameter.
     pub eps_dprime: bool,
+    /// The volumetric conductivity `σ` (S/m) of every region is a
+    /// parameter ([`SParam::Sigma`]; default `false`). The forward must
+    /// carry a per-tet `σ` ([`SNetwork::sigma_tet`]) for it to matter.
+    pub sigma: bool,
 }
 
 impl MaterialDesign {
@@ -355,6 +359,7 @@ impl MaterialDesign {
             names,
             eps_prime: true,
             eps_dprime: true,
+            sigma: false,
         })
     }
 
@@ -398,6 +403,13 @@ impl MaterialDesign {
     pub fn with_components(mut self, eps_prime: bool, eps_dprime: bool) -> Self {
         self.eps_prime = eps_prime;
         self.eps_dprime = eps_dprime;
+        self
+    }
+
+    /// This design with the volumetric conductivity `σ` of every region
+    /// as a parameter too ([`SParam::Sigma`]).
+    pub fn with_sigma(mut self, sigma: bool) -> Self {
+        self.sigma = sigma;
         self
     }
 
@@ -871,6 +883,16 @@ pub enum SParam {
         /// Region index ([`MaterialDesign::names`]).
         region: usize,
     },
+    /// Volumetric conductivity `σ` (S/m) of material region `region`:
+    /// `∂A/∂σ_k = jω M_k` (`M_k` the region's mass block; the forward is
+    /// `A = K − ω²εM + jωσM`). Not defined on a region that bounds a hybrid
+    /// wave port's face — that is a typed
+    /// [`SSensitivityError::InvalidDesign`], since σ there changes the
+    /// port's modes.
+    Sigma {
+        /// Region index ([`MaterialDesign::names`]).
+        region: usize,
+    },
     /// Shape column `column`.
     Shape {
         /// Column index ([`ShapeDesign::names`]).
@@ -928,6 +950,10 @@ pub enum SensitivityFault {
     /// Hybrid port: drop `∂y_c = ∂β_c` of every hybrid channel (Robin term,
     /// drive and power weights).
     DropModeAdmittance,
+    /// Volumetric conductivity (issue #1254): flip the sign of `∂A/∂σ`.
+    FlipSigmaSign,
+    /// Volumetric conductivity: drop the `j` of `∂A/∂σ = jωM` (use `ωM`).
+    DropSigmaJ,
 }
 
 /// Options of the sensitivity sweep.
@@ -1562,6 +1588,15 @@ fn hybrid_face_design(
     let mut param_map = Vec::with_capacity(params.len());
     for prm in params {
         let slot = match *prm {
+            SParam::Sigma { region } => {
+                if region_name[region].is_some() {
+                    return Err(SSensitivityError::InvalidDesign(format!(
+                        "hybrid wave port {p}: the conductivity σ of region `{}` bounds the                          port face, where it changes the port's modes (σ-bearing hybrid face;                          not differentiated — keep the σ parameter off the port face)",
+                        material.map_or("?", |m| m.names[region].as_str())
+                    )));
+                }
+                None
+            }
             SParam::EpsPrime { region } | SParam::EpsDoublePrime { region } => {
                 match &region_name[region] {
                     Some(name) => {
@@ -1731,6 +1766,9 @@ impl<'n> Prepared<'n> {
             }
             if m.eps_dprime {
                 params.extend((0..m.n_regions()).map(|region| SParam::EpsDoublePrime { region }));
+            }
+            if m.sigma {
+                params.extend((0..m.n_regions()).map(|region| SParam::Sigma { region }));
             }
         }
         let shape_cols = design.shape.as_ref().map_or(0, ShapeDesign::n_columns);
@@ -2802,6 +2840,17 @@ impl<'n> Prepared<'n> {
                 SParam::EpsDoublePrime { region } => {
                     for (o, &z) in out[i].iter_mut().zip(&mass_z[region]) {
                         *o = z * c64::new(0.0, omega2);
+                    }
+                }
+                SParam::Sigma { region } => {
+                    // ∂A/∂σ_k = jω M_k (fault: flipped sign / dropped j).
+                    let d = match self.opts.fault {
+                        Some(SensitivityFault::FlipSigmaSign) => c64::new(0.0, -omega),
+                        Some(SensitivityFault::DropSigmaJ) => c64::new(omega, 0.0),
+                        _ => c64::new(0.0, omega),
+                    };
+                    for (o, &z) in out[i].iter_mut().zip(&mass_z[region]) {
+                        *o = z * d;
                     }
                 }
                 SParam::Shape { .. } => {}

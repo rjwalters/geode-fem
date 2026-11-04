@@ -182,6 +182,7 @@ fn label(sw: &SSensitivitySweep, i: usize) -> String {
     match sw.params[i] {
         SParam::EpsPrime { region } => format!("eps'[{region}]"),
         SParam::EpsDoublePrime { region } => format!("eps''[{region}]"),
+        SParam::Sigma { region } => format!("sigma[{region}]"),
         SParam::Shape { column } => format!("shape[{column}]"),
     }
 }
@@ -248,7 +249,7 @@ fn shift_eps(eps: &[c64], regions: &[Option<usize>], prm: SParam, h: f64) -> Vec
     let (region, d) = match prm {
         SParam::EpsPrime { region } => (region, c64::new(h, 0.0)),
         SParam::EpsDoublePrime { region } => (region, c64::new(0.0, -h)),
-        SParam::Shape { .. } => return eps.to_vec(),
+        SParam::Shape { .. } | SParam::Sigma { .. } => return eps.to_vec(),
     };
     eps.iter()
         .zip(regions)
@@ -1847,5 +1848,125 @@ fn named_group_shape_binding_matches_fd() {
         |prm, h| mixed_forward(&m2, &omegas, prm, h),
     ) {
         assert!(e <= TOL, "rel_err {e}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Volumetric conductivity σ (issue #1254)
+// ---------------------------------------------------------------------------
+
+/// Two lumped sheets over a lossy conducting block (`σ = 0.35` S/m on the
+/// block, 0 elsewhere): `∂S/∂σ_block` (S11 and the off-diagonal S21/S12) vs
+/// central FD through the pure-lumped forward with a perturbed `σ_tet`;
+/// `n_factorizations` equals the σ-free gradient's; flipping the sign or
+/// dropping the `j` of `∂A/∂σ = jωM` must break the FD check.
+#[test]
+fn volumetric_sigma_matches_fd_and_the_mutations_are_caught() {
+    let g = guide();
+    let regions = block_regions(&g.mesh);
+    let eps = region_eps(&regions, BLOCK, FILL);
+    let mask = g.pec_interior_mask();
+    let bcs = DrivenBcs {
+        pec_interior_mask: &mask,
+    };
+    let space = HcurlSpace::build(&g.mesh, ElementOrder::P1);
+    let lumped = [
+        sheet(&g.port1_faces, 0.4, c64::new(1.0, 0.0)),
+        sheet(&g.port2_faces, 0.9, c64::new(2.0, -0.5)),
+    ];
+    let sigma0 = 0.35;
+    let sigma_of = |s: f64| -> Vec<f64> {
+        regions
+            .iter()
+            .map(|r| if *r == Some(0) { s } else { 0.0 })
+            .collect()
+    };
+    let sigma = sigma_of(sigma0);
+    let omegas = [2.0, 2.7];
+    let mk_design = |with_sigma: bool| SDesign {
+        material: Some(
+            MaterialDesign::from_regions(regions.clone(), vec!["block".into()])
+                .unwrap()
+                .with_sigma(with_sigma),
+        ),
+        shape: None,
+        port_fill: vec![],
+    };
+    let run = |with_sigma: bool, o: &SSensitivityOptions| {
+        let net = SNetwork {
+            space: &space,
+            mesh: &g.mesh,
+            materials: DrivenMaterials::Scalar(&eps),
+            sigma_tet: Some(&sigma),
+            bcs: &bcs,
+            lumped: &lumped,
+            wave: &[],
+            surfaces: &[],
+        };
+        s_matrix_sensitivity_sweep::<B>(&net, &omegas, &mk_design(with_sigma), o, &device())
+            .unwrap()
+    };
+    let fwd = |s: f64| -> Vec<Vec<c64>> {
+        let sg = sigma_of(s);
+        s_parameter_frequency_sweep_with_mode::<B>(
+            &g.mesh,
+            DrivenMaterials::Scalar(&eps),
+            Some(&sg),
+            &bcs,
+            &lumped,
+            &[],
+            &omegas,
+            SolverMode::Direct,
+            &device(),
+        )
+        .unwrap()
+        .into_iter()
+        .map(|p| p.s.s)
+        .collect()
+    };
+    let sw = run(true, &opts());
+    let i_sigma = sw
+        .params
+        .iter()
+        .position(|p| matches!(p, SParam::Sigma { region: 0 }))
+        .expect("σ parameter present");
+    // Central FD in σ.
+    let (plus, minus) = (fwd(sigma0 + H), fwd(sigma0 - H));
+    let fd: Vec<Vec<c64>> = plus
+        .iter()
+        .zip(&minus)
+        .map(|(p, m)| p.iter().zip(m).map(|(a, b)| (a - b) / (2.0 * H)).collect())
+        .collect();
+    let worst = |sw: &SSensitivitySweep| -> f64 {
+        sw.points
+            .iter()
+            .zip(&fd)
+            .map(|(pt, f)| rel_err(&pt.ds[i_sigma], f))
+            .fold(0.0, f64::max)
+    };
+    let err = worst(&sw);
+    eprintln!("FD | sigma | rel_err = {err:.3e}");
+    assert!(err <= TOL, "σ adjoint vs FD: rel_err {err}");
+    // Off-diagonal entry specifically (S21), and a non-trivial gradient.
+    for (pt, f) in sw.points.iter().zip(&fd) {
+        let (a, b) = (pt.ds[i_sigma][1], f[1]);
+        assert!(b.norm() > 1e-6, "S21 gradient is non-trivial");
+        assert!((a - b).norm() / b.norm() <= TOL, "S21: {a} vs {b}");
+    }
+    // Zero extra solves: same factorization count as the σ-free gradient.
+    let plain = run(false, &opts());
+    let nf = |s: &SSensitivitySweep| -> Vec<usize> {
+        s.points.iter().map(|p| p.n_factorizations).collect()
+    };
+    assert_eq!(nf(&sw), nf(&plain));
+    assert!(nf(&sw).iter().all(|&n| n == 1), "one factorization per ω");
+    // Mutation tripwires.
+    for (name, fault) in [
+        ("flip sign", SensitivityFault::FlipSigmaSign),
+        ("drop j", SensitivityFault::DropSigmaJ),
+    ] {
+        let bad = worst(&run(true, &faulted(fault)));
+        eprintln!("MUTATION | sigma {name} | rel_err = {bad:.3e}");
+        assert!(bad > 10.0 * TOL, "{name}: the FD check failed to catch it");
     }
 }
