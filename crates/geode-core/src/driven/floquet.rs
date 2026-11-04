@@ -216,6 +216,7 @@
 
 use std::collections::HashMap;
 use std::f64::consts::PI;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use burn::tensor::backend::Backend;
 use faer::c64;
@@ -674,6 +675,8 @@ pub struct FloquetCell {
     ports: [PortFace; 2],
     settings: FloquetSettings,
     interior_to_full: Vec<usize>,
+    /// Sparse LU factorizations performed by [`Self::factor`] so far.
+    n_factorizations: AtomicUsize,
 }
 
 impl FloquetCell {
@@ -768,7 +771,26 @@ impl FloquetCell {
             ports,
             settings: spec.settings,
             interior_to_full,
+            n_factorizations: AtomicUsize::new(0),
         })
+    }
+
+    /// Number of sparse LU factorizations [`Self::factor`] has performed on
+    /// this cell. The sensitivities of [`super::floquet_sensitivity`] share
+    /// the forward factorization, so a sensitivity at one `(ω, k_t)` raises
+    /// it by exactly one, the forward-only count.
+    pub fn factorization_count(&self) -> usize {
+        self.n_factorizations.load(Ordering::Relaxed)
+    }
+
+    /// The full edge DOFs on the triangles of Floquet port `p` (sorted,
+    /// unique). The sensitivities pin the nodes of these edges.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `p > 1`.
+    pub fn port_dofs(&self, p: usize) -> &[usize] {
+        &self.ports[p].dofs
     }
 
     /// The lattice.
@@ -1108,6 +1130,7 @@ impl FloquetCell {
             .as_ref()
             .sp_lu()
             .map_err(|e| FloquetError::Solve(format!("sparse LU of the Floquet system: {e:?}")))?;
+        self.n_factorizations.fetch_add(1, Ordering::Relaxed);
         Ok(FactoredFloquetCell {
             cell: self,
             omega,
