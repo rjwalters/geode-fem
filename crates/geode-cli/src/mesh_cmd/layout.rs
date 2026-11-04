@@ -2099,7 +2099,10 @@ mod tests {
         let skew = e(serde_json::json!({"outer": [[0, 0], [4, 0], [4, 1], [1, 3]]}));
         assert!(skew.contains("±45°"), "{skew}");
         let outside = e(serde_json::json!({"outer": big, "holes": [rect(8.0, 8.0, 12.0, 12.0)]}));
-        assert!(outside.contains("hole 0 is not strictly inside"), "{outside}");
+        assert!(
+            outside.contains("hole 0 is not strictly inside"),
+            "{outside}"
+        );
         let touching = e(serde_json::json!({"outer": big, "holes": [rect(0.0, 2.0, 3.0, 4.0)]}));
         assert!(touching.contains("not strictly inside"), "{touching}");
         let far = e(serde_json::json!({"outer": big, "holes": [rect(20.0, 20.0, 22.0, 22.0)]}));
@@ -2222,8 +2225,14 @@ mod tests {
         assert!(!touches(&ring, &[part(r(11.0, 0.0, 12.0, 2.0))]));
         // 45° cut corner: a pad in the cut triangle misses the octagon.
         let oct = cap(serde_json::json!([{"outer": octagon(0.0, 0.0, 5.0, 3.0)}])).unwrap();
-        assert!(!touches(&oct.groups[0].parts, &[part(r(3.8, 3.8, 4.9, 4.9))]));
-        assert!(touches(&oct.groups[0].parts, &[part(r(1.0, 1.0, 2.0, 2.0))]));
+        assert!(!touches(
+            &oct.groups[0].parts,
+            &[part(r(3.8, 3.8, 4.9, 4.9))]
+        ));
+        assert!(touches(
+            &oct.groups[0].parts,
+            &[part(r(1.0, 1.0, 2.0, 2.0))]
+        ));
     }
 
     #[test]

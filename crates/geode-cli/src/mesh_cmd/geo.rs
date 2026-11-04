@@ -1028,15 +1028,23 @@ mod tests {
             .unwrap();
         let g = generate(&r, "test").text;
         // Ring: outer loop first, then the hole loop; extruded by t.
-        assert!(g.contains("Plane Surface(sb_c0_0) = {sb_c0_0_ll0, sb_c0_0_ll1};"), "{g}");
-        assert!(g.contains("e_c0_0[] = Extrude {0, 0, 0.5} { Surface{sb_c0_0}; }; v_c0_0 = e_c0_0[1];"));
+        assert!(
+            g.contains("Plane Surface(sb_c0_0) = {sb_c0_0_ll0, sb_c0_0_ll1};"),
+            "{g}"
+        );
+        assert!(
+            g.contains("e_c0_0[] = Extrude {0, 0, 0.5} { Surface{sb_c0_0}; }; v_c0_0 = e_c0_0[1];")
+        );
         // The pad stays a v1 box; the triangular sheet is a plane surface.
         assert!(g.contains("Box(v_c1_0)"));
         assert!(g.contains("Plane Surface(s_c2_0) = {s_c2_0_ll0};"));
         // Hole void faces are dropped from the ring's selection, and the
         // ring (polygon parts with holes) is tagged after the pad inside it.
         assert!(g.contains("h_101() -="), "{g}");
-        let (ring, pad) = (g.find("Physical Surface(\"ring\""), g.find("Physical Surface(\"pad\""));
+        let (ring, pad) = (
+            g.find("Physical Surface(\"ring\""),
+            g.find("Physical Surface(\"pad\""),
+        );
         assert!(pad < ring, "inner group first:\n{g}");
     }
 
