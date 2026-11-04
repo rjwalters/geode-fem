@@ -42,7 +42,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use geode_core::analytic::spiral::{mohan_current_sheet_l, SquareSpiral};
+use geode_core::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
 
 fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

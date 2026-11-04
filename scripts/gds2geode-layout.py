@@ -4,7 +4,7 @@
 Runs under KLayout's batch interpreter (own code; no gds2palace code):
 
     klayout -b -r scripts/gds2geode-layout.py \
-        -rd gds=cell.gds -rd cell=TOP -rd layermap=layers.json -rd out=layout.json
+        -rd gds=cell.gds -rd cell=TOP -rd layermap=layers.layermap -rd out=layout.json
 
 Arguments (`-rd key=value`):
   gds       input GDS/OASIS file
@@ -39,8 +39,7 @@ def _arg(name, default=None):
 
 
 def _ring(points, dbu):
-    pts = [[round(p.x * dbu, 9), round(p.y * dbu, 9)] for p in points]
-    return pts
+    return [[round(p.x * dbu, 9), round(p.y * dbu, 9)] for p in points]
 
 
 def convert(gds, cell_name, layermap, out):

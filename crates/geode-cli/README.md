@@ -2908,7 +2908,7 @@ output:
 
 ```sh
 klayout -b -r scripts/gds2geode-layout.py -rd gds=cell.gds -rd cell=TOP \
-    -rd layermap=layers.json -rd out=layout.json
+    -rd layermap=layers.layermap -rd out=layout.json
 geode mesh layout.json --analysis capacitance --mesh-out m.msh --spec-out s.json
 ```
 
