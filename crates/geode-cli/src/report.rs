@@ -830,6 +830,35 @@ pub struct CheckReport {
     /// driven run reports.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<WarningResult>,
+    /// What the spec's `adaptive_mesh` would cost (additive in v1, issue
+    /// #1267; present only with that section). `check` never solves or
+    /// refines.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive_mesh: Option<AdaptiveMeshCheck>,
+}
+
+/// `geode check` view of an `adaptive_mesh` section (issue #1267).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct AdaptiveMeshCheck {
+    /// The DOF budget.
+    pub max_dofs: usize,
+    /// Edge DOFs of the initial mesh (before PEC elimination).
+    pub initial_n_dofs: usize,
+    /// `true` when the initial mesh already exceeds `max_dofs` (the run
+    /// would fail).
+    pub initial_over_budget: bool,
+    /// `max_dofs / initial_n_dofs`: the factor `resources_at_max_dofs`
+    /// scales the loaded mesh by.
+    pub scale_to_max_dofs: f64,
+    /// Worst-case resources at `max_dofs`: the loaded mesh's
+    /// [`ResourceEstimate`] with `nnz`, system size, tets and nodes scaled
+    /// to that DOF count (no level of the loop is larger).
+    pub resources_at_max_dofs: ResourceEstimate,
+    /// `k₀·√ε_r·h` at the highest frequency (`eigen`: the shift) with the
+    /// largest edge `h` and largest `√ε_r` of the initial mesh.
+    pub initial_kh: f64,
+    /// `2π / initial_kh`: points per wavelength at the coarsest resolution.
+    pub initial_points_per_wavelength: f64,
 }
 
 /// One conductor of a capacitance spec (terminal or ground surface).

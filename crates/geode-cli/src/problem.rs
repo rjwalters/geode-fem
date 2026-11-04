@@ -950,7 +950,9 @@ fn validate_adaptive_mesh(spec: &ProblemSpec, analysis: Analysis) -> Result<(), 
     };
     if !matches!(analysis, Analysis::Driven | Analysis::Eigen) {
         return Err(invalid(format!(
-            "`adaptive_mesh` is not supported for a `{}` spec: adaptive meshing is available              for `driven` and `eigen` specs only (the capacitance, inductance and extract              analyses need H¹ / scalar estimators, a follow-on of Epic #835)",
+            "`adaptive_mesh` is not supported for a `{}` spec: adaptive meshing is available \
+             for `driven` and `eigen` specs only (the capacitance, inductance and extract \
+             analyses need H¹ / scalar estimators, a follow-on of Epic #835)",
             analysis.name()
         )));
     }
@@ -968,8 +970,7 @@ fn validate_adaptive_mesh(spec: &ProblemSpec, analysis: Analysis) -> Result<(), 
     if a.max_dofs == 0 {
         return Err(invalid("adaptive_mesh.max_dofs must be >= 1"));
     }
-    if !(a.marking_fraction.is_finite() && a.marking_fraction > 0.0 && a.marking_fraction <= 1.0)
-    {
+    if !(a.marking_fraction.is_finite() && a.marking_fraction > 0.0 && a.marking_fraction <= 1.0) {
         return Err(invalid(format!(
             "adaptive_mesh.marking_fraction (Dörfler θ) must be in (0, 1] (got {})",
             a.marking_fraction
@@ -978,7 +979,8 @@ fn validate_adaptive_mesh(spec: &ProblemSpec, analysis: Analysis) -> Result<(), 
     match (&a.goal, analysis) {
         (AdaptiveGoal::SParam(_), _) => {
             return Err(invalid(
-                "adaptive_mesh.goal `s_param` needs goal-oriented error estimation, which                  arrives with Epic #835 Phase 4; use \"energy\" for now",
+                "adaptive_mesh.goal `s_param` needs goal-oriented error estimation, which \
+                 arrives with Epic #835 Phase 4; use \"energy\" for now",
             ));
         }
         (AdaptiveGoal::Z0(_), _) => {

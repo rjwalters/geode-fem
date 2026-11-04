@@ -107,7 +107,11 @@ pub fn load(
                 path: rel.display().to_string(),
                 sha256: format!("{:x}", Sha256::digest(text.as_bytes())),
             };
-            (Some(file), std::path::absolute(&path).unwrap_or(path), false)
+            (
+                Some(file),
+                std::path::absolute(&path).unwrap_or(path),
+                false,
+            )
         }
         None => {
             let path = std::env::temp_dir().join(format!(
@@ -168,7 +172,12 @@ fn run_driven(
         None => p.frequencies.iter().map(|f| f.k0).collect(),
     };
     let eps_by_tag: BTreeMap<i32, c64> = p.regions.iter().map(|r| (r.tag, r.eps_r)).collect();
-    let eps = move |t: &TetCtx| eps_by_tag.get(&t.tag).copied().unwrap_or(c64::new(1.0, 0.0));
+    let eps = move |t: &TetCtx| {
+        eps_by_tag
+            .get(&t.tag)
+            .copied()
+            .unwrap_or(c64::new(1.0, 0.0))
+    };
 
     // Face classification by physical tag. Impedance walls are indexed
     // like `impedance_walls` (Leontovich, then Silver-Müller).
@@ -253,6 +262,7 @@ fn run_eigen(
 
 fn adapt_error(e: AdaptError) -> CliError {
     match e {
+        AdaptError::AtLevel { source, .. } => adapt_error(*source),
         AdaptError::InvalidOptions(_)
         | AdaptError::InvalidSpec(_)
         | AdaptError::Unsupported(_)
