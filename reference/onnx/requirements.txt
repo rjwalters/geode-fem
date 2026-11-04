@@ -7,7 +7,7 @@
 #
 # All probes target ONNX opset 18. onnxruntime is the reference
 # execution layer; onnxscript is used for the readable graph builders.
-onnx==1.21.0
+onnx==1.22.0
 onnxruntime==1.26.0
 onnxscript==0.7.0
 numpy>=1.26
