@@ -67,6 +67,10 @@ REPO_INPUTS = {'reference_data': 'benchmarks/motor_reference/reference_data.json
                'starts': 'benchmarks/motor_optimization/harness/starts.json',
                'anchor': 'benchmarks/motor_optimization/anchor.json'}
 #: Every optimizer trace a session writes: `<job name><suffix>.json`.
+#: Only names matching this are read as traces. Other top-level files (`manifest.json`,
+#: `events.jsonl`, setup files) are legitimate and are never read as traces; every inventoried
+#: file is already hash-checked against the retained inventory, so refusing stray non-trace
+#: files would add a brittle allowlist for no integrity gain.
 TRACE_NAME = re.compile(r'(?P<job>[a-z0-9_]+_[ab]_[a-z0-9]+_r[0-9]+)(?P<suffix>_[a-z0-9]+)?\.json')
 INVENTORY_LINE = re.compile(r'([0-9a-f]{64})  ([^\\\n]+)')
 SCOPE = ('Frozen post-hoc #1218 {A\', F} cohort from a verified copy of the FD-ablation session, '
@@ -272,7 +276,8 @@ def load_generation(reader, queue, cohort='fd_ablation'):
             raise ValueError('generation lacks one readiness binding')
         bindings = _json(read('bindings.json', ready[0]['bindings_sha256']))
         files = bindings.get('files')
-        required = {'session.json', 'queue.json', 'calibration_primary.json', 'recovery-inputs.json'}
+        required = {'session.json', 'queue.json', 'calibration_primary.json', 'recovery-inputs.json',
+                    'start_preflight.json'}
         if type(files) is not dict or not required <= files.keys():
             raise ValueError('missing frozen FD-ablation inputs')
         for name, expected in files.items():

@@ -10,8 +10,9 @@ There is no optimization here, and no paper text.
 
 - **The discrete design gradient is validated at both designs, both
   couplings and L0 to L2.** Under load (currents 0.5 and 1), for all 12
-  parameters under the prescribed rule and the 10 that the Jinit rule
-  changes:
+  parameters under the prescribed rule and, under the Jinit rule, the 7 of
+  the 10 geometric parameters whose gradient it changes (MAG, MH and MW
+  are unaffected, so 96 of the 800 cases are duplicates):
   - the best central difference that re-moves the mesh agrees with the
     adjoint to between 2.7e-16 and 1.1e-5 relative over 800 objective and
     parameter cases. It is 2.8e-7 or better in 782 of them. The other 18,
@@ -44,7 +45,9 @@ There is no optimization here, and no paper text.
 - **Moved mesh against remeshing.** For MW, SW1 and SW2 (h45, θ0), the
   least-squares remeshed-minus-moved derivative gap falls with refinement.
   At full current it goes from L0 to L1 to L2 as follows:
-  - MW: mean 5.4e-3, 1.4e-3, 2.6e-6; std 8.0e-2, 1.6e-2, 2.2e-4;
+  - MW: mean 5.4e-3, 1.4e-3, below about 6e-4 at L2 (a least-squares slope
+    under the per-step scatter of -3.6e-5 to +6.3e-4); std 8.0e-2, 1.6e-2,
+    2.2e-4;
   - SW1: mean 4.4e-2, 1.2e-2, 3.7e-3; std 0.20, 0.11, 0.038;
   - SW2: mean 1.8e-2, 1.4e-2, 3.5e-3; std 9.7e-3, 7.7e-3, 2.1e-3.
 
@@ -352,7 +355,8 @@ zero-current scaled values are inflated by the 1e-6 N m objective.
 
 - **Systematic gap.** The rm-mv slope falls with refinement for all three
   parameters and both objectives:
-  - MW: mean 5.4e-3 to 2.6e-6, std 8.0e-2 to 2.2e-4;
+  - MW: mean 5.4e-3 to below about 6e-4 (the L2 slope is under the
+    per-step scatter), std 8.0e-2 to 2.2e-4;
   - SW1: mean 4.4e-2 to 3.7e-3, std 0.20 to 0.038 (the slowest);
   - SW2: mean 1.8e-2 to 3.5e-3, std 9.7e-3 to 2.1e-3.
 

@@ -101,7 +101,11 @@ The `resonance_shift_proxy_abs` column is RMS profile displacement / arc
 length — a dimensionless geometric proxy with an uncalibrated coefficient,
 **not** a solved eigenvalue or S11. Whether these geometric floors translate
 into electromagnetic accuracy or solver cost is the open question of
-#1085/#1088; nothing in this directory answers it.
+#1085/#1088. This table does not answer it; the matched-model forward-solve
+comparison does, in `meep_s11_vs_resolution.json` (index of every Meep S11 curve,
+the cost-to-accuracy table and the verdict). That verdict covers the forward solve
+on the initial geometry only: the optimized-geometry runs are not done and the
+optimizer comparison is #1090. See `reference/meep/docker/HARNESS_V2.md` § 7.
 
 ### 2. `ceviche_fdfd_baseline.py` — 2D FDFD density inverse-design (representative)
 
