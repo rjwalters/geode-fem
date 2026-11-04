@@ -64,6 +64,14 @@
       "additionalProperties": false,
       "description": "One conductor layer: rectilinear polygons at one z-extent.",
       "properties": {
+        "conductivity_s_m": {
+          "description": "Finite conductivity σ in S/m (`> 0`). When set, the layer's group\nis a Leontovich surface-impedance wall in the driven starter spec\n(`boundary_conditions.leontovich`) instead of PEC. Omit for PEC.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "mesh_size": {
           "default": null,
           "description": "Target element size on this layer's surfaces (default\n[`MeshControls::size_conductor`]).",

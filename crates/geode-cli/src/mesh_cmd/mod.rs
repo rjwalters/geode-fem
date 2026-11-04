@@ -46,8 +46,9 @@ use crate::error::CliError;
 use crate::report::Provenance;
 use crate::spec::{
     self, BlochPointSpec, BlochSpec, BoundaryConditionsSpec, CapacitanceSpec, CurrentPathSpec,
-    EigenSpec, FrequencySpec, FrequencyUnit, InductanceSpec, LumpedPortSpec, MaterialSpec,
-    MeshSpec, PeriodicSpec, ProblemSpec, SPEC_SCHEMA_VERSION, SolverSpec, Spacing, UpmlSpec,
+    EigenSpec, FrequencySpec, FrequencyUnit, InductanceSpec, LeontovichSpec, LumpedPortSpec,
+    MaterialSpec, MeshSpec, PeriodicSpec, ProblemSpec, SPEC_SCHEMA_VERSION, SolverSpec, Spacing,
+    UpmlSpec,
 };
 
 /// Environment variable naming the Gmsh binary (below `--gmsh`).
@@ -721,7 +722,17 @@ fn starter_spec_driven(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBu
         .map(|i| name(GroupRole::Dielectric(i)))
         .collect();
     let mut pec = vec![name(GroupRole::OuterBoundary)];
-    pec.extend((0..r.groups.len()).map(|i| name(GroupRole::Conductor(i))));
+    let mut leontovich = Vec::new();
+    for (i, g) in r.groups.iter().enumerate() {
+        match g.conductivity_s_m {
+            Some(sigma) => leontovich.push(LeontovichSpec {
+                physical_group: name(GroupRole::Conductor(i)),
+                conductivity_s_m: sigma,
+                roughness: None,
+            }),
+            None => pec.push(name(GroupRole::Conductor(i))),
+        }
+    }
     let materials = l
         .dielectrics
         .iter()
@@ -738,6 +749,7 @@ fn starter_spec_driven(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBu
     ProblemSpec {
         boundary_conditions: BoundaryConditionsSpec {
             pec,
+            leontovich,
             ..Default::default()
         },
         absorbing_regions: match l.boundary {
@@ -916,6 +928,46 @@ fn starter_spec_inductance(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A conductor layer with `conductivity_s_m` becomes a Leontovich wall
+    /// in the driven starter spec; an unset one stays PEC.
+    #[test]
+    fn finite_sigma_group_routes_to_leontovich() {
+        let mut layout: Layout = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [
+                {"name": "substrate", "z_bottom": -10, "thickness": 10, "eps_r": [11.9, 0]},
+                {"name": "air", "z_bottom": 0, "thickness": 20}
+            ],
+            "conductors": [
+                {"name": "metal", "z_bottom": 1, "conductivity_s_m": 3.0e7, "polygons": [
+                    {"name": "a", "outer": [[0,0],[10,0],[10,4],[0,4]]},
+                    {"name": "b", "outer": [[0,6],[10,6],[10,10],[0,10]]}]},
+                {"name": "gndplane", "z_bottom": 0, "polygons": [
+                    {"outer": [[-2,-2],[12,-2],[12,12],[-2,12]]}]}
+            ],
+            "ports": [{"name": "p1", "layer": "metal", "between": ["a", "b"]}],
+            "margin": 5,
+            "mesh": {"size_max": 5, "size_conductor": 1}
+        }))
+        .unwrap();
+        let go = |l: &Layout| {
+            let r = l.clone().resolve().unwrap();
+            let script = geo::generate(&r, "test");
+            starter_spec(&r, &script, PathBuf::from("m.msh"))
+        };
+        let spec = go(&layout);
+        let bc = &spec.boundary_conditions;
+        assert_eq!(bc.leontovich.len(), 1);
+        assert_eq!(bc.leontovich[0].conductivity_s_m, 3.0e7);
+        assert!(!bc.pec.contains(&bc.leontovich[0].physical_group));
+        assert_eq!(bc.pec.len(), 2, "outer boundary + the PEC ground plane");
+        layout.conductors[0].conductivity_s_m = None;
+        let spec = go(&layout);
+        assert!(spec.boundary_conditions.leontovich.is_empty());
+        assert_eq!(spec.boundary_conditions.pec.len(), 3);
+    }
 
     /// One tet plus two tagged triangles: a real face (tag 101) and a
     /// dangling one sharing no tet (tag 102, e.g. a sheet piece left

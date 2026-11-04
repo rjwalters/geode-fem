@@ -11,10 +11,14 @@ import hashlib, json, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
 SRC = Path(__file__).resolve().parents[2]
 WORK = Path(tempfile.mkdtemp(prefix='meep-v2-mutation-')) / 'repo'
-PATHS = ['benchmarks/fdtd_density_baseline', 'benchmarks/patch_antenna_conformal/convergence.toml',
+PATHS = ['benchmarks/fdtd_density_baseline', 'benchmarks/patch_antenna_conformal/geometry',
+         'benchmarks/patch_antenna_conformal/convergence.toml',
          'benchmarks/patch_antenna_conformal/v6/v6_summary.toml',
          'benchmarks/patch_antenna_conformal/v6/x1/dip_x1comb_L1.toml', 'reference/meep/docker']
 V2 = 'benchmarks/fdtd_density_baseline/meep_runs/v2'
+IDX = 'benchmarks/fdtd_density_baseline/meep_s11_vs_resolution.json'
+SCALING = 'benchmarks/fdtd_density_baseline/meep_runtime_scaling.json'
+GEOM = 'benchmarks/patch_antenna_conformal/geometry/rbD_L1_copper_38_sm45.json'
 VER = 'benchmarks/fdtd_density_baseline/meep_v2_verify.py'
 
 
@@ -120,6 +124,13 @@ CASES = {
      compute_cost_upper_elapsed_estimate_usd=41.0,
      launch_to_terminate_seconds=41.0 / d['cost_estimate_rate_usd_per_hour'] * 3600)), resum()), False),
  'worker left running (sums regenerated)': (lambda: (jedit(f'{V2}/environment.json', lambda d: d.__setitem__('worker_final_state', 'running')), resum()), False),
+ 'index: Meep R5 wall-clock halved': (lambda: jedit(IDX, lambda d: d['curves'][-1].__setitem__('wall_seconds', 26000.0)), False),
+ 'index: convergence claimed': (lambda: jedit(IDX, lambda d: d['cost_to_accuracy'].__setitem__('convergence_established', True)), False),
+ 'index: R8 curve added': (lambda: jedit(IDX, lambda d: d['curves'].append(dict(d['curves'][-1], resolution_cells_per_mm=8))), False),
+ 'index: AWS spend over the cap': (lambda: jedit(IDX, lambda d: d['aws_spend'].__setitem__('this_increment_usd', 200.0)), False),
+ 'index: optimized geometry reported as run': (lambda: jedit(IDX, lambda d: d['optimized_geometry'].__setitem__('status', 'run')), False),
+ 'optimized-geometry dump edited after pinning': (lambda: jedit(GEOM, lambda d: d.__setitem__('probe_w_moved_mm', 4.3)), False),
+ 'meep_runtime_scaling.json reverted to 2.5e15 cells': (lambda: jedit(SCALING, lambda d: d['projection'].__setitem__('cells_at_R250', 2500000000000000)), False),
 }
 
 fresh()

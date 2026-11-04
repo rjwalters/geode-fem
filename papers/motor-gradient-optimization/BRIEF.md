@@ -5,7 +5,7 @@ skill: paper
 paper_number: 3
 documentclass: anvil-paper
 anonymous: false
-status_of_inputs: "Main study (#1185, 100 runs) and post-hoc ablations F (#1218, cold stencils) and F_w (#1224, warm stencils) complete and hash-bound; current package motor-gradient-optimization.22 (v21 revised for reading flow: gradient verification before the optimization study, terms defined before use, one model sentence, no number changed; not reviewed; paper DOI 10.5281/zenodo.23580548, raw-trace archive DOI 10.5281/zenodo.23580550); v16 reviews 42/44 and 40/44"
+status_of_inputs: "Main study (#1185, 100 runs) and post-hoc ablations F (#1218, cold stencils) and F_w (#1224, warm stencils) complete and hash-bound; current package motor-gradient-optimization.23, published on Zenodo 2026-10-25 (v22 plus a corresponding-author footnote; v22 was v21 revised for reading flow: gradient verification before the optimization study, terms defined before use, one model sentence, no number changed; not reviewed; paper DOI 10.5281/zenodo.23580548, raw-trace archive DOI 10.5281/zenodo.23580550); v16 reviews 42/44 and 40/44"
 claim: "Test whether exact field gradients reduce time to a validated motor-design target beyond calibrated simple models, and how that advantage depends on useful shape freedom."
 audience: "Computational electromagnetics, electric-machine optimization, and differentiable scientific computing researchers"
 venue_target: "Select from the validated main-study contribution; use the generic paper class initially"
@@ -15,12 +15,23 @@ public_repo_url: "https://github.com/rjwalters/geode-fem"
 science_card_id: 3
 ---
 
+# v23 — published on Zenodo (v1), 2026-10-25 — CURRENT
+
+**Published.** `motor-gradient-optimization.23/` is the paper of record for Zenodo v1, 43 pages.
+
+- **DOI (this version):** 10.5281/zenodo.23580548, https://zenodo.org/records/23580548
+- **Concept DOI (all versions; cite and link this one):** 10.5281/zenodo.23580547
+- **Files:** `walters-dunnavant-2026-motor-gradient-optimization-v1.pdf` and `walters-dunnavant-2026-motor-gradient-optimization-v1-source.zip` (builds with pdflatex alone), md5-verified against the upload.
+- **Raw-trace archive:** published the same day as a dataset, DOI 10.5281/zenodo.23580550 (published first, so the paper's data statement resolves).
+- **v23 vs v22:** a corresponding-author footnote on Robb Walters (robb@2amlogic.com) is the only change (operator request before publishing, PR #1268). Coauthor Crutcher Dunnavant approved the v1 release.
+- **Revisions from here** go up as new versions of the same Zenodo record (v2, ...); the concept DOI stays the same. Open v2 items are in geode-fem#1231.
+
 # Third paper: nonlinear motor optimization
 
 The operator designated this work as GEODE's third paper on 2026-10-16,
 alongside the transmon and conformal-antenna papers. This brief establishes
 the research project. The operator requested the first manuscript on
-2026-10-16. **Current state (2026-10-23) — CURRENT:** the package is
+2026-10-16. **State on 2026-10-23 (superseded by v23 above):** the package is
 `motor-gradient-optimization.22/` (not yet reviewed), v21 revised for reading
 flow against the operator's flow review of v21 (geode-fem#1231). V22 changes
 order and wording only: the design-gradient verification section now precedes
