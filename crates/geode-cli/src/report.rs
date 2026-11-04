@@ -1818,6 +1818,95 @@ pub struct FdCheckSummary {
     pub n_forward_solves: usize,
 }
 
+/// `geode optimize` report (`kind = "optimize"`; Epic #841 Phase 6b).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct OptimizeReport {
+    /// Provenance (flattened).
+    #[serde(flatten)]
+    pub provenance: Provenance,
+    /// Always `"optimize"`.
+    #[schemars(extend("const" = "optimize"))]
+    pub kind: &'static str,
+    /// Always `"ok"` (a run that ends unconverged, e.g. at `max_iter`, is
+    /// still a report; see `converged` / `stop_status`).
+    #[schemars(extend("const" = "ok"))]
+    pub status: &'static str,
+    /// `"lbfgsb"` (no constraints) or `"mma"`.
+    pub algorithm: &'static str,
+    /// Whether a convergence criterion was met.
+    pub converged: bool,
+    /// The optimizer's final status (`running` when paused is never
+    /// reported): `converged:<reason>`, `max_iterations`, `max_evaluations`
+    /// or `stalled: <message>`.
+    pub stop_status: String,
+    /// Outer iterations run (including those before a `--resume`).
+    pub iterations: usize,
+    /// Evaluations spent, failed ones included.
+    pub evaluations: usize,
+    /// Of which failed (forward error, passivity tripwire, mesh-quality
+    /// guard); the optimizer backed off each.
+    pub failed_evaluations: usize,
+    /// Objective at the starting point.
+    pub objective_initial: f64,
+    /// Objective at the best design (`best_*` artifacts).
+    pub objective_best: f64,
+    /// Largest constraint violation at the best design (`0` = feasible).
+    pub max_violation_best: f64,
+    /// The best design's variables.
+    pub variables: Vec<OptimizeVariableResult>,
+    /// Each objective term's value at the best design (unweighted).
+    pub term_values: Vec<f64>,
+    /// The constraint values `g ≤ 0` at the best design.
+    pub constraint_values: Vec<f64>,
+    /// `σ_max(S)` worst over the best design's differentiated frequencies.
+    pub passivity_sigma_max: f64,
+    /// Smallest tet-volume ratio of the best design's mesh against the
+    /// meshed one.
+    pub min_volume_ratio: f64,
+    /// The per-iteration JSONL history.
+    pub history_file: FileRef,
+    /// The resumable checkpoint (`--resume`).
+    pub checkpoint_file: FileRef,
+    /// The best design as a spec (`optimize.variables[].initial` set).
+    pub best_spec_file: FileRef,
+    /// The best design's mesh (Gmsh MSH 4.1).
+    pub best_mesh_file: FileRef,
+    /// The 5a gradient self-check at the best design, through the shipped
+    /// forward.
+    pub final_fd_check: OptimizeFdCheck,
+    /// Port-accuracy / mode-gap warnings of the best design's forward.
+    pub warnings: Vec<String>,
+    /// Wall time of the run (s).
+    pub wall_time_s: f64,
+}
+
+/// One design variable of an [`OptimizeReport`].
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct OptimizeVariableResult {
+    /// The sensitivity parameter's report name.
+    pub parameter: String,
+    /// Starting value (the parameter's unit).
+    pub initial: f64,
+    /// Value at the best design.
+    pub value: f64,
+    /// Lower bound.
+    pub lower: f64,
+    /// Upper bound.
+    pub upper: f64,
+}
+
+/// The final FD check of an [`OptimizeReport`] (Phase 5a's `fd_check`).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct OptimizeFdCheck {
+    /// Whether every gradient entry agreed with its FD estimate within
+    /// `tolerance`.
+    pub passed: bool,
+    /// The 5a summary when it passed.
+    pub summary: Option<FdCheckSummary>,
+    /// The disagreement (or the error that stopped the check) otherwise.
+    pub detail: Option<String>,
+}
+
 /// Error body.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ErrorBody {

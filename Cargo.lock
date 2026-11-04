@@ -2889,6 +2889,7 @@ dependencies = [
  "faier",
  "geode-app",
  "geode-core",
+ "geode-optimize",
  "geode-util",
  "jsonschema",
  "schemars",

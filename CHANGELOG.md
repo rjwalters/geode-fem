@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Differentiable EDA (Epic #841):** `geode optimize <spec>`, a gradient-based design loop (L-BFGS-B, or MMA with constraints) over the spec's `optimize` section, with a JSONL history, resumable checkpoints, best-so-far spec and mesh, a passivity tripwire, a mesh-quality guard and a final Phase 5a gradient check (#1261, Phase 6b part A). Re-meshing and the waveguide iris golden follow separately.
+
 ## [0.9.0] - 2026-10-26
 
 This release lands the library side of the four v0.9 roadmap epics, the solver work behind them, and the evidence behind the three papers published on Zenodo on 2026-10-25. The epics' remaining CLI phases ship in v0.10.0. It covers:

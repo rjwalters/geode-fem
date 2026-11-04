@@ -642,6 +642,52 @@
       ],
       "type": "object"
     },
+    "ConstraintSpec": {
+      "additionalProperties": false,
+      "description": "An observable inequality `max over the band of (v − bound) ≤ 0`\n(`below`) or `max over the band of (bound − v) ≤ 0` (`above`), the max\nsmoothed by KS.",
+      "properties": {
+        "band_hz": {
+          "description": "`[lo_hz, hi_hz]` (default: all differentiated frequencies).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "bound": {
+          "description": "The bound, in the observable's unit.",
+          "format": "double",
+          "type": "number"
+        },
+        "ks_rho": {
+          "description": "KS sharpness (default `50`, in 1 / (observable unit)).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "mode": {
+          "$ref": "#/$defs/TargetMode",
+          "description": "`below` or `above` (`equal` is not an inequality)."
+        },
+        "observable": {
+          "description": "The sensitivity observable's report `label`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "observable",
+        "mode",
+        "bound"
+      ],
+      "type": "object"
+    },
     "CurrentPathSpec": {
       "additionalProperties": false,
       "description": "One open current path of an [`InductanceSpec`].",
@@ -3650,6 +3696,77 @@
       ],
       "type": "object"
     },
+    "ObjectiveTermSpec": {
+      "additionalProperties": false,
+      "description": "One term of the objective: `weight · aggregate(r(observable, band))`.",
+      "properties": {
+        "aggregate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OptimizeAggregate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Default `sum_sq`."
+        },
+        "band_hz": {
+          "description": "`[lo_hz, hi_hz]`: the differentiated frequencies inside the band\n(inclusive). Default: all of them.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "ks_rho": {
+          "description": "KS sharpness for `max` (default `50`, in 1 / (squared-residual unit)).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TargetMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Default `equal`."
+        },
+        "observable": {
+          "description": "The sensitivity observable's report `label`.",
+          "type": "string"
+        },
+        "target": {
+          "description": "The target value, in the observable's unit.",
+          "format": "double",
+          "type": "number"
+        },
+        "weight": {
+          "description": "Term weight (default `1`, `≥ 0`).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "observable",
+        "target"
+      ],
+      "type": "object"
+    },
     "ObservableForm": {
       "description": "How a complex observable `z` becomes a real one.",
       "oneOf": [
@@ -3709,6 +3826,427 @@
           "type": "string"
         }
       ]
+    },
+    "OptimizeAggregate": {
+      "description": "How a term's per-frequency residuals become one number.",
+      "oneOf": [
+        {
+          "const": "sum_sq",
+          "description": "`Σ r²` over the band.",
+          "type": "string"
+        },
+        {
+          "const": "mean",
+          "description": "`(1/N) Σ r²` over the band.",
+          "type": "string"
+        },
+        {
+          "const": "max",
+          "description": "The worst squared residual `max r²`, smoothed by the\nKreisselmeier–Steinhauser function (`ks_rho`).",
+          "type": "string"
+        }
+      ]
+    },
+    "OptimizeFdCheck": {
+      "description": "The final FD check of an [`OptimizeReport`] (Phase 5a's `fd_check`).",
+      "properties": {
+        "detail": {
+          "description": "The disagreement (or the error that stopped the check) otherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "passed": {
+          "description": "Whether every gradient entry agreed with its FD estimate within\n`tolerance`.",
+          "type": "boolean"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FdCheckSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The 5a summary when it passed."
+        }
+      },
+      "required": [
+        "passed",
+        "summary",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "OptimizeReport": {
+      "description": "`geode optimize` report (`kind = \"optimize\"`; Epic #841 Phase 6b).",
+      "properties": {
+        "algorithm": {
+          "description": "`\"lbfgsb\"` (no constraints) or `\"mma\"`.",
+          "type": "string"
+        },
+        "backend": {
+          "description": "Compiled-in Burn backend: `ndarray`, `wgpu`, `cuda` or `metal`.",
+          "type": "string"
+        },
+        "best_mesh_file": {
+          "$ref": "#/$defs/FileRef",
+          "description": "The best design's mesh (Gmsh MSH 4.1)."
+        },
+        "best_spec_file": {
+          "$ref": "#/$defs/FileRef",
+          "description": "The best design as a spec (`optimize.variables[].initial` set)."
+        },
+        "checkpoint_file": {
+          "$ref": "#/$defs/FileRef",
+          "description": "The resumable checkpoint (`--resume`)."
+        },
+        "constraint_values": {
+          "description": "The constraint values `g ≤ 0` at the best design.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "converged": {
+          "description": "Whether a convergence criterion was met.",
+          "type": "boolean"
+        },
+        "evaluations": {
+          "description": "Evaluations spent, failed ones included.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "failed_evaluations": {
+          "description": "Of which failed (forward error, passivity tripwire, mesh-quality\nguard); the optimizer backed off each.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "final_fd_check": {
+          "$ref": "#/$defs/OptimizeFdCheck",
+          "description": "The 5a gradient self-check at the best design, through the shipped\nforward."
+        },
+        "geode_version": {
+          "description": "`geode-cli` crate version.",
+          "type": "string"
+        },
+        "git_sha": {
+          "description": "Git revision baked in at build time (`<sha>[-dirty]` or `unknown`).",
+          "type": "string"
+        },
+        "history_file": {
+          "$ref": "#/$defs/FileRef",
+          "description": "The per-iteration JSONL history."
+        },
+        "iterations": {
+          "description": "Outer iterations run (including those before a `--resume`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "optimize",
+          "description": "Always `\"optimize\"`.",
+          "type": "string"
+        },
+        "max_violation_best": {
+          "description": "Largest constraint violation at the best design (`0` = feasible).",
+          "format": "double",
+          "type": "number"
+        },
+        "min_volume_ratio": {
+          "description": "Smallest tet-volume ratio of the best design's mesh against the\nmeshed one.",
+          "format": "double",
+          "type": "number"
+        },
+        "objective_best": {
+          "description": "Objective at the best design (`best_*` artifacts).",
+          "format": "double",
+          "type": "number"
+        },
+        "objective_initial": {
+          "description": "Objective at the starting point.",
+          "format": "double",
+          "type": "number"
+        },
+        "passivity_sigma_max": {
+          "description": "`σ_max(S)` worst over the best design's differentiated frequencies.",
+          "format": "double",
+          "type": "number"
+        },
+        "schema_version": {
+          "const": 1,
+          "description": "[`REPORT_SCHEMA_VERSION`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spec_path": {
+          "description": "Spec path as given on the command line.",
+          "type": "string"
+        },
+        "status": {
+          "const": "ok",
+          "description": "Always `\"ok\"` (a run that ends unconverged, e.g. at `max_iter`, is\nstill a report; see `converged` / `stop_status`).",
+          "type": "string"
+        },
+        "stop_status": {
+          "description": "The optimizer's final status (`running` when paused is never\nreported): `converged:<reason>`, `max_iterations`, `max_evaluations`\nor `stalled: <message>`.",
+          "type": "string"
+        },
+        "term_values": {
+          "description": "Each objective term's value at the best design (unweighted).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "threads": {
+          "description": "`--threads` value, or `null` when not given (library defaults).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "variables": {
+          "description": "The best design's variables.",
+          "items": {
+            "$ref": "#/$defs/OptimizeVariableResult"
+          },
+          "type": "array"
+        },
+        "wall_time_s": {
+          "description": "Wall time of the run (s).",
+          "format": "double",
+          "type": "number"
+        },
+        "warnings": {
+          "description": "Port-accuracy / mode-gap warnings of the best design's forward.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "geode_version",
+        "git_sha",
+        "backend",
+        "threads",
+        "spec_path",
+        "kind",
+        "status",
+        "algorithm",
+        "converged",
+        "stop_status",
+        "iterations",
+        "evaluations",
+        "failed_evaluations",
+        "objective_initial",
+        "objective_best",
+        "max_violation_best",
+        "variables",
+        "term_values",
+        "constraint_values",
+        "passivity_sigma_max",
+        "min_volume_ratio",
+        "history_file",
+        "checkpoint_file",
+        "best_spec_file",
+        "best_mesh_file",
+        "final_fd_check",
+        "warnings",
+        "wall_time_s"
+      ],
+      "type": "object"
+    },
+    "OptimizeSpec": {
+      "additionalProperties": false,
+      "description": "The `optimize` section (Epic #841 Phase 6b): design variables, a\nweighted objective and constraints, over the parameters and observables\nof the spec's `sensitivity` section (no second parameter vocabulary).\n\nVariables are named as the sensitivity parameter's report name: a shape\nparameter's `name`, or `kind(physical_group)` for a material one, e.g.\n`eps_r(substrate)`. Observables are named by their report `label`, e.g.\n`real(z0[port_in, mode 0])` as listed by `geode check`'s sensitivity\nsummary. Values are in the parameter's own unit (metres for a shape\nparameter). With no `constraints` the loop runs L-BFGS-B; with any, MMA\n(which needs finite variable bounds).",
+      "properties": {
+        "constraints": {
+          "description": "Observable inequality constraints (default none).",
+          "items": {
+            "$ref": "#/$defs/ConstraintSpec"
+          },
+          "type": "array"
+        },
+        "min_volume_ratio": {
+          "description": "Mesh-quality guard: a trial design whose morphed mesh has a tet\nwhose volume falls below this fraction of its meshed volume (the\n`geode-core` `min_tet_volume_ratio`) is a failed evaluation (the\noptimizer backs off and the history records it). Default `0.1`;\n`0 ≤ r < 1`. Re-meshing past the budget is not yet available.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "objective": {
+          "description": "Weighted objective terms (`≥ 1`); the objective is their weighted sum.",
+          "items": {
+            "$ref": "#/$defs/ObjectiveTermSpec"
+          },
+          "type": "array"
+        },
+        "passivity_tol": {
+          "description": "Passivity tripwire tolerance: `σ_max(S) ≤ 1 + tol` at every\nevaluation (default `1e-6`). A violation is a failed evaluation.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "stop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OptimizeStopSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Stopping criteria and L-BFGS memory (defaults of `geode-optimize`\nexcept `max_iter = 50`)."
+        },
+        "variables": {
+          "description": "The design variables (`≥ 1`, distinct). Sensitivity parameters not\nlisted here stay at their spec value.",
+          "items": {
+            "$ref": "#/$defs/OptimizeVariableSpec"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "variables",
+        "objective"
+      ],
+      "type": "object"
+    },
+    "OptimizeStopSpec": {
+      "additionalProperties": false,
+      "description": "Stopping criteria of an [`OptimizeSpec`].",
+      "properties": {
+        "f_rel_tol": {
+          "description": "Relative objective change (default `1e-12`).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max_evals": {
+          "description": "Maximum evaluations, failed ones included (default 5000).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_iter": {
+          "description": "Maximum iterations (default 50).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "pg_tol": {
+          "description": "Projected-gradient / KKT tolerance, in optimizer units (default `1e-6`).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "OptimizeVariableResult": {
+      "description": "One design variable of an [`OptimizeReport`].",
+      "properties": {
+        "initial": {
+          "description": "Starting value (the parameter's unit).",
+          "format": "double",
+          "type": "number"
+        },
+        "lower": {
+          "description": "Lower bound.",
+          "format": "double",
+          "type": "number"
+        },
+        "parameter": {
+          "description": "The sensitivity parameter's report name.",
+          "type": "string"
+        },
+        "upper": {
+          "description": "Upper bound.",
+          "format": "double",
+          "type": "number"
+        },
+        "value": {
+          "description": "Value at the best design.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "parameter",
+        "initial",
+        "value",
+        "lower",
+        "upper"
+      ],
+      "type": "object"
+    },
+    "OptimizeVariableSpec": {
+      "additionalProperties": false,
+      "description": "One design variable of an [`OptimizeSpec`].",
+      "properties": {
+        "initial": {
+          "description": "Starting value (default: the parameter's value at the spec's\ngeometry / materials); within the bounds.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "lower": {
+          "description": "Lower bound, in the parameter's unit (`< upper`).",
+          "format": "double",
+          "type": "number"
+        },
+        "parameter": {
+          "description": "The sensitivity parameter's report name (see [`OptimizeSpec`]).",
+          "type": "string"
+        },
+        "scale": {
+          "description": "Length of one optimizer unit in the parameter's unit (default:\n`upper − lower`); the optimizer works on `(p − initial) / scale`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "upper": {
+          "description": "Upper bound, in the parameter's unit.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "parameter",
+        "lower",
+        "upper"
+      ],
+      "type": "object"
     },
     "PecSummary": {
       "description": "One PEC surface.",
@@ -4067,6 +4605,17 @@
         "mesh": {
           "$ref": "#/$defs/MeshSpec",
           "description": "The mesh to solve on."
+        },
+        "optimize": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OptimizeSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Gradient-based design loop for `geode optimize` (additive in v1,\nEpic #841 Phase 6b, issue #1261). Not an analysis section: it rides\non a `driven` spec whose `sensitivity` section (N-port observables)\ndefines the design parameters and observables it references by name.\nThe other subcommands ignore it."
         },
         "ports": {
           "default": [],
@@ -5247,6 +5796,26 @@
       },
       "type": "object"
     },
+    "TargetMode": {
+      "description": "Which side of the target is penalized.",
+      "oneOf": [
+        {
+          "const": "below",
+          "description": "`r = max(0, v − target)`: the value should be at most the target.",
+          "type": "string"
+        },
+        {
+          "const": "above",
+          "description": "`r = max(0, target − v)`: at least the target.",
+          "type": "string"
+        },
+        {
+          "const": "equal",
+          "description": "`r = v − target`.",
+          "type": "string"
+        }
+      ]
+    },
     "UpmlSpec": {
       "additionalProperties": false,
       "description": "A matched (full Sacks) box-UPML absorbing shell on one volume physical\ngroup.\n\nThe shell's **inner wall** (the air box) is derived from the mesh: the\nbounding box of every mesh node, shrunk inward by `thickness` on every\nface. Each tet of the group whose centroid lies outside that box gets\nthe complex coordinate stretch `s_i = 1 − j·sigma_0·(d_i/thickness)²/k₀`\nper axis (`d_i` = depth beyond the inner wall on axis `i`), applied as\nthe constitutive tensors `ε = ε_r·Λ`, `ν = Λ⁻¹` on top of the group's\n`materials` permittivity (vacuum if unlisted). The mesh must therefore\nbe an **axis-aligned box** whose outer shell of depth `thickness` is\nthe absorbing region; terminate it with a PEC outer wall.",
@@ -5791,7 +6360,7 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Output of every `geode` subcommand except `schema`: exactly one JSON document, one of eight kinds discriminated by the top-level `kind` (`check`, `driven`, `eigen`, `extract`, `capacitance`, `inductance`, `mesh`, `error`). Each branch pins `kind` and `status` with `const`, so exactly one branch matches. Report objects are open (no `additionalProperties: false`): fields added within report schema v1 are additive, and consumers should ignore fields they do not know.",
+  "description": "Output of every `geode` subcommand except `schema`: exactly one JSON document, one of nine kinds discriminated by the top-level `kind` (`check`, `driven`, `eigen`, `extract`, `capacitance`, `inductance`, `optimize`, `mesh`, `error`). Each branch pins `kind` and `status` with `const`, so exactly one branch matches. Report objects are open (no `additionalProperties: false`): fields added within report schema v1 are additive, and consumers should ignore fields they do not know.",
   "oneOf": [
     {
       "$ref": "#/$defs/CheckReport"
@@ -5810,6 +6379,9 @@
     },
     {
       "$ref": "#/$defs/InductanceReport"
+    },
+    {
+      "$ref": "#/$defs/OptimizeReport"
     },
     {
       "$ref": "#/$defs/MeshReport"

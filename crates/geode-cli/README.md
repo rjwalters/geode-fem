@@ -1556,6 +1556,56 @@ then observable, then frequency. From the microstrip cookbook
 differentiated Hammerstad–Jensen formula of the open line (the shield
 box and the mesh account for the 2.8 %).
 
+## Design optimization (`geode optimize`, issue #1261)
+
+`geode optimize spec.json [-o report.json] [--outdir DIR] [--resume CHECKPOINT]`
+runs a gradient-based design loop (Epic #841 Phase 6b) over a **driven** spec
+whose `sensitivity` section (N-port, `observables` present) defines the design
+parameters and observables. The `optimize` section only *names* them:
+
+```json
+"optimize": {
+  "variables": [{ "parameter": "strip_width", "lower": 0.0012, "upper": 0.0026,
+                  "initial": 0.0014, "scale": 0.0005 }],
+  "objective": [{ "observable": "real(z0[port_in, mode 0])", "mode": "equal",
+                  "target": 50.0, "aggregate": "sum_sq", "band_hz": [1.9e9, 2.1e9] }],
+  "constraints": [{ "observable": "db(S[1,0])", "mode": "above", "bound": -0.5 }],
+  "min_volume_ratio": 0.1, "passivity_tol": 1e-6,
+  "stop": { "max_iter": 50, "pg_tol": 1e-6 }
+}
+```
+
+* **Variables** are sensitivity parameters by report name: a shape parameter's
+  `name`, or `kind(physical_group)` for a material one (`eps_r(substrate)`).
+  Bounds, `initial` and `scale` are in the parameter's unit (metres for a shape
+  parameter); the optimizer works on `(p − initial) / scale`.
+* **Objective** terms are weighted (`weight`, default 1) sums of an
+  `aggregate` (`sum_sq`, `mean`, `max`; `max` is the Kreisselmeier–Steinhauser
+  smooth maximum of the squared residuals, sharpness `ks_rho`) of the residual
+  of an observable (by its report `label`) against a `target` in `below` /
+  `above` / `equal` mode, over the differentiated frequencies inside `band_hz`.
+* **Constraints** are observable inequalities (`below` / `above` a `bound`, the
+  KS maximum over the band). Without constraints the loop is L-BFGS-B; with any,
+  MMA. Geometric bounds are the variables' bounds.
+* **Mesh-quality guard** `min_volume_ratio`: the mesh is *morphed* from the
+  loaded one along the fixed shape columns (topology frozen); a trial design
+  whose smallest tet volume falls below this fraction of its meshed volume is a
+  failed evaluation (the optimizer backs off). **Re-meshing is not available
+  yet**: a design that needs it stops at the guard.
+* **Passivity tripwire**: `σ_max(S) ≤ 1 + passivity_tol` at every evaluation; a
+  violation is a failed evaluation recorded in the history.
+* **Outputs** (in `--outdir`, default the directory of `-o`, else
+  `./geode-optimize`): `history.jsonl` (one line per iteration, plus
+  iteration 0: design vector, objective, gradient norm, constraint values,
+  passivity `σ_max`, mesh-quality ratio, mode-gap / port-accuracy warnings),
+  `checkpoint.json`, `best_spec.json` + `best_mesh.msh` (re-load with `geode
+  check`). `--resume` continues from a checkpoint of the same spec and
+  reproduces the uninterrupted run bit for bit; the stopping criteria are read
+  from the spec, so a resumed run may be given a larger budget.
+* **Final FD check**: the report ends with Phase 5a's `fd_check` (re-running the
+  shipped forward at each parameter ± a step) at the best design
+  (`final_fd_check`); a disagreement is reported, not fatal.
+
 ## Field / far-field export (`--outdir`, issue #684)
 
 `geode driven | extract | eigen … --outdir <DIR>` additionally writes
