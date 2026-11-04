@@ -1,0 +1,31 @@
+{
+  "fd24_seconds": [
+    145.050955625
+  ],
+  "forward_seconds": [
+    16.717214041
+  ],
+  "gradient_parts": [
+    [
+      16.681958081,
+      2.178523958,
+      0.008949084,
+      0.001217542
+    ]
+  ],
+  "gradient_seconds": [
+    18.874116167
+  ],
+  "issue": 1177,
+  "level": 2,
+  "median": {
+    "fd24": 145.050955625,
+    "forward": 16.717214041,
+    "gradient": 18.874116167
+  },
+  "mode": "conforming",
+  "nodes": 36083,
+  "rel_tol": 1e-14,
+  "repeats": 1,
+  "shape_map_setup_seconds": 0.231625084
+}
