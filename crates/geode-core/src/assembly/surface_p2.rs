@@ -58,6 +58,7 @@
 
 use crate::analytic::waveguide::TRI_QUAD_DEG4;
 use crate::assembly::hcurl_space::HcurlSpace;
+use crate::driven::shape::{Dual, dcross3, ddot3, dlc3, dscale3, dsub3};
 use crate::elements::ElementOrder;
 use crate::mesh::TetMesh;
 
@@ -171,6 +172,92 @@ pub fn tri_nedelec2_surface_flux(
         let n = tri_nedelec2_trace_shapes(&lam, &grad);
         for (fi, ni) in f.iter_mut().zip(n.iter()) {
             *fi += w * dot(*ni, e_hat);
+        }
+    }
+    f
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Dual twins (issue #1264, Epic #836 Phase 4).
+//
+// Forward-mode-AD counterparts of `tri_nedelec2_surface_mass` /
+// `tri_nedelec2_surface_flux` on dual-valued vertex coordinates, so each
+// `.du` is the exact `∂/∂X` of the local surface block w.r.t. whichever
+// coordinate was seeded with `Dual::var`. They give `∂S/∂X` (lumped-port and
+// impedance-wall admittance) and `∂f/∂X` (port drive / voltage readout) for
+// the order-generic shape adjoint. Same fixed `TRI_QUAD_DEG4` rule; the
+// barycentric points are constants, so geometry enters only through the
+// surface gradients `∇_sλ` and the area (no `∂λ/∂X` term).
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Dual twin of [`tri_surface_gradients`]: the in-plane barycentric
+/// gradients and the (unsigned) area of a dual-valued triangle.
+pub(crate) fn tri_surface_gradients_dual(v: &[[Dual; 3]; 3]) -> ([[Dual; 3]; 3], Dual) {
+    let e1 = dsub3(v[1], v[0]);
+    let e2 = dsub3(v[2], v[0]);
+    let n = dcross3(e1, e2);
+    let n2 = ddot3(n, n);
+    let inv = Dual::cst(1.0).div(n2);
+    let g1 = dcross3(e2, n).map(|x| x.mul(inv));
+    let g2 = dcross3(n, e1).map(|x| x.mul(inv));
+    let g0 = [
+        g1[0].add(g2[0]).neg(),
+        g1[1].add(g2[1]).neg(),
+        g1[2].add(g2[2]).neg(),
+    ];
+    ([g0, g1, g2], n2.sqrt().scale(0.5))
+}
+
+/// Dual twin of [`tri_nedelec2_trace_shapes`] at a fixed barycentric point.
+fn tri_nedelec2_trace_shapes_dual(
+    lam: &[f64; 3],
+    grad: &[[Dual; 3]; 3],
+) -> [[Dual; 3]; TRI_NEDELEC2_TRACE_DOFS] {
+    let w = |a: usize, b: usize| dlc3(lam[a], grad[b], -lam[b], grad[a]);
+    let q = |a: usize, b: usize| dlc3(lam[a], grad[b], lam[b], grad[a]);
+    let mut out = [[Dual::cst(0.0); 3]; TRI_NEDELEC2_TRACE_DOFS];
+    for (k, &(a, b)) in TRACE_EDGES.iter().enumerate() {
+        out[2 * k] = w(a, b);
+        out[2 * k + 1] = q(a, b);
+    }
+    out[6] = dscale3(lam[2], w(0, 1));
+    out[7] = dscale3(lam[0], w(1, 2));
+    out
+}
+
+/// Dual twin of [`tri_nedelec2_surface_mass`] (`∂S/∂X`).
+pub(crate) fn tri_nedelec2_surface_mass_dual(
+    v: &[[Dual; 3]; 3],
+) -> [[Dual; TRI_NEDELEC2_TRACE_DOFS]; TRI_NEDELEC2_TRACE_DOFS] {
+    let (grad, area) = tri_surface_gradients_dual(v);
+    let mut s = [[Dual::cst(0.0); TRI_NEDELEC2_TRACE_DOFS]; TRI_NEDELEC2_TRACE_DOFS];
+    for row in TRI_QUAD_DEG4.iter() {
+        let lam = [row[0], row[1], row[2]];
+        let w = area.scale(row[3]);
+        let n = tri_nedelec2_trace_shapes_dual(&lam, &grad);
+        for i in 0..TRI_NEDELEC2_TRACE_DOFS {
+            for j in 0..TRI_NEDELEC2_TRACE_DOFS {
+                s[i][j] = s[i][j].add(ddot3(n[i], n[j]).mul(w));
+            }
+        }
+    }
+    s
+}
+
+/// Dual twin of [`tri_nedelec2_surface_flux`] (`∂f/∂X`, `ê` held fixed).
+pub(crate) fn tri_nedelec2_surface_flux_dual(
+    v: &[[Dual; 3]; 3],
+    e_hat: [f64; 3],
+) -> [Dual; TRI_NEDELEC2_TRACE_DOFS] {
+    let (grad, area) = tri_surface_gradients_dual(v);
+    let e = e_hat.map(Dual::cst);
+    let mut f = [Dual::cst(0.0); TRI_NEDELEC2_TRACE_DOFS];
+    for row in TRI_QUAD_DEG4.iter() {
+        let lam = [row[0], row[1], row[2]];
+        let w = area.scale(row[3]);
+        let n = tri_nedelec2_trace_shapes_dual(&lam, &grad);
+        for (fi, ni) in f.iter_mut().zip(n.iter()) {
+            *fi = fi.add(ddot3(*ni, e).mul(w));
         }
     }
     f
@@ -319,6 +406,50 @@ mod tests {
             assert!(row[i] > 0.0);
             for (j, &sij) in row.iter().enumerate() {
                 assert!((sij - s[j][i]).abs() < 1e-15);
+            }
+        }
+    }
+
+    /// The Dual twins reproduce the f64 kernels and match a central finite
+    /// difference of them for every vertex coordinate.
+    #[test]
+    fn dual_twins_match_value_and_finite_difference() {
+        let v = [[0.1, 0.2, 0.3], [1.3, 0.4, -0.2], [0.2, 1.1, 0.9]];
+        let e_hat = [0.6, 0.0, 0.8];
+        let s0 = tri_nedelec2_surface_mass(&v);
+        let f0 = tri_nedelec2_surface_flux(&v, e_hat);
+        let h = 1e-6;
+        for a in 0..3 {
+            for d in 0..3 {
+                let mut dv = v.map(|p| p.map(Dual::cst));
+                dv[a][d] = Dual::var(v[a][d]);
+                let sd = tri_nedelec2_surface_mass_dual(&dv);
+                let fd = tri_nedelec2_surface_flux_dual(&dv, e_hat);
+                let (mut vp, mut vm) = (v, v);
+                vp[a][d] += h;
+                vm[a][d] -= h;
+                let (sp, sm) = (
+                    tri_nedelec2_surface_mass(&vp),
+                    tri_nedelec2_surface_mass(&vm),
+                );
+                let (fp, fm) = (
+                    tri_nedelec2_surface_flux(&vp, e_hat),
+                    tri_nedelec2_surface_flux(&vm, e_hat),
+                );
+                for i in 0..TRI_NEDELEC2_TRACE_DOFS {
+                    assert!((fd[i].re - f0[i]).abs() < 1e-13);
+                    let fd_f = (fp[i] - fm[i]) / (2.0 * h);
+                    assert!((fd[i].du - fd_f).abs() < 1e-7, "flux d/dX[{a}][{d}] i={i}");
+                    for j in 0..TRI_NEDELEC2_TRACE_DOFS {
+                        assert!((sd[i][j].re - s0[i][j]).abs() < 1e-13);
+                        let fd_s = (sp[i][j] - sm[i][j]) / (2.0 * h);
+                        assert!(
+                            (sd[i][j].du - fd_s).abs() < 1e-7,
+                            "mass d/dX[{a}][{d}] ({i},{j}): {} vs {fd_s}",
+                            sd[i][j].du
+                        );
+                    }
+                }
             }
         }
     }

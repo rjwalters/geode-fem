@@ -2041,6 +2041,43 @@ impl DrivenOperator {
         }
     }
 
+    /// Backend-free p=2 assembly for the order-generic gradient drivers
+    /// (issue #1264): the p=2 branch of
+    /// [`DrivenOperator::assemble_with_space`] without the (unused at p=2)
+    /// Burn backend parameter, so the host-side p=2 sensitivity cores need no
+    /// device.
+    ///
+    /// # Errors
+    ///
+    /// [`DrivenError::UnsupportedAtOrder`] for a non-p=2 space; otherwise the
+    /// errors of [`DrivenOperator::assemble_with_space`].
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn assemble_p2_host(
+        space: &crate::assembly::hcurl_space::HcurlSpace,
+        mesh: &TetMesh,
+        materials: DrivenMaterials<'_>,
+        bcs: &DrivenBcs<'_>,
+        ports: &[LumpedPort<'_>],
+        surfaces: &[SurfaceImpedanceBc<'_>],
+        source: DrivenSource<'_>,
+    ) -> Result<Self, DrivenError> {
+        if space.order() != ElementOrder::P2 {
+            return Err(DrivenError::UnsupportedAtOrder {
+                order: space.order(),
+                feature: "the host-side p=2 operator assembly",
+            });
+        }
+        if space.n_nodes() != mesh.n_nodes() || space.n_tets() != mesh.n_tets() {
+            return Err(DrivenError::SpaceMeshMismatch {
+                space_nodes: space.n_nodes(),
+                space_tets: space.n_tets(),
+                mesh_nodes: mesh.n_nodes(),
+                mesh_tets: mesh.n_tets(),
+            });
+        }
+        p2::assemble(space, mesh, materials, None, bcs, ports, surfaces, source)
+    }
+
     /// Element order of the H(curl) space this operator was assembled on
     /// (`P1` for every pre-#838 entry point).
     pub fn order(&self) -> ElementOrder {
