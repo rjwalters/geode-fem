@@ -66,7 +66,7 @@ trigger with `upload: true`):
 |---|---|---|
 | `x86_64-unknown-linux-gnu`  | `ubuntu-22.04`     | Linux x86-64, glibc ≥ 2.35 (Ubuntu 22.04+, Debian 12+, RHEL 10+) |
 | `aarch64-unknown-linux-gnu` | `ubuntu-22.04-arm` | Linux arm64, glibc ≥ 2.35 |
-| `aarch64-apple-darwin`      | `macos-14`         | macOS 11+ on Apple silicon |
+| `aarch64-apple-darwin`      | `macos-15`         | macOS 11+ on Apple silicon |
 
 ```sh
 V=0.6.0; T=x86_64-unknown-linux-gnu   # pick your target
