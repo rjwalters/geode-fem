@@ -1,0 +1,719 @@
+{
+  "_schema": "geode-head-to-head/1",
+  "_generated_by": "benchmarks/patch_antenna_conformal/head_to_head/build_head_to_head.py",
+  "_scope": "Assembled from committed artifacts only; no new solver run. All 2.4 GHz numbers are conditional on the mesh level (nested_dof/README.md) and use UPML sigma_0 = 1.",
+  "optimized_2p4ghz": [
+    {
+      "method": "freeform",
+      "label": "combined_64",
+      "dof_class": "spatially-varying field",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/L0_combined_64.toml",
+      "level": "L0",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "start": "cold",
+      "n_dofs": 64,
+      "worst_s11_db_initial": -0.8951239,
+      "worst_s11_db": -13.78494,
+      "reached_target_minus10": true,
+      "terminal_condition": "distortion_limited",
+      "mean_substrate_thickness_note": "non-uniform thickness ablation (radial DOFs lift the patch); not a 1.6 mm board",
+      "conditional_on_mesh_level": true,
+      "cost": {
+        "wall_s": 1235.9,
+        "peak_rss_gib": 0.816,
+        "host": "not measured"
+      }
+    },
+    {
+      "method": "parametric",
+      "label": "gap_1",
+      "dof_class": "few scalars",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/L0_gap_1.toml",
+      "level": "L0",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "start": "cold",
+      "n_dofs": 1,
+      "worst_s11_db_initial": -0.8951239,
+      "worst_s11_db": -1.675668,
+      "reached_target_minus10": false,
+      "terminal_condition": "distortion_limited",
+      "mean_substrate_thickness_note": "non-uniform thickness ablation (radial DOFs lift the patch); not a 1.6 mm board",
+      "conditional_on_mesh_level": true,
+      "cost": {
+        "wall_s": 644.5,
+        "peak_rss_gib": 0.819,
+        "host": "not measured"
+      }
+    },
+    {
+      "method": "parametric",
+      "label": "gap_16",
+      "dof_class": "spatially-varying field",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/L0_gap_16.toml",
+      "level": "L0",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "start": "cold",
+      "n_dofs": 16,
+      "worst_s11_db_initial": -0.8951239,
+      "worst_s11_db": -9.334367,
+      "reached_target_minus10": false,
+      "terminal_condition": "distortion_limited",
+      "mean_substrate_thickness_note": "non-uniform thickness ablation (radial DOFs lift the patch); not a 1.6 mm board",
+      "conditional_on_mesh_level": true,
+      "cost": {
+        "wall_s": 941.2,
+        "peak_rss_gib": 0.816,
+        "host": "not measured"
+      }
+    },
+    {
+      "method": "parametric",
+      "label": "gap_4",
+      "dof_class": "few scalars",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/L0_gap_4.toml",
+      "level": "L0",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "start": "cold",
+      "n_dofs": 4,
+      "worst_s11_db_initial": -0.8951239,
+      "worst_s11_db": -1.302528,
+      "reached_target_minus10": false,
+      "terminal_condition": "distortion_limited",
+      "mean_substrate_thickness_note": "non-uniform thickness ablation (radial DOFs lift the patch); not a 1.6 mm board",
+      "conditional_on_mesh_level": true,
+      "cost": {
+        "wall_s": 669.6,
+        "peak_rss_gib": 0.807,
+        "host": "not measured"
+      }
+    },
+    {
+      "method": "parametric",
+      "label": "gap_48",
+      "dof_class": "spatially-varying field",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/L0_gap_48.toml",
+      "level": "L0",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "start": "cold",
+      "n_dofs": 48,
+      "worst_s11_db_initial": -0.8951239,
+      "worst_s11_db": -11.74091,
+      "reached_target_minus10": true,
+      "terminal_condition": "distortion_limited",
+      "mean_substrate_thickness_note": "non-uniform thickness ablation (radial DOFs lift the patch); not a 1.6 mm board",
+      "conditional_on_mesh_level": true,
+      "cost": {
+        "wall_s": 1225.7,
+        "peak_rss_gib": 0.806,
+        "host": "not measured"
+      }
+    },
+    {
+      "method": "parametric",
+      "label": "outline_16",
+      "dof_class": "spatially-varying field",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/L0_outline_16.toml",
+      "level": "L0",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "start": "cold",
+      "n_dofs": 16,
+      "worst_s11_db_initial": -0.8951239,
+      "worst_s11_db": -9.628807,
+      "reached_target_minus10": false,
+      "terminal_condition": "distortion_limited",
+      "mean_substrate_thickness_note": "non-uniform thickness ablation (radial DOFs lift the patch); not a 1.6 mm board",
+      "conditional_on_mesh_level": true,
+      "cost": {
+        "wall_s": 1335.3,
+        "peak_rss_gib": 0.832,
+        "host": "not measured"
+      }
+    },
+    {
+      "method": "freeform",
+      "label": "combined_64",
+      "dof_class": "spatially-varying field",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/L1_combined_64.toml",
+      "level": "L1",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "start": "cold",
+      "n_dofs": 64,
+      "worst_s11_db_initial": -1.469478,
+      "worst_s11_db": -14.11728,
+      "reached_target_minus10": true,
+      "terminal_condition": "distortion_limited",
+      "mean_substrate_thickness_note": "non-uniform thickness ablation (radial DOFs lift the patch); not a 1.6 mm board",
+      "conditional_on_mesh_level": true,
+      "cost": {
+        "wall_s": 9566.1,
+        "peak_rss_gib": 5.735,
+        "host": "not measured"
+      }
+    },
+    {
+      "method": "parametric",
+      "label": "gap_1",
+      "dof_class": "few scalars",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/L1_gap_1.toml",
+      "level": "L1",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "start": "cold",
+      "n_dofs": 1,
+      "worst_s11_db_initial": -1.469478,
+      "worst_s11_db": -1.992026,
+      "reached_target_minus10": false,
+      "terminal_condition": "distortion_limited",
+      "mean_substrate_thickness_note": "non-uniform thickness ablation (radial DOFs lift the patch); not a 1.6 mm board",
+      "conditional_on_mesh_level": true,
+      "cost": {
+        "wall_s": 4753.2,
+        "peak_rss_gib": 5.654,
+        "host": "not measured"
+      }
+    },
+    {
+      "method": "parametric",
+      "label": "gap_16",
+      "dof_class": "spatially-varying field",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/L1_gap_16.toml",
+      "level": "L1",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "start": "cold",
+      "n_dofs": 16,
+      "worst_s11_db_initial": -1.469478,
+      "worst_s11_db": -11.29462,
+      "reached_target_minus10": true,
+      "terminal_condition": "distortion_limited",
+      "mean_substrate_thickness_note": "non-uniform thickness ablation (radial DOFs lift the patch); not a 1.6 mm board",
+      "conditional_on_mesh_level": true,
+      "cost": {
+        "wall_s": 6743.2,
+        "peak_rss_gib": 5.685,
+        "host": "not measured"
+      }
+    },
+    {
+      "method": "parametric",
+      "label": "gap_4",
+      "dof_class": "few scalars",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/L1_gap_4.toml",
+      "level": "L1",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "start": "cold",
+      "n_dofs": 4,
+      "worst_s11_db_initial": -1.469478,
+      "worst_s11_db": -1.926474,
+      "reached_target_minus10": false,
+      "terminal_condition": "distortion_limited",
+      "mean_substrate_thickness_note": "non-uniform thickness ablation (radial DOFs lift the patch); not a 1.6 mm board",
+      "conditional_on_mesh_level": true,
+      "cost": {
+        "wall_s": 5134.9,
+        "peak_rss_gib": 5.668,
+        "host": "not measured"
+      }
+    },
+    {
+      "method": "parametric",
+      "label": "gap_48",
+      "dof_class": "spatially-varying field",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/L1_gap_48.toml",
+      "level": "L1",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "start": "cold",
+      "n_dofs": 48,
+      "worst_s11_db_initial": -1.469478,
+      "worst_s11_db": -13.15249,
+      "reached_target_minus10": true,
+      "terminal_condition": "distortion_limited",
+      "mean_substrate_thickness_note": "non-uniform thickness ablation (radial DOFs lift the patch); not a 1.6 mm board",
+      "conditional_on_mesh_level": true,
+      "cost": {
+        "wall_s": 9623.7,
+        "peak_rss_gib": 5.717,
+        "host": "not measured"
+      }
+    },
+    {
+      "method": "parametric",
+      "label": "outline_16",
+      "dof_class": "spatially-varying field",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/L1_outline_16.toml",
+      "level": "L1",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "start": "cold",
+      "n_dofs": 16,
+      "worst_s11_db_initial": -1.469478,
+      "worst_s11_db": -9.98374,
+      "reached_target_minus10": false,
+      "terminal_condition": "plateau",
+      "mean_substrate_thickness_note": "non-uniform thickness ablation (radial DOFs lift the patch); not a 1.6 mm board",
+      "conditional_on_mesh_level": true,
+      "cost": {
+        "wall_s": 6222.9,
+        "peak_rss_gib": 5.697,
+        "host": "not measured"
+      }
+    },
+    {
+      "method": "freeform",
+      "label": "combined_64_cold",
+      "dof_class": "spatially-varying field",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/L2_combined_64_cold.toml",
+      "level": "L2",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "start": "cold",
+      "n_dofs": 64,
+      "worst_s11_db_initial": -1.752366,
+      "worst_s11_db": -14.06614,
+      "reached_target_minus10": true,
+      "terminal_condition": "distortion_limited",
+      "mean_substrate_thickness_note": "non-uniform thickness ablation (radial DOFs lift the patch); not a 1.6 mm board",
+      "conditional_on_mesh_level": true,
+      "cost": {
+        "wall_s": 16711.2,
+        "peak_rss_gib": 19.27,
+        "host": "AWS r8g.8xlarge g2v (32 vCPU Graviton4, 256 GiB), Ubuntu 24.04 arm64; shared by up to three #1103 streams"
+      }
+    },
+    {
+      "method": "freeform",
+      "label": "combined_64_warm",
+      "dof_class": "spatially-varying field",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/L2_combined_64_warm.toml",
+      "level": "L2",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "start": "warm",
+      "n_dofs": 64,
+      "worst_s11_db_initial": -9.854112,
+      "worst_s11_db": -15.8668,
+      "reached_target_minus10": true,
+      "terminal_condition": "distortion_limited",
+      "mean_substrate_thickness_note": "non-uniform thickness ablation (radial DOFs lift the patch); not a 1.6 mm board",
+      "conditional_on_mesh_level": true,
+      "cost": {
+        "wall_s": 12876.6,
+        "peak_rss_gib": 19.211,
+        "host": "AWS r8g.4xlarge pool1 (16 vCPU Graviton4, 128 GiB), Ubuntu 24.04 arm64; two L2 optimizations concurrently, RAYON_NUM_THREADS=8 each"
+      }
+    },
+    {
+      "method": "parametric",
+      "label": "gap_48_warm",
+      "dof_class": "spatially-varying field",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/L2_gap_48_warm.toml",
+      "level": "L2",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "start": "warm",
+      "n_dofs": 48,
+      "worst_s11_db_initial": -9.672052,
+      "worst_s11_db": -13.28936,
+      "reached_target_minus10": true,
+      "terminal_condition": "distortion_limited",
+      "mean_substrate_thickness_note": "non-uniform thickness ablation (radial DOFs lift the patch); not a 1.6 mm board",
+      "conditional_on_mesh_level": true,
+      "cost": {
+        "wall_s": 14231.3,
+        "peak_rss_gib": 19.092,
+        "host": "AWS r8g.4xlarge pool1 (16 vCPU Graviton4, 128 GiB), Ubuntu 24.04 arm64; two L2 optimizations concurrently, RAYON_NUM_THREADS=8 each"
+      }
+    }
+  ],
+  "smoke_fixture_freeform": {
+    "method": "freeform",
+    "label": "smoke_73dof",
+    "dof_class": "spatially-varying field",
+    "source": "benchmarks/patch_antenna_conformal/conformal_results.toml",
+    "level": "curved_smoke",
+    "element_order": "p1",
+    "upml_sigma_0": 1,
+    "n_dofs": 73,
+    "worst_s11_db_initial": -5.506281,
+    "worst_s11_db": -12.06262,
+    "reached_target_minus10": true,
+    "terminal_condition": "target_reached",
+    "conditional_on_mesh_level": true,
+    "comparable_to_2p4ghz_rows": false,
+    "problem_note": "16 x 12 mm smoke patch, band omega 0.3-0.4 rad/mm (~14.3-19.1 GHz): a different problem from the 2.4 GHz patch_conformal_L* rows; do not rank against them",
+    "cost": {
+      "wall_s": "not measured",
+      "peak_rss_gib": "not measured",
+      "host": "not measured"
+    }
+  },
+  "gaps": [
+    {
+      "level": "L0",
+      "freeform": "combined_64",
+      "freeform_worst_s11_db": -13.78494,
+      "best_parametric": "gap_48",
+      "best_parametric_n_dofs": 48,
+      "best_parametric_worst_s11_db": -11.74091,
+      "gap_db_parametric_minus_freeform": 2.04403,
+      "fewest_dof_parametric_reaching_minus10": {
+        "label": "gap_48",
+        "n_dofs": 48,
+        "worst_s11_db": -11.74091
+      },
+      "start_mismatch_note": null
+    },
+    {
+      "level": "L1",
+      "freeform": "combined_64",
+      "freeform_worst_s11_db": -14.11728,
+      "best_parametric": "gap_48",
+      "best_parametric_n_dofs": 48,
+      "best_parametric_worst_s11_db": -13.15249,
+      "gap_db_parametric_minus_freeform": 0.96479,
+      "fewest_dof_parametric_reaching_minus10": {
+        "label": "gap_16",
+        "n_dofs": 16,
+        "worst_s11_db": -11.29462
+      },
+      "start_mismatch_note": null
+    },
+    {
+      "level": "L2",
+      "freeform": "combined_64_cold",
+      "freeform_worst_s11_db": -14.06614,
+      "best_parametric": "gap_48_warm",
+      "best_parametric_n_dofs": 48,
+      "best_parametric_worst_s11_db": -13.28936,
+      "gap_db_parametric_minus_freeform": 0.77678,
+      "fewest_dof_parametric_reaching_minus10": {
+        "label": "gap_48_warm",
+        "n_dofs": 48,
+        "worst_s11_db": -13.28936
+      },
+      "start_mismatch_note": "warm-started rows are not like-for-like with cold rows"
+    },
+    {
+      "level": "L2",
+      "freeform": "combined_64_warm",
+      "freeform_worst_s11_db": -15.8668,
+      "best_parametric": "gap_48_warm",
+      "best_parametric_n_dofs": 48,
+      "best_parametric_worst_s11_db": -13.28936,
+      "gap_db_parametric_minus_freeform": 2.57744,
+      "fewest_dof_parametric_reaching_minus10": {
+        "label": "gap_48_warm",
+        "n_dofs": 48,
+        "worst_s11_db": -13.28936
+      },
+      "start_mismatch_note": "warm-started rows are not like-for-like with cold rows"
+    }
+  ],
+  "cross_level_transfer": [
+    {
+      "design": "L1_combined_64",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_combined_64_on_L0.toml",
+      "evaluated_on_level": "L0",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "n_dofs": 64,
+      "worst_s11_db": -6.041419,
+      "cost": {
+        "wall_s": 12.8,
+        "peak_rss_gib": 0.905,
+        "host": "not measured"
+      }
+    },
+    {
+      "design": "L1_combined_64",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_combined_64_on_L1.toml",
+      "evaluated_on_level": "L1",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "n_dofs": 64,
+      "worst_s11_db": -14.11728,
+      "cost": {
+        "wall_s": 236.3,
+        "peak_rss_gib": 5.762,
+        "host": "AWS r8g.8xlarge g2v (32 vCPU Graviton4, 256 GiB), Ubuntu 24.04 arm64; shared with other #1103 streams"
+      }
+    },
+    {
+      "design": "L1_combined_64",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_combined_64_on_L1_p2.toml",
+      "evaluated_on_level": "L1",
+      "element_order": "p2",
+      "upml_sigma_0": 1,
+      "n_dofs": 64,
+      "worst_s11_db": -5.690916,
+      "cost": {
+        "wall_s": 4608.8,
+        "peak_rss_gib": 132.079,
+        "host": "AWS r8g.8xlarge g2v (32 vCPU Graviton4, 256 GiB), Ubuntu 24.04 arm64; shared by up to three #1103 streams"
+      }
+    },
+    {
+      "design": "L1_combined_64",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_combined_64_on_L2.toml",
+      "evaluated_on_level": "L2",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "n_dofs": 64,
+      "worst_s11_db": -9.854112,
+      "cost": {
+        "wall_s": 756.2,
+        "peak_rss_gib": 19.306,
+        "host": "AWS r8g.8xlarge g2v (32 vCPU Graviton4, 256 GiB), Ubuntu 24.04 arm64; shared by up to three #1103 streams"
+      }
+    },
+    {
+      "design": "L1_combined_64",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_combined_64_on_L3.toml",
+      "evaluated_on_level": "L3",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "n_dofs": 64,
+      "worst_s11_db": -7.566864,
+      "cost": {
+        "wall_s": 4068.0,
+        "peak_rss_gib": 68.924,
+        "host": "AWS r8g.8xlarge g2v (32 vCPU Graviton4, 256 GiB), Ubuntu 24.04 arm64; shared by up to three #1103 streams"
+      }
+    },
+    {
+      "design": "L1_gap_48",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_gap_48_on_L1.toml",
+      "evaluated_on_level": "L1",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "n_dofs": 48,
+      "worst_s11_db": -13.15249,
+      "cost": {
+        "wall_s": 254.6,
+        "peak_rss_gib": 5.767,
+        "host": "AWS r8g.8xlarge g2v (32 vCPU Graviton4, 256 GiB), Ubuntu 24.04 arm64; shared with other #1103 streams"
+      }
+    },
+    {
+      "design": "L2_combined_64_cold",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/verify/L2_combined_64_cold_on_L1_p2.toml",
+      "evaluated_on_level": "L1",
+      "element_order": "p2",
+      "upml_sigma_0": 1,
+      "n_dofs": 64,
+      "worst_s11_db": -9.159596,
+      "cost": {
+        "wall_s": 9762.3,
+        "peak_rss_gib": 132.185,
+        "host": "AWS r8g.8xlarge g2v (32 vCPU Graviton4, 256 GiB), Ubuntu 24.04 arm64; P2 and L3 verification streams concurrently"
+      }
+    },
+    {
+      "design": "L2_combined_64_cold",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/verify/L2_combined_64_cold_on_L3.toml",
+      "evaluated_on_level": "L3",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "n_dofs": 64,
+      "worst_s11_db": -12.47029,
+      "cost": {
+        "wall_s": 6238.6,
+        "peak_rss_gib": 70.15,
+        "host": "AWS r8g.8xlarge g2v (32 vCPU Graviton4, 256 GiB), Ubuntu 24.04 arm64; P2 and L3 verification streams concurrently"
+      }
+    },
+    {
+      "design": "L2_combined_64_warm",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/verify/L2_combined_64_warm_on_L1_p2.toml",
+      "evaluated_on_level": "L1",
+      "element_order": "p2",
+      "upml_sigma_0": 1,
+      "n_dofs": 64,
+      "worst_s11_db": -8.256843,
+      "cost": {
+        "wall_s": 4302.9,
+        "peak_rss_gib": 132.256,
+        "host": "AWS r8g.8xlarge g2v (32 vCPU Graviton4, 256 GiB), Ubuntu 24.04 arm64; concurrent with one L3 verification"
+      }
+    },
+    {
+      "design": "L2_combined_64_warm",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/verify/L2_combined_64_warm_on_L3.toml",
+      "evaluated_on_level": "L3",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "n_dofs": 64,
+      "worst_s11_db": -11.47734,
+      "cost": {
+        "wall_s": 6299.3,
+        "peak_rss_gib": 68.981,
+        "host": "AWS r8g.8xlarge g2v (32 vCPU Graviton4, 256 GiB), Ubuntu 24.04 arm64; P2 and L3 verification streams concurrently"
+      }
+    },
+    {
+      "design": "initial",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/verify/initial_on_L1.toml",
+      "evaluated_on_level": "L1",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "n_dofs": 1,
+      "worst_s11_db": -1.469478,
+      "cost": {
+        "wall_s": 162.0,
+        "peak_rss_gib": 5.724,
+        "host": "AWS r8g.8xlarge g2v (32 vCPU Graviton4, 256 GiB), Ubuntu 24.04 arm64; shared by up to three #1103 streams"
+      }
+    },
+    {
+      "design": "initial",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/verify/initial_on_L1_p2.toml",
+      "evaluated_on_level": "L1",
+      "element_order": "p2",
+      "upml_sigma_0": 1,
+      "n_dofs": 1,
+      "worst_s11_db": -2.421677,
+      "cost": {
+        "wall_s": 4618.4,
+        "peak_rss_gib": 132.249,
+        "host": "AWS r8g.8xlarge g2v (32 vCPU Graviton4, 256 GiB), Ubuntu 24.04 arm64; shared by up to three #1103 streams"
+      }
+    },
+    {
+      "design": "initial",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/verify/initial_on_L2.toml",
+      "evaluated_on_level": "L2",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "n_dofs": 1,
+      "worst_s11_db": -1.752366,
+      "cost": {
+        "wall_s": 724.8,
+        "peak_rss_gib": 19.125,
+        "host": "AWS r8g.8xlarge g2v (32 vCPU Graviton4, 256 GiB), Ubuntu 24.04 arm64; shared by up to three #1103 streams"
+      }
+    },
+    {
+      "design": "initial",
+      "source": "benchmarks/patch_antenna_conformal/nested_dof/verify/initial_on_L3.toml",
+      "evaluated_on_level": "L3",
+      "element_order": "p1",
+      "upml_sigma_0": 1,
+      "n_dofs": 1,
+      "worst_s11_db": -2.036528,
+      "cost": {
+        "wall_s": 4099.0,
+        "peak_rss_gib": 68.776,
+        "host": "AWS r8g.8xlarge g2v (32 vCPU Graviton4, 256 GiB), Ubuntu 24.04 arm64; shared by up to three #1103 streams"
+      }
+    }
+  ],
+  "fdtd_density": {
+    "method": "FDTD-density",
+    "n_dofs": "not applicable (no density run performed)",
+    "worst_s11_db": "not run \u2014 operator-gated",
+    "mesh_level": "n/a",
+    "upml_sigma_0": "n/a",
+    "s11_note": "No FDTD-density |S11| exists in any committed artifact. The definitive 3-D Meep-adjoint run is OPERATOR-ONLY (fdtd_density_baseline/README.md).",
+    "geometric_staircasing_patch_arc": {
+      "source": "benchmarks/fdtd_density_baseline/staircasing_results.json",
+      "scope": "Physical bent-patch geometry; no EM solve or cost-to-accuracy claim.",
+      "rows": [
+        {
+          "resolution_cells_per_mm": 1,
+          "cell_size_mm": 1.0,
+          "boundary_pos_max_mm": 0.5222041616256092,
+          "boundary_pos_rms_mm": 0.33264923134109525,
+          "perimeter_rel_error": 0.11111111111111108
+        },
+        {
+          "resolution_cells_per_mm": 2,
+          "cell_size_mm": 0.5,
+          "boundary_pos_max_mm": 0.25950760504910875,
+          "boundary_pos_rms_mm": 0.12815484386651071,
+          "perimeter_rel_error": 0.07323232323232319
+        },
+        {
+          "resolution_cells_per_mm": 4,
+          "cell_size_mm": 0.25,
+          "boundary_pos_max_mm": 0.13795984013501084,
+          "boundary_pos_rms_mm": 0.07272500905870839,
+          "perimeter_rel_error": 0.08585858585858581
+        },
+        {
+          "resolution_cells_per_mm": 8,
+          "cell_size_mm": 0.125,
+          "boundary_pos_max_mm": 0.07246012182974937,
+          "boundary_pos_rms_mm": 0.03706160570372562,
+          "perimeter_rel_error": 0.08901515151515148
+        },
+        {
+          "resolution_cells_per_mm": 16,
+          "cell_size_mm": 0.0625,
+          "boundary_pos_max_mm": 0.035963789081463915,
+          "boundary_pos_rms_mm": 0.018903533134768457,
+          "perimeter_rel_error": 0.09532828282828279
+        }
+      ],
+      "fem_unstructured_facet_error": [
+        {
+          "level": "L0",
+          "facet_max_radial_error_mm": 0.004358097478814216,
+          "facet_rms_radial_error_mm": 0.0017523093326466323
+        },
+        {
+          "level": "L1",
+          "facet_max_radial_error_mm": 0.0011275994834818448,
+          "facet_rms_radial_error_mm": 0.0004406945663061248
+        }
+      ],
+      "caveat": "Cartesian vertical RMS and facet radial RMS use different measures; no equal-error solver cost is inferred."
+    },
+    "meep_cost": {
+      "source": "benchmarks/fdtd_density_baseline/meep_runtime_scaling.json",
+      "caveat": "Historical single-process Meep timing on the old unmatched smoke scaffold. These measurements do not establish antenna S11 accuracy or a cost-to-accuracy comparison.",
+      "host": "AWS m6i.4xlarge (16 vCPU Intel Ice Lake, 61 GB RAM), Ubuntu 22.04",
+      "measured_perstep": [
+        {
+          "resolution_px_per_mm": 4,
+          "cells": 10321920,
+          "s_per_step": 0.233343,
+          "peak_rss_gb": 1.573
+        },
+        {
+          "resolution_px_per_mm": 6,
+          "cells": 34836480,
+          "s_per_step": 0.742044,
+          "peak_rss_gb": 4.918
+        },
+        {
+          "resolution_px_per_mm": 8,
+          "cells": 82575360,
+          "s_per_step": 1.714985,
+          "peak_rss_gb": 11.338
+        },
+        {
+          "resolution_px_per_mm": 10,
+          "cells": 161280000,
+          "s_per_step": 3.386214,
+          "peak_rss_gb": 21.836
+        },
+        {
+          "resolution_px_per_mm": 12,
+          "cells": 278691840,
+          "s_per_step": 5.761447,
+          "peak_rss_gb": 37.417
+        }
+      ],
+      "single_forward_solve_wallclock_vs_R": "s_per_step * steps ~ R^2.92 * R^1 ~ R^3.92  (i.e. ~R^4)"
+    }
+  }
+}
