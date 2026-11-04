@@ -30,9 +30,13 @@
 //!   [`driver::adapt_eigen`], and [`driver::adapt_with`] for custom
 //!   solvers).
 //!
-//! The planned sibling `dwr` arrives with Epic #835 Phase 4.
+//! - [`dwr`]: the dual-weighted-residual goal-oriented core (Phase 4, issue
+//!   #1266, step 1): the signed `Σ ρ_T ω_T` estimate and the labelled
+//!   heuristic `dwr-product` fallback. The `dwr-p2` weights, S-parameter and
+//!   eigenfrequency goals and the loop hook are later steps.
 
 pub mod driver;
+pub mod dwr;
 pub mod estimator;
 pub mod goal;
 pub mod refine;
