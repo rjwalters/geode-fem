@@ -35,6 +35,8 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY examples ./examples
+# Workspace Cargo.toml path-patches several crates under vendor/.
+COPY vendor ./vendor
 
 # Default features: ndarray f64 CPU backend + faer-parallel (no GPU, no
 # arpack), identical to the prebuilt release binaries.
