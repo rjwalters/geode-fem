@@ -122,7 +122,7 @@ jobs:
         uses: julia-actions/setup-julia@v2
         with:
           # Julia 1.10 is the current LTS. Revisit if Arpack.jl drops 1.10.
-          version: '1.10'
+          version: '1.13'
 
       - name: Cache Julia depot
         uses: julia-actions/cache@v2
@@ -134,7 +134,7 @@ jobs:
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.14'
           cache: pip
           cache-dependency-path: reference/numpy/requirements.txt
 

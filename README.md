@@ -59,6 +59,18 @@ benchmark — analytical Mie series ↔ strata FDTD ↔ GEODE-FEM eigenmode.
 | **Math correctness** | M_{ij} = ∫ N_i · N_j ε(x) dV is **complex-symmetric** (M^T = M), not Hermitian (M^H ≠ M) — the Mie inner product is bilinear, not sesquilinear. Caught during PR #55, validated by empirical check (`Im(v^H M v) ≈ −58`) and by-hand derivation. ILU(0) for COCG preserves the bilinear form (#267). |
 | **Validated chain** | 200+ PRs merged. Scalar Helmholtz cube modes, batched P1 + Nédélec local kernels with autodiff through assembly, dense (shift-invert: dense LU plus faer's standard Schur QR) and sparse (shift-and-invert Lanczos, complex-symmetric variant for the Mie pencil) eigensolvers, ARPACK fallback driver (`--features arpack`), all four absorbing-BC families above, Palace 3D oracle slots for patch (#239) and spiral (#266). |
 
+## Papers
+
+Three papers built on geode-fem are published on Zenodo (v1, 2026-10-25), by Robb Walters (2AM Logic) and Crutcher Dunnavant (ZSpaceLabs.ai). Cite the concept DOI, which always resolves to the latest version. Sources, figure scripts and the evidence behind every number are under [`papers/`](papers/README.md).
+
+| Paper | Concept DOI |
+|---|---|
+| Adjoint Shape Optimization of a Conformal Patch Antenna | [10.5281/zenodo.21480891](https://doi.org/10.5281/zenodo.21480891) |
+| An Independent Finite-Element Cross-Check of the DeviceLayout.jl Transmon | [10.5281/zenodo.23580544](https://doi.org/10.5281/zenodo.23580544) |
+| Adjoint Gradients for Torque-Ripple Optimization of a Nonlinear Motor | [10.5281/zenodo.23580547](https://doi.org/10.5281/zenodo.23580547) |
+
+The motor paper's raw optimizer traces are a separate dataset, [10.5281/zenodo.23580550](https://doi.org/10.5281/zenodo.23580550).
+
 ## Visualizations
 
 Each benchmark family ships a one-command **tearsheet** that overlays the FEM
