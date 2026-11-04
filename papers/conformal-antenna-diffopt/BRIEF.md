@@ -7,7 +7,17 @@ anonymous: false
 web_search: true
 ---
 
-# v12 — reading flow, 2026-10-23 — CURRENT
+# v13 — published on Zenodo (v1), 2026-10-25 — CURRENT
+
+**Published.** `conformal-antenna-diffopt.13/` is the paper of record for Zenodo v1, 23 pages.
+
+- **DOI (this version):** 10.5281/zenodo.21480892, https://zenodo.org/records/21480892
+- **Concept DOI (all versions; cite and link this one):** 10.5281/zenodo.21480891
+- **Files:** `walters-dunnavant-2026-conformal-antenna-v1.pdf` and `walters-dunnavant-2026-conformal-antenna-v1-source.zip` (builds with pdflatex alone), md5-verified against the upload.
+- **v13 vs v12:** a corresponding-author footnote on Robb Walters (robb@2amlogic.com) is the only change (operator request before publishing, PR #1268). Coauthor Crutcher Dunnavant approved the v1 release.
+- **Revisions from here** go up as new versions of the same Zenodo record (v2, ...); the concept DOI stays the same. Open v2 items are in geode-fem#1231.
+
+# v12 — reading flow, 2026-10-23
 
 **Current state: `conformal-antenna-diffopt.12/` (draft, not reviewed), 23 pages.**
 v12 = v11 reordered and glossed for reading flow, from a flow review for an interested
