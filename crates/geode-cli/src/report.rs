@@ -76,8 +76,14 @@ pub struct MeshSummary {
     pub n_tets: usize,
     /// Nédélec edge-DOF count before PEC elimination.
     pub n_edges: usize,
-    /// Edge DOFs kept after PEC elimination (the linear-system size).
+    /// DOFs kept after PEC elimination (the linear-system size).
     pub n_interior: usize,
+    /// Nédélec element order actually used (additive in v1, issue #1265):
+    /// `1` or `2`.
+    pub element_order: u8,
+    /// Global H(curl) DOF count before PEC elimination: `n_edges` at order
+    /// 1, `2·n_edges + 2·n_faces` at order 2 (additive in v1, issue #1265).
+    pub n_dofs: usize,
 }
 
 /// One volume region.
@@ -1157,6 +1163,48 @@ pub struct ResourceEstimate {
     pub wall_time_confidence: Option<&'static str>,
     /// The calibration anchor, its date and the scaling assumptions.
     pub calibration_basis: &'static str,
+    /// Order-2 vs order-1 comparison on the same mesh (additive in v1,
+    /// issue #1265); present only when `element_order = 2`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order_comparison: Option<OrderComparison>,
+}
+
+/// What `element_order = 2` costs relative to order 1 on the same mesh
+/// (`geode check`, issue #1265). DOF and nnz counts are **exact** (from the
+/// order-2 DOF tables, no assembly); memory is the order-1 anchor's
+/// linear-in-nnz model applied to the order-2 pattern, with no order-2
+/// anchor measurement yet, so it stays `order_of_magnitude`.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct OrderComparison {
+    /// Order-2 global DOFs before PEC elimination, `2·n_edges + 2·n_faces`.
+    pub n_dofs_p2: usize,
+    /// Order-2 DOFs after PEC elimination (the linear-system size).
+    pub n_interior_p2: usize,
+    /// Order-1 DOFs after PEC elimination on the same mesh.
+    pub n_interior_p1: usize,
+    /// `n_interior_p2 / n_interior_p1`.
+    pub dof_ratio: f64,
+    /// Exact order-2 `nnz(A)` before PEC elimination (equals `nnz_a`).
+    pub nnz_p2: usize,
+    /// Exact order-1 `nnz(A)` before PEC elimination.
+    pub nnz_p1: usize,
+    /// `nnz_p2 / nnz_p1`.
+    pub nnz_ratio: f64,
+    /// Order-1 peak-memory estimate on the same mesh (GB).
+    pub peak_memory_gb_p1: f64,
+    /// `peak_memory_gb / peak_memory_gb_p1`.
+    pub memory_ratio: f64,
+    /// Interior DOF count above which direct LU runs out of memory
+    /// (memory-abundance experiment, about 1M DOF).
+    pub direct_lu_dof_limit: usize,
+    /// `false` when the order-2 system is at or above the direct-LU limit
+    /// (or the iterative solver is selected, which has no order-2 path).
+    pub fits_direct_lu: bool,
+    /// Plain-language verdict, including the order-1 numbers when order 2
+    /// will not fit.
+    pub verdict: String,
+    /// `"p1_anchor_linear_in_nnz"`: no order-2 anchor measurement exists.
+    pub memory_model: &'static str,
 }
 
 /// Aggregate solver statistics for a driven sweep.

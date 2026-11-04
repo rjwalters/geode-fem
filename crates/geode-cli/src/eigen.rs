@@ -41,10 +41,12 @@ use faer::c64;
 use geode_core::assembly::nedelec::tet_centroids;
 use geode_core::constants::C_M_PER_S;
 use geode_core::eigen::lossy_cavity::{
-    LossyCavityMaterials, LossyCavitySettings, solve_lossy_cavity_modes,
+    FrozenWalls, LossyCavityMaterials, LossyCavitySettings, solve_lossy_cavity_modes,
+    solve_lossy_cavity_modes_on_space,
 };
 use geode_core::eigen::pec_cavity::{
-    PecCavityMaterials, PecCavitySettings, solve_pec_cavity_modes_with_materials,
+    PecCavityMaterials, PecCavitySettings, solve_pec_cavity_modes_on_space,
+    solve_pec_cavity_modes_with_materials,
 };
 
 use crate::backend::CompiledBackend;
@@ -92,6 +94,19 @@ fn pec_cavity_modes(
         ..PecCavitySettings::new(target.sigma(), target.n_modes)
     };
     let device = <B as BackendTypes>::Device::default();
+    if let Some(space) = &p.hcurl_space {
+        // Order 2 (issue #1265): the face-exact mask in `p.pec_mask`.
+        return Ok(solve_pec_cavity_modes_on_space::<B>(
+            space,
+            &p.tagged.mesh,
+            materials,
+            &p.pec_mask,
+            &[],
+            &settings,
+            &device,
+        )?
+        .modes);
+    }
     Ok(solve_pec_cavity_modes_with_materials::<B>(
         &p.tagged.mesh,
         materials,
@@ -149,8 +164,27 @@ fn solve_lossy(p: &Problem, target: &EigenTarget) -> Result<Solved, CliError> {
         Some((eps, nu)) => LossyCavityMaterials::Tensor { eps, nu },
         None => LossyCavityMaterials::Isotropic(&p.eps),
     };
-    let solved =
-        solve_lossy_cavity_modes::<B>(&p.tagged.mesh, &materials, &p.pec_mask, &settings, &device)?;
+    let solved = match &p.hcurl_space {
+        Some(space) => {
+            solve_lossy_cavity_modes_on_space::<B>(
+                space,
+                &p.tagged.mesh,
+                &materials,
+                &p.pec_mask,
+                FrozenWalls::NONE,
+                &settings,
+                &device,
+            )?
+            .modes
+        }
+        None => solve_lossy_cavity_modes::<B>(
+            &p.tagged.mesh,
+            &materials,
+            &p.pec_mask,
+            &settings,
+            &device,
+        )?,
+    };
     Ok(Solved {
         modes: solved
             .modes
@@ -177,6 +211,13 @@ pub fn run(
     outdir: Option<&Path>,
 ) -> Result<EigenReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Eigen))?;
+    if p.hcurl_space.is_some() && outdir.is_some() {
+        return Err(CliError::InvalidSpec(
+            "element_order = 2 is not supported with --outdir: the VTU field export is \
+             edge-based (order 1); drop --outdir or use element_order = 1"
+                .into(),
+        ));
+    }
     let out = OutDir::create_opt(outdir)?;
     let target = p.eigen.expect("eigen spec has a resolved eigen section");
 

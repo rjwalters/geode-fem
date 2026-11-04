@@ -281,6 +281,15 @@
       ],
       "type": "object"
     },
+    "ElementOrderSpec": {
+      "default": 1,
+      "description": "Nédélec element order: 1 (default) or 2.",
+      "enum": [
+        1,
+        2
+      ],
+      "type": "integer"
+    },
     "EpsDiagSpec": {
       "additionalProperties": false,
       "description": "Diagonal complex relative-permittivity tensor `diag(ε_xx, ε_yy, ε_zz)`\nin mesh axes (issue #760). Each component is `[re, im]`, `im ≤ 0`\n(`exp(+jωt)`).",
@@ -1359,6 +1368,10 @@
       ],
       "default": null,
       "description": "Eigenmode analysis settings. Its presence makes this an **eigen\nspec** (for `geode eigen`)."
+    },
+    "element_order": {
+      "$ref": "#/$defs/ElementOrderSpec",
+      "description": "Nédélec element order of the H(curl) space (additive in v1, issue\n#1265, Epic #836 Phase 5a): `1` (default, lowest-order edge\nelements) or `2` (second-order, `2·n_edges + 2·n_faces` DOFs).\nOrder 2 is supported by lossless / lossy `eigen` specs and by `driven`\nspecs with lumped ports, a direct solver and a dense sweep; every\nother combination is rejected with `invalid_spec` naming the feature\n(never solved at order 1 and reported as order 2)."
     },
     "extract": {
       "anyOf": [
