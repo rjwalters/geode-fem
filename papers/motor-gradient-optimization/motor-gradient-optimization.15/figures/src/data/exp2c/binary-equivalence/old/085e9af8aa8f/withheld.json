@@ -1,0 +1,470 @@
+{
+  "config": {
+    "angles_deg": [
+      0.0,
+      1.0,
+      2.0,
+      3.0,
+      4.0,
+      5.0,
+      6.0,
+      7.0,
+      8.0,
+      9.0,
+      10.0,
+      11.0,
+      12.0,
+      13.0,
+      14.0,
+      15.0,
+      16.0,
+      17.0,
+      18.0,
+      19.0
+    ],
+    "fractions": [
+      0.25,
+      0.75
+    ],
+    "i_peak0_A": 9.677657374172274,
+    "level": 2,
+    "mesh_repair": true,
+    "mode": "h93",
+    "name": "withheld",
+    "newton_max_iterations": 60,
+    "newton_rel_tol": 1e-8,
+    "policy_min_angle_deg": 5.0,
+    "start": "cold",
+    "torque": "h93/coupling"
+  },
+  "cost_scope": "post_run",
+  "fresh_mesh_records": [
+    {
+      "attempt": 0,
+      "error": null,
+      "file": "/Volumes/Stripe/scratch-codex-review/exp2-fd-refine-direct-20261021/results/085e9af8aa8f/withheld/meshes/icem_remesh_remesh000_L2.msh",
+      "label": "default",
+      "log": "icem_remesh_remesh000_L2.msh: nodes 35485 tris 69567 min angle 34.96 deg\n",
+      "name": "remesh000",
+      "seconds": 1.739417333,
+      "sha256": "4bf8a52046e4234f68ee666235f88b0fa14b1f7d2126c74ec7f83a6b5896135f"
+    }
+  ],
+  "ok": true,
+  "point_bits": [
+    4573567551181324026,
+    4569264840198768066,
+    4581310897323842496,
+    4573567551181324026,
+    4562254508917369340,
+    4559519650369544501,
+    4581327747475371078,
+    4594031907888095560,
+    4559625766570928307,
+    4591870180066957722,
+    0,
+    4607182418800017408
+  ],
+  "point_names": [
+    "MAG",
+    "MH",
+    "MW",
+    "SW1",
+    "SW2",
+    "SW3",
+    "SW4",
+    "SD1",
+    "Sr1",
+    "LENGTH",
+    "OPERATING_ANGLE",
+    "ScaleR"
+  ],
+  "pre_solve_mesh_attempts": [
+    {
+      "attempt": 0,
+      "detail": null,
+      "label": "default",
+      "mesh_s": 1.7519099580000002,
+      "msh_sha256": "4bf8a52046e4234f68ee666235f88b0fa14b1f7d2126c74ec7f83a6b5896135f",
+      "outcome": "passed",
+      "setup_s": 0.410202667
+    }
+  ],
+  "provenance_scope": "Request hashes bind bytes only. Caller must authenticate cohort, source, executable, environment and theta0 mesh construction; no main result or target credit is inferred.",
+  "request": {
+    "base_settings_sha256": "5da51de7cd1320ddcb2f593c576ad072aa70f51ccd0356a217b01488f92c08fa",
+    "check": "withheld",
+    "cost_scope": "post_run",
+    "design_key": "085e9af8aa8f8a9a1d39c11187f82ba3550478b5121d3e60a92d3c0ba17e72ae",
+    "point_bits": [
+      4573567551181324026,
+      4569264840198768066,
+      4581310897323842496,
+      4573567551181324026,
+      4562254508917369340,
+      4559519650369544501,
+      4581327747475371078,
+      4594031907888095560,
+      4559625766570928307,
+      4591870180066957722,
+      0,
+      4607182418800017408
+    ],
+    "point_names": [
+      "MAG",
+      "MH",
+      "MW",
+      "SW1",
+      "SW2",
+      "SW3",
+      "SW4",
+      "SD1",
+      "Sr1",
+      "LENGTH",
+      "OPERATING_ANGLE",
+      "ScaleR"
+    ],
+    "reference_data_sha256": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3",
+    "reference_mesh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
+    "schema": "icem-final-refinement/1",
+    "space": "a",
+    "x_bits": [
+      4573567551181324026,
+      4569264840198768066,
+      4581310897323842496,
+      4573567551181324026,
+      4562254508917369340,
+      4559519650369544501,
+      4581327747475371078,
+      4559625766570928307
+    ]
+  },
+  "request_sha256": "1ce64edd3eb381e8cf91bbfee6cd6041a331e0903776225ba3a0f66e692cc4e4",
+  "resources": {
+    "after": {
+      "pid": 88233,
+      "reaped_children": {
+        "available": true,
+        "maxrss_bytes": 122503168,
+        "maxrss_raw": 122503168,
+        "maxrss_raw_unit": "bytes",
+        "system_seconds": 0.065519,
+        "user_seconds": 1.558901
+      },
+      "self": {
+        "available": true,
+        "maxrss_bytes": 1543061504,
+        "maxrss_raw": 1543061504,
+        "maxrss_raw_unit": "bytes",
+        "system_seconds": 0.732249,
+        "user_seconds": 28.455283
+      }
+    },
+    "aggregation": "self plus reaped children once; do not add nested request totals",
+    "before": {
+      "pid": 88233,
+      "reaped_children": {
+        "available": true,
+        "maxrss_bytes": 0,
+        "maxrss_raw": 0,
+        "maxrss_raw_unit": "bytes",
+        "system_seconds": 0.0,
+        "user_seconds": 0.0
+      },
+      "self": {
+        "available": true,
+        "maxrss_bytes": 2392064,
+        "maxrss_raw": 2392064,
+        "maxrss_raw_unit": "bytes",
+        "system_seconds": 0.002813,
+        "user_seconds": 0.00213
+      }
+    },
+    "children_complete": true,
+    "cpu": {
+      "reaped_children": {
+        "system_seconds": 0.065519,
+        "total_seconds": 1.6244200000000002,
+        "user_seconds": 1.558901
+      },
+      "self": {
+        "system_seconds": 0.7294360000000001,
+        "total_seconds": 29.182589,
+        "user_seconds": 28.453153
+      }
+    },
+    "cpu_complete": true,
+    "error": null,
+    "incomplete_reason": null,
+    "label": "post_run_refinement",
+    "observed_cpu_seconds": 30.807009,
+    "platform": "macos",
+    "rss": {
+      "reaped_children": 122503168,
+      "self": 1543061504,
+      "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+    },
+    "source": "nix::getrusage"
+  },
+  "schema": "icem-final-refinement/1",
+  "setup_s": 0.320526334,
+  "space_definition": {
+    "free": [
+      "MAG",
+      "MH",
+      "MW",
+      "SW1",
+      "SW2",
+      "SW3",
+      "SW4",
+      "Sr1"
+    ],
+    "frozen": [
+      {
+        "name": "LENGTH",
+        "value": 0.1
+      },
+      {
+        "name": "SD1",
+        "value": 0.135
+      },
+      {
+        "name": "ScaleR",
+        "value": 1.0
+      },
+      {
+        "name": "OPERATING_ANGLE",
+        "value": 0.0
+      }
+    ],
+    "label": "A",
+    "lower": [
+      0.006,
+      0.002,
+      0.01,
+      0.002,
+      0.001,
+      0.0005,
+      0.002,
+      0.0005
+    ],
+    "map": "scalar",
+    "upper": [
+      0.015,
+      0.012,
+      0.025,
+      0.006,
+      0.004,
+      0.0015,
+      0.02,
+      0.002
+    ],
+    "x0": [
+      0.007,
+      0.007,
+      0.019,
+      0.004,
+      0.0023,
+      0.001,
+      0.00825,
+      0.001
+    ]
+  },
+  "status": "complete",
+  "target_credit_policy": "preserve_original_common_validation",
+  "threads": {
+    "GEODE_NUM_THREADS": "1",
+    "RAYON_NUM_THREADS": "1",
+    "faer": "Seq"
+  },
+  "validation": {
+    "F": 0.00022077030447271027,
+    "config": {
+      "angles_deg": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0,
+        13.0,
+        14.0,
+        15.0,
+        16.0,
+        17.0,
+        18.0,
+        19.0
+      ],
+      "fractions": [
+        0.25,
+        0.75
+      ],
+      "i_peak0_A": 9.677657374172274,
+      "level": 2,
+      "mesh_repair": true,
+      "mode": "h93",
+      "name": "withheld",
+      "newton_max_iterations": 60,
+      "newton_rel_tol": 1e-8,
+      "policy_min_angle_deg": 5.0,
+      "start": "cold",
+      "torque": "h93/coupling"
+    },
+    "currents": [
+      {
+        "fraction": 0.25,
+        "i_peak_A": 2.4194143435430684,
+        "mean": 0.3182886746908009,
+        "newton_iterations": 52,
+        "solve_s": 13.918355833,
+        "std": 0.004628331419577702,
+        "std2": 0.000021421451729450145,
+        "torques": [
+          0.3252006474449869,
+          0.32354206746842906,
+          0.31834792388265726,
+          0.3144786224811314,
+          0.3148432399237924,
+          0.31577859275315884,
+          0.3161359639008371,
+          0.3192830517817205,
+          0.3227244277545287,
+          0.3230233336453381,
+          0.3223757691502971,
+          0.31978758341008523,
+          0.3137573083410166,
+          0.3097109271333409,
+          0.3109771311867055,
+          0.31339173686191946,
+          0.31497467044796834,
+          0.31906276663463207,
+          0.3235029199923191,
+          0.3248748096211538
+        ]
+      },
+      {
+        "fraction": 0.75,
+        "i_peak_A": 7.258243030629205,
+        "mean": 1.039601868141018,
+        "newton_iterations": 67,
+        "solve_s": 16.745092667,
+        "std": 0.014119095323116851,
+        "std2": 0.00019934885274326014,
+        "torques": [
+          1.0623216405735667,
+          1.0571688473410739,
+          1.0452046117120999,
+          1.033511062564191,
+          1.0297644858859993,
+          1.0312493753343184,
+          1.0320093650439108,
+          1.0375477510896394,
+          1.0493847197792467,
+          1.0567726012090453,
+          1.0558050585561778,
+          1.047247348847494,
+          1.0319299324249558,
+          1.0184782594026895,
+          1.0160454424982364,
+          1.0208835601881605,
+          1.0249049172859768,
+          1.0333885150654472,
+          1.0486412777508403,
+          1.059778590267291
+        ]
+      }
+    ],
+    "full_current_mean": null,
+    "mesh": {
+      "attempts": [
+        {
+          "attempt": 0,
+          "detail": null,
+          "label": "default",
+          "mesh_s": 1.7519099580000002,
+          "msh_sha256": "4bf8a52046e4234f68ee666235f88b0fa14b1f7d2126c74ec7f83a6b5896135f",
+          "outcome": "passed",
+          "setup_s": 0.410202667
+        }
+      ],
+      "file": "/Volumes/Stripe/scratch-codex-review/exp2-fd-refine-direct-20261021/results/085e9af8aa8f/withheld/meshes/icem_remesh_remesh000_L2.msh",
+      "kind": "fresh",
+      "mesh_s": 1.739417333,
+      "moved_quality": {
+        "inverted": 1701,
+        "max_angle_deg": 179.93016239033378,
+        "max_area_ratio": 2.686411441111741,
+        "min_angle_deg": 0.0020901004882943586,
+        "min_area_ratio": -0.3025188540859924
+      },
+      "msh_sha256": "4bf8a52046e4234f68ee666235f88b0fa14b1f7d2126c74ec7f83a6b5896135f",
+      "quality": {
+        "inverted": 0,
+        "max_angle_deg": 107.78769441880142,
+        "max_area_ratio": 1.0,
+        "min_angle_deg": 34.96188013800402,
+        "min_area_ratio": 1.0
+      },
+      "trigger": {
+        "kind": "inverted",
+        "min_area_ratio": -0.3025188540859924,
+        "triangles": 1701
+      }
+    },
+    "motion_s": 0.00643025,
+    "msh_sha256": "4bf8a52046e4234f68ee666235f88b0fa14b1f7d2126c74ec7f83a6b5896135f",
+    "nodes": 35485,
+    "point": [
+      0.006,
+      0.0030871215620542356,
+      0.019615128672082482,
+      0.006,
+      0.001,
+      0.0006917672921007758,
+      0.019673589378943278,
+      0.135,
+      0.000703272433708399,
+      0.1,
+      0.0,
+      1.0
+    ],
+    "point_names": [
+      "MAG",
+      "MH",
+      "MW",
+      "SW1",
+      "SW2",
+      "SW3",
+      "SW4",
+      "SD1",
+      "Sr1",
+      "LENGTH",
+      "OPERATING_ANGLE",
+      "ScaleR"
+    ],
+    "remesh_mesh_s": 1.7519099580000002,
+    "remesh_setup_s": 0.410202667,
+    "solve_s": 30.667941333,
+    "space": "scalar",
+    "total_s": 32.843994959,
+    "triangles": 69567
+  },
+  "wall_seconds": 33.180669792,
+  "x_bits": [
+    4573567551181324026,
+    4569264840198768066,
+    4581310897323842496,
+    4573567551181324026,
+    4562254508917369340,
+    4559519650369544501,
+    4581327747475371078,
+    4559625766570928307
+  ]
+}

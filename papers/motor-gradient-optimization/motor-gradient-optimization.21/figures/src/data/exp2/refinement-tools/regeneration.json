@@ -1,0 +1,32 @@
+{
+  "source_commit": "63b3e3d8bbc30504f845eebb5b78e8be6a2ee12f",
+  "files": [
+    {
+      "sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
+      "bytes": 3515287,
+      "scope": "Digest record only; regenerate with the source-bound command in REGENERATE.md.",
+      "file": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5"
+    },
+    {
+      "bytes": 3451717,
+      "sha256": "81d2bc01a931754ef36e7ab9894e9ff2da97ae3b275c0103c6f3c20ff1cf8afa",
+      "file": "81d2bc01a931754ef36e7ab9894e9ff2da97ae3b275c0103c6f3c20ff1cf8afa"
+    },
+    {
+      "bytes": 14149864,
+      "sha256": "614bf98c36e105adca2b6f811f09ebe4aa1c4d1c0a456eb8c3041bf81bdd584a",
+      "file": "614bf98c36e105adca2b6f811f09ebe4aa1c4d1c0a456eb8c3041bf81bdd584a"
+    },
+    {
+      "bytes": 3441776,
+      "sha256": "7a45800d11b777f7774d12ab28ee3cae6c802be45e0ae17a0ac675bca75d5318",
+      "file": "7a45800d11b777f7774d12ab28ee3cae6c802be45e0ae17a0ac675bca75d5318"
+    }
+  ],
+  "platform": {
+    "system": "Darwin",
+    "machine": "arm64"
+  },
+  "python": "3.14.5",
+  "scope": "Hash-matched regenerated meshes only. No numerical outputs regenerated."
+}

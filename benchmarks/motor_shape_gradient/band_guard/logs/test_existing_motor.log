@@ -1,0 +1,51 @@
+   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1183/crates/geode-core)
+    Finished `release` profile [optimized] target(s) in 9.47s
+     Running tests/motor_cp_design_gradient.rs (/Volumes/Stripe/cargo-target-1183/release/deps/motor_cp_design_gradient-fcf30b228ce948d0)
+
+running 2 tests
+test offsets_match_central_differences_at_theta0 ... ok
+test offsets_match_central_differences_at_opt120 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.80s
+
+     Running tests/motor_design_gradient.rs (/Volumes/Stripe/cargo-target-1183/release/deps/motor_design_gradient-e86aa1fef187f0be)
+
+running 4 tests
+test conforming_arkkio_band_moving_parameter ... ok
+test h45_half_current_perturbed_design ... ok
+test h45_full_current_jinit_rule ... ok
+test h45_full_current_initial_all_parameters ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.70s
+
+     Running tests/motor_icem_forward.rs (/Volumes/Stripe/cargo-target-1183/release/deps/motor_icem_forward-0b8b84657a8fe657)
+
+running 4 tests
+test magnet_source_is_reference_coercive_field ... ok
+test winding_table_and_current_density_match_reference ... ok
+test clamp426_variant_is_a_consistent_law ... ok
+test l0_full_current_two_angles_reproduce_committed_torque ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/motor_icem_harmonic.rs (/Volumes/Stripe/cargo-target-1183/release/deps/motor_icem_harmonic-a70dafaaff4d3a1b)
+
+running 3 tests
+test tagged_mesh_has_separate_coupling_node_sets ... ok
+test l0_reference_orders_reproduce_committed_torque ... ok
+test every_order_reproduces_the_conforming_band ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.98s
+
+     Running tests/motor_shape_gradient.rs (/Volumes/Stripe/cargo-target-1183/release/deps/motor_shape_gradient-c30de764272a4dbc)
+
+running 6 tests
+test air_gap_rule_and_admissibility ... ok
+test coupling_torque_rows_reproduce_the_band_torque ... ok
+test forward_reproduces_icem_model ... ok
+test taylor_conforming_arkkio_full_current ... ok
+test taylor_conforming_arkkio_band_motion_full_current ... ok
+test taylor_harmonic_coupling_torque_half_current ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.09s
+

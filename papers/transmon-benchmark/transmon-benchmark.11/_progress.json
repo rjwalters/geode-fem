@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-13T23:45:00+00:00",
+      "completed": "2026-10-14T01:30:00+00:00"
+    },
+    "figures": {
+      "state": "done",
+      "completed": "2026-10-14T01:30:00+00:00",
+      "note": "unchanged from v10 (byte-identical)"
+    }
+  },
+  "metadata": {
+    "iteration": 11,
+    "max_iterations": 12,
+    "revised_from": 10,
+    "status": "DRAFT",
+    "authorization": "Tracked in #1063 (referenced, not closed). Narrow revision per the operator's 2026-10-13 rulings on #1063 and a later same-day ruling (solo author; cite whiteroom; a design-and-build section). The operator's standing permission to revise this paper (recorded on PR #1040) covers it. No review score or audit is claimed or carried forward.",
+    "source_paper_commit": "3fe5f706 (transmon-benchmark.10 as on main)",
+    "scope": "v11 = v10 + operator rulings (title; validation claim reworded as a same-mesh cross-check complementing SQDMetal and Ye et al.; solo author, Independent Researcher; whiteroom and Loom cited; new section 'How geode-fem Was Designed and Built'; acknowledgments redrafted; repository URL; cubecl footnote without a URL promise) + the v10 Judge's follow-ups (changelog 2.5-3.1 %; verifier pins on the section 1 and conclusion static-route wording)",
+    "pending_dependencies": [
+      "#1063 operator: approve the acknowledgment wording (TODO(operator) in source)",
+      "Zenodo DOI at deposit (TODO(operator) in source)",
+      "Crutcher Dunnavant's response to the coauthorship offer (source NOTE)",
+      "independent v11 paper review, audit and numeric critic (Anvil)"
+    ],
+    "evidence_snapshot": {
+      "main_commit": "3fe5f706",
+      "brief_mtime": null,
+      "refs_mtime": null
+    }
+  }
+}

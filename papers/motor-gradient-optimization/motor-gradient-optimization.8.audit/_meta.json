@@ -1,0 +1,12 @@
+{
+  "critic": "paper-audit",
+  "scorecard_kind": "human-verdict",
+  "started": "2026-10-20T06:28:00Z",
+  "finished": "2026-10-20T06:42:21Z",
+  "model": "claude-opus-5-5",
+  "schema_version": 1,
+  "audited_head": "92120067feaabd7fc4551d77340c7f5fda944b24",
+  "audited_tree": "git archive 92120067 papers (scratch copy; worktree untouched except this sidecar)",
+  "sidecar": "staged via python -m anvil.lib.sidecar cleanup/stage/copy/commit (main-checkout .anvil project)",
+  "network": "anonymous only: User-Agent paper-audit/1.0, no mailto, no email in any header/URL/payload (Crossref 2, 11 href GETs); gh api issue 1185 comments read-only; PyPI via uv for matplotlib 3.11.2/numpy 2.5.4 re-render"
+}

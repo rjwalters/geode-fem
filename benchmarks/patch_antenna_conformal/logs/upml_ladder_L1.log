@@ -1,0 +1,11 @@
+ladder: no benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml40_sigma8.toml (not run)
+ladder: no benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml40_sigma25.toml (not run)
+sigma_0 stationarity (max |dS11| to lower / upper sigma_0 neighbour, lc_pml 5 shell; 40 mm shell reported, not scored):
+  sigma_0 =  0.5: NaN / 0.0038 / 0.0221 / 0.0077 -> score 0.0221
+  sigma_0 =    1: 0.0038 / 0.0045 / 0.0208 / 0.0073 -> score 0.0208
+  sigma_0 =    2: 0.0045 / 0.0062 / 0.0236 / 0.0115 -> score 0.0236
+  sigma_0 =    4: 0.0062 / 0.0329 / 0.0151 / 0.0058 -> score 0.0329
+  sigma_0 =    8: 0.0329 / 0.0577 / 0.0316 / NaN -> score 0.0577
+  sigma_0 =   25: 0.0577 / NaN / 0.0402 / NaN -> score 0.0577
+plateau (score <= 2 x min 0.0208): [0.5, 1.0, 2.0, 4.0]; fixture sigma_0 = 1; chosen sigma_0 = 1 (score 0.0208)
+wrote benchmarks/patch_antenna_conformal/upml_ladder_L1.toml

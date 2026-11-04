@@ -1,0 +1,99 @@
+  L0 opt120 current 0.5 MAG done
+  L0 opt120 current 0.5 MH done
+  L0 opt120 current 0.5 MW done
+  L0 opt120 current 0.5 SW1 done
+  L0 opt120 current 0.5 SW2 done
+  L0 opt120 current 0.5 SW3 done
+  L0 opt120 current 0.5 SW4 done
+  L0 opt120 current 0.5 SD1 done
+  L0 opt120 current 0.5 Sr1 done
+  L0 opt120 current 0.5 CPR1 done
+  L0 opt120 current 0.5 CPR2 done
+  L0 opt120 current 0.5 CPR3 done
+  L0 opt120 current 0.5 CPR4 done
+  L0 opt120 current 0.5 CPR5 done
+  L0 opt120 current 0.5 CPR6 done
+  L0 opt120 current 0.5 CPR7 done
+  L0 opt120 current 0.5 CPS1 done
+  L0 opt120 current 0.5 CPS2 done
+  L0 opt120 current 0.5 CPS3 done
+  L0 opt120 current 0.5 ScaleR done
+  L0 opt120 current 1 MAG done
+  L0 opt120 current 1 MH done
+  L0 opt120 current 1 MW done
+  L0 opt120 current 1 SW1 done
+  L0 opt120 current 1 SW2 done
+  L0 opt120 current 1 SW3 done
+  L0 opt120 current 1 SW4 done
+  L0 opt120 current 1 SD1 done
+  L0 opt120 current 1 Sr1 done
+  L0 opt120 current 1 CPR1 done
+  L0 opt120 current 1 CPR2 done
+  L0 opt120 current 1 CPR3 done
+  L0 opt120 current 1 CPR4 done
+  L0 opt120 current 1 CPR5 done
+  L0 opt120 current 1 CPR6 done
+  L0 opt120 current 1 CPR7 done
+  L0 opt120 current 1 CPS1 done
+  L0 opt120 current 1 CPS2 done
+  L0 opt120 current 1 CPS3 done
+  L0 opt120 current 1 ScaleR done
+# Control-point design gradients: L0 (3153 nodes), h45/coupling, design opt120
+
+Moved mesh: min angle 12.43 deg, 0 inverted; shape map set-up 0.020 s
+
+## Current level 0.5 (I_peak = 5.524247 A): mean 0.750701489 N m, std 0.000582151 N m (gradient 0.791 s)
+
+### Step sweep, current rule jinit (central differences re-move the mesh)
+
+| component | d mean (adjoint) | mean: best FD rel. err (h) | mean: Taylor window, decades | d std (adjoint) | std: best FD rel. err (h) | std: Taylor window, decades | rejected h |
+|---|---|---|---|---|---|---|---|
+| MAG | -3.912587e1 | 9.8e-10 (1e-7) | 3e-4 .. 3e-9, 5.0 | +1.021749e0 | 2.9e-8 (3e-8) | 3e-4 .. 3e-9, 5.0 |  |
+| MH | +7.030193e1 | 1.2e-10 (1e-8) | 1e-3 .. 1e-9, 6.0 | +2.048226e-1 | 1.9e-7 (1e-7) | 1e-3 .. 1e-8, 5.0 |  |
+| MW | +4.321793e1 | 4.9e-10 (3e-7) | 1e-3 .. 3e-9, 5.5 | +1.488717e-1 | 5.9e-8 (3e-7) | 1e-3 .. 3e-8, 4.5 |  |
+| SW1 | -1.149401e2 | 4.6e-10 (3e-7) | 1e-3 .. 1e-9, 6.0 | -1.826855e-1 | 8.7e-8 (1e-7) | 1e-3 .. 1e-7, 4.0 |  |
+| SW2 | -2.404581e0 | 9.8e-9 (1e-7) | 1e-3 .. 3e-9, 5.5 | -2.240347e0 | 7.8e-8 (3e-8) | 3e-4 .. 3e-9, 5.0 |  |
+| SW3 | -5.438203e1 | 1.6e-10 (1e-7) | 3e-4 .. 1e-8, 4.5 | -1.392793e-2 | 2.3e-6 (1e-7) | 1e-4 .. 3e-8, 3.5 | [0.001] |
+| SW4 | -7.030599e1 | 1.7e-9 (3e-8) | 3e-4 .. 3e-9, 5.0 | -7.552449e-1 | 3.6e-8 (3e-7) | 3e-4 .. 3e-9, 5.0 |  |
+| SD1 | +3.688695e1 | 2.1e-11 (3e-7) | 1e-3 .. 1e-8, 5.0 | +3.510921e-2 | 2.1e-8 (1e-6) | 1e-3 .. 3e-7, 3.5 |  |
+| Sr1 | +3.291100e0 | 4.4e-10 (1e-7) | 3e-4 .. 1e-9, 5.5 | -1.199359e-1 | 4.2e-8 (1e-7) | 3e-4 .. 3e-8, 4.0 | [0.001] |
+| CPR1 | +2.719400e-1 | 1.6e-8 (3e-7) | 1e-3 .. 1e-8, 5.0 | +6.881039e-1 | 2.8e-9 (1e-7) | 1e-3 .. 1e-8, 5.0 |  |
+| CPR2 | -3.916402e0 | 4.3e-9 (1e-7) | 1e-3 .. 1e-9, 6.0 | -1.274127e0 | 4.3e-8 (3e-8) | 1e-3 .. 3e-9, 5.5 |  |
+| CPR3 | -8.511987e1 | 1.0e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | -2.088124e0 | 1.1e-7 (1e-8) | 1e-4 .. 3e-9, 4.5 | [0.001] |
+| CPR4 | -2.045344e1 | 6.3e-9 (3e-8) | 1e-3 .. 1e-9, 6.0 | +3.549045e0 | 1.7e-8 (1e-8) | 1e-4 .. 1e-9, 5.0 |  |
+| CPR5 | +3.032919e1 | 6.6e-10 (1e-7) | 3e-4 .. 1e-9, 5.5 | -3.193572e0 | 9.6e-8 (1e-8) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPR6 | +7.763638e1 | 1.4e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | +6.783180e0 | 4.8e-8 (3e-9) | 3e-5 .. 1e-9, 4.5 | [0.001] |
+| CPR7 | +1.178217e2 | 8.6e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | -3.225597e0 | 1.6e-7 (1e-8) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPS1 | -9.575793e1 | 8.6e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | -1.172216e1 | 5.9e-8 (3e-9) | 3e-5 .. 1e-9, 4.5 | [0.001] |
+| CPS2 | -7.769219e1 | 1.0e-9 (1e-7) | 3e-4 .. 1e-9, 5.5 | +5.819243e-2 | 6.3e-7 (1e-7) | 3e-4 .. 1e-8, 4.5 | [0.001] |
+| CPS3 | -7.547736e1 | 1.2e-9 (1e-8) | 3e-4 .. 1e-9, 5.5 | +9.276162e0 | 3.1e-8 (1e-8) | 3e-5 .. 1e-9, 4.5 | [0.001] |
+| ScaleR | +2.154262e0 | 1.6e-11 (1e-5) | 1e-2 .. 1e-7, 5.0 | +1.421797e-3 | 1.7e-8 (1e-4) | 1e-2 .. 3e-5, 2.5 |  |
+
+## Current level 1 (I_peak = 11.048494 A): mean 1.502966078 N m, std 0.000590810 N m (gradient 0.830 s)
+
+### Step sweep, current rule jinit (central differences re-move the mesh)
+
+| component | d mean (adjoint) | mean: best FD rel. err (h) | mean: Taylor window, decades | d std (adjoint) | std: best FD rel. err (h) | std: Taylor window, decades | rejected h |
+|---|---|---|---|---|---|---|---|
+| MAG | -7.593651e1 | 3.1e-10 (1e-7) | 3e-4 .. 3e-9, 5.0 | +2.520201e0 | 8.1e-8 (3e-8) | 1e-4 .. 1e-9, 5.0 |  |
+| MH | +1.348195e2 | 7.9e-10 (1e-7) | 1e-3 .. 1e-9, 6.0 | -8.231664e-1 | 4.0e-8 (1e-7) | 1e-3 .. 1e-9, 6.0 |  |
+| MW | +8.003925e1 | 3.9e-11 (3e-7) | 1e-3 .. 3e-9, 5.5 | -4.600396e-1 | 8.0e-8 (3e-9) | 1e-3 .. 1e-9, 6.0 |  |
+| SW1 | -2.220168e2 | 1.2e-10 (1e-7) | 1e-3 .. 3e-9, 5.5 | +1.022387e-1 | 1.5e-6 (1e-7) | 1e-4 .. 3e-9, 4.5 |  |
+| SW2 | +1.542791e0 | 5.1e-8 (1e-7) | 1e-3 .. 1e-9, 6.0 | -8.873652e0 | 5.5e-9 (3e-9) | 3e-5 .. 1e-9, 4.5 |  |
+| SW3 | -1.092177e2 | 1.8e-9 (1e-7) | 3e-4 .. 3e-9, 5.0 | -2.041176e-1 | 2.1e-7 (3e-8) | 1e-5 .. 1e-8, 3.0 | [0.001] |
+| SW4 | -1.081206e2 | 7.2e-10 (3e-8) | 1e-3 .. 1e-9, 6.0 | +1.014408e0 | 9.8e-8 (3e-8) | 1e-4 .. 1e-9, 5.0 |  |
+| SD1 | +7.156970e1 | 2.5e-10 (3e-8) | 1e-3 .. 1e-7, 4.0 | -1.250969e-1 | 6.9e-8 (3e-7) | 1e-4 .. 1e-7, 3.0 |  |
+| Sr1 | +1.148799e1 | 2.1e-9 (1e-7) | 3e-4 .. 1e-9, 5.5 | -1.107203e-1 | 1.8e-7 (3e-7) | 3e-4 .. 3e-9, 5.0 | [0.001] |
+| CPR1 | -2.354055e0 | 1.1e-8 (1e-7) | 1e-3 .. 3e-9, 5.5 | +9.666411e-1 | 7.9e-8 (3e-9) | 3e-4 .. 1e-9, 5.5 |  |
+| CPR2 | -1.140794e1 | 1.3e-10 (3e-8) | 1e-3 .. 1e-8, 5.0 | -4.436346e0 | 5.1e-9 (1e-8) | 1e-3 .. 1e-9, 6.0 |  |
+| CPR3 | -1.548703e2 | 6.6e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | -1.082665e0 | 1.8e-7 (1e-8) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPR4 | -3.419513e1 | 2.9e-9 (1e-7) | 1e-3 .. 1e-9, 6.0 | -2.634502e0 | 6.7e-7 (1e-8) | 3e-5 .. 1e-9, 4.5 |  |
+| CPR5 | +5.363787e1 | 8.1e-10 (1e-9) | 3e-4 .. 3e-9, 5.0 | +1.418355e1 | 1.3e-8 (1e-9) | 3e-5 .. 1e-9, 4.5 | [0.001] |
+| CPR6 | +1.395292e2 | 1.1e-10 (1e-8) | 3e-4 .. 1e-9, 5.5 | -2.514422e1 | 1.0e-8 (1e-9) | 3e-5 .. 1e-9, 4.5 | [0.001] |
+| CPR7 | +2.133039e2 | 6.4e-11 (3e-8) | 3e-4 .. 1e-9, 5.5 | +2.272445e1 | 2.9e-8 (3e-9) | 3e-5 .. 1e-9, 4.5 | [0.001] |
+| CPS1 | -1.678127e2 | 1.2e-9 (1e-8) | 3e-4 .. 1e-9, 5.5 | -4.823249e1 | 6.7e-8 (3e-9) | 3e-5 .. 1e-5, 0.5 | [0.001] |
+| CPS2 | -1.400484e2 | 6.5e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | +3.868348e0 | 6.4e-9 (3e-8) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPS3 | -1.365506e2 | 3.0e-9 (1e-7) | 3e-4 .. 1e-9, 5.5 | +3.921440e1 | 6.8e-8 (3e-9) | 3e-5 .. 1e-9, 4.5 | [0.001] |
+| ScaleR | +4.277112e0 | 1.8e-10 (1e-5) | 1e-2 .. 1e-7, 5.0 | -1.274387e-3 | 2.4e-7 (3e-5) | 3e-3 .. 3e-6, 3.0 |  |
+
+wrote benchmarks/motor_reference/parametric_cp/runs/gradient_L0_opt120.json

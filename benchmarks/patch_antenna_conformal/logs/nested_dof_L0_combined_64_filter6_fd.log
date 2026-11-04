@@ -1,0 +1,14 @@
+patch_conformal_nested_dof [combined_64_filter6]: patch_conformal_L0 (38650 edges, 6114 nodes, 31225 tets), R = 100 mm, sigma_0 = 1 (fixture 1); DOFs: 48 radial + 16 outline = 64; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 0.1 s
+  x=0: G = 8.365590e-1, worst |S11| -0.90 dB, best -1.92 dB, |grad| = 1.063e-1, residual 5.2e-14; gradient eval 23.0 s, peak RSS 0.83 GiB
+        2.4000 GHz: |S11| = 0.8014 ( -1.92 dB)
+        2.4209 GHz: |S11| = 0.8383 ( -1.53 dB)
+        2.4417 GHz: |S11| = 0.8656 ( -1.25 dB)
+        2.4626 GHz: |S11| = 0.8863 ( -1.05 dB)
+        2.4835 GHz: |S11| = 0.9021 ( -0.90 dB)
+  FD [steepest_descent @ x0]: analytic -1.062655e-1, central FD -1.062655e-1, rel 1.125e-9
+  FD [random_radial @ x0]: analytic -8.519132e-3, central FD -8.519132e-3, rel 1.564e-9
+  FD [random_outline @ x0]: analytic 6.159926e-2, central FD 6.159926e-2, rel 1.328e-9
+  in-band verification sweep at x_final:
+  wide sweep at x_final:
+  terminal = fd_only; worst-of-band -0.90 -> -0.90 dB (band points), verification worst -0.90 dB / best -1.92 dB over 9 points, final dip 2.275 GHz (-25.8 dB); reached -10 dB = false; max disp 0.000 mm, mean patch lift +0.000 mm, edges +y +0.000 -y +0.000 +s +0.000 -s +0.000 mm; 70 solves, 252 s
+patch_conformal_nested_dof [combined_64_filter6]: results <scratch>/filter/L0_combined_64_filter6.toml ; geometry <scratch>/filter/L0_combined_64_filter6.json

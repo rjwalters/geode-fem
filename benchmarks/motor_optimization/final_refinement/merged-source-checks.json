@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "scope": "Reviewed dependency source reconciliation and Python adapter tests; synthetic production-registry probe only. No FEM, optimizer or main-study result.",
+  "source_commit": "c11dcd4aba7e6f0b47d819b9c4e1710f7b09267a",
+  "reviewed_merge": "9486a9da58beeca91968d4d3608f06b998abff45",
+  "candidate_commit": "89d0bf9efa901e9a103d551570642330145e44fd",
+  "source_bindings_verified_unchanged": 22,
+  "unit_tests": {
+    "command": "python3 -m unittest discover -s benchmarks/motor_optimization/final_refinement -p 'test_*.py'",
+    "passed": 117,
+    "elapsed_seconds": 4.659,
+    "python": "Python 3.15.0"
+  },
+  "production_schema_probe": {
+    "scope": "Synthetic traces with actual Registry, inventory and policy; no FEM or optimizer execution",
+    "policy_matches_production": true,
+    "archive_bytes_and_mtimes_unchanged": true,
+    "all_registered_jobs_resolved": true,
+    "retained_attempts": 101,
+    "selected_completions": 100,
+    "replacement_job_count": 1,
+    "can_select": false,
+    "can_launch": false,
+    "harness_source_sha256": {
+      "process_identity.py": "189f2add1591fbdbf979dec251b78e71c8ac6e1d8ca22ca72c2fc0c30098f729",
+      "session_journal.py": "dd2fa15a7b9bd764e61e2a6d55d68e83e814ae47a77f359d9796b11bbfa630f7",
+      "recovery_inventory.py": "f432e326868ccf52196275b1526025a236f27939335540df2e2068d3db7ec32d",
+      "recovery_registry.py": "da3c3ef58a3cc08d36c066883e74a91d3161bb6e2a523cd4d8c4917a82295752",
+      "recovery_policy.py": "78688b65fc4221501eb7a676183ce949be31270abb75daada3b6b4d8b5b8b7db"
+    }
+  },
+  "setup_retry": "Initial probe invocation lacked its scratch parent directory and exited before creating a study; creating that parent then rerunning succeeded.",
+  "source_sha256": {
+    "archive_mutations.py": "40307f8e113b9f2e63b9a3e1a218db086640cf73a516c77f59dd4d6955c72ac9",
+    "check_plan.py": "95325bb113641180bc59aee39dfb9548b665a5289242545bbfb6498e87d7e656",
+    "comparison.py": "1a8c767c8a0f44ec7d14599581aedc19f343cb68f3dbf9317c5aea5315ed52a8",
+    "comparison_mutations.py": "ed1b8b375bfa93c2a86f3a171f4b0a9f781a123ef385bc7217c4fdbf0ff8b609",
+    "design_evidence.py": "32c61c41d3aca111651c72f58138249ee41388061c771d35dc93402a614c1e7b",
+    "design_mutations.py": "72ec41a3f3f8185e387328ae424ad469936c8ef5a70f8b88de51f0e1ebcc6384",
+    "geometry_evidence.py": "4366b0e0716a3f8129cd1dbeb609b8c96e0e623d36f04124a3f19ab13dcd5d56",
+    "mutation_checks.py": "f8cee71325eb3ad2051a991fd5a735b0f051921861d408a4de9fde7197df1f2b",
+    "recovery_evidence.py": "434f455f11730e319743fc752ff82efabc87f6ce4779949524164bdab3be861c",
+    "recovery_mutations.py": "c1dffd41befd104fb21ed3d5f0baf2586aef2af1f93c58ec01c4cb869d11f793",
+    "recovery_schema_probe.py": "dfd4fd3581765ebbc21854281e8c0e83e109ec9f42190de004567d37c7b602c6",
+    "reference_mutations.py": "a2ac950de682d041312f8cccf85d56d37f2a337d7e05ca194a28cb6aa6eb259a",
+    "selection.py": "08e8c0f3d7729972701e567d44f118d57b33e843008a4cbd470c9c46705035f4",
+    "test_check_plan.py": "ecacb10b6382f5e40f14d1b904dec9c42d32c4c0af72f4bea44fc8dea97c8fb8",
+    "test_comparison.py": "5c2eebe379aa278ef36d3a7f5a7eeb228586a812c4e361e2490212539ee20860",
+    "test_design_evidence.py": "0738d4928eb546dc9c663d143c87e4472697167971db373b98b34334939d2a70",
+    "test_geometry_evidence.py": "033861eaef2d0f0e37c0be2336962c7e8baf1fd61526c8b4dee54f1cc2da9569",
+    "test_recovery_evidence.py": "7c3750d19476bcb41343db04232efe3623b2e96fd1f32c0bb98b741ea86a63b2",
+    "test_selection.py": "5748cc07a678972b4fbdcb35ba61d6341345984cec65b4fcafe320f25ce97f9c",
+    "test_trace_archive.py": "23209ea5606d6920957c9c61037623b74698c944e3f3a6c80d2dc21bf595b424",
+    "test_validation_evidence.py": "13cbe37e285401cb245f1ea4a7aa8cfc283be4d2cf9537b1aa78ba9d3c0f0edf",
+    "trace_archive.py": "fcebf5fdc02e373045f1f994fce64b189d3839d1f3650ff3f90949e75a200f03",
+    "validation_evidence.py": "9433ac3cdaaeb6003ed2fbedd1e52d9eb2b5c2e98d8a634dbd5dd6a1d1f5e982",
+    "validation_mutations.py": "f22f8e171f152da248630627df09dfa04e7e2eac15eb051eae0655cdbbf6336a"
+  },
+  "archive": {
+    "file": "smoke/merged_source_9486a9da.tar.gz",
+    "sha256": "c4f70780fdf58d6b25f87d692545fd8295707ba8a3f0b3dfa5d8f9b90a0d9968",
+    "files": 129,
+    "each_payload_member_verified": true
+  },
+  "remaining": [
+    "Complete capture/source/runtime authentication and adaptation",
+    "Native final-refinement executor and resource accounting",
+    "Real wiring smoke and independent review",
+    "Main study results and manuscript update"
+  ]
+}

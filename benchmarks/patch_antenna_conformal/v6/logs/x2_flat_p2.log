@@ -1,0 +1,44 @@
+  WARNING: --feed-support-legacy: the feed support (16.74 mm) reaches the patch outline (5.12 mm from the feed): the feed DOFs also move the copper edge
+  WARNING: rebase-feed is NOT exact: a feed support reaches the +y edge (design fixture: true, this fixture: true), so the copper outline differs from the design's; compare the [copper] sections
+  rebase-feed: design fixture inset 5.123104893 / width 4.185270329 mm -> this fixture 5.123104893 / 4.185270329 mm; feed coefficients [-0.054858, 0.082272]
+patch_conformal_nested_dof [copper_38]: patch_conformal_rbDflat_L1 (164377 edges, 25145 nodes, 136270 tets), R = 1000000 mm, sigma_0 = 1 (fixture 1); DOFs: 0 radial + 32 outline + 4 corner + 2 feed = 38; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 0.2 s
+  verify-only: design L1_copper_38_sm45 on L1 at p2
+    worst tet: tet 54582 ratio 0.255 in substrate at (s, y) = (-25.43, -0.04) mm, dr -0.40 mm from the substrate top, 27.12 mm from the feed, 15.82 mm from a corner, 6.43 mm outside the patch
+  crater: feed-node lift +0.000 mm (0.30 mm from the feed), mean lift +0.000 mm (thickness 1.600 mm, max 1.600), steepest |grad lift| 0.000 at 4.48 mm from the feed
+  copper: max slab radius change 1.2e-10 mm; probe at (+0.000, +9.432) mm, width 4.268 mm, inset 5.073 mm; patch 28.803 x 49.752 mm (L x W), area 1298.7 mm^2 (base 1102.0)
+  in-band verification sweep:
+    P2 space: 879760 DOFs (766302 interior)
+    sweep(P2) 2.4000 GHz: |S11| = 0.3158 (-10.01 dB), Z = 67.5 +34.5i ohm, res 2.7e-12, 339 s
+    sweep(P2) 2.4104 GHz: |S11| = 0.2573 (-11.79 dB), Z = 72.6 +22.8i ohm, res 2.7e-12, 336 s
+    sweep(P2) 2.4209 GHz: |S11| = 0.2035 (-13.83 dB), Z = 73.3 +9.6i ohm, res 2.8e-12, 332 s
+    sweep(P2) 2.4313 GHz: |S11| = 0.1630 (-15.76 dB), Z = 69.3 -2.5i ohm, res 2.8e-12, 330 s
+    sweep(P2) 2.4417 GHz: |S11| = 0.1496 (-16.50 dB), Z = 62.2 -11.7i ohm, res 2.7e-12, 329 s
+    sweep(P2) 2.4522 GHz: |S11| = 0.1696 (-15.41 dB), Z = 53.9 -17.4i ohm, res 2.9e-12, 328 s
+    sweep(P2) 2.4626 GHz: |S11| = 0.2123 (-13.46 dB), Z = 45.8 -20.3i ohm, res 2.7e-12, 327 s
+    sweep(P2) 2.4731 GHz: |S11| = 0.2644 (-11.55 dB), Z = 38.6 -21.2i ohm, res 2.5e-12, 327 s
+    sweep(P2) 2.4835 GHz: |S11| = 0.3189 ( -9.93 dB), Z = 32.5 -20.8i ohm, res 2.7e-12, 326 s
+  verify L1_copper_38_sm45 on L1 (p2): worst -9.93 dB, best -16.50 dB over 9 points; reached -10 dB = false; 0 dense points; min vol ratio 0.255; no wide sweep; 2974 s, peak RSS 150.7 GiB
+patch_conformal_nested_dof [verify L1_copper_38_sm45 on L1 p2]: ~/runs/out/rbD_L1_copper_38_sm45_on_rbDflat_L1_p2.toml
+	Command being timed: "~/tgt1126/release/examples/patch_conformal_nested_dof --fixture ~/fix/patch_conformal_rbDflat_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --verify-only --p2 --verify-n 9 --wide-step 0 --design rbD_L1_copper_38_sm45.design.toml --out ~/runs/out/rbD_L1_copper_38_sm45_on_rbDflat_L1_p2.toml"
+	User time (seconds): 63525.08
+	System time (seconds): 1102.04
+	Percent of CPU this job got: 2170%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 49:37.82
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 157977744
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 1
+	Minor (reclaiming a frame) page faults: 273624315
+	Voluntary context switches: 38163230
+	Involuntary context switches: 6195071
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 96
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

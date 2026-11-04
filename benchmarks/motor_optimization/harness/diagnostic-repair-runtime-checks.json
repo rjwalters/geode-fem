@@ -1,0 +1,44 @@
+{
+  "scope": "Internal diagnostic-only worker; no linked recovery dispatch, main-run permission or FEM performance verdict",
+  "source_sha256": {
+    "diagnostic_repair.py": "e45159fc9fc28d4a7a5d40f0b652b3fad007833c9754f0e143ef410f53d4f99e",
+    "test_diagnostic_repair.py": "c3d445dc197f0a257d7be2f060652bf178d94df6d8b58da8146b40304f46ed76",
+    "diagnostic_repair_mutations.py": "dd1fda4fc1e01d0761d6a0c2f4bb18515037b2f0dc8e5cb4a4379c300226c679",
+    "run.py": "8172b40c7c0f5cf4e5018db84b81f894b09b80f0dc9bbe7c818d098f81f32925",
+    "interruption.py": "f699769cf67e2f9f5cbddb223ad3cd0dcd87e6a5110cbc1bc6da912c68fe6cee",
+    "evaluator.py": "8b8da2194c53760be27917a4832ab518bd533c4f2284a41a096026cefa764687",
+    "session_journal.py": "dd2fa15a7b9bd764e61e2a6d55d68e83e814ae47a77f359d9796b11bbfa630f7",
+    "process_tracking.py": "50fcddcc894607a7a560e474ed9cd95408ee35bc7438625de2ab27b1bff4ac36",
+    "process_identity.py": "189f2add1591fbdbf979dec251b78e71c8ac6e1d8ca22ca72c2fc0c30098f729",
+    "process_verification.py": "fce9667df3fb454a85f1d353e00f4322809ed4f227694c9df03be3149a445ea5",
+    "physical_diagnostic.py": "bc3ad1fd113fc8f9661856e795cfe18db516fa495eac30a4c80d2a189a4761f2"
+  },
+  "checks": {
+    "diagnostic_repair": {
+      "tests": 6,
+      "path": "/tmp/codex-1202-diagnostic-repair.log",
+      "sha256": "382008e731ee033afe69b4dc1e1dcde3a62bd253d915af85137ce89146ae3c06",
+      "output": "test_changed_snapshot_session_unit_model_anchor_or_completion_refuses_before_launch (__main__.RepairTests.test_changed_snapshot_session_unit_model_anchor_or_completion_refuses_before_launch) ... ok\ntest_output_reuse_cannot_replace_an_earlier_diagnostic_failure (__main__.RepairTests.test_output_reuse_cannot_replace_an_earlier_diagnostic_failure) ... ok\ntest_pending_stop_prevents_evaluator_launch (__main__.RepairTests.test_pending_stop_prevents_evaluator_launch) ... ok\ntest_preparation_interrupt_and_failure_are_separate_recorded_costs (__main__.RepairTests.test_preparation_interrupt_and_failure_are_separate_recorded_costs) ... ok\ntest_real_signal_reaps_tracked_evaluator_and_preserves_original (__main__.RepairTests.test_real_signal_reaps_tracked_evaluator_and_preserves_original) ... ok\ntest_repair_matches_original_diagnostic_without_optimizer_or_ledger (__main__.RepairTests.test_repair_matches_original_diagnostic_without_optimizer_or_ledger) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 1.071s\n\nOK\n"
+    },
+    "run_interruption": {
+      "tests": 7,
+      "path": "/tmp/codex-1202-repair-interruption.log",
+      "sha256": "27b1e9fe2b70e0bffa1fbc55e2c770b01d94f7a347ee71b86e7df6b0d3f1a42f",
+      "output": "test_diagnostic_interrupt_does_not_replace_optimizer_outcome (__main__.InterruptionTests.test_diagnostic_interrupt_does_not_replace_optimizer_outcome) ... ok\ntest_interrupted_optimizer_preserves_prefix_and_does_not_run_diagnostic (__main__.InterruptionTests.test_interrupted_optimizer_preserves_prefix_and_does_not_run_diagnostic) ... ok\ntest_real_signals_stop_owned_evaluator_and_its_child (__main__.InterruptionTests.test_real_signals_stop_owned_evaluator_and_its_child) ... ok\ntest_scientific_error_retains_completed_validations_as_terminal_outcome (__main__.InterruptionTests.test_scientific_error_retains_completed_validations_as_terminal_outcome) ... ok\ntest_signal_during_evidence_phase_is_deferred_and_handler_is_restored (__main__.InterruptionTests.test_signal_during_evidence_phase_is_deferred_and_handler_is_restored) ... ok\ntest_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger (__main__.InterruptionTests.test_snapshot_reconstructs_diagnostic_without_optimizer_or_ledger) ... ok\ntest_stopped_snapshot_exists_before_diagnostic_and_cannot_be_overwritten (__main__.InterruptionTests.test_stopped_snapshot_exists_before_diagnostic_and_cannot_be_overwritten) ... ok\n\n----------------------------------------------------------------------\nRan 7 tests in 1.577s\n\nOK\n"
+    },
+    "physical_diagnostic": {
+      "tests": 10,
+      "path": "/tmp/codex-1202-repair-physical.log",
+      "sha256": "67c423742118fc7e0b48b4103c1ada85b015fdccc3ddddb17617bbc566a81ec8",
+      "output": "test_best_common_feasible_and_earliest_tie (__main__.DiagnosticTests.test_best_common_feasible_and_earliest_tie) ... ok\ntest_diagnostics_do_not_change_stopped_run_including_budget_abort (__main__.DiagnosticTests.test_diagnostics_do_not_change_stopped_run_including_budget_abort) ... ok\ntest_failure_retains_raw_reply_cost_and_closes_process (__main__.DiagnosticTests.test_failure_retains_raw_reply_cost_and_closes_process) ... ok\ntest_fallback_and_unavailable_do_not_claim_feasibility (__main__.DiagnosticTests.test_fallback_and_unavailable_do_not_claim_feasibility) ... ok\ntest_interrupted_validation_retains_pair_without_credit (__main__.DiagnosticTests.test_interrupted_validation_retains_pair_without_credit) ... ok\ntest_mesh_infeasible_validation_retains_training_pair (__main__.DiagnosticTests.test_mesh_infeasible_validation_retains_training_pair) ... ok\ntest_paired_records_survive_a_failed_acceptance (__main__.DiagnosticTests.test_paired_records_survive_a_failed_acceptance) ... ok\ntest_trial_does_not_replace_reported_incumbent (__main__.DiagnosticTests.test_trial_does_not_replace_reported_incumbent) ... ok\ntest_unavailable_and_startup_failure_remain_explicit (__main__.DiagnosticTests.test_unavailable_and_startup_failure_remain_explicit) ... ok\ntest_waveforms_reconstruct_and_corrupt_statistics_fail (__main__.DiagnosticTests.test_waveforms_reconstruct_and_corrupt_statistics_fail) ... ok\n\n----------------------------------------------------------------------\nRan 10 tests in 0.284s\n\nOK\n"
+    }
+  },
+  "mutations_detected": 5,
+  "remaining": [
+    "linked recovery eligibility/counters/order and exclusive attempt ownership",
+    "fresh source/environment/host/input/process verification before dispatch",
+    "full provenance and cap-hit reporting",
+    "reviewed dependency rebase and affected verification",
+    "independent review and host selection before main jobs"
+  ]
+}

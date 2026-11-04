@@ -1,0 +1,7 @@
+# #1198 pilot: rebuilt gitignored theta0 meshes vs committed SHA-256 records
+# checked 2026-10-18T04:07:13Z; built (about 04:01Z) by: uv run -q --with numpy==2.5.4 --with gmsh==4.15.2 python -I benchmarks/motor_reference/geometry/build_sector_mesh.py --levels 1 2 --out benchmarks/motor_reference/geometry/meshes (upstream via extract_reference.py --fetch; reference_data.json sha256 8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3)
+# commit 89e6c4e127a5fbef7e4b2e0f10b90e70bd1193b4
+icem_initial_sector_L0.msh 4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41 report=4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41 ok
+icem_initial_sector_L1.msh c4526a26904c73f68ba0987f0ca8995bcc0095f0e7936399d5920e167f35d7f5 report=c4526a26904c73f68ba0987f0ca8995bcc0095f0e7936399d5920e167f35d7f5 ok
+icem_initial_sector_L2.msh 00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5 report=00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5 ok
+anchor.json msh_sha256 entries ['00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5'] L2 ok

@@ -1,0 +1,6 @@
+space a L1 tight interior dir h 1.000000e-03: dF/dt reply -2.286254609e-02 FD -2.286250517e-02 rel 1.79e-06; dmean(1)/dt reply 8.153294062e-01 FD 8.153290334e-01 rel 4.57e-07
+space a L1 tight interior dir h 1.000000e-04: dF/dt reply -2.286254609e-02 FD -2.286254566e-02 rel 1.88e-08; dmean(1)/dt reply 8.153294062e-01 FD 8.153294024e-01 rel 4.65e-09
+space a L1 tight MAG h 1.000000e-06: dF reply -4.941974619e-01 FD -4.941973199e-01 rel 2.87e-07; dmean(1) reply -6.336589531e+01 FD -6.336589508e+01 rel 3.72e-09
+space a L1 tight SW2 h 1.000000e-06: dF reply 1.324419709e+01 FD 1.324419779e+01 rel 5.27e-08; dmean(1) reply -4.931869360e+01 FD -4.931869367e+01 rel 1.57e-09
+space a L1 tight Sr1 h 1.000000e-06: dF reply 2.740194063e-03 FD 2.740193389e-03 rel 2.46e-07; dmean(1) reply 2.310667596e-01 FD 2.310667542e-01 rel 2.34e-08
+exit 0

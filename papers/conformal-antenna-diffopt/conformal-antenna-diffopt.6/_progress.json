@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "thread": "conformal-antenna-diffopt",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-15T19:05:19Z",
+      "completed": "2026-10-15T19:26:44Z"
+    },
+    "figures": {
+      "state": "done",
+      "started": "2026-10-15T19:05:19Z",
+      "completed": "2026-10-15T19:26:44Z"
+    }
+  },
+  "metadata": {
+    "iteration": 6,
+    "max_iterations": 4,
+    "revised_from": 5,
+    "operator_override": true,
+    "operator_note": "Revision against the v5 referee review and the new committed experiments, under the operator's rulings on the antenna/transmon framing; no Anvil max_iterations gate on paper revisions (operator ruling)."
+  }
+}

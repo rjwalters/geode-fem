@@ -1,0 +1,9 @@
+{
+  "note": "SHA-256 of the construction meshes rebuilt by build_design_mesh.py (gmsh 4.15.2, numpy 2.5.4) from motor_validation/meshes/plan.json for #1193; node/triangle counts match the #1182 records",
+  "construction_sha256": {
+    "icem_remesh_theta0_L2.msh": "8fdde6384543a26cdd066fb47b86f3e403aa7d36aeaf8ecca86906dbb070cc82",
+    "icem_remesh_theta0_L3.msh": "b491639e5ced388b12592a1bcca92e64d9bb88afceff61d11dad9d06a19792c3",
+    "icem_remesh_opt120_L2.msh": "d847a836b4db1ddea32d0498c388cf7c41b1d73486c59d491c3cfec666eb4f09",
+    "icem_remesh_opt120_L3.msh": "0930b555cb34e1866ae759b4b70cc01bf70de57deb7917006d6707c93115f3cb"
+  }
+}

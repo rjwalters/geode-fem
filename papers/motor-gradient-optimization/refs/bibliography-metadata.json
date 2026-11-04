@@ -1,0 +1,3584 @@
+{
+  "wiesheu2024spline": {
+    "indexed": {
+      "date-parts": [
+        [
+          2025,
+          12,
+          29
+        ]
+      ],
+      "date-time": "2025-12-29T13:43:46Z",
+      "timestamp": 1767015826419,
+      "version": "3.28.0"
+    },
+    "reference-count": 16,
+    "publisher": "IEEE",
+    "license": [
+      {
+        "start": {
+          "date-parts": [
+            [
+              2024,
+              9,
+              1
+            ]
+          ],
+          "date-time": "2024-09-01T00:00:00Z",
+          "timestamp": 1725148800000
+        },
+        "content-version": "stm-asf",
+        "delay-in-days": 0,
+        "URL": "https://doi.org/10.15223/policy-029"
+      },
+      {
+        "start": {
+          "date-parts": [
+            [
+              2024,
+              9,
+              1
+            ]
+          ],
+          "date-time": "2024-09-01T00:00:00Z",
+          "timestamp": 1725148800000
+        },
+        "content-version": "stm-asf",
+        "delay-in-days": 0,
+        "URL": "https://doi.org/10.15223/policy-037"
+      }
+    ],
+    "content-domain": {
+      "domain": [],
+      "crossmark-restriction": false
+    },
+    "short-container-title": [],
+    "published-print": {
+      "date-parts": [
+        [
+          2024,
+          9,
+          1
+        ]
+      ]
+    },
+    "DOI": "10.1109/icem60801.2024.10700065",
+    "type": "proceedings-article",
+    "created": {
+      "date-parts": [
+        [
+          2024,
+          10,
+          9
+        ]
+      ],
+      "date-time": "2024-10-09T17:44:50Z",
+      "timestamp": 1728495890000
+    },
+    "page": "1-6",
+    "source": "Crossref",
+    "is-referenced-by-count": 4,
+    "title": [
+      "Spline-Based Rotor and Stator Optimization of a Permanent Magnet Synchronous Motor"
+    ],
+    "prefix": "10.1109",
+    "author": [
+      {
+        "given": "Michael",
+        "family": "Wiesheu",
+        "sequence": "first",
+        "affiliation": [
+          {
+            "name": "Technical University of Darmstadt,Computational Electromagnetics Group,Darmstadt,Germany"
+          }
+        ],
+        "role": [
+          {
+            "role": "author",
+            "vocabulary": "crossref"
+          }
+        ]
+      },
+      {
+        "given": "Theodor",
+        "family": "Komann",
+        "sequence": "additional",
+        "affiliation": [
+          {
+            "name": "Technical University of Darmstadt,Department of Mathematics,Darmstadt,Germany"
+          }
+        ],
+        "role": [
+          {
+            "role": "author",
+            "vocabulary": "crossref"
+          }
+        ]
+      },
+      {
+        "given": "Melina",
+        "family": "Merkel",
+        "sequence": "additional",
+        "affiliation": [
+          {
+            "name": "Technical University of Darmstadt,Computational Electromagnetics Group,Darmstadt,Germany"
+          }
+        ],
+        "role": [
+          {
+            "role": "author",
+            "vocabulary": "crossref"
+          }
+        ]
+      },
+      {
+        "given": "Sebastian",
+        "family": "Schops",
+        "sequence": "additional",
+        "affiliation": [
+          {
+            "name": "Technical University of Darmstadt,Computational Electromagnetics Group,Darmstadt,Germany"
+          }
+        ],
+        "role": [
+          {
+            "role": "author",
+            "vocabulary": "crossref"
+          }
+        ]
+      },
+      {
+        "given": "Stefan",
+        "family": "Ulbrich",
+        "sequence": "additional",
+        "affiliation": [
+          {
+            "name": "Technical University of Darmstadt,Computational Electromagnetics Group,Darmstadt,Germany"
+          }
+        ],
+        "role": [
+          {
+            "role": "author",
+            "vocabulary": "crossref"
+          }
+        ]
+      },
+      {
+        "given": "Idoia",
+        "family": "Cortes Garcia",
+        "sequence": "additional",
+        "affiliation": [
+          {
+            "name": "Eindhoven University of Technology,Department of Mechanical Engineering,Eindhoven,The Netherlands"
+          }
+        ],
+        "role": [
+          {
+            "role": "author",
+            "vocabulary": "crossref"
+          }
+        ]
+      }
+    ],
+    "member": "263",
+    "reference": [
+      {
+        "key": "ref1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.3390/en16135200"
+      },
+      {
+        "key": "ref2",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.3390/eng3040044"
+      },
+      {
+        "issue": "4",
+        "key": "ref3",
+        "doi-asserted-by": "crossref",
+        "first-page": "2783",
+        "DOI": "10.1007/s42835-022-01358-y",
+        "article-title": "Design Optimization Methods for Electrical Machines: A Review",
+        "volume": "18",
+        "author": "Omar",
+        "year": "2022",
+        "journal-title": "Journal of Electrical Engineering & Technology"
+      },
+      {
+        "key": "ref4",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/tec.2021.3061271"
+      },
+      {
+        "key": "ref5",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/ECCE50734.2022.9948073"
+      },
+      {
+        "journal-title": "Combined Parameter and Shape Optimization of Electric Machines with Isogeometric Analysis. Preprint. Cornell University",
+        "year": "2023",
+        "author": "Wiesheu",
+        "key": "ref6"
+      },
+      {
+        "journal-title": "MichaelWiesheulICEMsnapshot: 0.0.0. Version placeholder",
+        "year": "2024",
+        "author": "Wiesheu",
+        "key": "ref7"
+      },
+      {
+        "issue": "6",
+        "key": "ref8",
+        "article-title": "On torque computation in electric machine simulation by harmonic mortar methods",
+        "volume": "12",
+        "author": "Egger",
+        "year": "2022",
+        "journal-title": "Journal of Mathematics in Industry"
+      },
+      {
+        "key": "ref9",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1016/j.cma.2018.01.047"
+      },
+      {
+        "key": "ref10",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1007/978-1-4615-2349-9"
+      },
+      {
+        "key": "ref11",
+        "article-title": "A General Design Tool for the Numerical Optimisation of Electromagnetic Energy Transducers",
+        "volume-title": "PhD Thesis. Leuven: KU Leuven",
+        "author": "Pahner",
+        "year": "1998"
+      },
+      {
+        "key": "ref12",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.24425/aee.2019.129350"
+      },
+      {
+        "key": "ref13",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/ever.2015.7113006"
+      },
+      {
+        "volume-title": "Electrical Machine Analysis Using Fi-nite Elements",
+        "year": "2005",
+        "author": "Bianchi",
+        "key": "ref14"
+      },
+      {
+        "key": "ref15",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1016/j.camwa.2016.05.010"
+      },
+      {
+        "volume-title": "Finite Element Method Magnetics. Version 4.2",
+        "year": "2018",
+        "author": "Meeker",
+        "key": "ref16"
+      }
+    ],
+    "event": {
+      "name": "2024 International Conference on Electrical Machines (ICEM)",
+      "start": {
+        "date-parts": [
+          [
+            2024,
+            9,
+            1
+          ]
+        ]
+      },
+      "location": "Torino, Italy",
+      "end": {
+        "date-parts": [
+          [
+            2024,
+            9,
+            4
+          ]
+        ]
+      }
+    },
+    "container-title": [
+      "2024 International Conference on Electrical Machines (ICEM)"
+    ],
+    "original-title": [],
+    "link": [
+      {
+        "URL": "http://xplorestaging.ieee.org/ielx8/10700040/10700056/10700065.pdf?arnumber=10700065",
+        "content-type": "unspecified",
+        "content-version": "vor",
+        "intended-application": "similarity-checking"
+      }
+    ],
+    "deposited": {
+      "date-parts": [
+        [
+          2024,
+          10,
+          10
+        ]
+      ],
+      "date-time": "2024-10-10T14:53:15Z",
+      "timestamp": 1728571995000
+    },
+    "score": 1,
+    "resource": {
+      "primary": {
+        "URL": "https://ieeexplore.ieee.org/document/10700065/"
+      }
+    },
+    "subtitle": [],
+    "short-title": [],
+    "issued": {
+      "date-parts": [
+        [
+          2024,
+          9,
+          1
+        ]
+      ]
+    },
+    "references-count": 16,
+    "URL": "https://doi.org/10.1109/icem60801.2024.10700065",
+    "relation": {},
+    "subject": [],
+    "published": {
+      "date-parts": [
+        [
+          2024,
+          9,
+          1
+        ]
+      ]
+    }
+  },
+  "scotzniovsky2024": {
+    "indexed": {
+      "date-parts": [
+        [
+          2026,
+          10,
+          10
+        ]
+      ],
+      "date-time": "2026-10-10T00:24:46Z",
+      "timestamp": 1791591886946,
+      "version": "4.3.4"
+    },
+    "reference-count": 78,
+    "publisher": "Springer Science and Business Media LLC",
+    "issue": "1",
+    "license": [
+      {
+        "start": {
+          "date-parts": [
+            [
+              2024,
+              5,
+              22
+            ]
+          ],
+          "date-time": "2024-05-22T00:00:00Z",
+          "timestamp": 1716336000000
+        },
+        "content-version": "tdm",
+        "delay-in-days": 0,
+        "URL": "https://www.springernature.com/gp/researchers/text-and-data-mining"
+      },
+      {
+        "start": {
+          "date-parts": [
+            [
+              2024,
+              5,
+              22
+            ]
+          ],
+          "date-time": "2024-05-22T00:00:00Z",
+          "timestamp": 1716336000000
+        },
+        "content-version": "vor",
+        "delay-in-days": 0,
+        "URL": "https://www.springernature.com/gp/researchers/text-and-data-mining"
+      }
+    ],
+    "funder": [
+      {
+        "DOI": "10.13039/100000104",
+        "name": "NASA",
+        "doi-asserted-by": "crossref",
+        "award": [
+          "80NSSC21M0070"
+        ],
+        "award-info": [
+          {
+            "award-number": [
+              "80NSSC21M0070"
+            ]
+          }
+        ],
+        "id": [
+          {
+            "id": "10.13039/100000104",
+            "id-type": "DOI",
+            "asserted-by": "crossref"
+          }
+        ]
+      },
+      {
+        "DOI": "10.13039/100000104",
+        "name": "NASA",
+        "doi-asserted-by": "crossref",
+        "award": [
+          "80NSSC21M0070"
+        ],
+        "award-info": [
+          {
+            "award-number": [
+              "80NSSC21M0070"
+            ]
+          }
+        ],
+        "id": [
+          {
+            "id": "10.13039/100000104",
+            "id-type": "DOI",
+            "asserted-by": "crossref"
+          }
+        ]
+      },
+      {
+        "DOI": "10.13039/100000104",
+        "name": "NASA",
+        "doi-asserted-by": "crossref",
+        "award": [
+          "80NSSC21M0070"
+        ],
+        "award-info": [
+          {
+            "award-number": [
+              "80NSSC21M0070"
+            ]
+          }
+        ],
+        "id": [
+          {
+            "id": "10.13039/100000104",
+            "id-type": "DOI",
+            "asserted-by": "crossref"
+          }
+        ]
+      },
+      {
+        "DOI": "10.13039/100000104",
+        "name": "NASA",
+        "doi-asserted-by": "crossref",
+        "award": [
+          "80NSSC21M0070"
+        ],
+        "award-info": [
+          {
+            "award-number": [
+              "80NSSC21M0070"
+            ]
+          }
+        ],
+        "id": [
+          {
+            "id": "10.13039/100000104",
+            "id-type": "DOI",
+            "asserted-by": "crossref"
+          }
+        ]
+      },
+      {
+        "DOI": "10.13039/100000104",
+        "name": "NASA",
+        "doi-asserted-by": "crossref",
+        "award": [
+          "80NSSC21M0070"
+        ],
+        "award-info": [
+          {
+            "award-number": [
+              "80NSSC21M0070"
+            ]
+          }
+        ],
+        "id": [
+          {
+            "id": "10.13039/100000104",
+            "id-type": "DOI",
+            "asserted-by": "crossref"
+          }
+        ]
+      },
+      {
+        "DOI": "10.13039/100000104",
+        "name": "NASA",
+        "doi-asserted-by": "crossref",
+        "award": [
+          "80NSSC21M0070"
+        ],
+        "award-info": [
+          {
+            "award-number": [
+              "80NSSC21M0070"
+            ]
+          }
+        ],
+        "id": [
+          {
+            "id": "10.13039/100000104",
+            "id-type": "DOI",
+            "asserted-by": "crossref"
+          }
+        ]
+      }
+    ],
+    "content-domain": {
+      "domain": [
+        "link.springer.com"
+      ],
+      "crossmark-restriction": false
+    },
+    "short-container-title": [
+      "Optim Eng"
+    ],
+    "published-print": {
+      "date-parts": [
+        [
+          2025,
+          3
+        ]
+      ]
+    },
+    "DOI": "10.1007/s11081-024-09892-6",
+    "type": "journal-article",
+    "created": {
+      "date-parts": [
+        [
+          2024,
+          5,
+          22
+        ]
+      ],
+      "date-time": "2024-05-22T05:01:40Z",
+      "timestamp": 1716354100000
+    },
+    "page": "121-158",
+    "update-policy": "https://doi.org/10.1007/springer_crossmark_policy",
+    "source": "Crossref",
+    "is-referenced-by-count": 2,
+    "title": [
+      "Geometric design of electric motors using adjoint-based shape optimization"
+    ],
+    "prefix": "10.1007",
+    "volume": "26",
+    "author": [
+      {
+        "given": "Luca",
+        "family": "Scotzniovsky",
+        "sequence": "first",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "Ru",
+        "family": "Xiang",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "Zeyu",
+        "family": "Cheng",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "Gabriel",
+        "family": "Rodriguez",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "David",
+        "family": "Kamensky",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "Chris",
+        "family": "Mi",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "John T.",
+        "family": "Hwang",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      }
+    ],
+    "member": "297",
+    "published-online": {
+      "date-parts": [
+        [
+          2024,
+          5,
+          22
+        ]
+      ]
+    },
+    "reference": [
+      {
+        "issue": "9",
+        "key": "9892_CR1",
+        "doi-asserted-by": "publisher",
+        "first-page": "3870",
+        "DOI": "10.1109/TVT.2014.2363144",
+        "volume": "64",
+        "author": "K Ahn",
+        "year": "2015",
+        "unstructured": "Ahn K, Bayrak AE, Papalambros PY (2015) Electric vehicle design optimization: integration of a high-fidelity interior-permanent-magnet motor model. IEEE Trans Veh Technol 64(9):3870–3877. https://doi.org/10.1109/TVT.2014.2363144",
+        "journal-title": "IEEE Trans Veh Technol"
+      },
+      {
+        "issue": "2",
+        "key": "9892_CR2",
+        "doi-asserted-by": "publisher",
+        "first-page": "157",
+        "DOI": "10.1117/1.1455013",
+        "volume": "11",
+        "author": "I Amidror",
+        "year": "2002",
+        "unstructured": "Amidror I (2002) Scattered data interpolation methods for electronic imaging systems: a survey. J Electron Imaging 11(2):157–176. https://doi.org/10.1117/1.1455013",
+        "journal-title": "J Electron Imaging"
+      },
+      {
+        "key": "9892_CR3",
+        "unstructured": "Ansys (2021) Ansys maxwell. https://www.ansys.com/products/electronics/ansys-maxwell. Accessed 20 March 2021"
+      },
+      {
+        "issue": "6",
+        "key": "9892_CR4",
+        "doi-asserted-by": "publisher",
+        "first-page": "1",
+        "DOI": "10.3390/en15061995",
+        "volume": "15",
+        "author": "X Ba",
+        "year": "2022",
+        "unstructured": "Ba X, Gong Z, Guo Y, Zhang C, Zhu J (2022) Development of equivalent circuit models of permanent magnet synchronous motors considering core loss. Energies 15(6):1–18. https://doi.org/10.3390/en15061995",
+        "journal-title": "Energies"
+      },
+      {
+        "key": "9892_CR5",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Babcock T, McKeever B, Hicken JE (2023) Multi-disciplinary design optimization of an electric motor considering thermal constraints. In: AIAA aviation 2023 forum, p 4342. https://doi.org/10.2514/6.2023-4342",
+        "DOI": "10.2514/6.2023-4342"
+      },
+      {
+        "key": "9892_CR6",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.5281/zenodo.10447666",
+        "author": "IA Baratta",
+        "year": "2023",
+        "unstructured": "Baratta IA, Dean JP, Dokken JS, Habera M, Hale JS, Richardson CN, Rognes ME, Scroggs MW, Sime N, Wells GN (2023) DOLFINx: the next generation FEniCS problem solving environment. Comput Sci. https://doi.org/10.5281/zenodo.10447666",
+        "journal-title": "Comput Sci"
+      },
+      {
+        "key": "9892_CR7",
+        "doi-asserted-by": "publisher",
+        "first-page": "3",
+        "DOI": "10.1007/s00466-008-0315-x",
+        "volume": "43",
+        "author": "Y Bazilevs",
+        "year": "2008",
+        "unstructured": "Bazilevs Y, Calo VM, Hughes TJ, Zhang Y (2008) Isogeometric fluid–structure interaction: theory, algorithms, and computations. Comput Mech 43:3–37. https://doi.org/10.1007/s00466-008-0315-x",
+        "journal-title": "Comput Mech"
+      },
+      {
+        "key": "9892_CR8",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1201/9781315219295",
+        "volume-title": "Electrical machine analysis using finite elements",
+        "author": "N Bianchi",
+        "year": "2005",
+        "unstructured": "Bianchi N (2005) Electrical machine analysis using finite elements. CRC Press, Boca Raton. https://doi.org/10.1201/9781315219295"
+      },
+      {
+        "key": "9892_CR9",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Bolam RC, Vagapov Y, Anuchin A (2020) A review of electrical motor topologies for aircraft propulsion. In: 2020 55th International universities power engineering conference (UPEC), pp 1–6. https://doi.org/10.1109/UPEC49904.2020.9209783",
+        "DOI": "10.1109/UPEC49904.2020.9209783"
+      },
+      {
+        "issue": "6",
+        "key": "9892_CR10",
+        "doi-asserted-by": "publisher",
+        "first-page": "1517",
+        "DOI": "10.1109/TIA.2002.805572",
+        "volume": "38",
+        "author": "A Cavagnino",
+        "year": "2002",
+        "unstructured": "Cavagnino A, Lazzari M, Profumo F, Tenconi A (2002) A comparison between the axial flux and the radial flux structures for pm synchronous motors. IEEE Trans Ind Appl 38(6):1517–1524. https://doi.org/10.1109/TIA.2002.805572",
+        "journal-title": "IEEE Trans Ind Appl"
+      },
+      {
+        "issue": "7",
+        "key": "9892_CR11",
+        "doi-asserted-by": "publisher",
+        "first-page": "1",
+        "DOI": "10.1109/TMAG.2016.2524010",
+        "volume": "52",
+        "author": "F Chai",
+        "year": "2016",
+        "unstructured": "Chai F, Liang P, Pei Y, Cheng S (2016) Magnet shape optimization of surface-mounted permanent-magnet motors to reduce harmonic iron losses. IEEE Trans Magn 52(7):1–4. https://doi.org/10.1109/TMAG.2016.2524010",
+        "journal-title": "IEEE Trans Magn"
+      },
+      {
+        "issue": "3",
+        "key": "9892_CR12",
+        "doi-asserted-by": "publisher",
+        "first-page": "497",
+        "DOI": "10.2514/1.C035991",
+        "volume": "58",
+        "author": "SS Chauhan",
+        "year": "2021",
+        "unstructured": "Chauhan SS, Martins JRRA (2021) Rans-based aerodynamic shape optimization of a wing considering propeller-wing interaction. J Aircr 58(3):497–513. https://doi.org/10.2514/1.C035991",
+        "journal-title": "J Aircr"
+      },
+      {
+        "issue": "9",
+        "key": "9892_CR13",
+        "doi-asserted-by": "publisher",
+        "first-page": "6074",
+        "DOI": "10.1109/TITS.2021.3082767",
+        "volume": "22",
+        "author": "AP Cohen",
+        "year": "2021",
+        "unstructured": "Cohen AP, Shaheen SA, Farrar EM (2021) Urban air mobility: history, ecosystem, market potential, and challenges. IEEE Trans Intell Transp Syst 22(9):6074–6087. https://doi.org/10.1109/TITS.2021.3082767",
+        "journal-title": "IEEE Trans Intell Transp Syst"
+      },
+      {
+        "issue": "12",
+        "key": "9892_CR14",
+        "doi-asserted-by": "publisher",
+        "first-page": "1067",
+        "DOI": "10.1557/mrs.2015.259",
+        "volume": "40",
+        "author": "G Crabtree",
+        "year": "2015",
+        "unstructured": "Crabtree G, Kócs E, Trahey L (2015) The energy-storage frontier: lithium-ion batteries and beyond. MRS Bull 40(12):1067–1078. https://doi.org/10.1557/mrs.2015.259",
+        "journal-title": "MRS Bull"
+      },
+      {
+        "key": "9892_CR15",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Dantsker OD, Caccamo M, Imtiaz S (2019) Electric propulsion system optimization for long-endurance and solar-powered unmanned aircraft. In: 2019 AIAA/IEEE electric aircraft technologies symposium (EATS), pp 1–24. https://doi.org/10.2514/6.2019-4486",
+        "DOI": "10.2514/6.2019-4486"
+      },
+      {
+        "issue": "15",
+        "key": "9892_CR16",
+        "doi-asserted-by": "publisher",
+        "first-page": "3975",
+        "DOI": "10.3390/en13153975",
+        "volume": "13",
+        "author": "LP Di Noia",
+        "year": "2020",
+        "unstructured": "Di Noia LP, Piegari L, Rizzo R (2020) Optimization methodology of PMSM cooled by external convection in aircraft propulsion. Energies 13(15):3975. https://doi.org/10.3390/en13153975",
+        "journal-title": "Energies"
+      },
+      {
+        "issue": "20",
+        "key": "9892_CR17",
+        "doi-asserted-by": "publisher",
+        "first-page": "3880",
+        "DOI": "10.3390/math10203880",
+        "volume": "10",
+        "author": "H Elsherbiny",
+        "year": "2022",
+        "unstructured": "Elsherbiny H, Szamel L, Ahmed MK, Elwany MA (2022) High accuracy modeling of permanent magnet synchronous motors using finite element analysis. Mathematics 10(20):3880. https://doi.org/10.3390/math10203880",
+        "journal-title": "Mathematics"
+      },
+      {
+        "key": "9892_CR18",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Falck RD, Chin J, Schnulo SL, Burt JM, Gray JS (2017) Trajectory optimization of electric aircraft subject to subsystem thermal constraints. In: 18th AIAA/ISSMO multidisciplinary analysis and optimization conference, p 4002. https://doi.org/10.2514/6.2017-4002",
+        "DOI": "10.2514/6.2017-4002"
+      },
+      {
+        "key": "9892_CR19",
+        "unstructured": "Gandarillas V, Joshy AJ, Sperry MZ, Ivanov AK, Hwang JT (2022) A graph-based methodology for constructing computational models that automates adjoint-based sensitivity analysis. Struct Multidiscip Optim"
+      },
+      {
+        "issue": "6",
+        "key": "9892_CR20",
+        "doi-asserted-by": "publisher",
+        "first-page": "B1002",
+        "DOI": "10.1137/15100477X",
+        "volume": "37",
+        "author": "P Gangl",
+        "year": "2015",
+        "unstructured": "Gangl P, Langer U, Laurain A, Meftahi H, Sturm K (2015) Shape optimization of an electric motor subject to nonlinear magnetostatics. SIAM J Sci Comput 37(6):B1002–B1025. https://doi.org/10.1137/15100477X",
+        "journal-title": "SIAM J Sci Comput"
+      },
+      {
+        "issue": "3",
+        "key": "9892_CR21",
+        "doi-asserted-by": "publisher",
+        "first-page": "1",
+        "DOI": "10.1109/TMAG.2015.2496172",
+        "volume": "52",
+        "author": "P Gangl",
+        "year": "2016",
+        "unstructured": "Gangl P, Amstutz S, Langer U (2016) Topology optimization of electric motor using topological derivative for nonlinear magnetostatics. IEEE Trans Magnet 52(3):1–4. https://doi.org/10.1109/TMAG.2015.2496172",
+        "journal-title": "IEEE Trans Magnet"
+      },
+      {
+        "issue": "11",
+        "key": "9892_CR22",
+        "doi-asserted-by": "publisher",
+        "first-page": "1309",
+        "DOI": "10.1002/nme.2579",
+        "volume": "79",
+        "author": "C Geuzaine",
+        "year": "2009",
+        "unstructured": "Geuzaine C, Remacle JF (2009) Gmsh: a 3-d finite element mesh generator with built-in pre- and post-processing facilities. Int J Numer Methods Eng 79(11):1309–1331. https://doi.org/10.1002/nme.2579",
+        "journal-title": "Int J Numer Methods Eng"
+      },
+      {
+        "key": "9892_CR23",
+        "unstructured": "Gibson SF, Mirtich B (1997) A survey of deformable modeling in computer graphics. Tech. rep, Technical report, Mitsubishi Electric Research Laboratories"
+      },
+      {
+        "issue": "1",
+        "key": "9892_CR24",
+        "doi-asserted-by": "publisher",
+        "first-page": "99",
+        "DOI": "10.1137/S0036144504446096",
+        "volume": "47",
+        "author": "PE Gill",
+        "year": "2005",
+        "unstructured": "Gill PE, Murray W, Saunders MA (2005) SNOPT: an SQP algorithm for large-scale constrained optimization. SIAM Rev 47(1):99–131. https://doi.org/10.1137/S0036144504446096",
+        "journal-title": "SIAM Rev"
+      },
+      {
+        "key": "9892_CR25",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Gmyrek Z, Cavagnino A (2021) Analytical model of the ferromagnetic properties in laminations damaged by cutting. In: 2021 IEEE energy conversion congress and exposition (ECCE), pp 4000–4007. https://doi.org/10.1109/ECCE47101.2021.9595736",
+        "DOI": "10.1109/ECCE47101.2021.9595736"
+      },
+      {
+        "key": "9892_CR26",
+        "volume-title": "CO$$_{2}$$ emissions from commercial aviation",
+        "author": "B Graver",
+        "year": "2018",
+        "unstructured": "Graver B, Zhang K, Rutherford D (2018) CO$$_{2}$$ emissions from commercial aviation. International Council on Clean Transportation, Washington"
+      },
+      {
+        "key": "9892_CR27",
+        "doi-asserted-by": "publisher",
+        "first-page": "1075",
+        "DOI": "10.1007/s00158-019-02211-z",
+        "volume": "59",
+        "author": "JS Gray",
+        "year": "2019",
+        "unstructured": "Gray JS, Hwang JT, Martins JR, Moore KT, Naylor BA (2019) Openmdao: an open-source framework for multidisciplinary design, analysis, and optimization. Struct Multidiscip Optim 59:1075–1104",
+        "journal-title": "Struct Multidiscip Optim"
+      },
+      {
+        "issue": "18",
+        "key": "9892_CR28",
+        "doi-asserted-by": "publisher",
+        "first-page": "5939",
+        "DOI": "10.3390/en14185939",
+        "volume": "14",
+        "author": "JM Grenier",
+        "year": "2021",
+        "unstructured": "Grenier JM, Pérez R, Picard M, Cros J (2021) Magnetic FEA direct optimization of high-power density, halbach array permanent magnet electric motors. Energies 14(18):5939. https://doi.org/10.3390/en14185939",
+        "journal-title": "Energies"
+      },
+      {
+        "issue": "1",
+        "key": "9892_CR29",
+        "doi-asserted-by": "publisher",
+        "first-page": "55",
+        "DOI": "10.1109/TEC.2010.2053374",
+        "volume": "26",
+        "author": "JA Güemes",
+        "year": "2011",
+        "unstructured": "Güemes JA, Iraolagoitia AM, Del Hoyo JI, Fernández P (2011) Torque analysis in permanent-magnet synchronous motors: a comparative study. IEEE Trans Energy Convers 26(1):55–63. https://doi.org/10.1109/TEC.2010.2053374",
+        "journal-title": "IEEE Trans Energy Convers"
+      },
+      {
+        "issue": "7",
+        "key": "9892_CR30",
+        "doi-asserted-by": "publisher",
+        "first-page": "1148",
+        "DOI": "10.1049/iet-epa.2019.0987",
+        "volume": "14",
+        "author": "Y Hao",
+        "year": "2020",
+        "unstructured": "Hao Y, Wang X, Cui R, Fang X, Zhang W, Li Y, Cheng D (2020) Torque analytical model of switched reluctance motor considering magnetic saturation. IET Electr Power Appl 14(7):1148–1153. https://doi.org/10.1049/iet-epa.2019.0987",
+        "journal-title": "IET Electr Power Appl"
+      },
+      {
+        "key": "9892_CR31",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Hashemnia N, Asaei B (2008) Comparative study of using different electric motors in the electric vehicles. In: 2008 18th International conference on electrical machines, pp 1–5. https://doi.org/10.1109/ICELMACH.2008.4800157",
+        "DOI": "10.1109/ICELMACH.2008.4800157"
+      },
+      {
+        "key": "9892_CR32",
+        "doi-asserted-by": "publisher",
+        "first-page": "48",
+        "DOI": "10.1016/j.ast.2019.01.051",
+        "volume": "87",
+        "author": "X He",
+        "year": "2019",
+        "unstructured": "He X, Li J, Mader CA, Yildirim A, Martins JR (2019) Robust aerodynamic shape optimization-from a circle to an airfoil. Aerosp Sci Technol 87:48–61. https://doi.org/10.1016/j.ast.2019.01.051",
+        "journal-title": "Aerosp Sci Technol"
+      },
+      {
+        "key": "9892_CR33",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Hebala A, Nuzzo S, Volpe G, Connor PH, Giangrande P, Gerada C, Galea M (2020) Feasibility design study of high-performance, high-power-density propulsion motor for middle-range electric aircraft. In: 2020 IEEE 29th international symposium on industrial electronics (ISIE), pp 300–306. https://doi.org/10.1109/ISIE45063.2020.9152551",
+        "DOI": "10.1109/ISIE45063.2020.9152551"
+      },
+      {
+        "key": "9892_CR34",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Hebala A, Nuzzo S, Connor PH, Giangrande P, Gerada C, Galea M (2021) Improved propulsion motor design for a twelve passenger all-electric aircraft. In: 2021 IEEE workshop on electrical machines design, control and diagnosis (WEMDCD), pp 343–348. https://doi.org/10.1109/WEMDCD51469.2021.9425667",
+        "DOI": "10.1109/WEMDCD51469.2021.9425667"
+      },
+      {
+        "key": "9892_CR35",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Hebala A, Nuzzo S, Connor PH, Volpe G, Gerada C, Galea M (2022) Mitigation of AC winding losses for aircraft propulsion motors. In: IECON 2022—48th annual conference of the IEEE industrial electronics society, pp 1–6. https://doi.org/10.1109/IECON49645.2022.9968846",
+        "DOI": "10.1109/IECON49645.2022.9968846"
+      },
+      {
+        "key": "9892_CR36",
+        "volume-title": "Fast-forwarding to a future of on-demand urban air transportation",
+        "author": "J Holden",
+        "year": "2016",
+        "unstructured": "Holden J, Goel N (2016) Fast-forwarding to a future of on-demand urban air transportation. VertiFlite, San Francisco"
+      },
+      {
+        "issue": "5",
+        "key": "9892_CR37",
+        "doi-asserted-by": "publisher",
+        "first-page": "2861",
+        "DOI": "10.1109/20.717666",
+        "volume": "34",
+        "author": "K Idir",
+        "year": "1998",
+        "unstructured": "Idir K, Chang L, Dai H (1998) Error-based global optimization approach for electric motor design. IEEE Trans Magn 34(5):2861–2864. https://doi.org/10.1109/20.717666",
+        "journal-title": "IEEE Trans Magn"
+      },
+      {
+        "key": "9892_CR38",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Jaafar M, Markovski V, Elleuch M (2004) Modelling of the differential permeability and the initial magnetization curve for ferromagnetic materials. In: 2004 IEEE international conference on industrial technology, 2004. IEEE ICIT ’04, vol 1, pp 460–465. https://doi.org/10.1109/ICIT.2004.1490334",
+        "DOI": "10.1109/ICIT.2004.1490334"
+      },
+      {
+        "issue": "4",
+        "key": "9892_CR39",
+        "doi-asserted-by": "publisher",
+        "first-page": "1867",
+        "DOI": "10.1109/20.877809",
+        "volume": "36",
+        "author": "GH Kang",
+        "year": "2000",
+        "unstructured": "Kang GH, Hong JP, Kim GT, Park JW (2000) Improved parameter modeling of interior permanent magnet synchronous motor based on finite element analysis. IEEE Trans Magn 36(4):1867–1870. https://doi.org/10.1109/20.877809",
+        "journal-title": "IEEE Trans Magn"
+      },
+      {
+        "key": "9892_CR40",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Kenway G, Kennedy G, Martins JR (2010) A cad-free approach to high-fidelity aerostructural optimization. In: 13th AIAA/ISSMO multidisciplinary analysis optimization conference, p 9231. https://doi.org/10.2514/6.2010-9231, https://arc.aiaa.org/doi/abs/10.2514/6.2010-9231",
+        "DOI": "10.2514/6.2010-9231"
+      },
+      {
+        "issue": "6",
+        "key": "9892_CR41",
+        "doi-asserted-by": "publisher",
+        "first-page": "735",
+        "DOI": "10.1016/j.techfore.2007.05.007",
+        "volume": "75",
+        "author": "H Koh",
+        "year": "2008",
+        "unstructured": "Koh H, Magee CL (2008) A functional approach for studying technological progress: extension to energy technology. Technol Forecast Soc Change 75(6):735–758. https://doi.org/10.1016/j.techfore.2007.05.007",
+        "journal-title": "Technol Forecast Soc Change"
+      },
+      {
+        "key": "9892_CR42",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Lin H, Guo H, Qian H (2018) Design of high-performance permanent magnet synchronous motor for electric aircraft propulsion. In: 2018 21st International conference on electrical machines and systems (ICEMS), pp 174–179. https://doi.org/10.23919/ICEMS.2018.8549030",
+        "DOI": "10.23919/ICEMS.2018.8549030"
+      },
+      {
+        "key": "9892_CR43",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1007/978-3-642-70671-4",
+        "volume-title": "Computer-aided design in magnetics",
+        "author": "DA Lowther",
+        "year": "2012",
+        "unstructured": "Lowther DA, Silvester PP (2012) Computer-aided design in magnetics. Springer, Berlin. https://doi.org/10.1007/978-3-642-70671-4"
+      },
+      {
+        "issue": "2",
+        "key": "9892_CR44",
+        "doi-asserted-by": "publisher",
+        "first-page": "586",
+        "DOI": "10.1016/j.jcp.2011.09.021",
+        "volume": "231",
+        "author": "E Luke",
+        "year": "2012",
+        "unstructured": "Luke E, Collins E, Blades E (2012) A fast mesh deformation method using explicit interpolation. J Comput Phys 231(2):586–601. https://doi.org/10.1016/j.jcp.2011.09.021",
+        "journal-title": "J Comput Phys"
+      },
+      {
+        "issue": "11",
+        "key": "9892_CR45",
+        "doi-asserted-by": "publisher",
+        "first-page": "2582",
+        "DOI": "10.2514/1.J052184",
+        "volume": "51",
+        "author": "JRRA Martins",
+        "year": "2013",
+        "unstructured": "Martins JRRA, Hwang JT (2013) Review and unification of methods for computing derivatives of multidisciplinary computational models. AIAA J 51(11):2582–2599. https://doi.org/10.2514/1.J052184",
+        "journal-title": "AIAA J"
+      },
+      {
+        "key": "9892_CR46",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1017/9781108980647",
+        "volume-title": "Engineering design optimization",
+        "author": "JRRA Martins",
+        "year": "2022",
+        "unstructured": "Martins JRRA, Ning A (2022) Engineering design optimization. Cambridge University Press, Cambridge. https://doi.org/10.1017/9781108980647"
+      },
+      {
+        "key": "9892_CR47",
+        "doi-asserted-by": "publisher",
+        "unstructured": "McDonald R (2013) Electric motor modeling for conceptual aircraft design. In: 51st AIAA aerospace sciences meeting including the new horizons forum and aerospace exposition, p 941. https://doi.org/10.2514/6.2013-941",
+        "DOI": "10.2514/6.2013-941"
+      },
+      {
+        "issue": "1",
+        "key": "9892_CR48",
+        "doi-asserted-by": "publisher",
+        "first-page": "121",
+        "DOI": "10.1109/TEC.2004.832091",
+        "volume": "20",
+        "author": "C Mi",
+        "year": "2005",
+        "unstructured": "Mi C, Slemon G, Bonert R (2005) Minimization of iron losses of permanent magnet synchronous machines. IEEE Trans Energy Convers 20(1):121–127. https://doi.org/10.1109/TEC.2004.832091",
+        "journal-title": "IEEE Trans Energy Convers"
+      },
+      {
+        "key": "9892_CR49",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Moore P, Molloy D (2007) A survey of computer-based deformable models. In: International machine vision and image processing conference (IMVIP 2007), pp 55–66. https://doi.org/10.1109/IMVIP.2007.31",
+        "DOI": "10.1109/IMVIP.2007.31"
+      },
+      {
+        "key": "9892_CR50",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Nedjar B, Vido L, Hlioui S, Amara Y, Gabsi M (2012) Hybrid coupling: Magnetic equivalent circuit coupled to finite element analysis for PMSM electromagnetic modeling. In: 2012 IEEE international symposium on industrial electronics, pp 858–862. https://doi.org/10.1109/ISIE.2012.6237201",
+        "DOI": "10.1109/ISIE.2012.6237201"
+      },
+      {
+        "issue": "6",
+        "key": "9892_CR51",
+        "doi-asserted-by": "publisher",
+        "first-page": "2503",
+        "DOI": "10.1109/TIE.2011.2171174",
+        "volume": "59",
+        "author": "F Parasiliti",
+        "year": "2012",
+        "unstructured": "Parasiliti F, Villani M, Lucidi S, Rinaldi F (2012) Finite-element-based multiobjective design optimization procedure of interior permanent magnet synchronous motors for wide constant-power region operation. IEEE Trans Ind Electron 59(6):2503–2514. https://doi.org/10.1109/TIE.2011.2171174",
+        "journal-title": "IEEE Trans Ind Electron"
+      },
+      {
+        "key": "9892_CR52",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Parviainen A, Niemela M, Pyrhonen J, Mantere J (2005) Performance comparison between low-speed axial-flux and radial-flux permanent-magnet machines including mechanical constraints. IEEE international conference on electric machines and drives 2005, pp 1695–1702. https://doi.org/10.1109/IEMDC.2005.195948",
+        "DOI": "10.1109/IEMDC.2005.195948"
+      },
+      {
+        "key": "9892_CR53",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Pellegrino G, Cupertino F (2010) FEA-based multi-objective optimization of IPM motor design including rotor losses. In: 2010 IEEE energy conversion congress and exposition, pp 3659–3666. https://doi.org/10.1109/ECCE.2010.5618310",
+        "DOI": "10.1109/ECCE.2010.5618310"
+      },
+      {
+        "issue": "5",
+        "key": "9892_CR54",
+        "doi-asserted-by": "publisher",
+        "first-page": "2339",
+        "DOI": "10.1109/TMAG.2013.2238520",
+        "volume": "49",
+        "author": "J Pippuri",
+        "year": "2013",
+        "unstructured": "Pippuri J, Manninen A, Keränen J, Tammi K (2013) Torque density of radial, axial and transverse flux permanent magnet machine topologies. IEEE Trans Magn 49(5):2339–2342. https://doi.org/10.1109/TMAG.2013.2238520",
+        "journal-title": "IEEE Trans Magn"
+      },
+      {
+        "key": "9892_CR55",
+        "doi-asserted-by": "crossref",
+        "unstructured": "Powell D, Jewell G, Howe D, Atallah K (2003) Rotor topologies for a switched-reluctance machine for the ‘more-electric’ aircraft engine. In: IEE proceedings—electric power applications, vol 150, pp 311–318(7). https://digital-library.theiet.org/content/journals/10.1049/ip-epa_20030121",
+        "DOI": "10.1049/ip-epa:20030121"
+      },
+      {
+        "issue": "4",
+        "key": "9892_CR56",
+        "doi-asserted-by": "publisher",
+        "first-page": "1053",
+        "DOI": "10.1109/TIA.2006.876073",
+        "volume": "42",
+        "author": "P Ragot",
+        "year": "2006",
+        "unstructured": "Ragot P, Markovic M, Perriard Y (2006) Optimization of electric motor for a solar airplane application. IEEE Trans Ind Appl 42(4):1053–1061. https://doi.org/10.1109/TIA.2006.876073",
+        "journal-title": "IEEE Trans Ind Appl"
+      },
+      {
+        "key": "9892_CR57",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Ruh ML, Hwang JT (2021) Robust modeling and optimal design of rotors using blade element momentum theory. In: AIAA aviation 2021 forum, p 2598. https://doi.org/10.2514/6.2021-2598",
+        "DOI": "10.2514/6.2021-2598"
+      },
+      {
+        "key": "9892_CR58",
+        "unstructured": "Saari J (1998) Thermal analysis of high-speed induction machines. Doctoral thesis, Helsinki University of Technology. https://aaltodoc.aalto.fi/items/17596cf9-5137-41ef-8593-76bd054f8a98"
+      },
+      {
+        "key": "9892_CR59",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1007/978-1-4615-2349-9",
+        "volume-title": "Finite element analysis of electrical machines",
+        "author": "SJ Salon",
+        "year": "1995",
+        "unstructured": "Salon SJ (1995) Finite element analysis of electrical machines, vol 101. Kluwer Academic Publishers, Boston. https://doi.org/10.1007/978-1-4615-2349-9"
+      },
+      {
+        "key": "9892_CR60",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Sarojini D, Ruh ML, Joshy AJ, Yan J, Ivanov AK, Scotzniovsky L, Fletcher AH, Orndorff NC, Sperry M, Gandarillas VE et al (2023) Large-scale multidisciplinary design optimization of an evtol aircraft using comprehensive analysis. In: AIAA SCITECH 2023 forum, p 0146. https://doi.org/10.2514/6.2023-0146",
+        "DOI": "10.2514/6.2023-0146"
+      },
+      {
+        "issue": "2",
+        "key": "9892_CR61",
+        "doi-asserted-by": "publisher",
+        "first-page": "160",
+        "DOI": "10.1038/s41560-018-0294-x",
+        "volume": "4",
+        "author": "AW Schäfer",
+        "year": "2019",
+        "unstructured": "Schäfer AW, Barrett SR, Doyme K, Dray LM, Gnadt AR, Self R, O’Sullivan A, Synodinos AP, Torija AJ (2019) Technological, economic and environmental prospects of all-electric aircraft. Nat Energy 4(2):160–166. https://doi.org/10.1038/s41560-018-0294-x",
+        "journal-title": "Nat Energy"
+      },
+      {
+        "issue": "5",
+        "key": "9892_CR62",
+        "doi-asserted-by": "publisher",
+        "first-page": "1069",
+        "DOI": "10.1109/TMAG.1986.1064466",
+        "volume": "22",
+        "author": "T Sebastian",
+        "year": "1986",
+        "unstructured": "Sebastian T, Slemon G, Rahman M (1986) Modelling of permanent magnet synchronous motors. IEEE Trans Magn 22(5):1069–1071. https://doi.org/10.1109/TMAG.1986.1064466",
+        "journal-title": "IEEE Trans Magn"
+      },
+      {
+        "key": "9892_CR63",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Sederberg TW, Parry SR (1986) Free-form deformation of solid geometric models. In: Proceedings of the 13th annual conference on computer graphics and interactive techniques. Association for Computing Machinery, New York, NY, USA, SIGGRAPH ’86, pp 151–160. https://doi.org/10.1145/15922.15903",
+        "DOI": "10.1145/15922.15903"
+      },
+      {
+        "issue": "2",
+        "key": "9892_CR64",
+        "doi-asserted-by": "publisher",
+        "first-page": "1",
+        "DOI": "10.4172/2090-0902.1000181",
+        "volume": "7",
+        "author": "M Selim",
+        "year": "2016",
+        "unstructured": "Selim M, Koomullil R (2016) Mesh deformation approaches—a survey. J Phys Math 7(2):1–9. https://doi.org/10.4172/2090-0902.1000181",
+        "journal-title": "J Phys Math"
+      },
+      {
+        "issue": "1",
+        "key": "9892_CR65",
+        "doi-asserted-by": "publisher",
+        "first-page": "112",
+        "DOI": "10.1109/TMAG.2009.2030674",
+        "volume": "46",
+        "author": "B Sheikh-Ghalavand",
+        "year": "2010",
+        "unstructured": "Sheikh-Ghalavand B, Vaez-Zadeh S, Isfahani AH (2010) An improved magnetic equivalent circuit model for iron-core linear permanent-magnet synchronous motors. IEEE Trans Magn 46(1):112–120. https://doi.org/10.1109/TMAG.2009.2030674",
+        "journal-title": "IEEE Trans Magn"
+      },
+      {
+        "issue": "4",
+        "key": "9892_CR66",
+        "doi-asserted-by": "publisher",
+        "first-page": "1653",
+        "DOI": "10.1109/TMAG.2006.892260",
+        "volume": "43",
+        "author": "PS Shin",
+        "year": "2007",
+        "unstructured": "Shin PS, Kim HD, Chung GB, Yoon HS, Park GS, Koh CS (2007) Shape optimization of a large-scale BLDC motor using an adaptive RSM utilizing design sensitivity analysis. IEEE Trans Magn 43(4):1653–1656. https://doi.org/10.1109/TMAG.2006.892260",
+        "journal-title": "IEEE Trans Magn"
+      },
+      {
+        "key": "9892_CR67",
+        "unstructured": "Silva CJ, Johnson W (2021) Practical conceptual design of quieter urban VTOL aircraft. In: Proceedings of the vertical flight society 77th annual forum. https://ntrs.nasa.gov/citations/20210014173"
+      },
+      {
+        "issue": "6",
+        "key": "9892_CR68",
+        "doi-asserted-by": "publisher",
+        "first-page": "3022",
+        "DOI": "10.1109/TIE.2013.2276769",
+        "volume": "61",
+        "author": "A Tenconi",
+        "year": "2014",
+        "unstructured": "Tenconi A, Vaschetto S, Vigliani A (2014) Electrical machines for high-speed applications: design considerations and tradeoffs. IEEE Trans Ind Electron 61(6):3022–3029. https://doi.org/10.1109/TIE.2013.2276769",
+        "journal-title": "IEEE Trans Ind Electron"
+      },
+      {
+        "key": "9892_CR69",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1201/b16863",
+        "volume-title": "Mechanical design of electric motors",
+        "author": "W Tong",
+        "year": "2014",
+        "unstructured": "Tong W (2014) Mechanical design of electric motors. CRC Press, Boca Raton. https://doi.org/10.1201/b16863"
+      },
+      {
+        "key": "9892_CR70",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Wei M, Zhang C, Gao Y, Qing Y (2022) Comparison of vibration and noise characteristics between radial flux PMSMS and axial flux PMSMS. In: 2022 25th international conference on electrical machines and systems (ICEMS), pp 1–6. https://doi.org/10.1109/ICEMS56177.2022.9983093",
+        "DOI": "10.1109/ICEMS56177.2022.9983093"
+      },
+      {
+        "issue": "5",
+        "key": "9892_CR71",
+        "doi-asserted-by": "publisher",
+        "first-page": "1933",
+        "DOI": "10.1109/TMAG.1984.1063462",
+        "volume": "20",
+        "author": "J Weiss",
+        "year": "1984",
+        "unstructured": "Weiss J, Garg V, Shah M, Sternheim E (1984) Finite element analysis of magnetic fields with permanent magnet. IEEE Trans Magn 20(5):1933–1935. https://doi.org/10.1109/TMAG.1984.1063462",
+        "journal-title": "IEEE Trans Magn"
+      },
+      {
+        "key": "9892_CR72",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Wijenayake A, Schmidt P (1997) Modeling and analysis of permanent magnet synchronous motor by taking saturation and core loss into account. In: Proceedings of second international conference on power electronics and drive systems 2:530–534. https://doi.org/10.1109/PEDS.1997.627416",
+        "DOI": "10.1109/PEDS.1997.627416"
+      },
+      {
+        "issue": "1",
+        "key": "9892_CR73",
+        "doi-asserted-by": "publisher",
+        "first-page": "61",
+        "DOI": "10.1109/TIE.2009.2025285",
+        "volume": "57",
+        "author": "K Yamazaki",
+        "year": "2010",
+        "unstructured": "Yamazaki K, Ishigami H (2010) Rotor-shape optimization of interior-permanent-magnet motors to reduce harmonic iron losses. IEEE Trans Ind Electron 57(1):61–69. https://doi.org/10.1109/TIE.2009.2025285",
+        "journal-title": "IEEE Trans Ind Electron"
+      },
+      {
+        "issue": "5",
+        "key": "9892_CR74",
+        "doi-asserted-by": "publisher",
+        "first-page": "151",
+        "DOI": "10.1007/s00158-022-03168-2",
+        "volume": "65",
+        "author": "J Yan",
+        "year": "2022",
+        "unstructured": "Yan J, Xiang R, Kamensky D, Tolley MT, Hwang JT (2022) Topology optimization with automated derivative computation for multidisciplinary design problems. Struct Multidiscip Optim 65(5):151. https://doi.org/10.1007/s00158-022-03168-2",
+        "journal-title": "Struct Multidiscip Optim"
+      },
+      {
+        "key": "9892_CR75",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Yildirim M, Polat M, Kürüm H (2014) A survey on comparison of electric motor types and drives used for electric vehicles. In: 2014 16th international power electronics and motion control conference and exposition, pp 218–223. https://doi.org/10.1109/EPEPEMC.2014.6980715",
+        "DOI": "10.1109/EPEPEMC.2014.6980715"
+      },
+      {
+        "key": "9892_CR76",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Yilmaz M, Krein PT (2008) Capabilities of finite element analysis and magnetic equivalent circuits for electrical machine analysis and design. In: 2008 IEEE power electronics specialists conference, pp 4027–4033. https://doi.org/10.1109/PESC.2008.4592584",
+        "DOI": "10.1109/PESC.2008.4592584"
+      },
+      {
+        "issue": "6",
+        "key": "9892_CR77",
+        "doi-asserted-by": "publisher",
+        "first-page": "1756",
+        "DOI": "10.1109/TVT.2006.878719",
+        "volume": "55",
+        "author": "M Zeraoulia",
+        "year": "2006",
+        "unstructured": "Zeraoulia M, Benbouzid MEH, Diallo D (2006) Electric motor drive selection issues for HEV propulsion systems: a comparative study. IEEE Trans Veh Technol 55(6):1756–1764. https://doi.org/10.1109/TVT.2006.878719",
+        "journal-title": "IEEE Trans Veh Technol"
+      },
+      {
+        "key": "9892_CR78",
+        "doi-asserted-by": "publisher",
+        "unstructured": "Zhang B, Epskamp T, Doppelbauer M, Gregor M (2014) A comparison of the transverse, axial and radial flux pm synchronous motors for electric vehicle. In: 2014 IEEE international electric vehicle conference (IEVC), pp 1–6. https://doi.org/10.1109/IEVC.2014.7056197",
+        "DOI": "10.1109/IEVC.2014.7056197"
+      }
+    ],
+    "container-title": [
+      "Optimization and Engineering"
+    ],
+    "original-title": [],
+    "language": "en",
+    "link": [
+      {
+        "URL": "https://link.springer.com/content/pdf/10.1007/s11081-024-09892-6.pdf",
+        "content-type": "application/pdf",
+        "content-version": "vor",
+        "intended-application": "text-mining"
+      },
+      {
+        "URL": "https://link.springer.com/article/10.1007/s11081-024-09892-6/fulltext.html",
+        "content-type": "text/html",
+        "content-version": "vor",
+        "intended-application": "text-mining"
+      },
+      {
+        "URL": "https://link.springer.com/content/pdf/10.1007/s11081-024-09892-6.pdf",
+        "content-type": "application/pdf",
+        "content-version": "vor",
+        "intended-application": "similarity-checking"
+      }
+    ],
+    "deposited": {
+      "date-parts": [
+        [
+          2025,
+          2,
+          28
+        ]
+      ],
+      "date-time": "2025-02-28T03:23:38Z",
+      "timestamp": 1740713018000
+    },
+    "score": 1,
+    "resource": {
+      "primary": {
+        "URL": "https://link.springer.com/10.1007/s11081-024-09892-6"
+      }
+    },
+    "subtitle": [],
+    "short-title": [],
+    "issued": {
+      "date-parts": [
+        [
+          2024,
+          5,
+          22
+        ]
+      ]
+    },
+    "references-count": 78,
+    "journal-issue": {
+      "issue": "1",
+      "published-print": {
+        "date-parts": [
+          [
+            2025,
+            3
+          ]
+        ]
+      }
+    },
+    "alternative-id": [
+      "9892"
+    ],
+    "URL": "https://doi.org/10.1007/s11081-024-09892-6",
+    "relation": {},
+    "ISSN": [
+      "1389-4420",
+      "1573-2924"
+    ],
+    "issn-type": [
+      {
+        "value": "1389-4420",
+        "type": "print"
+      },
+      {
+        "value": "1573-2924",
+        "type": "electronic"
+      }
+    ],
+    "subject": [],
+    "published": {
+      "date-parts": [
+        [
+          2024,
+          5,
+          22
+        ]
+      ]
+    },
+    "assertion": [
+      {
+        "value": "9 February 2024",
+        "order": 1,
+        "name": "received",
+        "label": "Received",
+        "group": {
+          "name": "ArticleHistory",
+          "label": "Article History"
+        }
+      },
+      {
+        "value": "16 April 2024",
+        "order": 2,
+        "name": "revised",
+        "label": "Revised",
+        "group": {
+          "name": "ArticleHistory",
+          "label": "Article History"
+        }
+      },
+      {
+        "value": "25 April 2024",
+        "order": 3,
+        "name": "accepted",
+        "label": "Accepted",
+        "group": {
+          "name": "ArticleHistory",
+          "label": "Article History"
+        }
+      },
+      {
+        "value": "22 May 2024",
+        "order": 4,
+        "name": "first_online",
+        "label": "First Online",
+        "group": {
+          "name": "ArticleHistory",
+          "label": "Article History"
+        }
+      },
+      {
+        "order": 1,
+        "name": "Ethics",
+        "group": {
+          "name": "EthicsHeading",
+          "label": "Declarations"
+        }
+      },
+      {
+        "value": "Not applicable.",
+        "order": 2,
+        "name": "Ethics",
+        "group": {
+          "name": "EthicsHeading",
+          "label": "Ethical approval"
+        }
+      },
+      {
+        "value": "Not applicable.",
+        "order": 3,
+        "name": "Ethics",
+        "group": {
+          "name": "EthicsHeading",
+          "label": "Consent for publication"
+        }
+      },
+      {
+        "value": "The authors declare that they have no conflict of interest.",
+        "order": 4,
+        "name": "Ethics",
+        "group": {
+          "name": "EthicsHeading",
+          "label": "Conflict of interest"
+        }
+      }
+    ]
+  },
+  "kemmetmueller2015": {
+    "indexed": {
+      "date-parts": [
+        [
+          2026,
+          6,
+          20
+        ]
+      ],
+      "date-time": "2026-06-20T12:10:23Z",
+      "timestamp": 1781957423928,
+      "version": "3.54.5"
+    },
+    "reference-count": 49,
+    "publisher": "Elsevier BV",
+    "license": [
+      {
+        "start": {
+          "date-parts": [
+            [
+              2015,
+              12,
+              1
+            ]
+          ],
+          "date-time": "2015-12-01T00:00:00Z",
+          "timestamp": 1448928000000
+        },
+        "content-version": "tdm",
+        "delay-in-days": 0,
+        "URL": "https://www.elsevier.com/tdm/userlicense/1.0/"
+      }
+    ],
+    "content-domain": {
+      "domain": [
+        "elsevier.com",
+        "sciencedirect.com"
+      ],
+      "crossmark-restriction": true
+    },
+    "short-container-title": [
+      "Mechatronics"
+    ],
+    "published-print": {
+      "date-parts": [
+        [
+          2015,
+          12
+        ]
+      ]
+    },
+    "DOI": "10.1016/j.mechatronics.2015.10.007",
+    "type": "journal-article",
+    "created": {
+      "date-parts": [
+        [
+          2015,
+          11,
+          14
+        ]
+      ],
+      "date-time": "2015-11-14T22:18:21Z",
+      "timestamp": 1447539501000
+    },
+    "page": "22-33",
+    "update-policy": "https://doi.org/10.1016/elsevier_cm_policy",
+    "source": "Crossref",
+    "is-referenced-by-count": 16,
+    "special_numbering": "C",
+    "title": [
+      "Optimal torque control of permanent magnet synchronous machines using magnetic equivalent circuits"
+    ],
+    "prefix": "10.1016",
+    "volume": "32",
+    "author": [
+      {
+        "given": "Wolfgang",
+        "family": "Kemmetmüller",
+        "sequence": "first",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "David",
+        "family": "Faustner",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "given": "Andreas",
+        "family": "Kugi",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      }
+    ],
+    "member": "78",
+    "reference": [
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0001",
+        "series-title": "Control of electrical drives",
+        "author": "Leonhard",
+        "year": "2001"
+      },
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0002",
+        "series-title": "Analysis of electric machinery and drive systems",
+        "author": "Krause",
+        "year": "2002"
+      },
+      {
+        "issue": "9",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0003",
+        "doi-asserted-by": "crossref",
+        "first-page": "3489",
+        "DOI": "10.1109/TIE.2011.2171172",
+        "article-title": "Input–output feedback linearization and speed control of a surface permanent-magnet synchronous wind generator with the boost-chopper converter",
+        "volume": "59",
+        "author": "Xia",
+        "year": "2012",
+        "journal-title": "IEEE Trans Ind Electron"
+      },
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_sbref0004",
+        "series-title": "Proceedings of the IEEE vehicle power and propulsion conference (VPPC)",
+        "first-page": "185",
+        "article-title": "Nonlinear control by input–output linearization scheme for EV permanent magnet synchronous motor",
+        "author": "Rebouh",
+        "year": "2007"
+      },
+      {
+        "issue": "2",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0005",
+        "doi-asserted-by": "crossref",
+        "first-page": "163",
+        "DOI": "10.1109/60.866994",
+        "article-title": "Nonlinear control of a permanent magnet synchronous motor with disturbance torque estimation",
+        "volume": "15",
+        "author": "Solsona",
+        "year": "2000",
+        "journal-title": "IEEE Trans Energy Convers"
+      },
+      {
+        "issue": "2",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0006",
+        "doi-asserted-by": "crossref",
+        "first-page": "1047",
+        "DOI": "10.1109/TII.2012.2223478",
+        "article-title": "The adaptive backstepping control of permanent magnet synchronous motor supplied by current source inverter",
+        "volume": "9",
+        "author": "Morawiec",
+        "year": "2013",
+        "journal-title": "IEEE Trans Ind Inform"
+      },
+      {
+        "issue": "10",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0007",
+        "doi-asserted-by": "crossref",
+        "first-page": "1259",
+        "DOI": "10.1016/j.conengprac.2004.11.007",
+        "article-title": "Real-time nonlinear adaptive backstepping speed control for a pm synchronous motor",
+        "volume": "13",
+        "author": "Zhou",
+        "year": "2005",
+        "journal-title": "Control Eng Pract"
+      },
+      {
+        "issue": "9–10",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0008",
+        "doi-asserted-by": "crossref",
+        "first-page": "2015",
+        "DOI": "10.1016/j.mcm.2011.01.039",
+        "article-title": "Speed and current regulation of a permanent magnet synchronous motor via nonlinear and adaptive backstepping control",
+        "volume": "53",
+        "author": "Karabacak",
+        "year": "2011",
+        "journal-title": "Math Comput Model"
+      },
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0009",
+        "doi-asserted-by": "crossref",
+        "first-page": "20",
+        "DOI": "10.1016/j.conengprac.2013.12.013",
+        "article-title": "A passivity-based controller under low sampling for speed control of PMSM",
+        "volume": "26",
+        "author": "Khanchoul",
+        "year": "2014",
+        "journal-title": "Control Eng Pract"
+      },
+      {
+        "issue": "1",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0010",
+        "doi-asserted-by": "crossref",
+        "first-page": "21",
+        "DOI": "10.1109/TCST.2003.821949",
+        "article-title": "Control of a combined GTO/IGBT drive system for low torque ripple in a large permanent magnet synchronous motor",
+        "volume": "12",
+        "author": "Tadmor",
+        "year": "2004",
+        "journal-title": "IEEE Trans Control Syst Technol"
+      },
+      {
+        "issue": "5",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0011",
+        "doi-asserted-by": "crossref",
+        "first-page": "629",
+        "DOI": "10.1109/9.580867",
+        "article-title": "Passivity-based control of a class of Blondel–Park transformable electric machines",
+        "volume": "42",
+        "author": "Nicklasson",
+        "year": "1997",
+        "journal-title": "IEEE Trans Autom Control"
+      },
+      {
+        "issue": "2",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0012",
+        "doi-asserted-by": "crossref",
+        "first-page": "499",
+        "DOI": "10.1109/TIE.2005.844230",
+        "article-title": "A novel motor drive design for incremental motion system via sliding-mode control method",
+        "volume": "52",
+        "author": "Lai",
+        "year": "2005",
+        "journal-title": "IEEE Trans Ind Electron"
+      },
+      {
+        "issue": "3",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0013",
+        "doi-asserted-by": "crossref",
+        "first-page": "1358",
+        "DOI": "10.1109/TPEL.2012.2206610",
+        "article-title": "Nonlinear speed control for PMSM system using sliding-mode control and disturbance compensation techniques",
+        "volume": "28",
+        "author": "Zhang",
+        "year": "2013",
+        "journal-title": "IEEE Trans Power Electron"
+      },
+      {
+        "issue": "1",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0014",
+        "doi-asserted-by": "crossref",
+        "first-page": "47",
+        "DOI": "10.1109/87.817691",
+        "article-title": "Robust nonlinear speed control of pm synchronous motor using boundary layer integral sliding mode control technique",
+        "volume": "8",
+        "author": "Baik",
+        "year": "2000",
+        "journal-title": "IEEE Trans Control Syst Technol"
+      },
+      {
+        "issue": "11",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0015",
+        "doi-asserted-by": "crossref",
+        "first-page": "1584",
+        "DOI": "10.1016/j.conengprac.2013.07.008",
+        "article-title": "Model predictive control of a permanent magnet synchronous motor with experimental validation",
+        "volume": "21",
+        "author": "Chai",
+        "year": "2013",
+        "journal-title": "Control Eng Pract"
+      },
+      {
+        "issue": "2",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0016",
+        "doi-asserted-by": "crossref",
+        "first-page": "1007",
+        "DOI": "10.1109/TPEL.2012.2204277",
+        "article-title": "Model predictive direct speed control with finite control set of PMSM drive systems",
+        "volume": "28",
+        "author": "Preindl",
+        "year": "2013",
+        "journal-title": "IEEE Trans Power Electron"
+      },
+      {
+        "issue": "7",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0017",
+        "doi-asserted-by": "crossref",
+        "first-page": "2849",
+        "DOI": "10.1109/TIE.2011.2157276",
+        "article-title": "Robust nonlinear predictive controller for permanent-magnet synchronous motors with an optimized cost function",
+        "volume": "59",
+        "author": "Errouissi",
+        "year": "2012",
+        "journal-title": "IEEE Trans Ind Electron"
+      },
+      {
+        "issue": "10",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0018",
+        "doi-asserted-by": "crossref",
+        "first-page": "5249",
+        "DOI": "10.1109/TIE.2014.2300070",
+        "article-title": "Direct torque control of permanent-magnet synchronous machine drives with a simple duty ratio regulator",
+        "volume": "61",
+        "author": "Ren",
+        "year": "2014",
+        "journal-title": "IEEE Trans Ind Electron"
+      },
+      {
+        "issue": "1",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0019",
+        "doi-asserted-by": "crossref",
+        "first-page": "109",
+        "DOI": "10.1109/TIA.2012.2229684",
+        "article-title": "Wide-speed direct torque and flux control for interior pm synchronous motors operating at voltage and current limits",
+        "volume": "49",
+        "author": "Choi",
+        "year": "2013",
+        "journal-title": "IEEE Trans Ind Appl"
+      },
+      {
+        "issue": "6",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0020",
+        "doi-asserted-by": "crossref",
+        "first-page": "2101",
+        "DOI": "10.1109/TIE.2009.2033084",
+        "article-title": "Improved waveform quality in the direct torque control of matrix-converter-fed PMSM drives",
+        "volume": "57",
+        "author": "Ortega",
+        "year": "2010",
+        "journal-title": "IEEE Trans Ind Electron"
+      },
+      {
+        "issue": "6",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0021",
+        "doi-asserted-by": "crossref",
+        "first-page": "1423",
+        "DOI": "10.1109/TPEL.2005.857559",
+        "article-title": "Torque-ripple reduction in pm synchronous motor drives using repetitive current control",
+        "volume": "20",
+        "author": "Mattavelli",
+        "year": "2005",
+        "journal-title": "IEEE Trans Power Electron"
+      },
+      {
+        "issue": "2",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0022",
+        "doi-asserted-by": "crossref",
+        "first-page": "169",
+        "DOI": "10.1109/TEC.2002.1009464",
+        "article-title": "Control-based reduction of pulsating torque for PMAC machines",
+        "volume": "17",
+        "author": "Grcar",
+        "year": "2002",
+        "journal-title": "IEEE Trans Energy Convers"
+      },
+      {
+        "issue": "1",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0023",
+        "doi-asserted-by": "crossref",
+        "first-page": "53",
+        "DOI": "10.1109/TEC.2004.841513",
+        "article-title": "Speed ripple minimization in pm synchronous motor using iterative learning control",
+        "volume": "20",
+        "author": "Qian",
+        "year": "2005",
+        "journal-title": "IEEE Trans Energy Convers"
+      },
+      {
+        "issue": "5",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0024",
+        "doi-asserted-by": "crossref",
+        "first-page": "871",
+        "DOI": "10.1109/63.867676",
+        "article-title": "Design and implementation of an adaptive controller for torque ripple minimization in pm synchronous motors",
+        "volume": "15",
+        "author": "Petrovic",
+        "year": "2000",
+        "journal-title": "IEEE Trans Power Electron"
+      },
+      {
+        "issue": "5",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0025",
+        "doi-asserted-by": "crossref",
+        "first-page": "2491",
+        "DOI": "10.1109/TIE.2007.900320",
+        "article-title": "A hybrid-type variable-structure instantaneous torque control with a robust adaptive torque observer for a high-performance direct-drive PMSM",
+        "volume": "54",
+        "author": "Mohamed",
+        "year": "2007",
+        "journal-title": "IEEE Trans Ind Electron"
+      },
+      {
+        "issue": "3",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0026",
+        "doi-asserted-by": "crossref",
+        "first-page": "526",
+        "DOI": "10.1109/TIE.2004.825365",
+        "article-title": "A modular control scheme for PMSM speed control with pulsating torque minimization",
+        "volume": "51",
+        "author": "Xu",
+        "year": "2004",
+        "journal-title": "IEEE Trans Ind Electron"
+      },
+      {
+        "issue": "2",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0027",
+        "doi-asserted-by": "crossref",
+        "first-page": "655",
+        "DOI": "10.1109/TIE.2013.2257136",
+        "article-title": "A self-learning solution for torque ripple reduction for nonsinusoidal permanent-magnet motor drives based on artificial neural networks",
+        "volume": "61",
+        "author": "Flieller",
+        "year": "2014",
+        "journal-title": "IEEE Trans Ind Electron"
+      },
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0028",
+        "doi-asserted-by": "crossref",
+        "first-page": "88",
+        "DOI": "10.1016/j.epsr.2007.01.003",
+        "article-title": "Inverse modelling and pulsating torque minimization of salient pole non-sinusoidal synchronous machines",
+        "volume": "78",
+        "author": "Ait-Gougam",
+        "year": "2008",
+        "journal-title": "Electr Power Syst Res"
+      },
+      {
+        "issue": "2",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0029",
+        "doi-asserted-by": "crossref",
+        "first-page": "356",
+        "DOI": "10.1109/TCST.2007.908213",
+        "article-title": "Adaptive reshaping of excitation current for accurate torque control of brushless motors",
+        "volume": "16",
+        "author": "Aghili",
+        "year": "2008",
+        "journal-title": "IEEE Trans Control Syst Technol"
+      },
+      {
+        "issue": "3",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0030",
+        "doi-asserted-by": "crossref",
+        "first-page": "292",
+        "DOI": "10.1109/41.293899",
+        "article-title": "Minimum torque ripple, maximum efficiency excitation of brushless permanent magnet motors",
+        "volume": "41",
+        "author": "Hanselman",
+        "year": "1994",
+        "journal-title": "IEEE Trans Ind Electron"
+      },
+      {
+        "issue": "4",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0031",
+        "doi-asserted-by": "crossref",
+        "first-page": "494",
+        "DOI": "10.1109/TEC.2003.816601",
+        "article-title": "Mathematical and experimental method to obtain the inverse modeling of nonsinusoidal and saturated synchronous reluctance motors",
+        "volume": "18",
+        "author": "Sturtzer",
+        "year": "2003",
+        "journal-title": "IEEE Trans Energy Convers"
+      },
+      {
+        "issue": "2",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0032",
+        "doi-asserted-by": "crossref",
+        "first-page": "417",
+        "DOI": "10.1109/TEC.2011.2121910",
+        "article-title": "Design and analysis of a high-gain observer for the operation of SPM machines under saturation",
+        "volume": "26",
+        "author": "Jurkovic",
+        "year": "2011",
+        "journal-title": "IEEE Trans Energy Convers"
+      },
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0033",
+        "series-title": "Proceedings of IEEE international electric machines & drives conference",
+        "first-page": "21",
+        "article-title": "A magnetic circuit model for an ipm synchronous machine incorporating moving airgap and cross-coupled saturation effects",
+        "author": "Seok-Hee",
+        "year": "2007"
+      },
+      {
+        "issue": "3",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0034",
+        "doi-asserted-by": "crossref",
+        "first-page": "246",
+        "DOI": "10.1109/60.937204",
+        "article-title": "On considering magnetic saturation with maximum torque to current control in interior permanent magnet synchronous motor drives",
+        "volume": "16",
+        "author": "Mademlis",
+        "year": "2001",
+        "journal-title": "IEEE Trans Energy Convers"
+      },
+      {
+        "issue": "12",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0035",
+        "doi-asserted-by": "crossref",
+        "first-page": "5603",
+        "DOI": "10.1109/TPEL.2013.2245920",
+        "article-title": "Current minimizing torque control of the IPMSM using ferrari’s method",
+        "volume": "28",
+        "author": "Jung",
+        "year": "2013",
+        "journal-title": "IEEE Trans Power Electron"
+      },
+      {
+        "issue": "4",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0036",
+        "doi-asserted-by": "crossref",
+        "first-page": "1071",
+        "DOI": "10.1109/TPEL.2008.2010518",
+        "article-title": "Loss-minimizing control of pmsm with the use of polynomial approximations",
+        "volume": "24",
+        "author": "Lee",
+        "year": "2009",
+        "journal-title": "IEEE Trans Power Electron"
+      },
+      {
+        "issue": "1",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0037",
+        "doi-asserted-by": "crossref",
+        "first-page": "121",
+        "DOI": "10.1109/TIA.2009.2036665",
+        "article-title": "Steady-state and transient operation of IPMSMS under maximum-torque-per-ampere control",
+        "volume": "46",
+        "author": "Consoli",
+        "year": "2010",
+        "journal-title": "IEEE Trans Ind Appl"
+      },
+      {
+        "issue": "6",
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0038",
+        "article-title": "Modeling of a permanent magnet synchronous machine with internal magnet using magnetic equivalent circuits",
+        "volume": "50",
+        "author": "Kemmetmüller",
+        "year": "2014",
+        "journal-title": "IEEE Trans Magn"
+      },
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0039",
+        "series-title": "Proceedings of the 8th Vienna international conference on mathematical modelling (MATHMOD)",
+        "first-page": "360",
+        "article-title": "Magnetic equivalent circuit modeling of a saturated surface-mounted permanent magnet synchronous machine",
+        "author": "Faustner",
+        "year": "2015"
+      },
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_sbref0040",
+        "article-title": "Flatness-based torque control of saturated surface-mounted permanent magnet synchronous machines",
+        "author": "Faustner",
+        "year": "2014",
+        "journal-title": "IEEE Trans Control Syst Technol"
+      },
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0041",
+        "series-title": "Graph theory: an algorithmic approach",
+        "author": "Christofides",
+        "year": "1975"
+      },
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0042",
+        "series-title": "Linear and nonlinear circuits",
+        "author": "Chui",
+        "year": "1987"
+      },
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0043",
+        "series-title": "Non-linear control based on physical models",
+        "author": "Kugi",
+        "year": "2001"
+      },
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0044",
+        "doi-asserted-by": "crossref",
+        "first-page": "151",
+        "DOI": "10.1109/TEC.2004.837299",
+        "article-title": "Simple expression for optimal current waveforms for permanent-magnet synchronous machine drives",
+        "volume": "20",
+        "author": "Wu",
+        "year": "2005",
+        "journal-title": "IEEE Trans Energy Convers"
+      },
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0045",
+        "doi-asserted-by": "crossref",
+        "first-page": "1",
+        "DOI": "10.1016/j.matcom.2012.05.008",
+        "article-title": "Optimal current waveforms for torque control of permanent magnet synchronous machines with any number of phases in open circuit",
+        "volume": "90",
+        "author": "Baudart",
+        "year": "2013",
+        "journal-title": "Math Comput Simul"
+      },
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0046",
+        "series-title": "Proceedings of the 2013 international conference on circuits, power and computing technologies",
+        "first-page": "252",
+        "article-title": "Reduction of transient and steady state speed pulsation in permanent magnet synchronous motor using space vector pulse width modulation control",
+        "author": "Lakshimi",
+        "year": "2013"
+      },
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0047",
+        "series-title": "Proceedings of the 5th international symposium on sensorless control for electrical Drives",
+        "first-page": "1",
+        "article-title": "Speed ripple reduction for an interior permanent-magnet synchronous motor based on sensorless voltage–current phase difference control",
+        "author": "Sugimori",
+        "year": "2014"
+      },
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0048",
+        "doi-asserted-by": "crossref",
+        "first-page": "706",
+        "DOI": "10.1016/j.mechatronics.2012.02.007",
+        "article-title": "Disturbance rejection control method for permanent magnet synchronous motor speed-regulation system",
+        "volume": "22",
+        "author": "Li",
+        "year": "2012",
+        "journal-title": "Mechatronics"
+      },
+      {
+        "key": "10.1016/j.mechatronics.2015.10.007_bib0049",
+        "doi-asserted-by": "crossref",
+        "first-page": "811",
+        "DOI": "10.1016/j.mechatronics.2012.04.007",
+        "article-title": "Certainty equivalence adaptive speed controller for permanent magnet synchronous motor",
+        "volume": "22",
+        "author": "Vu",
+        "year": "2012",
+        "journal-title": "Mechatronics"
+      }
+    ],
+    "container-title": [
+      "Mechatronics"
+    ],
+    "original-title": [],
+    "language": "en",
+    "link": [
+      {
+        "URL": "https://api.elsevier.com/content/article/PII:S0957415815001683?httpAccept=text/plain",
+        "content-type": "text/plain",
+        "content-version": "vor",
+        "intended-application": "text-mining"
+      },
+      {
+        "URL": "https://api.elsevier.com/content/article/PII:S0957415815001683?httpAccept=text/xml",
+        "content-type": "text/xml",
+        "content-version": "vor",
+        "intended-application": "text-mining"
+      }
+    ],
+    "deposited": {
+      "date-parts": [
+        [
+          2018,
+          9,
+          17
+        ]
+      ],
+      "date-time": "2018-09-17T13:57:18Z",
+      "timestamp": 1537192638000
+    },
+    "score": 1,
+    "resource": {
+      "primary": {
+        "URL": "https://linkinghub.elsevier.com/retrieve/pii/S0957415815001683"
+      }
+    },
+    "subtitle": [],
+    "short-title": [],
+    "issued": {
+      "date-parts": [
+        [
+          2015,
+          12
+        ]
+      ]
+    },
+    "references-count": 49,
+    "alternative-id": [
+      "S0957415815001683"
+    ],
+    "URL": "https://doi.org/10.1016/j.mechatronics.2015.10.007",
+    "relation": {},
+    "ISSN": [
+      "0957-4158"
+    ],
+    "issn-type": [
+      {
+        "value": "0957-4158",
+        "type": "print"
+      }
+    ],
+    "subject": [],
+    "published": {
+      "date-parts": [
+        [
+          2015,
+          12
+        ]
+      ]
+    },
+    "assertion": [
+      {
+        "value": "Elsevier",
+        "name": "publisher",
+        "label": "This article is maintained by"
+      },
+      {
+        "value": "Optimal torque control of permanent magnet synchronous machines using magnetic equivalent circuits",
+        "name": "articletitle",
+        "label": "Article Title"
+      },
+      {
+        "value": "Mechatronics",
+        "name": "journaltitle",
+        "label": "Journal Title"
+      },
+      {
+        "value": "https://doi.org/10.1016/j.mechatronics.2015.10.007",
+        "name": "articlelink",
+        "label": "CrossRef DOI link to publisher maintained version"
+      },
+      {
+        "value": "article",
+        "name": "content_type",
+        "label": "Content Type"
+      },
+      {
+        "value": "Copyright © 2015 Elsevier Ltd. All rights reserved.",
+        "name": "copyright",
+        "label": "Copyright"
+      }
+    ]
+  },
+  "roomi2022": {
+    "indexed": {
+      "date-parts": [
+        [
+          2026,
+          7,
+          24
+        ]
+      ],
+      "date-time": "2026-07-24T14:45:42Z",
+      "timestamp": 1784904342955,
+      "version": "3.55.0"
+    },
+    "reference-count": 25,
+    "publisher": "Institution of Engineering and Technology (IET)",
+    "issue": "11",
+    "license": [
+      {
+        "start": {
+          "date-parts": [
+            [
+              2022,
+              6,
+              23
+            ]
+          ],
+          "date-time": "2022-06-23T00:00:00Z",
+          "timestamp": 1655942400000
+        },
+        "content-version": "vor",
+        "delay-in-days": 0,
+        "URL": "http://creativecommons.org/licenses/by/4.0/"
+      }
+    ],
+    "content-domain": {
+      "domain": [
+        "ietresearch.onlinelibrary.wiley.com"
+      ],
+      "crossmark-restriction": true
+    },
+    "short-container-title": [
+      "IET Electric Power Appl"
+    ],
+    "published-print": {
+      "date-parts": [
+        [
+          2022,
+          11
+        ]
+      ]
+    },
+    "abstract": "<jats:title>Abstract</jats:title>\n                  <jats:p>Electrical machine design optimization is an expensive procedure as it contains numerous variables and multiple objectives. Therefore, it might require hundreds of time‐consuming finite element analyses (FEA). Surrogate models are one of the superior alternatives that can overcome the computational burden of FEA. However, in optimization problems with sensitive input‐output relationships, surrogate models can lack accuracy or suffer from unreasonable initial FE‐computational cost. To tackle this problem, this work presents a novel strategy called Waveform‐Targeted Surrogate Modeling (WTSM) that improves the computational efficiency of surrogate‐based design optimization of electrical machines by modifying the model construction process. In this paper, an Interior Permanent Magnet Machine (IPMSM) is studied to evaluate the proposed strategy's performance compared to the conventional Black Box Modeling (BBM) method. A two‐step assessment procedure consisting of multiple scenarios has been developed to analyse the reliability of the WTSM concerning different training‐validation datasets. Meanwhile, the Kriging model and Latin‐Hypercube‐Sampling (LHS) method are employed for surrogate model construction purposes. From the discussion and the results, it can be found that the proposed WTSM strategy can significantly increase the accuracy of the surrogate modelling procedure while the required computational cost can be reduced.</jats:p>",
+    "DOI": "10.1049/elp2.12226",
+    "type": "journal-article",
+    "created": {
+      "date-parts": [
+        [
+          2022,
+          6,
+          23
+        ]
+      ],
+      "date-time": "2022-06-23T07:21:14Z",
+      "timestamp": 1655968874000
+    },
+    "page": "1286-1299",
+    "update-policy": "https://doi.org/10.1002/crossmark_policy",
+    "source": "Crossref",
+    "is-referenced-by-count": 14,
+    "title": [
+      "Electrical machines surrogate‐based design optimization based on novel waveform targeting strategy with improvement of the computational efficiency"
+    ],
+    "prefix": "10.1049",
+    "volume": "16",
+    "author": [
+      {
+        "ORCID": "https://orcid.org/0000-0001-9891-1213",
+        "authenticated-orcid": false,
+        "given": "Farnam",
+        "family": "Farshbaf Roomi",
+        "sequence": "first",
+        "affiliation": [
+          {
+            "name": "Department of Electrical Engineering Iran University of Science and Technology  Tehran Iran"
+          }
+        ],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "ORCID": "https://orcid.org/0000-0002-8828-2895",
+        "authenticated-orcid": false,
+        "given": "Abolfazl",
+        "family": "Vahedi",
+        "sequence": "additional",
+        "affiliation": [
+          {
+            "name": "Department of Electrical Engineering Iran University of Science and Technology  Tehran Iran"
+          }
+        ],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "ORCID": "https://orcid.org/0000-0002-6941-3343",
+        "authenticated-orcid": false,
+        "given": "Amin",
+        "family": "Nobahari",
+        "sequence": "additional",
+        "affiliation": [
+          {
+            "name": "Department of Electrical Engineering Iran University of Science and Technology  Tehran Iran"
+          }
+        ],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      }
+    ],
+    "member": "265",
+    "published-online": {
+      "date-parts": [
+        [
+          2022,
+          6,
+          23
+        ]
+      ]
+    },
+    "reference": [
+      {
+        "key": "e_1_2_10_2_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.3390/en10121962"
+      },
+      {
+        "key": "e_1_2_10_3_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/TIE.2018.2801805"
+      },
+      {
+        "key": "e_1_2_10_4_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.3390/APP10196653"
+      },
+      {
+        "key": "e_1_2_10_5_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/TEC.2020.2999482"
+      },
+      {
+        "key": "e_1_2_10_6_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/tmag.2021.3080514"
+      },
+      {
+        "key": "e_1_2_10_7_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/TIE.2017.2748046"
+      },
+      {
+        "key": "e_1_2_10_8_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1115/1.2429697"
+      },
+      {
+        "key": "e_1_2_10_9_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1016/j.energy.2019.06.115"
+      },
+      {
+        "key": "e_1_2_10_10_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/TMAG.2021.3070486"
+      },
+      {
+        "key": "e_1_2_10_11_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/TMAG.2021.3063470"
+      },
+      {
+        "key": "e_1_2_10_12_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/TEC.2020.3046721"
+      },
+      {
+        "key": "e_1_2_10_13_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/TIE.2019.2962483"
+      },
+      {
+        "key": "e_1_2_10_14_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/TMAG.2020.2986187"
+      },
+      {
+        "key": "e_1_2_10_15_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/tmag.2021.3079145"
+      },
+      {
+        "key": "e_1_2_10_16_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/TMAG.2017.2661987"
+      },
+      {
+        "key": "e_1_2_10_17_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.22068/IJEEE.16.1.114"
+      },
+      {
+        "key": "e_1_2_10_18_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/TMAG.2020.3005446"
+      },
+      {
+        "key": "e_1_2_10_19_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/TIE.2020.2965463"
+      },
+      {
+        "key": "e_1_2_10_20_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.3390/en12214173"
+      },
+      {
+        "key": "e_1_2_10_21_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/TMAG.2019.2923160"
+      },
+      {
+        "key": "e_1_2_10_22_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1115/DETC2002/DAC-34092"
+      },
+      {
+        "key": "e_1_2_10_23_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.3390/app11041627"
+      },
+      {
+        "key": "e_1_2_10_24_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/tmag.2021.3080119"
+      },
+      {
+        "key": "e_1_2_10_25_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/PEDSTC52094.2021.9405918"
+      },
+      {
+        "key": "e_1_2_10_26_1",
+        "doi-asserted-by": "publisher",
+        "DOI": "10.1109/EPE.2017.7967329"
+      }
+    ],
+    "container-title": [
+      "IET Electric Power Applications"
+    ],
+    "original-title": [],
+    "language": "en",
+    "link": [
+      {
+        "URL": "https://onlinelibrary.wiley.com/doi/pdf/10.1049/elp2.12226",
+        "content-type": "application/pdf",
+        "content-version": "vor",
+        "intended-application": "text-mining"
+      },
+      {
+        "URL": "https://onlinelibrary.wiley.com/doi/full-xml/10.1049/elp2.12226",
+        "content-type": "application/xml",
+        "content-version": "vor",
+        "intended-application": "text-mining"
+      },
+      {
+        "URL": "https://ietresearch.onlinelibrary.wiley.com/doi/pdf/10.1049/elp2.12226",
+        "content-type": "unspecified",
+        "content-version": "vor",
+        "intended-application": "similarity-checking"
+      }
+    ],
+    "deposited": {
+      "date-parts": [
+        [
+          2025,
+          10,
+          27
+        ]
+      ],
+      "date-time": "2025-10-27T09:40:09Z",
+      "timestamp": 1761558009000
+    },
+    "score": 1,
+    "resource": {
+      "primary": {
+        "URL": "https://ietresearch.onlinelibrary.wiley.com/doi/10.1049/elp2.12226"
+      }
+    },
+    "subtitle": [],
+    "short-title": [],
+    "issued": {
+      "date-parts": [
+        [
+          2022,
+          6,
+          23
+        ]
+      ]
+    },
+    "references-count": 25,
+    "journal-issue": {
+      "issue": "11",
+      "published-print": {
+        "date-parts": [
+          [
+            2022,
+            11
+          ]
+        ]
+      }
+    },
+    "alternative-id": [
+      "10.1049/elp2.12226"
+    ],
+    "URL": "https://doi.org/10.1049/elp2.12226",
+    "archive": [
+      "Portico"
+    ],
+    "relation": {},
+    "ISSN": [
+      "1751-8660",
+      "1751-8679"
+    ],
+    "issn-type": [
+      {
+        "value": "1751-8660",
+        "type": "print"
+      },
+      {
+        "value": "1751-8679",
+        "type": "electronic"
+      }
+    ],
+    "subject": [],
+    "published": {
+      "date-parts": [
+        [
+          2022,
+          6,
+          23
+        ]
+      ]
+    },
+    "assertion": [
+      {
+        "value": "2022-02-16",
+        "order": 0,
+        "name": "received",
+        "label": "Received",
+        "group": {
+          "name": "publication_history",
+          "label": "Publication History"
+        }
+      },
+      {
+        "value": "2022-06-14",
+        "order": 2,
+        "name": "accepted",
+        "label": "Accepted",
+        "group": {
+          "name": "publication_history",
+          "label": "Publication History"
+        }
+      },
+      {
+        "value": "2022-06-23",
+        "order": 3,
+        "name": "published",
+        "label": "Published",
+        "group": {
+          "name": "publication_history",
+          "label": "Publication History"
+        }
+      }
+    ]
+  },
+  "wen2023": {
+    "indexed": {
+      "date-parts": [
+        [
+          2026,
+          9,
+          29
+        ]
+      ],
+      "date-time": "2026-09-29T21:11:21Z",
+      "timestamp": 1790716281540,
+      "version": "4.1.0"
+    },
+    "reference-count": 52,
+    "publisher": "Elsevier BV",
+    "license": [
+      {
+        "start": {
+          "date-parts": [
+            [
+              2023,
+              7,
+              1
+            ]
+          ],
+          "date-time": "2023-07-01T00:00:00Z",
+          "timestamp": 1688169600000
+        },
+        "content-version": "tdm",
+        "delay-in-days": 0,
+        "URL": "https://www.elsevier.com/tdm/userlicense/1.0/"
+      },
+      {
+        "start": {
+          "date-parts": [
+            [
+              2024,
+              3,
+              31
+            ]
+          ],
+          "date-time": "2024-03-31T00:00:00Z",
+          "timestamp": 1711843200000
+        },
+        "content-version": "am",
+        "delay-in-days": 274,
+        "URL": "http://www.elsevier.com/open-access/userlicense/1.0/"
+      },
+      {
+        "start": {
+          "date-parts": [
+            [
+              2023,
+              7,
+              1
+            ]
+          ],
+          "date-time": "2023-07-01T00:00:00Z",
+          "timestamp": 1688169600000
+        },
+        "content-version": "stm-asf",
+        "delay-in-days": 0,
+        "URL": "https://doi.org/10.15223/policy-017"
+      },
+      {
+        "start": {
+          "date-parts": [
+            [
+              2023,
+              7,
+              1
+            ]
+          ],
+          "date-time": "2023-07-01T00:00:00Z",
+          "timestamp": 1688169600000
+        },
+        "content-version": "stm-asf",
+        "delay-in-days": 0,
+        "URL": "https://doi.org/10.15223/policy-037"
+      },
+      {
+        "start": {
+          "date-parts": [
+            [
+              2023,
+              7,
+              1
+            ]
+          ],
+          "date-time": "2023-07-01T00:00:00Z",
+          "timestamp": 1688169600000
+        },
+        "content-version": "stm-asf",
+        "delay-in-days": 0,
+        "URL": "https://doi.org/10.15223/policy-012"
+      },
+      {
+        "start": {
+          "date-parts": [
+            [
+              2023,
+              7,
+              1
+            ]
+          ],
+          "date-time": "2023-07-01T00:00:00Z",
+          "timestamp": 1688169600000
+        },
+        "content-version": "stm-asf",
+        "delay-in-days": 0,
+        "URL": "https://doi.org/10.15223/policy-029"
+      },
+      {
+        "start": {
+          "date-parts": [
+            [
+              2023,
+              7,
+              1
+            ]
+          ],
+          "date-time": "2023-07-01T00:00:00Z",
+          "timestamp": 1688169600000
+        },
+        "content-version": "stm-asf",
+        "delay-in-days": 0,
+        "URL": "https://doi.org/10.15223/policy-004"
+      }
+    ],
+    "funder": [
+      {
+        "DOI": "10.13039/100000181",
+        "name": "Air Force Office of Scientific Research",
+        "doi-asserted-by": "publisher",
+        "award": [
+          "FA9550-20-1-0236"
+        ],
+        "award-info": [
+          {
+            "award-number": [
+              "FA9550-20-1-0236"
+            ]
+          }
+        ],
+        "id": [
+          {
+            "id": "10.13039/100000181",
+            "id-type": "DOI",
+            "asserted-by": "publisher"
+          }
+        ]
+      },
+      {
+        "DOI": "10.13039/100000181",
+        "name": "Air Force Office of Scientific Research",
+        "doi-asserted-by": "publisher",
+        "award": [
+          "FA9550-22-1-0004"
+        ],
+        "award-info": [
+          {
+            "award-number": [
+              "FA9550-22-1-0004"
+            ]
+          }
+        ],
+        "id": [
+          {
+            "id": "10.13039/100000181",
+            "id-type": "DOI",
+            "asserted-by": "publisher"
+          }
+        ]
+      }
+    ],
+    "content-domain": {
+      "domain": [
+        "elsevier.com",
+        "sciencedirect.com"
+      ],
+      "crossmark-restriction": true
+    },
+    "short-container-title": [
+      "Journal of Computational Physics"
+    ],
+    "published-print": {
+      "date-parts": [
+        [
+          2023,
+          7
+        ]
+      ]
+    },
+    "DOI": "10.1016/j.jcp.2023.112082",
+    "type": "journal-article",
+    "created": {
+      "date-parts": [
+        [
+          2023,
+          3,
+          22
+        ]
+      ],
+      "date-time": "2023-03-22T16:41:30Z",
+      "timestamp": 1679503290000
+    },
+    "page": "112082",
+    "update-policy": "https://doi.org/10.1016/elsevier_cm_policy",
+    "source": "Crossref",
+    "is-referenced-by-count": 10,
+    "special_numbering": "C",
+    "title": [
+      "A globally convergent method to accelerate large-scale optimization using on-the-fly model hyperreduction: Application to shape optimization"
+    ],
+    "prefix": "10.1016",
+    "volume": "484",
+    "author": [
+      {
+        "given": "Tianshu",
+        "family": "Wen",
+        "sequence": "first",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      },
+      {
+        "ORCID": "https://orcid.org/0000-0003-4066-981X",
+        "authenticated-orcid": false,
+        "given": "Matthew J.",
+        "family": "Zahr",
+        "sequence": "additional",
+        "affiliation": [],
+        "role": [
+          {
+            "vocabulary": "crossref",
+            "role": "author"
+          }
+        ]
+      }
+    ],
+    "member": "78",
+    "reference": [
+      {
+        "issue": "1",
+        "key": "10.1016/j.jcp.2023.112082_br0010",
+        "doi-asserted-by": "crossref",
+        "first-page": "3",
+        "DOI": "10.1007/s11081-011-9164-0",
+        "article-title": "A trust-region framework for constrained optimization using reduced order modeling",
+        "volume": "14",
+        "author": "Agarwal",
+        "year": "2013",
+        "journal-title": "Optim. Eng."
+      },
+      {
+        "issue": "1",
+        "key": "10.1016/j.jcp.2023.112082_br0020",
+        "doi-asserted-by": "crossref",
+        "first-page": "16",
+        "DOI": "10.1007/BF01197433",
+        "article-title": "A trust-region framework for managing the use of approximation models in optimization",
+        "volume": "15",
+        "author": "Alexandrov",
+        "year": "1998",
+        "journal-title": "Struct. Optim."
+      },
+      {
+        "issue": "6",
+        "key": "10.1016/j.jcp.2023.112082_br0030",
+        "doi-asserted-by": "crossref",
+        "first-page": "1093",
+        "DOI": "10.2514/2.2877",
+        "article-title": "Approximation and model management in aerodynamic optimization with variable-fidelity models",
+        "volume": "38",
+        "author": "Alexandrov",
+        "year": "2001",
+        "journal-title": "J. Aircr."
+      },
+      {
+        "issue": "4",
+        "key": "10.1016/j.jcp.2023.112082_br0040",
+        "doi-asserted-by": "crossref",
+        "first-page": "919",
+        "DOI": "10.1007/s00158-014-1183-y",
+        "article-title": "Design optimization using hyper-reduced-order models",
+        "volume": "51",
+        "author": "Amsallem",
+        "year": "2015",
+        "journal-title": "Struct. Multidiscip. Optim."
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0050",
+        "series-title": "Trust-region proper orthogonal decomposition for flow control",
+        "author": "Arian",
+        "year": "2000"
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0060",
+        "author": "Banholzer"
+      },
+      {
+        "issue": "9",
+        "key": "10.1016/j.jcp.2023.112082_br0070",
+        "doi-asserted-by": "crossref",
+        "first-page": "667",
+        "DOI": "10.1016/j.crma.2004.08.006",
+        "article-title": "An ‘empirical interpolation’ method: application to efficient reduced-basis discretization of partial differential equations",
+        "volume": "339",
+        "author": "Barrault",
+        "year": "2004",
+        "journal-title": "C. R. Math."
+      },
+      {
+        "issue": "11",
+        "key": "10.1016/j.jcp.2023.112082_br0080",
+        "doi-asserted-by": "crossref",
+        "first-page": "4739",
+        "DOI": "10.2514/1.J060581",
+        "article-title": "Active manifold and model-order reduction to accelerate multidisciplinary analysis and optimization",
+        "volume": "59",
+        "author": "Boncoraglio",
+        "year": "2021",
+        "journal-title": "AIAA J."
+      },
+      {
+        "issue": "1",
+        "key": "10.1016/j.jcp.2023.112082_br0090",
+        "doi-asserted-by": "crossref",
+        "first-page": "20",
+        "DOI": "10.1016/j.laa.2005.07.021",
+        "article-title": "Fast low-rank modifications of the thin singular value decomposition",
+        "volume": "415",
+        "author": "Brand",
+        "year": "2006",
+        "journal-title": "Linear Algebra Appl."
+      },
+      {
+        "issue": "1",
+        "key": "10.1016/j.jcp.2023.112082_br0100",
+        "doi-asserted-by": "crossref",
+        "first-page": "251",
+        "DOI": "10.1137/0728014",
+        "article-title": "On the global convergence of trust region algorithms using inexact gradient information",
+        "volume": "28",
+        "author": "Carter",
+        "year": "1991",
+        "journal-title": "SIAM J. Numer. Anal."
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0110",
+        "series-title": "Proceedings of the 48h IEEE Conference on Decision and Control (CDC) Held Jointly with 2009 28th Chinese Control Conference",
+        "first-page": "4316",
+        "article-title": "Discrete empirical interpolation for nonlinear model reduction",
+        "author": "Chaturantabut",
+        "year": "2009"
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0120",
+        "doi-asserted-by": "crossref",
+        "DOI": "10.1016/j.jcp.2020.109787",
+        "article-title": "Gradient-based constrained optimization using a database of linear reduced-order models",
+        "volume": "423",
+        "author": "Choi",
+        "year": "2020",
+        "journal-title": "J. Comput. Phys."
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0130",
+        "series-title": "Trust-Region Methods. MPS-SIAM Series on Optimization",
+        "author": "Conn",
+        "year": "2000"
+      },
+      {
+        "issue": "3",
+        "key": "10.1016/j.jcp.2023.112082_br0140",
+        "doi-asserted-by": "crossref",
+        "first-page": "753",
+        "DOI": "10.1007/s10589-014-9697-1",
+        "article-title": "Certified PDE-constrained parameter optimization using reduced basis surrogate models for evolution problems",
+        "volume": "60",
+        "author": "Dihlmann",
+        "year": "2015",
+        "journal-title": "Comput. Optim. Appl."
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0150",
+        "series-title": "AIAA Aviation 2021 Forum",
+        "article-title": "Adaptive discontinuous-Galerkin reduced-basis reduced-quadrature method for many-query CFD problems",
+        "author": "Du",
+        "year": "2021"
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0160",
+        "series-title": "Efficient hyperreduction of high-order discontinuous Galerkin methods: element-wise and point-wise reduced quadrature formulations",
+        "author": "Dua",
+        "year": "2022"
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0170",
+        "doi-asserted-by": "crossref",
+        "DOI": "10.1016/j.jcp.2020.109769",
+        "article-title": "A generalized DEIM technique for model order reduction of porous media simulations in reservoir optimizations",
+        "volume": "422",
+        "author": "Esmaeili",
+        "year": "2020",
+        "journal-title": "J. Comput. Phys."
+      },
+      {
+        "issue": "9",
+        "key": "10.1016/j.jcp.2023.112082_br0180",
+        "doi-asserted-by": "crossref",
+        "first-page": "625",
+        "DOI": "10.1002/nme.4668",
+        "article-title": "Dimensional reduction of nonlinear finite element dynamic models with finite rotations and energy-based mesh sampling and weighting for computational efficiency",
+        "volume": "98",
+        "author": "Farhat",
+        "year": "2014",
+        "journal-title": "Int. J. Numer. Methods Eng."
+      },
+      {
+        "issue": "1–4",
+        "key": "10.1016/j.jcp.2023.112082_br0190",
+        "doi-asserted-by": "crossref",
+        "first-page": "231",
+        "DOI": "10.1016/S0045-7825(98)00016-4",
+        "article-title": "Torsional springs for two-dimensional dynamic unstructured fluid meshes",
+        "volume": "163",
+        "author": "Farhat",
+        "year": "1998",
+        "journal-title": "Comput. Methods Appl. Mech. Eng."
+      },
+      {
+        "issue": "2071",
+        "key": "10.1016/j.jcp.2023.112082_br0200",
+        "first-page": "2177",
+        "article-title": "Optimization using surrogate models and partially converged computational fluid dynamics simulations",
+        "volume": "462",
+        "author": "Forrester",
+        "year": "2006",
+        "journal-title": "Proc. R. Soc. A, Math. Phys. Eng. Sci."
+      },
+      {
+        "issue": "1",
+        "key": "10.1016/j.jcp.2023.112082_br0210",
+        "doi-asserted-by": "crossref",
+        "first-page": "50",
+        "DOI": "10.1016/j.paerosci.2008.11.001",
+        "article-title": "Recent advances in surrogate-based optimization",
+        "volume": "45",
+        "author": "Forrester",
+        "year": "2009",
+        "journal-title": "Prog. Aerosp. Sci."
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0220",
+        "series-title": "Realization and Model Reduction of Dynamical Systems: A Festschrift in Honor of the 70th Birthday of Thanos Antoulas",
+        "first-page": "335",
+        "article-title": "Reduced order model Hessian approximations in Newton methods for optimal control",
+        "author": "Heinkenschloss",
+        "year": "2022"
+      },
+      {
+        "issue": "3",
+        "key": "10.1016/j.jcp.2023.112082_br0230",
+        "doi-asserted-by": "crossref",
+        "first-page": "1239",
+        "DOI": "10.1051/m2an/2021019",
+        "article-title": "A non-conforming dual approach for adaptive Trust-Region reduced basis approximation of PDE-constrained parameter optimization",
+        "volume": "55",
+        "author": "Keil",
+        "year": "2021",
+        "journal-title": "ESAIM: Math. Model. Numer. Anal."
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0240",
+        "author": "Keil"
+      },
+      {
+        "issue": "4",
+        "key": "10.1016/j.jcp.2023.112082_br0250",
+        "doi-asserted-by": "crossref",
+        "first-page": "A1847",
+        "DOI": "10.1137/120892362",
+        "article-title": "A trust-region algorithm with adaptive stochastic collocation for PDE optimization under uncertainty",
+        "volume": "35",
+        "author": "Kouri",
+        "year": "2013",
+        "journal-title": "SIAM J. Sci. Comput."
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0260",
+        "series-title": "Fluids 2000 Conference and Exhibit",
+        "article-title": "Airfoil design optimization using reduced order models based on proper orthogonal decomposition",
+        "author": "LeGresley",
+        "year": "2000"
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0270",
+        "first-page": "26",
+        "article-title": "A linearized method for the frequency analysis of three-dimensional fluid/structure interaction problems in all flow regimes",
+        "author": "Lesoinne",
+        "year": "2001",
+        "journal-title": "Comput. Methods Appl. Mech. Eng."
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0280",
+        "doi-asserted-by": "crossref",
+        "DOI": "10.1016/j.cma.2020.113575",
+        "article-title": "Iterative surrogate model optimization (ISMO): an active learning algorithm for PDE constrained optimization with deep neural networks",
+        "volume": "374",
+        "author": "Lye",
+        "year": "2021",
+        "journal-title": "Comput. Methods Appl. Mech. Eng."
+      },
+      {
+        "issue": "5",
+        "key": "10.1016/j.jcp.2023.112082_br0290",
+        "doi-asserted-by": "crossref",
+        "first-page": "646",
+        "DOI": "10.1002/fld.2712",
+        "article-title": "Shape optimization for viscous flows by reduced basis methods and free-form deformation",
+        "volume": "70",
+        "author": "Manzoni",
+        "year": "2012",
+        "journal-title": "Int. J. Numer. Methods Fluids"
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0300",
+        "series-title": "AIAA Scitech 2021 Forum",
+        "article-title": "Non-intrusive aerodynamic shape optimisation with a discrete empirical interpolation method",
+        "author": "Marques",
+        "year": "2021"
+      },
+      {
+        "issue": "2",
+        "key": "10.1016/j.jcp.2023.112082_br0310",
+        "doi-asserted-by": "crossref",
+        "first-page": "329",
+        "DOI": "10.1137/S0036144503429121",
+        "article-title": "A simple mesh generator in MATLAB",
+        "volume": "46",
+        "author": "Persson",
+        "year": "2004",
+        "journal-title": "SIAM Rev."
+      },
+      {
+        "issue": "5",
+        "key": "10.1016/j.jcp.2023.112082_br0320",
+        "doi-asserted-by": "crossref",
+        "first-page": "S434",
+        "DOI": "10.1137/16M1081981",
+        "article-title": "A certified trust region reduced basis approach to PDE-constrained optimization",
+        "volume": "39",
+        "author": "Qian",
+        "year": "2017",
+        "journal-title": "SIAM J. Sci. Comput."
+      },
+      {
+        "issue": "5",
+        "key": "10.1016/j.jcp.2023.112082_br0330",
+        "doi-asserted-by": "crossref",
+        "first-page": "2221",
+        "DOI": "10.2514/1.J058744",
+        "article-title": "Koopman-based approach to nonintrusive reduced order modeling: application to aerodynamic shape optimization and uncertainty propagation",
+        "volume": "58",
+        "author": "Renganathan",
+        "year": "2020",
+        "journal-title": "AIAA J."
+      },
+      {
+        "issue": "1",
+        "key": "10.1016/j.jcp.2023.112082_br0340",
+        "doi-asserted-by": "crossref",
+        "first-page": "171",
+        "DOI": "10.1007/s13272-018-0283-6",
+        "article-title": "Reduced-order models for aerodynamic applications, loads and MDO",
+        "volume": "9",
+        "author": "Ripepi",
+        "year": "2018",
+        "journal-title": "CEAS Aeronaut. J."
+      },
+      {
+        "issue": "10–11",
+        "key": "10.1016/j.jcp.2023.112082_br0350",
+        "first-page": "1411",
+        "article-title": "On optimization, control and shape design of an arterial bypass",
+        "volume": "47",
+        "author": "Gianluigi",
+        "year": "2005",
+        "journal-title": "Int. J. Numer. Methods Fluids"
+      },
+      {
+        "issue": "2",
+        "key": "10.1016/j.jcp.2023.112082_br0360",
+        "doi-asserted-by": "crossref",
+        "first-page": "843",
+        "DOI": "10.1016/j.ifacol.2018.04.019",
+        "article-title": "Vibration frequency optimization of jointed structures with contact nonlinearities using hyper-reduction",
+        "volume": "51",
+        "author": "Scheffold",
+        "year": "2018",
+        "journal-title": "IFAC-PapersOnLine"
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0370",
+        "series-title": "Day 2 Tue",
+        "article-title": "Model order reduction and control polynomial approximation for well-control production optimization",
+        "author": "Sorek",
+        "year": "2017"
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0380",
+        "doi-asserted-by": "crossref",
+        "first-page": "569",
+        "DOI": "10.1016/j.jcp.2015.04.030",
+        "article-title": "POD/DEIM reduced-order strategies for efficient four dimensional variational data assimilation",
+        "volume": "295",
+        "author": "Ştefănescu",
+        "year": "2015",
+        "journal-title": "J. Comput. Phys."
+      },
+      {
+        "issue": "2",
+        "key": "10.1016/j.jcp.2023.112082_br0390",
+        "doi-asserted-by": "crossref",
+        "first-page": "441",
+        "DOI": "10.1007/s11081-014-9268-4",
+        "article-title": "Adjoint-based surrogate optimization of oil reservoir water flooding",
+        "volume": "16",
+        "author": "Suwartadi",
+        "year": "2015",
+        "journal-title": "Optim. Eng."
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0400",
+        "doi-asserted-by": "crossref",
+        "first-page": "722",
+        "DOI": "10.1016/j.ast.2019.07.002",
+        "article-title": "Application of deep learning based multi-fidelity surrogate model to robust aerodynamic design optimization",
+        "volume": "92",
+        "author": "Tao",
+        "year": "2019",
+        "journal-title": "Aerosp. Sci. Technol."
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0410",
+        "doi-asserted-by": "crossref",
+        "first-page": "446",
+        "DOI": "10.1016/j.jcp.2016.08.032",
+        "article-title": "Trajectory piecewise quadratic reduced-order model for subsurface flow, with application to PDE-constrained optimization",
+        "volume": "326",
+        "author": "Trehan",
+        "year": "2016",
+        "journal-title": "J. Comput. Phys."
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0420",
+        "doi-asserted-by": "crossref",
+        "first-page": "180",
+        "DOI": "10.1016/j.apnum.2017.01.006",
+        "article-title": "Efficient estimation of cardiac conductivities via POD-DEIM model order reduction",
+        "volume": "115",
+        "author": "Yang",
+        "year": "2017",
+        "journal-title": "Appl. Numer. Math."
+      },
+      {
+        "issue": "5–6",
+        "key": "10.1016/j.jcp.2023.112082_br0430",
+        "doi-asserted-by": "crossref",
+        "first-page": "2287",
+        "DOI": "10.1007/s10444-019-09710-z",
+        "article-title": "Discontinuous Galerkin reduced basis empirical quadrature procedure for model reduction of parametrized nonlinear conservation laws",
+        "volume": "45",
+        "author": "Yano",
+        "year": "2019",
+        "journal-title": "Adv. Comput. Math."
+      },
+      {
+        "issue": "23",
+        "key": "10.1016/j.jcp.2023.112082_br0440",
+        "doi-asserted-by": "crossref",
+        "first-page": "5200",
+        "DOI": "10.1002/nme.6395",
+        "article-title": "Goal-oriented model reduction of parametrized nonlinear partial differential equations: application to aerodynamics",
+        "volume": "121",
+        "author": "Yano",
+        "year": "2020",
+        "journal-title": "Int. J. Numer. Methods Eng."
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0450",
+        "doi-asserted-by": "crossref",
+        "DOI": "10.1016/j.cma.2020.113635",
+        "article-title": "A globally convergent method to accelerate topology optimization using on-the-fly model reduction",
+        "volume": "375",
+        "author": "Yano",
+        "year": "2021",
+        "journal-title": "Comput. Methods Appl. Mech. Eng."
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0460",
+        "doi-asserted-by": "crossref",
+        "first-page": "1104",
+        "DOI": "10.1016/j.cma.2018.02.028",
+        "article-title": "An LP empirical quadrature procedure for reduced basis treatment of parametrized nonlinear PDEs",
+        "volume": "344",
+        "author": "Yano",
+        "year": "2019",
+        "journal-title": "Comput. Methods Appl. Mech. Eng."
+      },
+      {
+        "issue": "2",
+        "key": "10.1016/j.jcp.2023.112082_br0470",
+        "doi-asserted-by": "crossref",
+        "first-page": "1344",
+        "DOI": "10.1137/120869171",
+        "article-title": "Accelerating optimization of parametric linear systems by model order reduction",
+        "volume": "23",
+        "author": "Yue",
+        "year": "2013",
+        "journal-title": "SIAM J. Optim."
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0480",
+        "series-title": "Adaptive model reduction to accelerate optimization problems governed by partial differential equations",
+        "author": "Zahr",
+        "year": "2016"
+      },
+      {
+        "issue": "3",
+        "key": "10.1016/j.jcp.2023.112082_br0490",
+        "doi-asserted-by": "crossref",
+        "first-page": "877",
+        "DOI": "10.1137/18M1220996",
+        "article-title": "An efficient, globally convergent method for optimization under uncertainty using adaptive model reduction and sparse grids",
+        "volume": "7",
+        "author": "Zahr",
+        "year": "2019",
+        "journal-title": "SIAM/ASA J. Uncertain. Quantificat."
+      },
+      {
+        "issue": "5",
+        "key": "10.1016/j.jcp.2023.112082_br0500",
+        "doi-asserted-by": "crossref",
+        "first-page": "1111",
+        "DOI": "10.1002/nme.4770",
+        "article-title": "Progressive construction of a parametric reduced-order model for PDE-constrained optimization",
+        "volume": "102",
+        "author": "Zahr",
+        "year": "2015",
+        "journal-title": "Int. J. Numer. Methods Eng."
+      },
+      {
+        "key": "10.1016/j.jcp.2023.112082_br0510",
+        "doi-asserted-by": "crossref",
+        "DOI": "10.1016/j.jcp.2020.109385",
+        "article-title": "Implicit shock tracking using an optimization-based high-order discontinuous Galerkin method",
+        "volume": "410",
+        "author": "Zahr",
+        "year": "2020",
+        "journal-title": "J. Comput. Phys."
+      },
+      {
+        "issue": "1",
+        "key": "10.1016/j.jcp.2023.112082_br0520",
+        "doi-asserted-by": "crossref",
+        "first-page": "1",
+        "DOI": "10.1137/080743160",
+        "article-title": "Adaptive multilevel inexact SQP methods for PDE-constrained optimization",
+        "volume": "21",
+        "author": "Carsten Ziems",
+        "year": "2011",
+        "journal-title": "SIAM J. Optim."
+      }
+    ],
+    "container-title": [
+      "Journal of Computational Physics"
+    ],
+    "original-title": [],
+    "language": "en",
+    "link": [
+      {
+        "URL": "https://api.elsevier.com/content/article/PII:S0021999123001778?httpAccept=text/xml",
+        "content-type": "text/xml",
+        "content-version": "vor",
+        "intended-application": "text-mining"
+      },
+      {
+        "URL": "https://api.elsevier.com/content/article/PII:S0021999123001778?httpAccept=text/plain",
+        "content-type": "text/plain",
+        "content-version": "vor",
+        "intended-application": "text-mining"
+      }
+    ],
+    "deposited": {
+      "date-parts": [
+        [
+          2023,
+          10,
+          2
+        ]
+      ],
+      "date-time": "2023-10-02T13:14:14Z",
+      "timestamp": 1696252454000
+    },
+    "score": 1,
+    "resource": {
+      "primary": {
+        "URL": "https://linkinghub.elsevier.com/retrieve/pii/S0021999123001778"
+      }
+    },
+    "subtitle": [],
+    "short-title": [],
+    "issued": {
+      "date-parts": [
+        [
+          2023,
+          7
+        ]
+      ]
+    },
+    "references-count": 52,
+    "alternative-id": [
+      "S0021999123001778"
+    ],
+    "URL": "https://doi.org/10.1016/j.jcp.2023.112082",
+    "relation": {},
+    "ISSN": [
+      "0021-9991"
+    ],
+    "issn-type": [
+      {
+        "value": "0021-9991",
+        "type": "print"
+      }
+    ],
+    "subject": [],
+    "published": {
+      "date-parts": [
+        [
+          2023,
+          7
+        ]
+      ]
+    },
+    "assertion": [
+      {
+        "value": "Elsevier",
+        "name": "publisher",
+        "label": "This article is maintained by"
+      },
+      {
+        "value": "A globally convergent method to accelerate large-scale optimization using on-the-fly model hyperreduction: Application to shape optimization",
+        "name": "articletitle",
+        "label": "Article Title"
+      },
+      {
+        "value": "Journal of Computational Physics",
+        "name": "journaltitle",
+        "label": "Journal Title"
+      },
+      {
+        "value": "https://doi.org/10.1016/j.jcp.2023.112082",
+        "name": "articlelink",
+        "label": "CrossRef DOI link to publisher maintained version"
+      },
+      {
+        "value": "article",
+        "name": "content_type",
+        "label": "Content Type"
+      },
+      {
+        "value": "© 2023 Elsevier Inc. All rights reserved.",
+        "name": "copyright",
+        "label": "Copyright"
+      }
+    ],
+    "article-number": "112082"
+  }
+}

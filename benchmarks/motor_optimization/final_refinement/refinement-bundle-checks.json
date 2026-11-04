@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "scope": "Portable input preparation from an explicitly synthetic closed study; no build, solver launch, main cohort or performance evidence.",
+  "source_sha256": {
+    "refinement_bundle.py": "4eef3602223ca8c1a9030b71f41c184cb74faa9a406da248d8114d2e9cd2628c",
+    "test_refinement_bundle.py": "533fd9c6b3cb4310b8b028eb5374394ddc27f6e01ea69c09dc9f7580f987f381"
+  },
+  "pipeline_commit": "7977e44dc979426043c7977015048924af5c5f93",
+  "fixture": {
+    "archive": "smoke/synthetic_scientific_selection.tar.gz",
+    "sha256": "1586dcb76f8e53fe3bbdd2cd59bd512e1f45d70d69d38d783985812041760e79",
+    "mesh_artifact_commit": "df83693b6a7af6badb5a8e18dcd4b27393d17c14",
+    "L3_sha256": "614bf98c36e105adca2b6f811f09ebe4aa1c4d1c0a456eb8c3041bf81bdd584a",
+    "designs": 3,
+    "native_requests": 21,
+    "geometry_queries": 3,
+    "modes": 7,
+    "can_launch": false,
+    "independent_review": "pending"
+  },
+  "tests": {
+    "command": "python3 -I -m unittest discover -s benchmarks/motor_optimization/final_refinement -p 'test_*.py'",
+    "passed": 200,
+    "new_tests": 12,
+    "exit_code": 0
+  },
+  "checks": [
+    "Public API and CLI prepare exact seven-mode inputs from a verified synthetic capture.",
+    "Copied bundle verifies after relocation and leaves captured inputs unchanged.",
+    "Complete census and independently retained preparation digest required.",
+    "Changed native point, geometry id/type, missing plan row, mesh bytes or definitions refused.",
+    "Changed L3 construction sources and upstream reference refused.",
+    "Existing output and output inside capture refused."
+  ],
+  "remaining": [
+    "Independent preparation review.",
+    "Reviewed executor/harness builds and runtime/process execution receipts.",
+    "Actual closed main capture, selected-cohort execution/reporting, full performance analysis and paper publication audit."
+  ]
+}

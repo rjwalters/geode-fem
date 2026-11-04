@@ -141,6 +141,11 @@ tempfile = { workspace = true }
 # Same version geode-cli already pins (already in the lockfile).
 sha2 = "0.10"
 
+[target.'cfg(unix)'.dev-dependencies]
+# Benchmark-only safe getrusage wrapper; reuse the version already locked.
+# No unsafe code is added to the evaluator or library (#1202).
+nix = { version = "=0.29.0", default-features = false, features = ["resource"] }
+
 # SPIKE-ONLY (issue #451): probes f64 precision on the burn-flex CPU backend.
 # Gated behind the `flex` feature so it is skipped for the default build and
 # every non-`flex` feature selection; run explicitly with:

@@ -1,0 +1,418 @@
+% Prospective support draft, 2026-10-18. NOT a completed experiment report.
+% Not integrated into any immutable manuscript version; not covered by v6 audit.
+% Governing protocol: #1185 amendments 7 (revision 1 + adoption corrections), 8.
+% Amendment 8 text: ca25a11bda465add9240ac794ed787a081d50772,
+% refs/amendment8-physical-baseline.md.
+% Final selection: comments 6247383821 + 6247421487 + 6248492318.
+% Repair/admissibility: comment 6248970362; recovery: comment 6249073475.
+% Cross-platform anchor: comment 6252347196; refs/cross-platform-anchor-protocol.json.
+% Start sampling: comment 6247585770 + subsequent rationale correction.
+% Scope decisions: Squad reviews 18, 19, 21; EXPERIMENTS.md.
+% Before incorporation: verify against merged implementation and main manifests;
+% insert real host/environment and results; resolve pending markers; new audit.
+% Coverage revision following refs/main-study-methods-protocol-audit.md (06a9a0d9).
+% Render inside article with amsmath, booktabs and hyperref, or the paper class.
+
+\section{Prospective optimization study}
+\label{sec:prospective-optimization}
+
+\noindent\textbf{Draft status.}
+This prospective section reports no optimization outcome or speedup.
+Measured results, execution metadata and independent refinement checks are
+required before a performance claim. The prospective rules follow the
+\href{https://github.com/rjwalters/geode-fem/issues/1185}{preregistered protocol}
+and its adopted amendments; protocol choices are fixed before main outcomes.
+
+\subsection{Question and comparison}
+
+The study will test whether exact discrete field gradients reduce the cost of
+reaching a common validated torque-ripple target, and whether that result
+changes when additional shape freedom is available. A coarse nonlinear FEM
+model provides the inexpensive physical competitor. Comparing both optimizers
+at both training resolutions separates optimizer choice from spatial
+resolution within this experiment (Table~\ref{tab:planned-methods}). The
+optimizer comparison includes differences in search strategy; it does not
+isolate gradient access as the only causal difference. The matched contrasts
+are A/B and E/D for optimizer choice at fixed resolution, and A/E and B/D
+for resolution at fixed optimizer. A/D changes both factors.
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{lll}
+\toprule
+Method & Optimizer or search model & Training FEM level \\
+\midrule
+A & Safeguarded SLSQP, field adjoints & L1 \\
+B & COBYQA, forward evaluations & L1 \\
+C & Empirical cubic-RBF trust-region model & L1 \\
+D & COBYQA, forward evaluations & L0 \\
+E & Safeguarded SLSQP, field adjoints & L0 \\
+\bottomrule
+\end{tabular}
+\caption{Planned methods. A/B/D/E form the optimizer-by-resolution comparison.
+C is an empirical surrogate fitted to field evaluations. D and E solve the
+coarse nonlinear field equations; they are neither fitted magnetic circuits
+nor reduced-basis models.}
+\label{tab:planned-methods}
+\end{table}
+
+Within each optimizer, all options, stopping and callback rules will be
+identical across training resolutions. SLSQP uses the field adjoints and
+$\mathrm{ftol}=10^{-15}$; COBYQA uses SciPy 1.18.1, $2n+1$ initial interpolation
+points, and initial/final unit-box trust radii $0.1$ and $10^{-6}$, where
+$n$ is the number of free parameters (8 or 18).
+The safeguards below apply equally to A/E and B/D.
+
+Both training levels will use coupling torque, harmonic maximum $h=45$, twenty rotor angles,
+the same nonlinear material law, and current fractions
+$\mathcal C=\{0,\tfrac12,1\}$ of the fixed peak current $9.6777\,\mathrm{A}$.
+Only spatial resolution changes between L0 and L1. Each level will have its own
+initial-design training normalization, measured before the optimization runs.
+The normalized training mean floors can therefore correspond to different
+physical torques; common validation, rather than either training model,
+decides feasibility. There is no fitted or bias correction, cross-level
+gradient substitution, adaptive refinement, or tuning of L0 against validation
+outputs. Any later change requires a prospective protocol amendment.
+
+Method C linearly interpolates predicted standard deviation at $0.25$ or
+$0.75$ between its neighboring modeled currents, without a nonlinear solve; extra mean RBFs at $0$ and $0.5$ use the same training data after
+the run and cannot affect its path. C's diagnostic uses its final incumbent
+and compares predictions with both L1 and common validation. Its checks at
+current $0.5$ test new designs and a finer model, not an unseen current;
+the withheld-current checks measure this specified interpolation rule.
+
+For D and E, each stopped run will select the feasible point with the lowest
+common-validation objective, with the earliest validation breaking ties. If none exists,
+the last buildable training incumbent will be used with an explicit lack of
+validated feasibility; if that is also missing, the diagnostic is unavailable.
+At this frozen point, L0 and the common validation model will solve the
+nonlinear equations at fractions $0.25$ and $0.75$ on twenty angles, retaining
+waveforms, means and standard deviations. These checks will not fit a correction
+or modify the stopped optimization. Separately, every D/E validation will
+retain paired L0 and common-validation objective, all three current-specific
+standard deviations, and full-current mean, including validations that fail
+acceptance. The fidelity assessment will use all these records, not only the
+winning designs.
+
+Before main optimization, L0 adjoints for both the scalar and grouped-control
+spaces will be checked at frozen admissible designs against directional
+central differences over a step-size sweep. Failed checks will remain in the
+record; their costs belong to setup, not optimizer timing. A mixed-resolution
+smoke must also verify that changing L0/L1 training leaves the common L2
+validator and exact anchor identity unchanged. Smoke is wiring evidence only.
+[PENDING frozen derivative-sweep points, directions, steps and results;
+reviewed mixed-resolution verification]
+
+\subsection{Design spaces, objective and feasibility}
+
+Space A has eight free engineering parameters. Space B contains the same
+scalars and ten grouped surface-control offsets acting on 55 control points;
+the points are not independent design variables. The spaces also use different
+discrete mesh-motion conventions: Jacobian-stiffened extension for the scalar
+map and plain harmonic extension for the control-point map, with different
+boundary parameter conventions. Space comparisons therefore do not isolate
+the effect of the ten extra offsets. Within each space, all methods share
+the same motion scheme. Axial length, overall radial
+scale, stator diameter and operating-angle convention remain fixed at
+$0.1\,\mathrm{m}$, $1$, $0.135\,\mathrm{m}$ and $0^\circ$, respectively.
+The historical Opt120 design is a construction-regression reference outside
+this fixed-size problem; the new domain will not be relaxed to admit it. The
+parameter box bounds magnet area but does not hold magnet volume constant.
+The continuous-geometry gap and outer-web bounds established separately do
+not constitute manufacturing qualification or a guarantee for every mesh.
+The separately reviewed bounds are magnet area $20$--$300\,\mathrm{mm}^2$
+($133\,\mathrm{mm}^2$ initially), continuous gap greater than
+$0.32876\,\mathrm{mm}$, and outer web at least $0.5\,\mathrm{mm}$.
+[PENDING supplement reference for exact parameter/group definitions,
+boxes and the geometry-bound derivation]
+
+Let $\sigma_{r,c}(\theta)$ and $\mu_{r,c}(\theta)$ denote torque standard
+deviation and mean at design $\theta$, model $r$, and current fraction $c$.
+The training objective and full-current constraint are
+\begin{align}
+ F_r(\theta) &= \sum_{c\in\mathcal C}\sigma_{r,c}(\theta)^2,
+ & \mu_{r,1}(\theta)&\geq 1.0025\,\mu_{r,1}(\theta_0).
+\end{align}
+Optimization uses unit-box coordinates and objective/mean normalization by
+the corresponding level's initial-design values. Only the full-current mean
+is constrained. Half-current mean torque will be reported as a diagnostic;
+this protocol supplies no partial-load mean-torque guarantee.
+
+Construction margins $m_i$ have fixed positive scales $s_i$ of matching units.
+For a nonzero reference margin, $s_i=|m_i(\theta_0)|$; a zero reference margin
+requires an individually justified fixed scale. Length and squared-length
+margins, including the arc discriminant, keep their respective dimensions.
+The additional normalized constraints are
+\begin{equation}
+ c_i(\theta)=m_i(\theta)/s_i,\qquad
+ h_i(\theta)=c_i(\theta)-0.05\geq0.
+\end{equation}
+The construction's actual strict and non-strict guards and its discrete
+checks determine whether a trial is buildable. Buildable trials can still
+violate $h_i\geq0$: such trials are evaluated normally and are constraint
+infeasible; this alone does not trigger restoration. The value $0.05$ is a
+prospective domain margin, not a certified physical safety factor, and will
+not be tuned on optimizer outcomes. Guards are evaluated before unsafe square
+roots or inverse trigonometric operations, retaining raw margins and defined
+downstream refusal information. A zero arc discriminant can permit a value
+while its design derivative is undefined; no gradient is invented there.
+For target credit and best-feasible selection only, every scaled margin must
+satisfy $h_i\geq-10^{-12}$, allowing rounding at active constraints.
+Optimizer constraints remain $h_i\geq0$; buildability retains its exact guards
+without a rounding tolerance.
+Geometry Jacobians use analytic expressions or geometry-only central
+differences, with their checks and costs recorded separately from field solves.
+An undefined construction or derivative will be rejected before the
+corresponding field request. No request may return another design's value,
+gradient or constraint, including after restoration.
+[PENDING frozen smooth/discrete guard and scale inventory, implied physical
+floors, exclusion records and derivative/regression evidence]
+
+SLSQP will abort a call that requests a refused point, restore toward the last
+admissible evaluated point by at most twenty bisections, and restart at the
+actual restored point with fresh optimizer state. At most twenty restarts
+are allowed. Geometric restoration tests points on the segment from that
+anchor toward the rejected design; if no admissible anchor/probe exists,
+the run ends as \texttt{restoration\_failed}. Mesh-infeasible requests also
+require the anchor and restored mesh to pass the mesh policy, with mesh work
+charged. Rejected and restored coordinates, counts and costs remain in the
+trace. COBYQA will use the pinned NaN barrier. The empirical surrogate
+will skip refused samples without fitting them. An initial coordinate step
+tries the opposite sign after refusal, then at most three halvings in both
+directions; failure to form a full-rank set ends as
+\texttt{restoration\_failed}. Geometry and subproblem points obey the same
+buildability checks, and the surrogate subproblem includes $h\geq0$.
+Its feasible-first ordering must include
+the geometry constraints as well as the mean constraint.
+
+Any inverted moved triangle or a minimum angle below $5^\circ$ triggers mesh
+repair. Fresh meshes must meet the same quality policy. At most four attempts
+are permitted, each beginning from defaults: default settings;
+\texttt{Mesh.Algorithm=5} (Delaunay), or algorithm 1 (MeshAdapt) if the default is
+already 5; characteristic-length
+factor $0.9$; then factor $0.8$. Every attempt, refusal and restoration is
+recorded and charged, including the SHA-256 of every training remesh.
+The actual algorithm is recorded, and a fixture must establish that the
+second attempt changes mesh bytes. All-four failure is candidate-dependent
+mesh infeasibility and invokes the method's refusal mechanism.
+The $5^\circ$ floor also imposes an implicit geometric constraint: refinement
+cannot remove a limiting geometric corner angle (a development fixture
+remained at $4.017^\circ$ on all four attempts). Space B's slot-opening
+channel wall is unguarded and can narrow to $0.16\,\mu\mathrm{m}$ at
+minimum SW3 and maximum CPS1. This known meshing risk is handled by repair
+and mesh-infeasible refusal; the protocol adds no wall-thickness constraint.
+Real solver or infrastructure errors are a
+separate failed-run outcome. A request in flight at budget exhaustion is
+aborted with its process group, its remaining budget is charged, and its
+requested coordinates and category are retained. Ordinary scientific
+failures or convergence do not receive selective extra restarts.
+
+\subsection{Common validation and target credit}
+
+Every method will use the same L2/$h93$/g20 validation model and initial-design
+anchor. Write its initial objective as $F_0$ and its full-current mean as
+$\mu_0$. For a completed candidate validation, define
+\begin{equation}
+ \delta F(\theta)=\max\left\{0.10F_{\mathrm{val}}(\theta),
+                    2.5\times10^{-7}\,(\mathrm{N\,m})^2\right\}.
+\end{equation}
+The three fixed targets are $T_{50}=0.5F_0$, $T_{90}=0.1F_0$, and
+$T_{99}=0.01F_0$. A target is attained only when
+\begin{equation}
+ F_{\mathrm{val}}(\theta)+\delta F(\theta)\leq T,
+ \qquad \mu_{\mathrm{val},1}(\theta)\geq1.0025\mu_0,
+\end{equation}
+$h_i\geq-10^{-12}$ and every discrete guard and validation-mesh policy check pass,
+and validation finishes within budget. Each validation cold-starts and
+depends only on its candidate; training-model infeasibility does not prevent
+an otherwise eligible incumbent from being validated. The allowance is an
+empirical validation rule, not
+a rigorous bound on continuum error. Optimizer success flags confer no credit.
+The callback rules validate changed incumbents, excluding the start and
+duplicate validations. B/D complete $2n+1$ initial evaluations and C completes
+$n+1$ before the non-start incumbent is validated once. The final point is
+also validated if it is neither the start nor previously validated.
+
+Each run will receive 120 measured cold-validation wall-time units, with a
+60-unit checkpoint using only validations completed by that checkpoint.
+Both training resolutions share the same validation timing unit; L0 costs
+will be measured without a nominal resolution discount. A run that later
+fails retains its earlier eligible target crossings. Failed, deferred,
+contaminated and budget-censored outcomes will remain visible. Curves extend
+to 120 units, and pilot trajectories are never appended to main runs.
+There is no reuse of another method's training cache or trajectory; within-run
+cache policies are identical across the comparison.
+
+\subsection{Starts, scheduling and cost}
+
+The planned cohort is $\theta_0$ plus four seeded starts in each space, five
+methods and two timing repeats: 100 optimization runs. Each seed uses the
+registered ten-point, eighteen-dimensional SplitMix64 Latin-hypercube
+sequence, with seeds 1 through 4.
+The scalar coordinates are matched across
+spaces. The frozen pilot indices 1 and 4 are tried first for seeds 1 and 2;
+deterministic next eligible replacements and the first eligible indices for
+seeds 3 and 4 are selected without inspecting objective or method outcomes.
+Every attempted index and rejection reason will be archived, and all selected
+vectors will be committed bit for bit before main outcomes.
+A start must pass admissibility/buildability checks and the moved-reference-mesh
+policy without remeshing in both spaces at L0 and L1: zero inverted triangles
+and minimum angle at least $5^\circ$. This preflight uses geometry checks and
+mesh moves, with no field solve, and its costs are recorded outside run
+budgets. This favors moderate
+deformations reachable by mesh motion. The starts are not uniform samples of
+the admissible domain, although subsequent optimizer iterates may use repairs.
+The comparison is a paired case study over five designs; timing repeats are
+not independent design samples.
+
+For start index $s$, repeat 1 will rotate the method order ABCDE left by $s$;
+repeat 2 will reverse that exact order. With concurrent workers, this is the
+queue-entry order. The actual dispatch/completion order and worker count will
+be retained. The host gate and load monitor apply to the common calibration
+and to optimization runs. Calibration uses $N$ simultaneous single-threaded
+processes on the same host and at the same concurrency as optimization.
+Each makes three cold initial-design validation evaluations; the common unit
+is the median of all $3N$ timings. The single-process median is retained as a
+diagnostic, not used as the session unit. L0 and L1 reference computations
+are recorded separately without introducing a second validation-time unit.
+Before calibration, the host will recompute the initial design's complete
+validation waveforms in both spaces, with the registered mesh and physics.
+Relative differences from the canonical anchor in $F_0$ and $\mu_0$ must each
+be at most $10^{-9}$; every corresponding torque sample, at every current,
+must differ by at most $10^{-9}\,\mathrm{N\,m}$. Failure of any check refuses
+the session before calibration. This separately recorded platform check
+retains the four-ulp anchor-file parsing check, exact input identities,
+and same-host determinism and bitwise agreement between spaces.
+Newton iteration counts are retained but need not match across platforms.
+Calibration must reproduce this host's preflight objective and mean exactly.
+The canonical anchor continues to determine all targets and the mean floor;
+recomputation never resets the acceptance rule or its uncertainty allowance.
+The check's full waveforms, differences and costs are retained outside
+individual run budgets.
+
+Reference constants and common calibration define the session and sit outside
+individual run budgets; their costs remain in the end-to-end totals.
+All methods use the same thread limits. Post-run diagnostics have a separate
+interval and cost record. A run will not launch after a failed idle gate; contaminated runs
+will retain their records and receive at most one contamination rerun at the
+session's end. The pre-run
+one-minute load average must be at most $N+1$; load above $1.5N$ continuously
+for more than 60 seconds during a run marks it contaminated. The session is
+eligible as idle-host evidence only if no run is contaminated or every such
+run has a clean replacement. Calibration must be clean before dispatch.
+
+Recovery preserves the first clean completed attempt for each logical job,
+including scientific failures and censored outcomes. Recovered never-started
+or deferred jobs and verified external-interruption replacements run after
+the remaining registered queue, in their original relative order. Each job
+may receive at most one whole-run replacement for a verified external
+interruption, after the old processes are proved stopped. This is a new
+attempt with the full registered budget, never a continued trajectory.
+The source, environment, input hashes, settings, host, worker count and
+recorded calibration unit must match; recovery never remeasures that unit.
+Unknown interruptions remain unresolved. Solver failures, mesh infeasibility,
+safeguard stops and target misses do not permit replacements, and recovery
+does not reset the separate contamination allowance. An interrupted post-run
+diagnostic is repaired independently, without repeating completed optimization.
+All original records and partial costs are retained, with incomplete accounting
+identified. The report will list every replacement, reason, supporting evidence
+and original partial cost, and count the affected jobs. These are adopted
+rules. The proposed implementation has controlled recovery checks and
+recorded native verification; independent review and merged integration
+remain pending.
+
+The execution record will bind the evaluator to a recorded build of the clean
+source revision and retain the build log and a separate executable copy.
+The optimizer and mesher environments will record their BLAS/LAPACK backends,
+package contents, numerical environment and operating-system versions.
+These identities must remain fixed for the session and its recovery attempts;
+a changed backend is not interchangeable merely because package version strings
+match. Missing runtime evidence prevents recovery verification.
+
+Solver return records will retain status, success, message and available
+iteration/evaluation counts. A whole-run iteration or evaluation cap will be
+reported as a cap, rather than convergence; other unsuccessful returns remain
+explicit. Local surrogate-subproblem caps are reported separately from whole-run
+termination. These labels do not alter common-validator target credit or permit
+replacement of a completed scientific outcome.
+
+The charged run ledger includes evaluator startup, geometry checks, mesh
+updates and repairs, assembly and solves, adjoints, search overhead,
+surrogate fitting and validation. Shared preparation/calibration costs and
+post-run costs will also be reported, together with end-to-end execution
+costs, split by resolution and into shared versus method-specific work.
+Raw seconds, normalized wall-time units, solve counts and measured secondary
+solve-count weights will all be retained; only wall time stops a run.
+CPU user/system seconds will be sampled inside each evaluator request and
+inside each isolated run process. A run includes its own CPU and its reaped
+children once; nested request totals are a cross-check, never added again.
+Killed or unreaped descendants leave accounting explicitly incomplete.
+A child-specific exit receipt provides an independent inclusive cross-check.
+RSS observations will identify their process scope and cumulative high-water
+semantics; separate process maxima will not be summed into a purported
+simultaneous process-tree peak. Raw platform units and unavailable metrics
+will be explicit. [PENDING main-run host, process count,
+environment versions, calibration records and source/data hashes]
+
+\subsection{Final checks and interpretation}
+
+For each method and space, the best-observed representative will be the
+lowest-$F_{\mathrm{val}}$ eligible feasible validation from uncontaminated
+main runs. Feasibility here requires the common full-current mean floor,
+$h_i\geq-10^{-12}$, all discrete and validation-mesh checks, and validation completion
+within budget. Ties are broken by start
+index, repeat index and validation ordinal. Earlier eligible records of
+failed runs remain candidates. A missing feasible representative will be
+reported explicitly; any optional buildable-only diagnostic receives no
+feasibility or target credit. Every considered validation and its selection
+or rejection reason will be retained. For each method, space and target, the earliest attaining
+validation across starts in repeat 1, measured by cumulative common
+wall-time units and with the same tie-break, will also be selected: at most thirty
+crossing designs in addition to ten representatives. A missing repeat-1
+crossing will not be replaced with one from repeat 2.
+
+The initial design and these selected points will be checked at L3/$h93$/g20
+and L2/$h93$/g40, retaining the training-current waveforms and the specified
+half-current and $0.25/0.75$ diagnostics. Each final candidate's half-current
+mean will be compared with the initial design. Conforming outer-band Arkkio checks
+are restricted to fresh meshes with zero stator offsets and supported
+rotations. For other designs the missing conforming check and resulting
+model dependence will be stated. Exact geometry/settings identities may
+share a check while retaining every source role. A failed refinement will
+not trigger substitution of a different selected candidate.
+
+At all three training currents, the same initial design and deduplicated
+cohort will also receive two L2/$h93$ checks: g20 with Newton relative
+tolerance $10^{-12}$ against the default $10^{-8}$, and an independently
+solved grid $0.5^\circ,1.5^\circ,\ldots,19.5^\circ$ at the default tolerance.
+Each current sweep starts cold; successive angles use continuation from
+the preceding solution. Signed waveform, mean, standard-deviation and
+objective changes, together with failures, will be retained. Each candidate
+will be compared with the initial design at matching settings. These checks
+are charged separately after the run and neither replace candidates nor
+change common-validator target credit. The even/odd samples of g40 may
+additionally diagnose angular sampling without further solves; their shared
+sweep history prevents treating them as an independent shifted-grid solve.
+
+Time-to-target statements will refer to common L2/$h93$/g20 validation.
+The selected refinement checks will qualify those statements where they
+disagree; they do not certify every crossing or typical-start behavior.
+Paired timing comparisons will retain censored targets and avoid a finite
+speedup ratio when a comparator does not attain the target. Conclusions will
+be confined to the tested optimizers, physical models, design spaces and
+sampling conditions. Population methods such as CMA-ES remain untested, and
+differences between spaces A and B will not be described as a measurement of
+intrinsic effective dimension.
+
+
+\subsection{Reproducibility prerequisites}
+
+Before execution, freeze starts, model/optimizer constants, source/binary and
+mesh/anchor hashes, queue order and commands. Runs must retain model identity
+and requested/actual design bits. A supplement will bind the complete
+surrogate algorithm, guard scales and refusal rules to reviewed code. The
+runbook must demonstrate clean calibration and durable recovery without
+resetting budgets, overwriting attempts or mixing calibrations. Main execution
+requires a reviewed merged implementation and the selected host.
+[PENDING supplement/artifact links, implementation review, recovery evidence
+and selected host]

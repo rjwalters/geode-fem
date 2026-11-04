@@ -1,0 +1,1649 @@
+{
+ "issue": 1195,
+ "label": "pilot",
+ "method": "surrogate",
+ "method_label": "empirical RBF surrogate (trust region)",
+ "space": "a",
+ "start": "lhs1",
+ "repeat": 2,
+ "order_position": 21,
+ "session": "pilot-20261018T041148Z",
+ "budget_fe": 60.0,
+ "unit_seconds": 37.663682541499995,
+ "started_utc": "2026-10-18T05:15:57Z",
+ "load_before": [
+  27.18603515625,
+  27.97607421875,
+  25.3154296875
+ ],
+ "x_start": [
+  0.008163727952145202,
+  0.007997747892536641,
+  0.01134090854488188,
+  0.0044088066467323234,
+  0.0015251716300998131,
+  0.0012990301069571437,
+  0.004190315703291599,
+  0.001332316504115846
+ ],
+ "stop_reason": "failed",
+ "message": "evaluator failure",
+ "error": "train: evaluation: mesh: no geometry at this design: construction: slot flank degenerates: fillet centre y = -7.5755e-4 m, flank from x = 4.643323e-2 to 4.853537e-2 m",
+ "attainment": {
+  "T50": {
+   "attained": false,
+   "censored": true
+  },
+  "T90": {
+   "attained": false,
+   "censored": true
+  },
+  "T99": {
+   "attained": false,
+   "censored": true
+  }
+ },
+ "validations": [
+  {
+   "wall_fe": 4.14604862153279,
+   "solve_fe": 3.9780984292204815,
+   "seconds": 156.15545908303466,
+   "index": 0,
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.012840908544881879,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "note": "surrogate doe incumbent",
+   "F_val": 0.0007356326951083292,
+   "mean_full": 0.795051636443471,
+   "stds": [
+    0.0017811487758755099,
+    0.011298582722126232,
+    0.024592727230175124
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 142.50123523518033,
+     "max_area_ratio": 1.9281559604935865,
+     "min_angle_deg": 12.8711822479915,
+     "min_area_ratio": 0.3418151917368951
+    }
+   },
+   "msh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
+   "delta_F": 7.356326951083294e-05,
+   "F_upper": 0.0008091959646191622,
+   "mean_ok": false,
+   "mean_floor": 1.4444411337396714,
+   "F_train": 0.0006142770377122513,
+   "mean_train": 0.7968815205540095
+  },
+  {
+   "wall_fe": 5.3465504686148995,
+   "solve_fe": 5.308998254689424,
+   "seconds": 201.3707795420196,
+   "index": 1,
+   "x": [
+    0.007263727952145202,
+    0.008997747892536637,
+    0.014340908544881875,
+    0.0048088066467280345,
+    0.001225171630103495,
+    0.0011990301069572293,
+    0.005990315703291599,
+    0.001482316504115702
+   ],
+   "note": "surrogate acceptance",
+   "F_val": 0.0005424275376833907,
+   "mean_full": 1.0362494065919265,
+   "stds": [
+    0.0010668738485093215,
+    0.01046143363138033,
+    0.020780946182765166
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 140.72999042901236,
+     "max_area_ratio": 1.9641413048200633,
+     "min_angle_deg": 12.354543135679384,
+     "min_area_ratio": 0.4174748833229396
+    }
+   },
+   "msh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
+   "delta_F": 5.424275376833907e-05,
+   "F_upper": 0.0005966702914517298,
+   "mean_ok": false,
+   "mean_floor": 1.4444411337396714,
+   "F_train": 0.0004497511832958671,
+   "mean_train": 1.0381813172508394
+  },
+  {
+   "wall_fe": 6.66475379759973,
+   "solve_fe": 6.639898080158367,
+   "seconds": 251.01917125005275,
+   "index": 2,
+   "x": [
+    0.006,
+    0.010997747892536634,
+    0.016517079371438332,
+    0.005608806646728035,
+    0.0010000000000000002,
+    0.0009990301069572292,
+    0.0095903157032916,
+    0.001782316504115702
+   ],
+   "note": "surrogate acceptance",
+   "F_val": 0.00044275518718968804,
+   "mean_full": 1.3467135495338793,
+   "stds": [
+    0.0011344227902687347,
+    0.009871578563287827,
+    0.018547781775496583
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "file": "/Volumes/Stripe/geode-fem/issue-1198/benchmarks/motor_optimization/runs/pilot/surrogate_a_lhs1_r2.meshes/validation/icem_remesh_remesh000_L2.msh",
+    "kind": "fresh",
+    "mesh_s": 1.841168709,
+    "moved_quality": {
+     "inverted": 0,
+     "max_angle_deg": 158.2625026513211,
+     "max_area_ratio": 2.263067713152428,
+     "min_angle_deg": 2.888932227066814,
+     "min_area_ratio": 0.12280515809450099
+    },
+    "msh_sha256": "8a49ef25415ccf9ee6b4551b19fc9e042d7f549a6bc83dcb8e92ef37cfdaa7ea",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 110.24539347730487,
+     "max_area_ratio": 1.0,
+     "min_angle_deg": 31.328634075174378,
+     "min_area_ratio": 1.0
+    },
+    "trigger": {
+     "kind": "min_angle",
+     "min_angle_deg": 2.888932227066814,
+     "threshold_deg": 5.0
+    }
+   },
+   "msh_sha256": "8a49ef25415ccf9ee6b4551b19fc9e042d7f549a6bc83dcb8e92ef37cfdaa7ea",
+   "delta_F": 4.4275518718968805e-05,
+   "F_upper": 0.00048703070590865684,
+   "mean_ok": false,
+   "mean_floor": 1.4444411337396714,
+   "F_train": 0.00036940086209998394,
+   "mean_train": 1.3479113311265882
+  }
+ ],
+ "best_validated_feasible": null,
+ "feasible_validated": false,
+ "infeasible": true,
+ "events": [
+  {
+   "wall_fe": 0.31371100515761846,
+   "solve_fe": 0.33089982546894237,
+   "seconds": 11.815511708031408,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.01134090854488188,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.0003788624225258127,
+   "mean_full": 0.6684119024563785,
+   "stds": [
+    0.0006206068139345247,
+    0.007976156584539207,
+    0.017744244020166725
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe start",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 148.32547564932375,
+    "max_area_ratio": 2.0359961110258786,
+    "min_angle_deg": 12.441423592870963,
+    "min_area_ratio": 0.3216883740663067
+   },
+   "newton_iterations": 162
+  },
+  {
+   "wall_fe": 0.6147978332047201,
+   "solve_fe": 0.6617996509378847,
+   "seconds": 23.155550417024642,
+   "kind": "train",
+   "x": [
+    0.009063727952145202,
+    0.007997747892536641,
+    0.01134090854488188,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.0003542325358000361,
+   "mean_full": 0.6487794873950407,
+   "stds": [
+    0.0007260071202176868,
+    0.0076736699088575935,
+    0.01717033021206415
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 0",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 148.32547564932375,
+    "max_area_ratio": 2.0346073553016137,
+    "min_angle_deg": 11.988034691137315,
+    "min_area_ratio": 0.3216883740663067
+   },
+   "newton_iterations": 161
+  },
+  {
+   "wall_fe": 1.1171668245319957,
+   "solve_fe": 0.9926994764068271,
+   "seconds": 42.07661662506871,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.008997747892536642,
+    0.01134090854488188,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.0003918340080808586,
+   "mean_full": 0.6755942262132925,
+   "stds": [
+    0.000625876845951929,
+    0.008083094612925891,
+    0.018058401583004192
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 1",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 148.32547564932375,
+    "max_area_ratio": 2.328624078403228,
+    "min_angle_deg": 12.437269295172511,
+    "min_area_ratio": 0.3216883740663067
+   },
+   "newton_iterations": 161
+  },
+  {
+   "wall_fe": 1.6809381903980805,
+   "solve_fe": 1.3235993018757695,
+   "seconds": 63.310322375036776,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.012840908544881879,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.0006142770377122513,
+   "mean_full": 0.7968815205540095,
+   "stds": [
+    0.0006447177527130653,
+    0.010218861501250292,
+    0.022570694414436
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 2",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 148.32547564932375,
+    "max_area_ratio": 1.865523194093041,
+    "min_angle_deg": 12.981168726925965,
+    "min_area_ratio": 0.3216883740663067
+   },
+   "newton_iterations": 163
+  },
+  {
+   "wall_fe": 2.0127382735730937,
+   "solve_fe": 1.6544991273447118,
+   "seconds": 75.80713537498377,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.01134090854488188,
+    0.004808806646732324,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.00037649609680518413,
+   "mean_full": 0.6688671223153473,
+   "stds": [
+    0.000618267181681176,
+    0.00797290966681632,
+    0.01767898622495156
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 3",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 147.96096940274987,
+    "max_area_ratio": 2.0359961110258786,
+    "min_angle_deg": 12.441423592870963,
+    "min_area_ratio": 0.30320085083956355
+   },
+   "newton_iterations": 161
+  },
+  {
+   "wall_fe": 2.32350567495749,
+   "solve_fe": 1.9853989528136542,
+   "seconds": 87.51178012497257,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.01134090854488188,
+    0.0044088066467323234,
+    0.001825171630099813,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.000717492538246416,
+   "mean_full": 0.6665003010875097,
+   "stds": [
+    0.0007787192703671677,
+    0.011023904668629068,
+    0.02439999304101034
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 4",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 148.38618560293736,
+    "max_area_ratio": 2.0359961110258786,
+    "min_angle_deg": 12.441423592870963,
+    "min_area_ratio": 0.32167399911951416
+   },
+   "newton_iterations": 163
+  },
+  {
+   "wall_fe": 2.626538367324777,
+   "solve_fe": 2.3162987782825963,
+   "seconds": 98.9251072499901,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.01134090854488188,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0013990301069571438,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.0003806791349664117,
+   "mean_full": 0.6679493374822361,
+   "stds": [
+    0.0006224445746632487,
+    0.008004306070730183,
+    0.01778265396514131
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 5",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 148.2418166643733,
+    "max_area_ratio": 2.0359961110258786,
+    "min_angle_deg": 12.441423592870963,
+    "min_area_ratio": 0.3217081610690519
+   },
+   "newton_iterations": 162
+  },
+  {
+   "wall_fe": 2.9263218542585463,
+   "solve_fe": 2.647198603751539,
+   "seconds": 110.2160573330475,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.01134090854488188,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.005990315703291599,
+    0.001332316504115846
+   ],
+   "F": 0.0003800222025374262,
+   "mean_full": 0.7101723825850225,
+   "stds": [
+    0.0006029695222258947,
+    0.007967896678584599,
+    0.017781205043868466
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 6",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 146.50094656363368,
+    "max_area_ratio": 2.0359961110258786,
+    "min_angle_deg": 12.441423592870963,
+    "min_area_ratio": 0.4089102322798384
+   },
+   "newton_iterations": 160
+  },
+  {
+   "wall_fe": 3.2277981058554284,
+   "solve_fe": 2.9780984292204815,
+   "seconds": 121.57076316699386,
+   "kind": "train",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.01134090854488188,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.0014823165041158459
+   ],
+   "F": 0.00037907426520957443,
+   "mean_full": 0.6694402662649046,
+   "stds": [
+    0.0006201049104246768,
+    0.007975834845798644,
+    0.017750374464280627
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "doe 7",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 150.2144959997955,
+    "max_area_ratio": 2.0359961110258786,
+    "min_angle_deg": 12.441423592870963,
+    "min_area_ratio": 0.30818925626078236
+   },
+   "newton_iterations": 161
+  },
+  {
+   "wall_fe": 4.14604862153279,
+   "solve_fe": 3.9780984292204815,
+   "seconds": 156.15545908303466,
+   "kind": "validate",
+   "x": [
+    0.008163727952145202,
+    0.007997747892536641,
+    0.012840908544881879,
+    0.0044088066467323234,
+    0.0015251716300998131,
+    0.0012990301069571437,
+    0.004190315703291599,
+    0.001332316504115846
+   ],
+   "F_val": 0.0007356326951083292,
+   "mean_full": 0.795051636443471,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true
+  },
+  {
+   "wall_fe": 4.449750533960975,
+   "solve_fe": 4.308998254689424,
+   "seconds": 167.59399149997625,
+   "kind": "train",
+   "x": [
+    0.007263727952145202,
+    0.008997747892536637,
+    0.014340908544881875,
+    0.0048088066467280345,
+    0.001225171630103495,
+    0.0011990301069572293,
+    0.005990315703291599,
+    0.001482316504115702
+   ],
+   "F": 0.0004497511832958671,
+   "mean_full": 1.0381813172508394,
+   "stds": [
+    0.0003957405972079598,
+    0.009391261462234193,
+    0.01901049133566893
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 148.17308295006148,
+    "max_area_ratio": 1.940143367371204,
+    "min_angle_deg": 13.04958831618994,
+    "min_area_ratio": 0.4723218748054417
+   },
+   "newton_iterations": 162
+  },
+  {
+   "wall_fe": 5.3465504686148995,
+   "solve_fe": 5.308998254689424,
+   "seconds": 201.3707795420196,
+   "kind": "validate",
+   "x": [
+    0.007263727952145202,
+    0.008997747892536637,
+    0.014340908544881875,
+    0.0048088066467280345,
+    0.001225171630103495,
+    0.0011990301069572293,
+    0.005990315703291599,
+    0.001482316504115702
+   ],
+   "F_val": 0.0005424275376833907,
+   "mean_full": 1.0362494065919265,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true
+  },
+  {
+   "wall_fe": 5.655988017962947,
+   "solve_fe": 5.639898080158367,
+   "seconds": 213.02533716708422,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.010997747892536634,
+    0.016517079371438332,
+    0.005608806646728035,
+    0.0010000000000000002,
+    0.0009990301069572292,
+    0.0095903157032916,
+    0.001782316504115702
+   ],
+   "F": 0.00036940086209998394,
+   "mean_full": 1.3479113311265882,
+   "stds": [
+    0.0019529115905208608,
+    0.008804446674418417,
+    0.016972587226964417
+   ],
+   "gradient": false,
+   "purpose": "iterate",
+   "note": "surrogate candidate",
+   "generation": 1,
+   "remesh": true,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 111.51009200557111,
+    "max_area_ratio": 1.0,
+    "min_angle_deg": 31.328634075174136,
+    "min_area_ratio": 1.0
+   },
+   "newton_iterations": 168
+  },
+  {
+   "wall_fe": 6.66475379759973,
+   "solve_fe": 6.639898080158367,
+   "seconds": 251.01917125005275,
+   "kind": "validate",
+   "x": [
+    0.006,
+    0.010997747892536634,
+    0.016517079371438332,
+    0.005608806646728035,
+    0.0010000000000000002,
+    0.0009990301069572292,
+    0.0095903157032916,
+    0.001782316504115702
+   ],
+   "F_val": 0.00044275518718968804,
+   "mean_full": 1.3467135495338793,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true
+  }
+ ],
+ "surrogate_steps": [
+  {
+   "delta": 0.1,
+   "geometry": false,
+   "accepted": true
+  },
+  {
+   "delta": 0.2,
+   "geometry": false,
+   "accepted": true
+  }
+ ],
+ "assessment": {
+  "held_out_training": [
+   {
+    "note": "candidate",
+    "F_pred": 0.0005610800810320674,
+    "F_train": 0.0004497511832958671,
+    "rel_F": 0.24753441874318088,
+    "stds_pred": [
+     0.00038826937259462204,
+     0.009783264989368236,
+     0.021568890886509998
+    ],
+    "stds_train": [
+     0.0003957405972079598,
+     0.009391261462234193,
+     0.01901049133566893
+    ],
+    "mean_pred": 0.9977841076090125,
+    "mean_train": 1.0381813172508394,
+    "rel_mean": 0.03891151667880224
+   },
+   {
+    "note": "candidate",
+    "F_pred": 0.0003727287618716222,
+    "F_train": 0.00036940086209998394,
+    "rel_F": 0.009008911762467799,
+    "stds_pred": [
+     0.00014698043804717907,
+     0.010022753982209354,
+     0.016500047310070362
+    ],
+    "stds_train": [
+     0.0019529115905208608,
+     0.008804446674418417,
+     0.016972587226964417
+    ],
+    "mean_pred": 1.447397258114254,
+    "mean_train": 1.3479113311265882,
+    "rel_mean": 0.07380747137463052
+   }
+  ],
+  "new_design_validation_model_checks": [
+   {
+    "validation": 0,
+    "std_half_pred": 0.010218861501250292,
+    "std_half_val": 0.011298582722126232,
+    "rel_std_half": 0.09556253624284228,
+    "F_pred": 0.0006142770377122512,
+    "F_val": 0.0007356326951083292,
+    "rel_F": 0.16496773213459096,
+    "mean_pred": 0.7968815205540097,
+    "mean_val": 0.795051636443471,
+    "rel_mean": 0.002301591527720672
+   },
+   {
+    "validation": 1,
+    "std_half_pred": 0.009391261462234197,
+    "std_half_val": 0.01046143363138033,
+    "rel_std_half": 0.10229689417863568,
+    "F_pred": 0.0004497511832958673,
+    "F_val": 0.0005424275376833907,
+    "rel_F": 0.17085481091783664,
+    "mean_pred": 1.0381813172508392,
+    "mean_val": 1.0362494065919265,
+    "rel_mean": 0.0018643298096221843
+   },
+   {
+    "validation": 2,
+    "std_half_pred": 0.008804446674418417,
+    "std_half_val": 0.009871578563287827,
+    "rel_std_half": 0.10810144315095138,
+    "F_pred": 0.00036940086209998405,
+    "F_val": 0.00044275518718968804,
+    "rel_F": 0.1656769411450781,
+    "mean_pred": 1.347911331126588,
+    "mean_val": 1.3467135495338793,
+    "rel_mean": 0.0008894108128066593
+   }
+  ]
+ },
+ "aborted_request": null,
+ "ledger": {
+  "fe_rule": {
+   "rule": "wall_time",
+   "unit_seconds": 37.663682541499995
+  },
+  "budget_fe": 60.0,
+  "budget_seconds": 2259.82095249,
+  "total_fe": 6.6648064389476795,
+  "total_seconds": 251.02115391707048,
+  "elapsed_seconds": 251.0211757919751,
+  "solve_fe": 6.639898080158367,
+  "weights": {
+   "validation_eval": 1.0,
+   "train_forward_eval": 0.33089982546894237,
+   "adjoint_eval": 0.07566320066711422,
+   "validation_solve": 0.016666666666666666,
+   "train_forward_solve": 0.0055149970911490395,
+   "adjoint_solve": 0.0012610533444519037,
+   "validation_solves_per_eval": 60,
+   "train_solves_per_eval": 60
+  },
+  "exhausted": false,
+  "totals": {
+   "setup_calibration": {
+    "seconds": 0.0006411249050870538,
+    "fe": 1.7022363768615183e-05,
+    "entries": 1,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "forward": {
+    "seconds": 143.077609664,
+    "fe": 3.798821570523512,
+    "entries": 12,
+    "forward_solves": 660,
+    "adjoint_solves": 0
+   },
+   "adjoint": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "line_search": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "mesh_motion": {
+    "seconds": 0.113897043,
+    "fe": 0.003024054880308152,
+    "entries": 14,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "remesh": {
+    "seconds": 3.208400417,
+    "fe": 0.08518552091832235,
+    "entries": 2,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "validation": {
+    "seconds": 104.172218166,
+    "fe": 2.7658532341126523,
+    "entries": 3,
+    "forward_solves": 180,
+    "adjoint_solves": 0
+   },
+   "surrogate_update": {
+    "seconds": 0.009042123914696276,
+    "fe": 0.00024007540698478297,
+    "entries": 5,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "overhead": {
+    "seconds": 0.4393453782506995,
+    "fe": 0.01166496074213146,
+    "entries": 38,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   }
+  },
+  "entries": [
+   {
+    "seq": 0,
+    "category": "overhead",
+    "seconds": 0.3701084170024842,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "process start-up"
+   },
+   {
+    "seq": 1,
+    "category": "overhead",
+    "seconds": 0.006138249998912215,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 2,
+    "category": "mesh_motion",
+    "seconds": 0.001889042,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe start"
+   },
+   {
+    "seq": 3,
+    "category": "forward",
+    "seconds": 11.437032041,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe start"
+   },
+   {
+    "seq": 4,
+    "category": "overhead",
+    "seconds": 0.0003439580300117484,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 5,
+    "category": "overhead",
+    "seconds": 8.337502367794514e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 6,
+    "category": "mesh_motion",
+    "seconds": 0.001314542,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 0"
+   },
+   {
+    "seq": 7,
+    "category": "forward",
+    "seconds": 11.338298207000001,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 0"
+   },
+   {
+    "seq": 8,
+    "category": "overhead",
+    "seconds": 0.00034258496955530404,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 9,
+    "category": "overhead",
+    "seconds": 7.045804522931576e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 10,
+    "category": "mesh_motion",
+    "seconds": 0.001451667,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 1"
+   },
+   {
+    "seq": 11,
+    "category": "forward",
+    "seconds": 18.915381709000002,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 1"
+   },
+   {
+    "seq": 12,
+    "category": "overhead",
+    "seconds": 0.00416237399883812,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 13,
+    "category": "overhead",
+    "seconds": 0.010576208005659282,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 14,
+    "category": "mesh_motion",
+    "seconds": 0.074225209,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 2"
+   },
+   {
+    "seq": 15,
+    "category": "forward",
+    "seconds": 21.116836833,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 2"
+   },
+   {
+    "seq": 16,
+    "category": "overhead",
+    "seconds": 0.032067499962408874,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 17,
+    "category": "overhead",
+    "seconds": 6.729201413691044e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 18,
+    "category": "mesh_motion",
+    "seconds": 0.001314291,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 3"
+   },
+   {
+    "seq": 19,
+    "category": "forward",
+    "seconds": 12.495112457000001,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 3"
+   },
+   {
+    "seq": 20,
+    "category": "overhead",
+    "seconds": 0.000318959932855023,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 21,
+    "category": "overhead",
+    "seconds": 6.483308970928192e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 22,
+    "category": "mesh_motion",
+    "seconds": 0.001318375,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 4"
+   },
+   {
+    "seq": 23,
+    "category": "forward",
+    "seconds": 11.702982166000002,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 4"
+   },
+   {
+    "seq": 24,
+    "category": "overhead",
+    "seconds": 0.0002793758990975448,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 25,
+    "category": "overhead",
+    "seconds": 7.204210851341486e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 26,
+    "category": "mesh_motion",
+    "seconds": 0.001351917,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 5"
+   },
+   {
+    "seq": 27,
+    "category": "forward",
+    "seconds": 11.41163325,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 5"
+   },
+   {
+    "seq": 28,
+    "category": "overhead",
+    "seconds": 0.00026991590902980533,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 29,
+    "category": "overhead",
+    "seconds": 5.862500984221697e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 30,
+    "category": "mesh_motion",
+    "seconds": 0.001307708,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 6"
+   },
+   {
+    "seq": 31,
+    "category": "forward",
+    "seconds": 11.289024416,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 6"
+   },
+   {
+    "seq": 32,
+    "category": "overhead",
+    "seconds": 0.0005593340475513742,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 33,
+    "category": "overhead",
+    "seconds": 5.266699008643627e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 34,
+    "category": "mesh_motion",
+    "seconds": 0.001324208,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "doe 7"
+   },
+   {
+    "seq": 35,
+    "category": "forward",
+    "seconds": 11.3530825,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "doe 7"
+   },
+   {
+    "seq": 36,
+    "category": "overhead",
+    "seconds": 0.0002464589562691799,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 37,
+    "category": "overhead",
+    "seconds": 3.691599704325199e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 38,
+    "category": "setup_calibration",
+    "seconds": 0.0006411249050870538,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate doe fit"
+   },
+   {
+    "seq": 39,
+    "category": "overhead",
+    "seconds": 0.00011562509462237358,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 40,
+    "category": "mesh_motion",
+    "seconds": 0.013715125,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate doe incumbent"
+   },
+   {
+    "seq": 41,
+    "category": "validation",
+    "seconds": 34.569941375,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate doe incumbent"
+   },
+   {
+    "seq": 42,
+    "category": "overhead",
+    "seconds": 0.0002457500440300464,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 43,
+    "category": "overhead",
+    "seconds": 6.450002547353506e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 44,
+    "category": "surrogate_update",
+    "seconds": 0.006065791007131338,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 45,
+    "category": "overhead",
+    "seconds": 8.333392906934023e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 46,
+    "category": "mesh_motion",
+    "seconds": 0.001304833,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 47,
+    "category": "forward",
+    "seconds": 11.430712084,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 48,
+    "category": "overhead",
+    "seconds": 0.00030187497992528733,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 49,
+    "category": "overhead",
+    "seconds": 0.00015412503853440285,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 50,
+    "category": "surrogate_update",
+    "seconds": 0.0002145000034943223,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 51,
+    "category": "overhead",
+    "seconds": 6.208301056176424e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 52,
+    "category": "mesh_motion",
+    "seconds": 0.005464125,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 53,
+    "category": "validation",
+    "seconds": 33.770691958,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 54,
+    "category": "overhead",
+    "seconds": 0.0002012509907558524,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 55,
+    "category": "overhead",
+    "seconds": 6.125005893409252e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 56,
+    "category": "surrogate_update",
+    "seconds": 0.0009253330063074827,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 57,
+    "category": "overhead",
+    "seconds": 6.054190453141928e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 58,
+    "category": "mesh_motion",
+    "seconds": 0.002528667,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 59,
+    "category": "remesh",
+    "seconds": 1.063123709,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 60,
+    "category": "forward",
+    "seconds": 10.587502417,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate candidate"
+   },
+   {
+    "seq": 61,
+    "category": "overhead",
+    "seconds": 0.00035570709485455154,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 62,
+    "category": "overhead",
+    "seconds": 0.00013120798394083977,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 63,
+    "category": "surrogate_update",
+    "seconds": 0.00020416697952896357,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate refit"
+   },
+   {
+    "seq": 64,
+    "category": "overhead",
+    "seconds": 6.387499161064625e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 65,
+    "category": "mesh_motion",
+    "seconds": 0.005387334,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 66,
+    "category": "remesh",
+    "seconds": 2.145276708,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 67,
+    "category": "validation",
+    "seconds": 35.831584833,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "surrogate acceptance"
+   },
+   {
+    "seq": 68,
+    "category": "overhead",
+    "seconds": 0.011185958013442132,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 69,
+    "category": "overhead",
+    "seconds": 0.000120542012155056,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 70,
+    "category": "surrogate_update",
+    "seconds": 0.0016323329182341695,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "trust-region subproblem"
+   },
+   {
+    "seq": 71,
+    "category": "overhead",
+    "seconds": 7.745809853076935e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 72,
+    "category": "forward",
+    "seconds": 1.1584e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "failed: evaluation: mesh: no geometry at this design: construction: slot flank degenerates: fillet centre y = -7.5755e-4 m, flank from x = 4.643323e-2 to 4.853537e-2 m"
+   },
+   {
+    "seq": 73,
+    "category": "overhead",
+    "seconds": 0.00011570788893777717,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 74,
+    "category": "overhead",
+    "seconds": 2.5042099878191948e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver end"
+   }
+  ]
+ },
+ "anchor": {
+  "F0": 0.009603404147653405,
+  "mean0_full_current": 1.4408390361492982,
+  "level": 2,
+  "msh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
+  "targets": {
+   "T50": 0.004801702073826702,
+   "T90": 0.0009603404147653405,
+   "T99": 9.603404147653405e-05
+  },
+  "mean_floor": 1.4444411337396714,
+  "source": "/Volumes/Stripe/geode-fem/issue-1198/benchmarks/motor_optimization/anchor.json",
+  "file_sha256": "715ed8334a48dbed701acfd56f1c738a4574033309240bdea825316ccf4b1f3f",
+  "file_values": {
+   "F0": 0.009603404147653403,
+   "mean0": 1.4408390361492982
+  }
+ },
+ "post_run_diagnostic": {
+  "counted_in_run_budget": false,
+  "fractions": [
+   0.25,
+   0.75
+  ],
+  "prediction": {
+   "x": [
+    0.006,
+    0.010997747892536634,
+    0.016517079371438332,
+    0.005608806646728035,
+    0.0010000000000000002,
+    0.0009990301069572292,
+    0.0095903157032916,
+    0.001782316504115702
+   ],
+   "points": 11,
+   "exact_fit": true,
+   "predictions": [
+    {
+     "fraction": 0.25,
+     "neighbours": [
+      0.0,
+      0.5
+     ],
+     "std_pred": 0.005378679132469641,
+     "mean_pred": 0.3022903228108443
+    },
+    {
+     "fraction": 0.75,
+     "neighbours": [
+      0.5,
+      1.0
+     ],
+     "std_pred": 0.012888516950691419,
+     "mean_pred": 0.9762459535634217
+    }
+   ],
+   "rule": "linear in the current fraction between C's per-current RBF predictions at the neighbouring training fractions (0, 0.5, 1); the means at 0 and 0.5 are post-run fits"
+  },
+  "status": "ok",
+  "error": null,
+  "charges": [
+   {
+    "adjoint_solves": 0,
+    "category": "mesh_motion",
+    "forward_solves": 0,
+    "note": "diagnostic training",
+    "seconds": 0.002555833
+   },
+   {
+    "adjoint_solves": 0,
+    "category": "remesh",
+    "forward_solves": 0,
+    "note": "diagnostic training",
+    "seconds": 1.0393890000000001
+   },
+   {
+    "adjoint_solves": 0,
+    "category": "forward",
+    "forward_solves": 40,
+    "note": "diagnostic training",
+    "seconds": 6.858481334
+   },
+   {
+    "adjoint_solves": 0,
+    "category": "mesh_motion",
+    "forward_solves": 0,
+    "note": "diagnostic validation",
+    "seconds": 0.007888125
+   },
+   {
+    "adjoint_solves": 0,
+    "category": "remesh",
+    "forward_solves": 0,
+    "note": "diagnostic validation",
+    "seconds": 1.815378041
+   },
+   {
+    "adjoint_solves": 0,
+    "category": "validation",
+    "forward_solves": 40,
+    "note": "diagnostic validation",
+    "seconds": 22.524083917
+   }
+  ],
+  "seconds": 32.684131833026186,
+  "rows": [
+   {
+    "fraction": 0.25,
+    "neighbours": [
+     0.0,
+     0.5
+    ],
+    "std_pred": 0.005378679132469641,
+    "mean_pred": 0.3022903228108443,
+    "std_train": 0.00409735775799812,
+    "mean_train": 0.28606884723466014,
+    "std_val": 0.004870737882293393,
+    "mean_val": 0.2856352205377747,
+    "rel_std_train": 0.31271893989983107,
+    "rel_mean_train": 0.056704795831465656,
+    "rel_std_val": 0.10428425065178902,
+    "rel_mean_val": 0.05830899369381864
+   },
+   {
+    "fraction": 0.75,
+    "neighbours": [
+     0.5,
+     1.0
+    ],
+    "std_pred": 0.012888516950691419,
+    "mean_pred": 0.9762459535634217,
+    "std_train": 0.013008530490196013,
+    "mean_train": 0.9579216959069706,
+    "std_val": 0.01432311358502547,
+    "mean_val": 0.956959623236707,
+    "rel_std_train": 0.009225756867391239,
+    "rel_mean_train": 0.019129181158279815,
+    "rel_std_val": 0.1001595516099162,
+    "rel_mean_val": 0.02015375555917696
+   }
+  ],
+  "validation_mesh": {
+   "file": "/Volumes/Stripe/geode-fem/issue-1198/benchmarks/motor_optimization/runs/pilot/surrogate_a_lhs1_r2.meshes/diagnostic/validation/icem_remesh_remesh000_L2.msh",
+   "kind": "fresh",
+   "mesh_s": 1.520384375,
+   "moved_quality": {
+    "inverted": 0,
+    "max_angle_deg": 158.2625026513211,
+    "max_area_ratio": 2.263067713152428,
+    "min_angle_deg": 2.888932227066814,
+    "min_area_ratio": 0.12280515809450099
+   },
+   "msh_sha256": "8a49ef25415ccf9ee6b4551b19fc9e042d7f549a6bc83dcb8e92ef37cfdaa7ea",
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 110.24539347730487,
+    "max_area_ratio": 1.0,
+    "min_angle_deg": 31.328634075174378,
+    "min_area_ratio": 1.0
+   },
+   "trigger": {
+    "kind": "min_angle",
+    "min_angle_deg": 2.888932227066814,
+    "threshold_deg": 5.0
+   }
+  }
+ },
+ "load_after": [
+  25.57470703125,
+  31.2177734375,
+  28.1533203125
+ ],
+ "finished_utc": "2026-10-18T05:20:41Z"
+}

@@ -1,0 +1,42 @@
+   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1173/crates/geode-core)
+   Compiling geode-util v0.8.0 (/Volumes/Stripe/geode-fem/issue-1173/crates/geode-util)
+    Finished `release` profile [optimized] target(s) in 56.88s
+     Running tests/motor_icem_parametric.rs (/Volumes/Stripe/cargo-target-1173/release/deps/motor_icem_parametric-3eeff6bcf39e81c4)
+
+running 6 tests
+test air_gap_and_coupling_never_move ... 487 frozen nodes (tag 4 and coupling circles) and 388 tag-5 nodes checked over 16 designs
+ok
+test attaches_l0_and_reproduces_it_at_theta0 ... L0: 947 boundary nodes (73 at curve ends), 2206 free, 16 sliding edge pairs, max attach distance 7.557e-16 m
+ok
+test construction_reproduces_initial_export ... initial export -> construction: max 6.748e-16 m over 35 region pairs
+ok
+test construction_vs_optimized_export_isolates_free_form_motion ... optimized export -> construction: rotor:airgap_inner/rotor_iron            1.402e-3 m
+optimized export -> construction: stator:airgap_outer/stator_iron          1.496e-7 m
+optimized export -> construction: stator:airgap_outer/slot_air             1.323e-8 m
+optimized export -> construction: stator:slot_air/stator_iron              3.381e-10 m
+ok
+test jacobian_matches_central_differences ... initial   MAG : max |dX/dtheta| 1.0000e0, max |FD - dual| / max 5.77e-12 (h = 1e-4 theta)
+initial   MH  : max |dX/dtheta| 1.0000e0, max |FD - dual| / max 5.07e-12 (h = 1e-4 theta)
+initial   MW  : max |dX/dtheta| 5.0000e-1, max |FD - dual| / max 1.84e-12 (h = 1e-4 theta)
+initial   SW1 : max |dX/dtheta| 8.0744e-1, max |FD - dual| / max 2.42e-9 (h = 1e-4 theta)
+initial   SW2 : max |dX/dtheta| 5.0016e-1, max |FD - dual| / max 2.26e-9 (h = 1e-4 theta)
+initial   SW3 : max |dX/dtheta| 1.0814e0, max |FD - dual| / max 7.11e-11 (h = 1e-4 theta)
+initial   SW4 : max |dX/dtheta| 1.0038e0, max |FD - dual| / max 1.15e-11 (h = 1e-4 theta)
+initial   SD1 : max |dX/dtheta| 5.0191e-1, max |FD - dual| / max 1.09e-12 (h = 1e-4 theta)
+initial   Sr1 : max |dX/dtheta| 1.0913e0, max |FD - dual| / max 6.15e-11 (h = 1e-4 theta)
+optimized MAG : max |dX/dtheta| 1.0000e0, max |FD - dual| / max 6.38e-12 (h = 1e-4 theta)
+optimized MH  : max |dX/dtheta| 1.0000e0, max |FD - dual| / max 1.40e-11 (h = 1e-4 theta)
+optimized MW  : max |dX/dtheta| 5.0000e-1, max |FD - dual| / max 1.62e-12 (h = 1e-4 theta)
+optimized SW1 : max |dX/dtheta| 7.3992e-1, max |FD - dual| / max 4.08e-10 (h = 1e-4 theta)
+optimized SW2 : max |dX/dtheta| 5.0003e-1, max |FD - dual| / max 6.37e-10 (h = 1e-4 theta)
+optimized SW3 : max |dX/dtheta| 1.0671e0, max |FD - dual| / max 8.05e-10 (h = 1e-4 theta)
+optimized SW4 : max |dX/dtheta| 1.0038e0, max |FD - dual| / max 1.14e-11 (h = 1e-4 theta)
+optimized SD1 : max |dX/dtheta| 5.0191e-1, max |FD - dual| / max 1.14e-12 (h = 1e-4 theta)
+optimized Sr1 : max |dX/dtheta| 1.0913e0, max |FD - dual| / max 3.02e-11 (h = 1e-4 theta)
+ok
+test optimized_design_moves_l0_validly_and_round_trips ... optimized design on L0: MotionQuality { min_angle_deg: 13.160613472718534, max_angle_deg: 138.85188780964828, min_area_ratio: 0.1675929528185661, max_area_ratio: 2.5237672223709593, inverted: 0 }
+stator edge pairs after motion: max |R(60) x_lo - x_hi| = 7.118e-16 m
+ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+

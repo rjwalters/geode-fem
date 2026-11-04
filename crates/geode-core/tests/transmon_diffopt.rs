@@ -74,6 +74,14 @@
 //!   committed scalar brackets, the increments, the anchor verdicts and the
 //!   rotation ruling; `c_sigma_bracket_tensor_coarse_level_release`
 //!   (`#[ignore]`) re-certifies the tensor h level on the fixture mesh.
+//! - **Issue #1145:** the same tensor `C_Σ` with the outer box grounded
+//!   (the eigenproblem's PEC wall), upper side only.
+//!   `committed_grounded_box_c_sigma_toml_rederives_from_its_rows`
+//!   (CI-fast) pins `c_sigma_bracket_grounded_box.toml` against the #1091
+//!   rows of the same meshes, the monotonicity of every mesh, the family
+//!   bracket, the box difference and the static-route dressed bands;
+//!   `c_sigma_bracket_grounded_box_coarse_level_release` (`#[ignore]`)
+//!   re-solves its h level on the fixture mesh.
 //!
 //! # Superseded anchor (issue #1066)
 //!
@@ -4189,4 +4197,230 @@ fn c_sigma_bracket_tensor_coarse_level_release() {
             "RT{k}: {lower} vs committed {want}"
         );
     }
+}
+
+fn c_sigma_bracket_grounded_box_doc() -> toml::Value {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../benchmarks/transmon_diffopt/c_sigma_bracket_grounded_box.toml");
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    toml::from_str(&text).expect("parse c_sigma_bracket_grounded_box.toml")
+}
+
+/// The static-route dressed band over every corner of `[c_lo, c_hi]` fF and
+/// the `L_s`, `k` bands (`transmon_devicelayout_crosscheck`'s construction).
+fn static_route_dressed_band(c_lo: f64, c_hi: f64, fr_ghz: f64) -> (f64, f64) {
+    use geode_core::mesh::transmon::{JUNCTION_CAPACITANCE_F, JUNCTION_INDUCTANCE_H};
+    use geode_core::quantum::transmon::{
+        DEVICELAYOUT_COUPLING_K_BAND, DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H,
+        coupled_lc_dressed_pair_hz, harmonic_frequency_hz,
+    };
+    let mut d = Vec::new();
+    for c in [c_lo, c_hi] {
+        for l_s in [
+            DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H.0,
+            DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H.1,
+        ] {
+            for k in [
+                DEVICELAYOUT_COUPLING_K_BAND.0,
+                DEVICELAYOUT_COUPLING_K_BAND.1,
+            ] {
+                let f = harmonic_frequency_hz(
+                    JUNCTION_INDUCTANCE_H + l_s,
+                    c * 1e-15 + JUNCTION_CAPACITANCE_F,
+                );
+                d.push(coupled_lc_dressed_pair_hz(f, fr_ghz * 1e9, k).0 / 1e9);
+            }
+        }
+    }
+    (
+        d.iter().copied().fold(f64::INFINITY, f64::min),
+        d.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+    )
+}
+
+/// Default tier: `benchmarks/transmon_diffopt/c_sigma_bracket_grounded_box.toml`
+/// (#1145) re-derives from its rows. Every natural-box value equals the
+/// committed #1091 tensor row of the same mesh (so the meshes are the
+/// same), every grounded-box value lies at or above it (grounding only adds
+/// constraints), the per-mesh differences match, the grounded-box family
+/// upper bound is the ceiled minimum of the rows, the lower bound is the
+/// natural-box one, and the box difference and both static-route dressed
+/// bands re-derive from the circuit functions and the committed crosscheck.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn committed_grounded_box_c_sigma_toml_rederives_from_its_rows() {
+    let doc = c_sigma_bracket_grounded_box_doc();
+    assert_eq!(doc["meta"]["issue"].as_integer(), Some(1145));
+    assert_eq!(doc["meta"]["part"].as_str(), Some("grounded_box"));
+    let tensor: toml::Value = toml::from_str(&c_sigma_bracket_tensor_text()).unwrap();
+    let (mut best, mut best_from) = (f64::INFINITY, String::new());
+    let (mut finest_n, mut finest) = (0, None);
+    for (table, natural_table, n_rows) in [
+        ("uniform_x0_grounded_box", "uniform_x0_tensor_p2", 2),
+        ("adaptive_x0_grounded_box", "adaptive_x0_tensor", 8),
+    ] {
+        let got = rows(&doc, table);
+        let want = rows(&tensor, natural_table);
+        assert_eq!(got.len(), n_rows, "{table}");
+        assert_eq!(want.len(), n_rows, "{natural_table}");
+        for (r, w) in got.iter().zip(want) {
+            let label = r["mesh"].as_str().unwrap();
+            assert_eq!(Some(label), w["mesh"].as_str(), "{table}: mesh order");
+            assert_eq!(r["n_tets"].as_integer(), w["n_tets"].as_integer());
+            assert_eq!(r["order"].as_str(), Some("P2"));
+            let nat = tf(r, "natural_upper_ff");
+            assert!(
+                (nat - tf(w, "upper_ff")).abs() < 2e-6,
+                "{label}: natural {nat} vs committed #1091 {}",
+                tf(w, "upper_ff")
+            );
+            let g = tf(r, "grounded_upper_ff");
+            let d = tf(r, "grounded_minus_natural_ff");
+            assert!(d >= 0.0, "{label}: grounding lowered C_Sigma by {d}");
+            assert!(g >= nat - 1e-6, "{label}: {g} below {nat}");
+            assert!((g - nat - d).abs() < 2e-6, "{label}: difference {d}");
+            assert!(tf(r, "pcg_max_true_rel_residual") <= 1e-9);
+            assert!(r["wall_faces"].as_integer().unwrap() > 0);
+            if g < best {
+                best = g;
+                best_from = format!("{label} P2");
+            }
+            let n = r["n_tets"].as_integer().unwrap();
+            if n > finest_n {
+                finest_n = n;
+                finest = Some((label.to_string(), d, nat));
+            }
+        }
+    }
+    // The fixture's exterior_boundary group, then one red refinement (x4).
+    let uni = rows(&doc, "uniform_x0_grounded_box");
+    assert_eq!(uni[0]["wall_faces"].as_integer(), Some(1732));
+    assert_eq!(uni[1]["wall_faces"].as_integer(), Some(4 * 1732));
+
+    let b = &doc["bracket_x0_tensor_grounded_box"];
+    let nb = &tensor["bracket_x0_tensor"];
+    let (lo, hi) = (tf(b, "lower_ff"), tf(b, "upper_ff"));
+    assert_eq!(lo, tf(nb, "lower_ff"), "lower bound carried over");
+    assert!((hi - ceil_to(best, 2)).abs() < 1e-9, "{hi} vs {best}");
+    assert_eq!(b["upper_from"].as_str(), Some(best_from.as_str()));
+    assert!(
+        hi >= tf(nb, "upper_ff"),
+        "grounded upper below natural upper"
+    );
+    assert!((tf(b, "width_ff") - (hi - lo)).abs() < 1e-9);
+
+    let bd = &doc["box_difference"];
+    let (flabel, fd, fnat) = finest.unwrap();
+    assert_eq!(bd["finest_mesh"].as_str(), Some(flabel.as_str()));
+    assert!((tf(bd, "finest_mesh_difference_ff") - fd).abs() < 1e-9);
+    assert!((tf(bd, "finest_mesh_difference_relative") - fd / fnat).abs() < 1e-3 * fd / fnat);
+    assert!((tf(bd, "upper_shift_ff") - (hi - tf(nb, "upper_ff"))).abs() < 1e-9);
+    let range = tf_arr(bd, "converged_difference_bounded_by_ff");
+    assert_eq!(range[0], 0.0);
+    assert!((range[1] - ceil_to(hi - lo, 2)).abs() < 1e-9);
+
+    // Static route: the natural band reproduces the committed crosscheck
+    // band; the grounded band uses [natural lower, grounded upper].
+    let xc_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../benchmarks/transmon_devicelayout_crosscheck/results.toml");
+    let xc: toml::Value = toml::from_str(&std::fs::read_to_string(xc_path).unwrap()).unwrap();
+    let st = &xc["static_cross_check"]["initial"];
+    let fr = tf(st, "resonator_f_r_ghz");
+    let sr = &doc["static_route"];
+    assert_eq!(tf(sr, "resonator_f_r_ghz"), fr);
+    let r4 = |x: f64| (x * 1e4).round() / 1e4;
+    let nat_band = static_route_dressed_band(tf(nb, "lower_ff"), tf(nb, "upper_ff"), fr);
+    let committed = tf_arr(st, "dressed_f_q_band_ghz");
+    assert_eq!(
+        [r4(nat_band.0), r4(nat_band.1)],
+        [committed[0], committed[1]]
+    );
+    assert_eq!(tf_arr(sr, "natural_dressed_f_q_band_ghz"), committed);
+    let g_band = static_route_dressed_band(lo, hi, fr);
+    let got = tf_arr(sr, "grounded_dressed_f_q_band_ghz");
+    assert_eq!([r4(g_band.0), r4(g_band.1)], [got[0], got[1]]);
+    // A larger C_Sigma upper bound only lowers the low end; the high end is
+    // set by the shared lower bound.
+    assert!(got[0] <= committed[0]);
+    assert_eq!(got[1], committed[1]);
+    assert!((tf(sr, "dressed_low_end_shift_mhz") - (g_band.0 - nat_band.0) * 1e3).abs() < 0.051);
+}
+
+/// Release tier: re-solve the grounded-box h level of
+/// `c_sigma_bracket_grounded_box.toml` on the committed 133k-tet fixture
+/// (sapphire tensor, P2, ground sheet plus every `exterior_boundary` face),
+/// digit for digit at the printed (ceiled) precision.
+#[test]
+#[ignore = "release-tier: a tensor P2 AMG-PCG solve on the 133k-tet fixture (~10 s in release)"]
+fn c_sigma_bracket_grounded_box_coarse_level_release() {
+    use geode_core::assembly::electrostatic::{
+        AmgPcgOptions, assemble_electrostatic_p2_sheets_tensor,
+        extract_capacitance_p2_amg_pcg_fields,
+    };
+    use geode_core::mesh::transmon::sapphire_eps_lab;
+    let doc = c_sigma_bracket_grounded_box_doc();
+    let r = rows(&doc, "uniform_x0_grounded_box")[0].clone();
+    assert_eq!(r["mesh"].as_str(), Some("uniform h/1"));
+    let fx = read_transmon_smoke_fixture().expect("load transmon fixture");
+    let mesh = scaled_mesh(&fx.mesh, M_PER_UNIT);
+    let comps = fx.split_metal_conductors();
+    let part = |role: MetalRole| {
+        let c = comps.iter().find(|c| c.role == role).unwrap();
+        (c.triangles.clone(), c.nodes.clone())
+    };
+    let (ti, ni) = part(MetalRole::Island);
+    let (tfeed, nf) = part(MetalRole::Feedline);
+    let (mut tg, mut ng) = part(MetalRole::Ground);
+    let wall = fx.exterior_boundary_triangles();
+    assert_eq!(wall.len(), 1732);
+    ng.extend(wall.iter().flatten().copied());
+    ng.sort_unstable();
+    ng.dedup();
+    tg.extend_from_slice(&wall);
+    let lab = sapphire_eps_lab();
+    let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    let eps: Vec<[[f64; 3]; 3]> = fx
+        .tet_physical_tags
+        .iter()
+        .map(|&t| {
+            if t == fx.tags.substrate {
+                lab
+            } else {
+                identity
+            }
+        })
+        .collect();
+    let electrodes = vec![
+        Electrode {
+            name: "island".into(),
+            nodes: ni,
+            voltage: 1.0,
+        },
+        Electrode {
+            name: "feedline".into(),
+            nodes: nf,
+            voltage: 0.0,
+        },
+    ];
+    let rho = vec![0.0; mesh.n_tets()];
+    let (sys, dofs) = assemble_electrostatic_p2_sheets_tensor(
+        &mesh,
+        &eps,
+        &rho,
+        &electrodes,
+        &[&ti, &tfeed],
+        &ng,
+        &tg,
+    )
+    .unwrap();
+    let (cm, _, _) =
+        extract_capacitance_p2_amg_pcg_fields(&sys, &dofs, AmgPcgOptions::default()).unwrap();
+    let vf = -cm.c[1][0] / cm.c[1][1];
+    let c = 1e15 * (cm.c[0][0] + vf * cm.c[0][1]);
+    assert!(
+        (ceil_to(c, 6) - tf(&r, "grounded_upper_ff")).abs() < 2e-6,
+        "{c} vs committed {}",
+        tf(&r, "grounded_upper_ff")
+    );
 }

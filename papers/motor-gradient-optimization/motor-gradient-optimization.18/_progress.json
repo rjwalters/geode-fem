@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "thread": "motor-gradient-optimization",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-22T16:00:00Z",
+      "completed": "2026-10-22T22:00:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 18,
+    "max_iterations": 10,
+    "revised_from": 17,
+    "note": "Operator-directed reader-clarity revision for the coauthor (Crutcher Dunnavant, added as second author by operator ruling 2026-10-22): renamed spaces and finite-difference arms, annotated geometry, cost vocabulary and time decomposition, headline reframed as the gradient/optimizer decomposition. No measured result changed. Outstanding dependency: [PENDING zenodo-doi] (operator deposit of the raw-trace archive).",
+    "evidence_snapshot": {
+      "brief_mtime": 1792638669.1807315,
+      "refs_mtime": 1792597193.803293
+    }
+  }
+}

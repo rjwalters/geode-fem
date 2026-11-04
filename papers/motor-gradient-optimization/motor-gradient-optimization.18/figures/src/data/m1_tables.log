@@ -1,0 +1,184 @@
+# cargo test -p geode-core --release --test magnetostatic_nonlinear -- --nocapture --test-threads=1
+# base commit b0b08b9c + issue-1157 working tree, 2026-10-16T21:39Z, Darwin arm64
+
+running 13 tests
+test constant_dirichlet_offset_is_invariant ... 
+[8] constant Dirichlet offset C (outer ring A = C, guess = C): invariance (coax)
+    n_ang | C (Wb/m) | reference | ref rel change | status | its | ||(A-C) - A0||/||A0|| | oracle max rel | oracle mid rel | floor est/ref
+       64 |    0.0e0 |  3.7103e3 |         0.00e0 | Tolerance     |  11 |               0.000e0 |      1.5766e-3 |      1.2058e-3 | 9.101e-12
+       64 |   4.0e-1 |  3.7103e3 |       1.23e-16 | Tolerance     |  11 |             2.600e-16 |      1.5766e-3 |      1.2058e-3 | 1.891e-11
+       64 |    1.0e2 |  3.7103e3 |         0.00e0 | Tolerance     |  11 |             3.084e-14 |      1.5766e-3 |      1.2058e-3 | 2.485e-9
+       64 |    1.0e4 |  3.7103e3 |         0.00e0 | RoundoffFloor |  11 |             3.757e-12 |      1.5766e-3 |      1.2058e-3 | 2.476e-7
+      256 |    0.0e0 |  3.6800e3 |         0.00e0 | Tolerance     |  11 |               0.000e0 |      3.9480e-4 |      3.0320e-4 | 6.522e-11
+      256 |   4.0e-1 |  3.6800e3 |       2.51e-13 | Tolerance     |  11 |             2.774e-16 |      3.9480e-4 |      3.0320e-4 | 1.349e-10
+      256 |    1.0e2 |  3.6800e3 |         0.00e0 | Tolerance     |  11 |             3.550e-14 |      3.9480e-4 |      3.0320e-4 | 1.756e-8
+      256 |    1.0e4 |  3.6800e3 |         0.00e0 | RoundoffFloor |  11 |             4.182e-12 |      3.9480e-4 |      3.0320e-4 | 1.750e-6
+ok
+test converged_tangent_gives_solution_sensitivity ... 
+[3b] converged tangent: dA/dI vs FD of converged solves (coax, n_ang=32)
+    ||FD dA/dI - K^-T F/I|| / ||K^-T F/I|| = 8.033e-7 (dI/I = 1e-3)
+ok
+test law_derivatives_match_finite_difference ... 
+[2c] law derivative checks (central FD, step 1e-6 relative in b^2)
+    Brauer  : max |FD(nu) - dnu/db2|·b2/(nu + |nu'| b2) = 1.781e-10; max |FD(w) - nu/2|/nu = 9.755e-11
+    table   : max |FD(nu) - dnu/db2|·b2/(nu + |nu'| b2) = 2.120e-10; max |FD(w) - nu/2|/nu = 1.463e-10
+    constant: max |FD(nu) - dnu/db2|·b2/(nu + |nu'| b2) = 0.000e0; max |FD(w) - nu/2|/nu = 7.885e-11
+    table nu(0) = 167.0718 m/H (mu_r,initial = 4763), dnu/db2(0) = -113.1492
+ok
+test linear_limit_matches_linear_module ... 
+[1] linear limit (constant laws vs relative-nu linear module)
+    case             | max|dA|/max|A| | Newton iters | |R1|/|R0|
+    current only     |      1.345e-14 |            1 | 5.395e-14
+    current + PM     |      1.707e-14 |            1 | 5.794e-14
+ok
+test malformed_tables_and_parameters_are_rejected ... 
+[6] law validation
+    length mismatch                    -> rejected: B-H table: h has 16 points but b has 10
+    single point                       -> rejected: B-H table needs at least 2 points (the origin and one more); got 1
+    does not start at origin           -> rejected: B-H table must start at the origin (H=0, B=0); got H=5, B=0
+    repeated B                         -> rejected: B-H table: B must be strictly increasing; B[5]=1.05 <= B[4]=1.05
+    non-monotone H(B)                  -> rejected: B-H table: H must be strictly increasing (dH/dB > 0); H[7]=399 <= H[6]=400
+    NaN entry                          -> rejected: B-H table point 3 is not finite: H=120, B=NaN
+    table stops short of saturation    -> rejected: B-H table: interpolant is not strictly monotone on segment [1.5, 1.58] T (min dH/dB = -2.402817e5). The last segment must join the 1/mu0 = 7.957747e5 A/m/T tail with a continuous slope, but its secant is 1.875000e4. Extend the table further into saturation.
+    Brauer(-1, 2, 400) -> Some(InvalidLaw("Brauer law needs k1 >= 0, k2 >= 0, k3 > 0 for an SPD tangent; got k1=-1, k2=2, k3=400"))
+    Brauer(3.8, -0.1, 400) -> Some(InvalidLaw("Brauer law needs k1 >= 0, k2 >= 0, k3 > 0 for an SPD tangent; got k1=3.8, k2=-0.1, k3=400"))
+    Brauer(3.8, 2, 0) -> Some(InvalidLaw("Brauer law needs k1 >= 0, k2 >= 0, k3 > 0 for an SPD tangent; got k1=3.8, k2=2, k3=0"))
+    Brauer(NaN, 2, 400) -> Some(InvalidLaw("Brauer coefficients must be finite; got k1=NaN, k2=2, k3=400"))
+ok
+test manufactured_solution_converges_at_optimal_rates ... 
+[4] manufactured solution, Brauer nu, A* = 0.35 e^y sin(2x+0.5) on [0,1]^2
+      n |     h     | |A-A*|_H1 semi | rate | ||A-A*||_L2 | rate | Newton its | nu range (m/H)
+      8 | 1.250e-1 |      9.1815e-2 |  NaN |   1.8553e-3 |  NaN |          5 | 4.013e2 .. 1.363e3
+     16 | 6.250e-2 |      4.5737e-2 | 1.01 |   4.5525e-4 | 2.03 |          8 | 4.012e2 .. 1.990e3
+     32 | 3.125e-2 |      2.2829e-2 | 1.00 |   1.1341e-4 | 2.01 |         11 | 4.012e2 .. 2.417e3
+     64 | 1.562e-2 |      1.1408e-2 | 1.00 |   2.8324e-5 | 2.00 |         14 | 4.012e2 .. 2.662e3
+    128 | 7.812e-3 |      5.7032e-3 | 1.00 |   7.0790e-6 | 2.00 |         16 | 4.012e2 .. 2.793e3
+    least-squares fitted rates over 5 levels: H1-semi 1.002, L2 2.007
+ok
+test missing_material_and_non_convergence_are_errors ... 
+[6b] energy (default) vs residual-norm line search: 11 vs 16 iterations, ||dA||/||A|| = 2.29e-16
+ok
+test newton_converges_quadratically_frozen_nu_linearly ... 
+[3] convergence: consistent Newton vs frozen-nu fixed point (coax, deep saturation)
+    mesh: 3329 nodes, 6592 triangles; I = 1256.64 A (H(r_i) = 40000 A/m); energy line search, rel_tol 1e-14 so every run ends at the round-off floor (RoundoffFloor)
+    Newton, synthetic table: 11 iterations from zero
+      k | ||R_k||/||R_0|| | alpha_k | r_k/r_(k-1) | C_k = r_k/r_(k-1)^2 (normalized)
+       0 |        1.000e0 |         |             |
+       1 |        8.773e1 |  0.0156 |     8.773e1 | 8.773e1
+       2 |        8.638e1 |  0.0156 |    9.846e-1 | 1.122e-2
+       3 |        8.370e1 |  0.0312 |    9.689e-1 | 1.122e-2
+       4 |        7.850e1 |  0.0625 |    9.379e-1 | 1.121e-2
+       5 |        6.880e1 |  0.1250 |    8.764e-1 | 1.116e-2
+       6 |        9.165e0 |  1.0000 |    1.332e-1 | 1.936e-3
+       7 |        2.049e0 |  1.0000 |    2.235e-1 | 2.439e-2
+       8 |       2.596e-1 |  1.0000 |    1.267e-1 | 6.186e-2
+       9 |       8.110e-3 |  1.0000 |    3.124e-2 | 1.203e-1
+      10 |       1.484e-5 |  1.0000 |    1.829e-3 | 2.256e-1
+      11 |      8.448e-11 |  1.0000 |    5.694e-6 | 3.837e-1
+    Newton, synthetic table: terminal full-step residuals ["2.049e0", "2.596e-1", "8.110e-3", "1.484e-5"]; C_k in [6.186e-2, 2.256e-1]; 5.1 decades; fitted order 1.77; consecutive orders [1.68, 1.82]
+    Brauer iron: max |B| = 1.980 T
+    Newton, Brauer: 15 iterations from zero
+      k | ||R_k||/||R_0|| | alpha_k | r_k/r_(k-1) | C_k = r_k/r_(k-1)^2 (normalized)
+       0 |        1.000e0 |         |             |
+       1 |       9.858e-1 |  0.0156 |    9.858e-1 | 9.858e-1
+       2 |        1.620e2 |  0.0312 |     1.644e2 | 1.667e2
+       3 |        1.523e2 |  0.0625 |    9.398e-1 | 5.800e-3
+       4 |        1.344e2 |  0.1250 |    8.828e-1 | 5.797e-3
+       5 |        1.048e2 |  0.2500 |    7.796e-1 | 5.799e-3
+       6 |        8.421e1 |  1.0000 |    8.036e-1 | 7.667e-3
+       7 |        3.154e1 |  1.0000 |    3.746e-1 | 4.448e-3
+       8 |        1.165e1 |  1.0000 |    3.693e-1 | 1.171e-2
+       9 |        4.098e0 |  1.0000 |    3.518e-1 | 3.020e-2
+      10 |        1.266e0 |  1.0000 |    3.088e-1 | 7.536e-2
+      11 |       2.940e-1 |  1.0000 |    2.323e-1 | 1.835e-1
+      12 |       2.698e-2 |  1.0000 |    9.179e-2 | 3.122e-1
+      13 |       2.419e-4 |  1.0000 |    8.964e-3 | 3.322e-1
+      14 |       1.938e-8 |  1.0000 |    8.012e-5 | 3.312e-1
+      15 |      7.153e-11 |  1.0000 |    3.691e-3 | 1.904e5
+    Newton, Brauer: terminal full-step residuals ["2.940e-1", "2.698e-2", "2.419e-4", "1.938e-8"]; C_k in [3.122e-1, 3.322e-1]; 7.2 decades; fitted order 1.99; consecutive orders [1.97, 2.00]
+    frozen-nu fixed point (same case, same config): 158 iterations, converged
+      k | ||R_k||/||R_0|| | r_k/r_(k-1)
+        0 |        1.000e0 | NaN
+        1 |        8.773e1 | 87.7314
+        2 |        8.605e1 | 0.9808
+        3 |        8.259e1 | 0.9599
+        4 |        7.782e1 | 0.9422
+        5 |        7.166e1 | 0.9209
+       10 |        3.122e1 | 0.7027
+       20 |       2.703e-1 | 0.8678
+       30 |       5.396e-2 | 0.8663
+       40 |       1.288e-2 | 0.8583
+       50 |       3.256e-3 | 0.8449
+       60 |       7.136e-4 | 0.8677
+       70 |       1.691e-4 | 0.8603
+       80 |       4.194e-5 | 0.8482
+       90 |       9.459e-6 | 0.8691
+      100 |       2.218e-6 | 0.8630
+      110 |       5.401e-7 | 0.8526
+      120 |       1.398e-7 | 0.9695
+      130 |       2.919e-8 | 0.8655
+      140 |       7.007e-9 | 0.8567
+      150 |       1.776e-9 | 0.8435
+      158 |      5.198e-10 | 0.8698
+    frozen-nu, last 40 iterations: geometric-mean ratio 0.8658, fitted order 1.001; Newton (table) 11 iterations, fitted terminal order 1.77; Newton (Brauer) 15 iterations, 1.99
+ok
+test saturated_iron_ampere_oracle ... 
+[5] saturated-iron Ampere oracle: |B|(r) = B_of_H(I/(2 pi r)) in the iron annulus
+    conductor r < 0.004 m, iron 0.005..0.25 m, Dirichlet ring at 0.3 m; I = 1256.64 A; mid-annulus = |ln(r/sqrt(r_i r_o))| < 0.1
+    n_ang | nodes  | Newton its (energy LS / residual LS) | max rel err | RMS rel err | mid-annulus mean rel err | |B| range in iron (T)
+       32 |    897 |                11 / 16                |   3.1887e-3 |   2.5702e-3 |                2.3802e-3 | 1.428 .. 1.922
+       64 |   3329 |                11 / 16                |   1.5766e-3 |   1.2888e-3 |                1.2058e-3 | 1.424 .. 1.928
+      128 |  13441 |                11 / 17                |   7.8554e-4 |   6.4458e-4 |                6.0256e-4 | 1.422 .. 1.930
+      256 |  52993 |                11 / 19                |   3.9480e-4 |   3.2438e-4 |                3.0320e-4 | 1.421 .. 1.931
+    tripwire: linear iron at the initial mu_r (n_ang=32) misses the mid-annulus oracle by 1.951e1 (nonlinear: 2.380e-3)
+ok
+test tangent_is_spd_for_monotone_laws ... 
+[2d] SPD tangent check
+    Brauer: min dH/dB on [0,3] T = 4.0000e2, min nu = 4.0000e2
+    table : min dH/dB on [0,3] T = 1.1462e2, min nu = 1.3884e2
+    Brauer tangent (81x81): max asym/max|K| = 1.52e-17, lambda_min = 1.0047e2, lambda_max = 3.0621e4
+    table  tangent (81x81): max asym/max|K| = 1.13e-17, lambda_min = 5.7299e1, lambda_max = 6.9503e5
+ok
+test tangent_matches_finite_difference_brauer ... 
+[2a] consistent-tangent FD check, Brauer law, saturated state (16x16 square, 5 cm)
+    element nu range: 4.0169e2 .. 1.0522e4 m/H (mu_r 76 .. 1981)
+    Brauer: |B| in [0.412, 1.907] T; step h = relative field perturbation
+        h    | ||FD-Kv||/||Kv|| (all rows) | knot-crossing elems | same, rows off the h=1e-2 knot-crossing elems
+         1e-2 |                    1.007e-3 |                   0 | 1.007e-3
+         1e-3 |                    1.007e-5 |                   0 | 1.007e-5
+         1e-4 |                    1.007e-7 |                   0 | 1.007e-7
+         1e-5 |                    1.059e-9 |                   0 | 1.059e-9
+         1e-6 |                   8.258e-10 |                   0 | 8.258e-10
+         1e-7 |                    7.079e-9 |                   0 | 7.079e-9
+         1e-8 |                    1.077e-7 |                   0 | 1.077e-7
+      Brauer: best ||FD-Kv||/||Kv|| = 8.258e-10 at h = 1e-6
+      Brauer: order h=1e-2 -> 1e-3: all rows 2.00, knot-free rows 2.00
+      Brauer: order h=1e-3 -> 1e-4: all rows 2.00, knot-free rows 2.00
+      Brauer: order h=1e-4 -> 1e-5: all rows 1.98, knot-free rows 1.98
+ok
+test tangent_matches_finite_difference_table ... 
+[2b] consistent-tangent FD check, synthetic B-H table, saturated state (16x16 square, 5 cm)
+    element nu range: 1.3884e2 .. 1.1838e5 m/H (mu_r 7 .. 5731)
+    table: |B| in [0.515, 2.383] T; step h = relative field perturbation
+        h    | ||FD-Kv||/||Kv|| (all rows) | knot-crossing elems | same, rows off the h=1e-2 knot-crossing elems
+         1e-2 |                    1.054e-3 |                  49 | 3.688e-4
+         1e-3 |                    5.820e-6 |                   3 | 3.688e-6
+         1e-4 |                    6.530e-8 |                   0 | 3.688e-8
+         1e-5 |                   6.552e-10 |                   0 | 3.975e-10
+         1e-6 |                    1.322e-9 |                   0 | 7.628e-10
+         1e-7 |                    8.088e-9 |                   0 | 1.272e-8
+         1e-8 |                    9.042e-8 |                   0 | 9.737e-8
+      table: best ||FD-Kv||/||Kv|| = 6.552e-10 at h = 1e-5
+      table: order h=1e-2 -> 1e-3: all rows 2.26, knot-free rows 2.00
+      table: order h=1e-3 -> 1e-4: all rows 1.95, knot-free rows 2.00
+      table: order h=1e-4 -> 1e-5: all rows 2.00, knot-free rows 1.97
+ok
+test warm_start_and_roundoff_floor ... 
+[7] warm starts and the round-off floor (coax, default config unless noted)
+    n_ang | cold its | cold ||R||/ref | (a) restart its | (b) I*1.001 its, ||R||/ref | (c) stagnation min ||R||/ref | floor est/ref | est/observed | (d) rel_tol 1e-14: status, its
+       64 |       11 |      1.398e-12 |               0 |         2,      1.198e-12 |                    1.049e-12 |     9.101e-12 |          8.7 | RoundoffFloor, 11
+      256 |       11 |      8.394e-11 |               0 |         2,      9.326e-12 |                    7.764e-12 |     6.522e-11 |          8.4 | RoundoffFloor, 12
+ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 147.47s
+

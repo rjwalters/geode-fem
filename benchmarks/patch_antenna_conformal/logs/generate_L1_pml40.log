@@ -1,0 +1,24 @@
++ gmsh -3 -format msh41 -o <meshes>/patch_conformal/patch_conformal_L1_pml40.flat.msh -setnumber patch_w 38.0 -setnumber patch_l 29.0 -setnumber h 1.6 -setnumber sub_pad 12.0 -setnumber probe_w 1.6 -setnumber probe_inset 7.0 -setnumber air_margin 40.0 -setnumber pml_thick 40.0 -setnumber lc_patch 2.0 -setnumber lc_sub 0.8 -setnumber lc_port 0.6 -setnumber lc_far 14.0 -setnumber dist_far 30.0 -setnumber lc_air 12.0 -setnumber lc_pml 8.0 -setnumber sub_zpad 0.4 -setnumber sub_box_thick 3.2 <repo>/reference/gmsh/patch_antenna.geo
+
+--- mesh quality report ---
+nodes:            28102
+tets:             150120
+tagged triangles: 24944
+unique edges:     182626  (budget 300000)
+inverted tets:    0
+min dihedral:     6.41 deg  (gate 5.0)
+total volume:     7.64142e+06 mm^3
+substrate layers: 1.99  (median h / tet z-extent, flat mesh)
+  (3, 1) substrate          54878 tets
+  (3, 2) air                48173 tets
+  (3, 3) upml               47069 tets
+  (2,11) port                  26 tris
+  (2,12) patch               4072 tris
+  (2,13) ground             12036 tris
+  (2,14) outer_boundary      8810 tris
+bend radius:      100.0 mm (axis x = 0, z = -99.2 mm)
+min vol ratio:    0.6177  (gate 0.2)
+patch on arc:     max |r - R_patch| = 1.421e-14 mm
+ground on arc:    max |r - R_ground| = 1.421e-14 mm
+
+OK — wrote <meshes>/patch_conformal/patch_conformal_L1_pml40.msh and <meshes>/patch_conformal/patch_conformal_L1_pml40.provenance.txt

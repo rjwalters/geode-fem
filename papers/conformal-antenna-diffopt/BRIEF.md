@@ -1,11 +1,78 @@
 ---
-title: "Differentiable-by-Construction FEM for Freeform Open-Radiator Design: A Curved Conformal Antenna Structured-Grid Inverse Design Cannot Reach"
-author: "Robb Walters"
-venue: neurips
+title: "Adjoint Shape Optimization of a Conformal Patch Antenna"
+author: "Robb Walters, 2AM Logic; Crutcher Dunnavant, ZSpaceLabs.ai"
+venue: arxiv
 documentclass: anvil-paper
 anonymous: false
 web_search: true
 ---
+
+# v12 — reading flow, 2026-10-23 — CURRENT
+
+**Current state: `conformal-antenna-diffopt.12/` (draft, not reviewed), 23 pages.**
+v12 = v11 reordered and glossed for reading flow, from a flow review for an interested
+non-specialist reader (geode-fem#1231). No number, result, claim scope, title, author, DOI or
+reference changed and no computation was run; v1–v11 stay immutable. Where this section
+conflicts with the sections below, it wins.
+
+- **Body order:** Introduction (with Table 1 of names and Figures 1 and 2 as a primer block,
+  and "Position of this work" as its last paragraph), Method (opening with the fixture),
+  The Adjoint Against Gradient-Free Search, Forward-Model Accuracy, Design Procedure,
+  Results, Related Work, Limitations, Conclusion, Acknowledgments, How geode-fem Was
+  Designed and Built, Reproducibility. The body now follows the Introduction's three-result
+  order and designs A and C are not discussed before Design Procedure introduces them.
+- **Added:** one table of wall-clock costs (solves, host, time) built from numbers already in
+  v11; glosses for fixture, open-radiator, feed band, cold start, σ₀, UPML, λ and dual
+  arithmetic; the point counts behind the two "worst" quantities; the signpost that the
+  space-mapping shift is re-fitted at each descent; "unknowns" as the one noun for the count.
+- **Trimmed:** the Conclusion no longer repeats the abstract; the Results "Cost" paragraph is
+  the cost table; the set-aside 53.6 MHz run is a footnote.
+- **Kept:** the title, the DOI 10.5281/zenodo.21480892, the author block, `refs.bib`,
+  `figures/` and `main.bbl`, all byte-identical to v11's. `check_v12()` pins the multiset of
+  numbers in `main.tex` against v11's with its exact delta. There is no pending marker.
+- `changelog.md` maps every proposal of the review to its resolution; none was skipped.
+
+# v11 — short title, 2026-10-22
+
+**State at v11: `conformal-antenna-diffopt.11/` (draft, not reviewed), 22 pages.**
+v11 = v10 with the operator's short title (geode-fem#1231). No other wording or number
+changed and no computation was run; v1–v10 stay immutable. Where this section conflicts with
+the sections below, it wins.
+
+- **Title:** "Adjoint Shape Optimization of a Conformal Patch Antenna" (operator's choice and
+  capitalisation). It replaces "Adjoint Shape Optimization of a Conformal 2.4 GHz Patch
+  Antenna: EM Solves to Target Against Gradient-Free Search at Several Settings", whose
+  subtitle stated a result the abstract already gives. The `title:` front matter, which still
+  held an earlier working title, now holds the new title.
+- **Kept:** the DOI 10.5281/zenodo.21480892 and the author block. There is no pending marker.
+
+# v10 — v1 Zenodo release, 2026-10-22
+
+**State at v10: `conformal-antenna-diffopt.10/` (draft, not reviewed), 22 pages.**
+v10 = v9 with release metadata only (operator, geode-fem#1231). No other
+wording or number changed and no computation was run; v1–v9 stay immutable.
+Where this section conflicts with the sections below, it wins.
+
+- **Authors:** Robb Walters, "2AM Logic"; Crutcher Dunnavant, "ZSpaceLabs.ai"
+  (second author since the operator ruling of 2026-10-22, which superseded
+  the v5 "solo author" line). Each author has their own `\normalsize`
+  affiliation line. The `[PENDING coauthor-affiliation]` marker is gone.
+- **DOI:** the paper's reserved Zenodo DOI, 10.5281/zenodo.21480892, is under
+  the date on the title page. v10 is the v1 Zenodo release version.
+
+# Amendment for v5 (operator rulings, 2026-10-13/14)
+
+This section supersedes the original brief below wherever they conflict.
+
+- **Evidence base.** The paper is about the physical 2.4 GHz probe-fed patch bent on R = 100 mm (`benchmarks/patch_antenna_conformal/`): fixture, refinement study, copper-only design and thickness ablation. Units are mm and GHz. The natural-unit smoke design (`conformal_results.toml`) is no longer used.
+- **Manufacturability.** The board is a fixed, uniform 1.6 mm FR-4 shell; only the copper (outline, corners, feed inset and width) is designed. Radial / thickness designs are an idealized ablation only.
+- **Headline.** `rbD_L1_copper_38_sm45`: −10.78 dB worst in band and a 94.9 MHz −10 dB band covering the ISM band with p = 2 on L1; L3 not met (−8.80 dB, 89 %). State plainly that on the converged estimate (12.7–48.4 MHz further upshift vs a 6.2 MHz margin) the design likely misses at 2.400 GHz. The feed is an idealized 4.3 mm port strip. The L2-chain design is a related design, not a verified L2 result.
+- **Method.** Coarse-model optimization plus a fitted frequency shift (frequency space mapping).
+- **Comparison.** No FEM-vs-FDTD cost-to-accuracy claim. The Meep harness is unconverged; the comparative framing is a stated hypothesis and future work. The "Cannot Reach" title is dropped.
+- **Provenance.** Solo author; a "How geode-fem Was Designed and Built" section and acknowledgment as in transmon-benchmark v11.
+- **Publication.** Not to be published; any Zenodo deposit stays an unpublished draft.
+
+# Original brief
 
 # Brief — freeform conformal-radiator differentiable inverse design
 

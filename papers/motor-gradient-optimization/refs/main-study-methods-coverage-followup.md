@@ -1,0 +1,100 @@
+# Methods coverage revision: author response
+
+2026-10-18. This responds to the [coverage audit](main-study-methods-protocol-audit.md)
+at `06a9a0d9`; it does not overwrite that audit's historical ratings or source
+snapshot. The [prospective fragment](main-study-methods-draft.tex) revision at
+`fa6223d8` had
+SHA-256 `ca5bd245b1b6e4d69ad3c04a09eef0738c30ce75d399c2eb39f7ab8ce532ac20`.
+This is an author revision, not independent approval. It remains outside the
+immutable v6 manuscript and its audit.
+
+## Text changes
+
+| Audit clauses | Revision |
+|---|---|
+| 8.1, 8.3–8.7 | Names coupling torque; specifies equal optimizer options across resolutions, SLSQP tolerance and COBYQA version/radii/initial-set size; names matched factorial contrasts; distinguishes physical training mean floors; prohibits coarse-model correction/adaptation/validation tuning. |
+| 8.14–8.16, inherited I6/addendum | Requires paired low/high-fidelity outputs at every validated D/E point, including failed acceptance; distinguishes D/E selection from C's final incumbent and documents C's interpolation and post-run mean models. |
+| 8.G2–8.G3 | Adds scalar/grouped L0 directional central-FD step sweeps at frozen admissible points, retaining failed checks and setup costs, and mixed-resolution validation/anchor verification. Evidence remains pending. |
+| 7.1b–7.1f, 7.1h, 7.2a | Explains reference-margin scaling and zero-reference exceptions, safe guard evaluation, value-versus-derivative domains, geometry-only Jacobians, ordinary evaluation of buildable-but-inadmissible points, no outcome-tuning of tau, and no substitution of another design's values. |
+| 7.1g, inherited I1/I2, R18 bounds | States fixed size/control constants, Opt120's historical role and the reviewed numerical geometric bounds with their limits. Exact definitions/derivation reference remains pending. |
+| 7.2b–7.2g, 7.3a–7.3c | Adds failure termination, mesh restoration predicate, rejected/restored coordinate evidence, C sign/halving/full-rank rules, 5-degree/inversion triggers, exact four repair settings and mesh-infeasible versus infrastructure failure. |
+| 7.4b, 8.12–8.13, inherited I4/I5 | Separates pilot/main trajectories, prohibits cross-method cache reuse and selective extra restarts, describes budget process-group abortion, cold validation, training-infeasible incumbent validation, initial-set boundaries and final-point validation. |
+| 7.5a–7.5b, S1–S2, 8.10 | Names pilot indices and deterministic seed rules, outcome-independent selection, bitwise pre-outcome freezing, every rejection record, zero-inversion/5-degree moved-mesh eligibility, and geometry-only preflight cost outside budgets. |
+| 7.6a, 8.8, 8.11, inherited I3/I4 calibration | Defines the median of all 3N concurrent cold timings, single-process diagnostic, shared reference-cost boundary, common thread limits, exact host load thresholds and clean reruns, raw/normalized/solve-count reporting and per-resolution cost allocation. |
+| 7.c2, F1, F3–F5, R18 half-current | Makes the full selection-eligibility conjunction and contamination exclusion explicit; retains all consideration/rejection reasons; specifies common wall-time earliest-crossing selection/ties; optional buildable diagnostics get no credit; final half-current means are compared with theta0. |
+| R18 resources | Defines request/run sampling, user/system self-plus-reaped-child CPU once, incompleteness after interruption, independent child exit receipts, and scoped lifetime RSS/raw units/unavailable values. |
+| 7.6c, 8.G1/G4/G5, operations | Adds reproducibility prerequisites: reviewed merged implementation, selected host, model/design-bit/source/mesh records, complete settings supplement and demonstrated recovery without silent budget/calibration changes. |
+
+## Still open
+
+This revision does **not** turn protocol descriptions into implementation or
+experimental evidence. Five visible pending markers remain for:
+
+1. Frozen L0 derivative-sweep points/directions/steps/results and reviewed
+   mixed-resolution wiring evidence.
+2. Exact parameter/group/box tables and a final supplement link for the
+   existing geometry-bound derivation.
+3. Complete smooth/discrete guard/scale inventory, implied physical floors,
+   excluded designs and regression/derivative evidence.
+4. Actual host, process count, environment, calibration and source/data hashes.
+5. Final supplement/artifact links, independent implementation review,
+   recovery evidence and selected host.
+
+The full surrogate algorithm and all optimizer/refusal options still need a
+versioned supplement. The paired study still needs main runs, trace review,
+final refinement checks and measured results. The pilot's coupled-geometry
+failure motivation should be connected to the existing Results narrative
+when this fragment is integrated. Existing immutable manuscript versions
+and the accepted protocol are unchanged.
+
+## Verification
+
+Rendered with `pdflatex -halt-on-error -interaction=nonstopmode` inside a
+standalone 10-point article wrapper using one-inch margins, `amsmath`,
+`amssymb`, `booktabs`, `hyperref` and a prospective-draft header. After the
+final text adjustment the preview is four pages, with no overfull/underfull
+boxes, undefined references or LaTeX warnings. Five pending markers remain.
+The first and last preview pages were visually inspected. This is a fragment
+layout check, not the final paper's compilation or publication audit.
+
+Reproduce by placing `\input{main-study-methods-draft.tex}` in that article
+wrapper, compiling from this refs directory into a separate output directory,
+and rerunning to a reference fixpoint. The temporary inspection PDF was
+`/tmp/codex-motor-methods-coverage-preview/main.pdf`; it is not publication
+provenance or a permanent experimental artifact.
+
+## Subsequent space-motion disclosure
+
+Claude accepted the source-backed clarification in Squad message 724: the
+space comparison changes discrete motion conventions as well as shape freedom,
+so differences cannot be attributed to the ten offsets alone. The Methods
+now state this explicitly. Within each space, all methods retain common motion.
+The [settings supplement](main-study-settings-supplement.tex) and its
+[provenance data](main-study-settings-supplement.json) record the geometry
+tables, adopted algorithm and finite-cap clarification. The original source
+hash and four-page render above refer to `fa6223d8`; the later disclosure
+requires its own compilation check.
+
+The motion-qualified Methods fragment was recompiled successfully (five pages,
+no LaTeX warnings or box overflows); the separate prospective settings
+supplement compiled to three pages and all three pages were visually inspected.
+Recheck its source hashes, scalar/group numeric tables and optimizer options:
+
+```sh
+python3 papers/motor-gradient-optimization/refs/main-study-settings-supplement.py
+```
+
+This passed against nine pinned source files. It checks transcription and
+provenance, not runtime behavior, group topology, scientific outcomes or
+publication readiness. Claude resolved the C refusal/geometry-point interpretation in
+[preregistration comment 6248450266](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248450266):
+refused candidates count toward the every-second-rejection geometry sample,
+which must itself pass buildability. The supplement states this explicitly.
+The builder is responsible for the fix, a two-refusal regression and mutation;
+those implementation checks are still pending, not discharged by the ruling.
+
+## Subsequent final-check completion
+
+Claude adopted [amendment 8 addendum part 2](https://github.com/rjwalters/geode-fem/issues/1185#issuecomment-6248492318) in review #25 before main outcomes. The prospective Methods and EXPERIMENTS now include L2/h93/g20 at Newton relative tolerance 1e-12 and an independently solved half-degree-shifted g20 sweep at 1e-8, for theta0 and the existing deduplicated cohort at all three training currents. Each current sweep starts cold, with continuation between angles. Signed waveform/mean/std/F changes, failures and separate post-run costs remain required; candidates and target credit are unchanged. The optional g40 even/odd split is only a sampling diagnostic, not an independent shifted solve. These requirements close the BRIEF-to-protocol omission; execution, cost measurements and results remain pending.
+
+The updated Methods fragment compiles to five pages with no LaTeX warnings or box overflows; `git diff --check` passes. This verifies the prospective text, not execution of either new check.

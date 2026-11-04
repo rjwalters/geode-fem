@@ -1,0 +1,82 @@
+{
+  "Problem": {
+    "Type": "Driven",
+    "Verbose": 2,
+    "Output": "/work/eval_00001/postpro"
+  },
+  "Model": {
+    "Mesh": "/work/eval.msh",
+    "L0": 0.001,
+    "Refinement": {
+      "UniformLevels": 0
+    }
+  },
+  "Domains": {
+    "Materials": [
+      {
+        "Attributes": [
+          1
+        ],
+        "Permittivity": 4.4,
+        "LossTan": 0.02
+      },
+      {
+        "Attributes": [
+          2,
+          3
+        ],
+        "Permittivity": 1.0
+      }
+    ]
+  },
+  "Boundaries": {
+    "PEC": {
+      "Attributes": [
+        12,
+        13
+      ]
+    },
+    "Absorbing": {
+      "Attributes": [
+        14
+      ],
+      "Order": 1
+    },
+    "LumpedPort": [
+      {
+        "Index": 1,
+        "R": 50.0,
+        "Excitation": true,
+        "Attributes": [
+          11
+        ],
+        "Direction": "+Z"
+      }
+    ]
+  },
+  "Solver": {
+    "Order": 1,
+    "Device": "CPU",
+    "Driven": {
+      "Samples": [
+        {
+          "Type": "Point",
+          "Freq": [
+            2.4,
+            2.420875,
+            2.44175,
+            2.462625,
+            2.4835
+          ]
+        }
+      ],
+      "SaveStep": 0
+    },
+    "Linear": {
+      "Type": "Default",
+      "KSPType": "GMRES",
+      "Tol": 1e-08,
+      "MaxIts": 1000
+    }
+  }
+}

@@ -54,11 +54,9 @@ this doc, verified against source:
 | Surface | Reload behaviour | Evidence |
 |---|---|---|
 | `autonomous.roleRunner.*` (`enabled`, `roles`, `onIdle`, `model`, …) | **Live** — re-read from `.loom/config.json` every role-runner tick, per registered root | `read_role_runner_config` is called inside the per-tick loop body (`loom-daemon/src/role_runner.rs`), not cached at spawn |
-| `autonomous.workFinder.maxConcurrent` | **Requires a daemon restart** — the *operator ceiling* is resolved once at bring-up and frozen; only the `disk`/`ram` headroom terms of the per-tick `min(...)` are recomputed live around it | `resolve_max_concurrent_with_config` is called once in `loom-daemon/src/daemon_service.rs` (outside any loop) and the resulting `configured_max` is passed into `resolve_dynamic_max_concurrent(disk, ram, configured_max)` in the tick body of `loom-daemon/src/work_finder.rs` |
+| `autonomous.workFinder.maxConcurrent` | **Live** — re-read every multi-workspace tick since #9060/#9090. It is the only admission cap since #12406; the env override `LOOM_WORK_FINDER_MAX_CONCURRENT` is restart-only | `ConfiguredMaxReloader::refresh()` in `loom-daemon/src/work_finder/configured_max.rs`, called from the tick body |
 | `autonomous.workFinder.enabled` (the work-finder **master switch**) | **Requires a daemon restart** — read once when the daemon decides whether to spawn the loop at all | `loom-daemon/src/daemon_service.rs` (`read_work_finder_config` called once, outside any loop, gating the `tokio::spawn`) |
-| `autonomous.workFinder.maxAdmissionsPerTick` | **Requires a daemon restart** — resolved once at startup, the same startup-capture pattern as `maxConcurrent` | `loom-daemon/src/work_finder.rs` doc comment: "an operator retuning it takes effect on the next daemon restart, exactly like `configured_max` today" |
-| `autonomous.workFinder.saturationBrake.*` (admission brake) | **Requires a daemon restart** — resolved once and registered as a process-global singleton alongside the host breaker | `loom-daemon/src/daemon_service.rs`, same startup block as `hostBreaker` below |
-| `autonomous.hostBreaker.*` | **Requires a daemon restart** — resolved once at startup, registered as a process-global handle | `loom-daemon/src/daemon_service.rs`: "resolve its config once at startup ... and register the process-global handle" |
+| `autonomous.workFinder.intervalSecs` | **Requires a daemon restart** — the ticker is built once at startup with this period | `loom-daemon/src/daemon_service.rs` startup block (`resolve_interval_with_config`) |
 | `autonomous.rateLimitBreaker.*` | **Requires a daemon restart** — resolved once at startup, before any loop is spawned | `loom-daemon/src/daemon_service.rs`, registered unconditionally ahead of the work-finder branch |
 | `autonomous.mainHealthGate.suppressDispatchDuringGate` | **Requires a daemon restart** — resolved once at startup from the primary workspace config | `loom-daemon/src/daemon_service.rs` comment: "Resolved once at startup from the same primary workspace config as the gate's master switch" |
 | `autonomous.transcriptIngest.*` (`enabled`, `intervalSecs`, `windowHours`) | **Requires a daemon restart** — resolved once before the ingestion thread is spawned, then frozen for the life of that thread | `read_transcript_ingest_config` + `resolve_settings` are called inside `try_init_transcript_ingest` (`loom-daemon/src/activity/transcript_ingest.rs`), which `daemon_service.rs` invokes once at bring-up; the spawned thread's `loop` body reads only the already-resolved `interval`/`window_hours` locals |
@@ -79,8 +77,7 @@ table (`loom-daemon/src/fleet_store/reload.rs`) built on the exact same
 mechanical test above — that table is what `render`'s output and
 `loom-daemon status`'s "Pending restart:" line actually act on, so it cannot
 silently drift the way the rows above already had (`autonomous.workFinder`'s
-`maxConcurrent` / `maxConcurrentPerRepo` / `extraSkipLabels` all went live in
-#9060/#9090/prior work without this table ever being updated to say so). If
+`maxConcurrent` / `extraSkipLabels` went live in #9060/#9090/prior work without this table ever being updated to say so). If
 this table and `reload.rs` ever disagree, `reload.rs` is correct; open an
 issue to fix this table's prose.
 
@@ -134,97 +131,110 @@ The timer half is **detection, not convergence** by default: it reports drift
 and writes nothing unless `fleet.autoApply` is on. A change that must take
 effect without waiting for a restart still needs one.
 
-## Where each kind of key lives (#11441)
+### Per-write `autoApply` flags (#13228)
 
-Tier 1 (fleet-gitops `config.defaults` / `config.hosts.<h>`, rendered to the
-machine-level `defaults.json`) is where **fleet policy** is decided. Tier 2/3
-(`.loom/config.json`, `.loom-project/project.json`) are deep-merged **over** it
-key by key, so a fleet key committed in a repo silently wins for that repo and
-fleet-gitops alone no longer tells you what runs. The classification below is
-the human view of `CLASSIFICATION` in `loom-daemon/src/fleet_policy.rs`, which
-`loom-daemon validate`, CI and `loom-daemon status` all read.
+`fleet.autoApply` is the umbrella for four timer writes — roster (register,
+deregister, missing-clone clone), config (machine, host-local and per-repo
+tiers, and the restart that follows), resync and checkout fast-forward. Each has
+its own key (`fleet.autoApplyRoster|Config|Resync|Checkout`, env
+`LOOM_FLEET_AUTO_APPLY_<NAME>`) that overrides the umbrella either way, so a
+fleet can enable them one at a time; a registration-only host sets just
+`autoApplyRoster`. See the daemon-reference `fleet.*` table.
 
-| Class | Top-level keys | Lives in |
-|-------|----------------|----------|
-| **Fleet** | `autonomous`, `runtimes`, `safehouse`, `observability`, `offlineMode`, `guide`, `sweep`, `daemon`, `fleet`, `repos` | fleet-gitops only |
-| **Repo** | `terminals`, `buildGate`, `branchProtection`, `guards`, `labels`, `forge`, `reflection`, `version` | tracked `.loom/config.json` / `.loom-project/project.json` |
-| **Host** | `worktree`, `health_monitoring` (and per-host paths, see below) | `.loom-local/local.json` |
+### Restart-required changes restart the daemon on a `fleet.autoApply` host (#12425)
 
-Sub-key rows (#11451) — dotted paths classify with **longest prefix wins**
-(a row only ever matches at a `.` boundary, so `forge.githubAppX` falls
-through to `forge`), and a sub-key row carves a more specific class out of a
-differently-classified parent:
+A host that writes its config (`fleet.autoApply`) also applies what needs a
+restart. Each timer pass compares the rendered tiers with how they looked at
+boot (`config_restart_demand()`); while that demand is non-empty, the
+self-update loop's next tick starts the one roll path (`trigger_pause_roll`)
+onto the binary already running, with `target_source = config_restart`. It
+fetches nothing and waits for nothing: no window, jitter, debounce or minimum
+interval, and it runs with `autonomous.autoUpdate.enabled=false`. Several keys
+changed before the tick are one restart; the restarted daemon boots with a
+fresh snapshot, has no demand, and arms nothing. Live (hot-reloadable) keys
+never arm. It is not armed while a version roll (floor or repo-ahead) is
+arming or armed, whose restart clears the demand too. A host without
+`fleet.autoApply` (and a host with no fleet store) arms nothing: it reports
+the demand in `status` and waits for an operator restart.
 
-| Class | Dotted path | Why |
-|-------|-------------|-----|
-| **Repo** | `autonomous.workFinder.extraSkipLabels` | documented per-repo knob (`work_finder.rs`, `cli/skip_labels.rs`, #6685) |
-| **Fleet** | `forge.githubApp`, `forge.identities`, `forge.readPool` | fleet-shared forge connection policy; a repo-tier value silently re-points it for that repo |
+A same-binary restart is not a version roll: the settle clocks and the
+unsatisfiable-floor episode are restored across it (#10877), and `last_roll`,
+the artifact-roll record, the roll-attempt guard and the backoff are left
+alone. The pause manifest has `from_version == to_version`.
 
-Consequences of the sub-key walk: an `autonomous` holding only
-`workFinder.extraSkipLabels` is fully carved out and produces no finding,
-while `autonomous` that also sets any other knob (e.g. `roleRunner.onIdle`,
-`workFinder.enabled`) is flagged once, at `autonomous`. A Repo parent
-holding a Fleet sub-key is flagged at the sub-key (`forge.githubApp`).
-An allow-list entry may name a dotted path, and a top-level entry covers its
-sub-keys (an entry for `forge` allows a `forge.githubApp` override). A dotted
-entry under a Fleet parent exempts just that subtree: with an entry for
-`autonomous.roleRunner.onIdle`, an `autonomous` holding only that leaf passes,
-while one that also sets an unallowed sibling (`workFinder.enabled`) is still
-flagged at `autonomous`.
+## The per-repo fleet tier (#11738)
 
-This supersedes the "Project (default) or Local" ownership of `autonomous.*`,
-`safehouse.*` and `observability.*` in `docs/design/config-resolution-tiers.md`
-section 3: a repo is not the place to decide fleet behaviour. A repo with no
-`.loom/config.json` resolves entirely from tier 1 (the resolver soft-fails each
-missing tier).
+The fleet config repo can give each repo its own base config: the compiled
+`fleet.json` carries an optional `config` object on a `repos[]` record (absent
+when empty), already resolved by the fleet config repo (for example a class of
+repos sharing one base). The daemon's fleet sync materializes it as
+`<repo>/.loom-local/fleet-repo.json` for every repo the roster **desires**
+(`fleet: true` or `maintain`, never `firewall: true`) whose clone exists, and
+**removes** that file (keeping one `.fleet-store-bak-<UTC>` backup) when the
+record has no `config`, so taking a value out of the fleet config takes
+effect. `.loom-local/` is gitignored by every Loom install, so the file never
+dirties a tree.
 
-Enforcement:
+The resolver merges it **above** the repo's committed config and **below** the
+host-local file:
 
-- `loom-daemon validate --strict` (CI runs the narrower `validate . --fleet-policy-only`) exits 2 on a Fleet key present in
-  a tracked repo tier (a `null` value counts: it clears the tier-1 value; dotted
-  sub-key rows count too, per the table above) unless `.loom/fleet-policy-allow.json` has an entry
-  `{"key": "...", "reason": "..."}` for it (exact dotted path, or an ancestor
-  covering it). An entry with an empty reason is
-  itself rejected. Use the allow-list only for a deliberate per-repo override.
-- The install template (`defaults/config.json`) seeds no Fleet keys.
-- **Upgrade-time strip (#11451)**: the reinstall merge (`loom-daemon init`,
-  `loom update`) removes a Fleet key from an installed `.loom/config.json`
-  **only when its committed value equals the old template seed exactly** —
-  `offlineMode: false`, `runtimes: {"default": "claude"}`, or the pre-#11445
-  `safehouse` block (the seeds live in `fleet_policy::legacy_template_seeds`).
-  This changes no behaviour: the current template no longer ships those keys,
-  so fleet policy resolves from tier 1 either way. Any other Fleet content is
-  left in place, logged (`init: config.json: stripped legacy template seed
-  …`), and reported by validate so the operator can migrate it or allow-list
-  it with a reason. The strip is byte-idempotent — a second run is a no-op.
-- `loom-daemon status` lists, per managed repo, each tracked-tier leaf
-  classified Fleet (sub-key rows apply per leaf, so `forge.githubApp.*` is
-  reported and `autonomous.workFinder.extraSkipLabels` is not) that differs
-  from tier 1, with the fleet value and the effective value (a value equal to
-  tier 1 is not reported).
-
-Per-repo fleet report over the roster (#11451): check out each roster repo and
-run the narrow validator; whatever it reports is the remaining set of per-repo
-fleet-key overrides the operator decides on (keep it → allow-list entry with a
-reason; drop it → delete and let the fleet value win):
-
-```bash
-# From a fleet-gitops checkout (repos.yml lists the roster as owner/name —
-# adjust the yq path if the layout differs):
-mkdir -p /tmp/fleet-audit && rm -rf /tmp/fleet-audit/*
-for r in $(yq -r '.repos[] | select(.fleet) | .full_name' repos.yml); do
-  short="${r#*/}"
-  if git clone -q --depth 1 "git@github.com:$r" "/tmp/fleet-audit/$short"; then
-    loom-daemon validate "/tmp/fleet-audit/$short" --fleet-policy-only \
-      && echo "$r: clean" || echo "$r: FINDINGS (see stderr above)"
-  else
-    echo "$r: clone failed"
-  fi
-done
+```
+machine tier < .loom/config.json < .loom-project/project.json < .loom-local/fleet-repo.json < .loom-local/local.json
 ```
 
-Migrating existing values into fleet-gitops is an operator step; until a repo's
-values move, its keys are allow-listed with a reason pointing at the migration.
+So a key the fleet sets for a repo wins even when the repo commits the same
+key, and a key it does not set resolves exactly as before. Same merge rules
+as every tier: objects merge, scalars and lists replace, `null` clears.
+
+When it is written: the same as the machine and host-local tiers. The startup
+pass writes it; a timer pass writes only with `fleet.autoApply` on and
+otherwise reports drift. It is read from the roster's fail-closed snapshot, so
+a pass served from the cache does not touch it. Only a store with `fleet.json`
+has per-repo config; a store that still serves `repos.yml` leaves these files
+alone. Do not edit the file by hand: it belongs to the sync, which will
+rewrite or remove it on the next write pass. A host-only override goes in
+`.loom-local/local.json`.
+
+**A repo that leaves the desired set keeps its file.** The sync only visits
+desired, cloned repos, so when a repo moves to `fleet: false`, becomes
+`firewall: true`, or is removed from the roster, its last
+`.loom-local/fleet-repo.json` stays in place and keeps feeding the resolver.
+That is deliberate: the sync never touches a `firewall` repo, and it stops
+managing the others the moment they leave the set. To drop the stale tier,
+delete `<repo>/.loom-local/fleet-repo.json` by hand. Removals the sync does
+make are journaled (`config.rendered`, `event: removed`) when the config
+journal is enabled, and when several repos fail in one pass the status error
+names the first and counts the rest.
+
+`loom-daemon status` reports it in the `Fleet store:` block, one
+`per-repo fleet tier:` line per repo that has a config or a file (`applied`,
+`rendered`, `removed` or `DRIFT`, with the top-level keys the fleet sets), and
+`--json` carries the same as `fleet_store.repoConfig.repos[]` (`name`, `path`,
+`keys`, `present`, `drifted`, `wrote`, `removed`). Provenance tools that name a
+key's source tier (`source_of`) name `.loom-local/fleet-repo.json` when it
+supplied the value.
+
+## Where fleet config lives
+
+Tier 1 (fleet-gitops `config.defaults` / `config.hosts.<h>`, rendered to the
+machine-level `defaults.json`) is where fleet-wide settings are decided. Config
+resolution is plain tier order and nothing else: tier 1 < `.loom/config.json`
+< `.loom-project/project.json` < `.loom-local/fleet-repo.json` (the per-repo
+fleet tier, above) < `.loom-local/local.json`, deep-merged key by key
+(`loom-daemon/src/config_resolver.rs`). A repo that commits a key overrides the
+tier-1 value for that repo; that is the documented behaviour, not an error. To
+make the fleet win for a repo, set the key in that repo's per-repo config in
+the fleet config repo.
+There is no key classification and no allow-list: `loom-daemon validate` and
+`loom-daemon status` do not report per-repo overrides, and CI does not reject
+them (the classification layer added in #11441 was removed in #11739).
+
+The install template (`defaults/config.json`) seeds no fleet-wide keys
+(`autonomous`, `runtimes`, `safehouse`, `offlineMode`, ...), so a fresh install
+resolves them from tier 1. An older install may still carry template-seeded
+copies in its `.loom/config.json`; the reinstall merge keeps them (existing
+values win). To let the fleet value apply to such a repo, delete the key from
+that repo's `.loom/config.json` in an ordinary PR.
 
 ## Applying the rule
 

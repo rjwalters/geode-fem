@@ -1,0 +1,49 @@
+    Finished `release` profile [optimized] target(s) in 1.57s
+== L0_h45: --level 0 --coupling harmonic:3:6:45
+  total solve wall time 2.80 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L0_h45.json
+== L1_h45: --level 1 --coupling harmonic:3:6:45
+  total solve wall time 12.97 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L1_h45.json
+== L2_h45: --level 2 --coupling harmonic:3:6:45
+  total solve wall time 99.15 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L2_h45.json
+== L3_h45: --level 3 --coupling harmonic:3:6:45
+  total solve wall time 596.74 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L3_h45.json
+== L0_hall: --level 0 --coupling harmonic:all
+  total solve wall time 11.83 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L0_hall.json
+== L1_hall: --level 1 --coupling harmonic:all
+  total solve wall time 123.68 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L1_hall.json
+== L1_h21: --level 1 --coupling harmonic:3:6:21
+  total solve wall time 10.85 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L1_h21.json
+== L1_h93: --level 1 --coupling harmonic:3:6:93
+  total solve wall time 15.24 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L1_h93.json
+== L1_h189: --level 1 --coupling harmonic:3:6:189
+  total solve wall time 21.87 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L1_h189.json
+== L1_h381: --level 1 --coupling harmonic:3:6:381
+  total solve wall time 46.22 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L1_h381.json
+== L2_h21: --level 2 --coupling harmonic:3:6:21
+  total solve wall time 93.42 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L2_h21.json
+== L2_h93: --level 2 --coupling harmonic:3:6:93
+  total solve wall time 126.03 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L2_h93.json
+== L2_h189: --level 2 --coupling harmonic:3:6:189
+  total solve wall time 315.61 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L2_h189.json
+== L2_h381: --level 2 --coupling harmonic:3:6:381
+  total solve wall time 554.80 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L2_h381.json
+== L3_h93: --level 3 --coupling harmonic:3:6:93
+  total solve wall time 757.26 s
+  wrote benchmarks/motor_reference/forward_harmonic/runs/L3_h93.json
+
+wrote /Volumes/Stripe/geode-fem/issue-1170/benchmarks/motor_reference/forward_harmonic/icem_harmonic_torque.png
+wrote /Volumes/Stripe/geode-fem/issue-1170/benchmarks/motor_reference/forward_harmonic/tables.md, summary.json, torque_table.csv

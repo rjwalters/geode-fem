@@ -1,0 +1,35 @@
+{
+  "scope": "Operational process-name evidence only; no outcome inspection, cloud start or new B2 observation.",
+  "observed_utc": "2026-10-19T18:44:27.075922+00:00",
+  "B1_snapshot_sha256": "fc3d6b9daefdb19ba70a56f10f0eb9e28192a06cd2c9f81b51626f5cf5c1efcd",
+  "B1_matching_processes": [
+    {
+      "pid": 715,
+      "ppid": 1,
+      "comm": "dbus-daemon"
+    },
+    {
+      "pid": 723,
+      "ppid": 1,
+      "comm": "networkd-dispat"
+    },
+    {
+      "pid": 727,
+      "ppid": 1,
+      "comm": "amazon-ssm-agen"
+    },
+    {
+      "pid": 881,
+      "ppid": 1,
+      "comm": "unattended-upgr"
+    }
+  ],
+  "B1_limit": "No argv or UID. dbus system/session is unknown. amazon-ssm-agen is not ssm-session-worker; the latter is absent from this snapshot.",
+  "B0_evidence_sha256": {
+    "/Volumes/Stripe/scratch-codex-review/exp2-main-session/monitor_remote.py": "53177586dce3d727769acda698ff6b8ed96b15fd2690af9bcac9b1fbca1b0760",
+    "/Volumes/Stripe/scratch-codex-review/exp2-main-session/setup-records/host-prep.txt": "e391ca91db17b9f2c40dc705f5f0abb62abba1a2119c9c189f09418382897a07",
+    "/Volumes/Stripe/scratch-codex-review/exp2-main-recovery-paper3-20261019/exp2-main/setup/watchdog.log": "79c319d048111921054d70727f7f05c2f6bb1289fc7e0c2c1ca41e34a916c0ca"
+  },
+  "B0_finding": "Saved watchdog tail records no full process census. Monitor selected evaluators and other processes above5% CPU. No named daemon sightings were found in pre-shutdown Squad messages. These filtered tails cannot establish daemon absence.",
+  "decision": "Allow only explicitly enumerated full commands plus system effective UID and PPID1; otherwise retain refusal. No daemon identity was inferred from a numerical result."
+}

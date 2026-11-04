@@ -1,0 +1,104 @@
+{
+  "gate": "render_gate",
+  "pdf_path": "/Volumes/Stripe/geode-fem/motor-paper-v1/papers/motor-gradient-optimization/motor-gradient-optimization.6/main.pdf",
+  "log_path": "/Volumes/Stripe/geode-fem/motor-paper-v1/papers/motor-gradient-optimization/motor-gradient-optimization.6/compile-log.txt",
+  "pages": 18,
+  "page_cap": null,
+  "overfull_boxes": [],
+  "overfull_threshold_pt": 5.0,
+  "compile": {
+    "status": "ok",
+    "exit_code": 0
+  },
+  "placeholders": [],
+  "findings": [],
+  "pass": true,
+  "reasons": [],
+  "engine_used": null,
+  "template_used": null,
+  "bib_lint": {
+    "ok": true,
+    "issues": []
+  },
+  "audience_check": {
+    "check": "audience_check",
+    "version_dir": "motor-gradient-optimization.6",
+    "body_path": "main.tex",
+    "files": [
+      "main.tex",
+      "tables/coupling.tex",
+      "tables/gradient-cost.tex",
+      "tables/design-points.tex"
+    ],
+    "declared_audience": [
+      "Computational electromagnetics, electric-machine optimization, and differentiable scientific computing researchers"
+    ],
+    "public_repo_url": "https://github.com/rjwalters/geode-fem",
+    "public_repo_url_source": "anvil_json",
+    "public_repo_url_declared": true,
+    "hits": [],
+    "counts": {
+      "governance_vocabulary": 0,
+      "private_locator": 0,
+      "unlinked_artifact_path": 0
+    },
+    "suppressed_count": 0,
+    "advisory": true,
+    "pass": true
+  },
+  "numeric_consistency": {
+    "raw_result": {
+      "check": "numeric_consistency",
+      "version_dir": "motor-gradient-optimization.6",
+      "body_path": "main.tex",
+      "numbers_extracted": 434,
+      "claims_checked": 2,
+      "findings": [
+        {
+          "code": "percent_mismatch",
+          "severity": "warning",
+          "line": 439,
+          "claim": "0.27\\% higher",
+          "claimed": 0.27,
+          "computed": 12.21311475409836,
+          "message": "claim '0.27\\\\% higher' asserts 0.27% but the window pair 'from 0.01071 to 0.01220' (0.01071 vs 0.0122) computes a 12.2% change (base 0.0122), not 0.27%.",
+          "suppressed": false
+        }
+      ],
+      "pass": false
+    },
+    "adjudication": "Known heuristic false positive: 0.27% compares full-current GEODE and finest-reference std, not the earlier cogging refinement pair. Raw torque reconstruction in verify.py passes."
+  },
+  "artifact_verify": "PASS: 115 evidence hashes; 500 + 1140 forward solve statuses; raw means/ripple, coupling/estimator controls, sensitivity and cost tables; 704 distinct loaded FD cases (96 duplicate records identified), 592 recomputed Taylor windows, cross-model sensitivities, slotless rounding and zero-current sweeps; citations/figure assets.\nRecorded-artifact verification only; not a new FEM run or independent scientific review.\nPASS: reference reruns, 60-sample reproduction, refined-model gaps, candidate objectives/current rules/angular aliasing, invalid moved mesh and L3 gradient comparisons independently reconstructed.\nPASS: v5 size/current normalization, matched-policy reference ratios, candidate refinement increments, paired estimators, L3 MAG components, and 3240 candidate solve statuses.\nPASS: v6 SW2/SW3 component rounding, distinct L0/L1 Taylor failure mechanisms, vector versus norm changes, all three size-normalized current policies, and matched full-current abstract claim.\n",
+  "artifact_verify_source": "clean Git archive of staged artifact files, not the author working tree",
+  "checked_at": "2026-10-18T05:07:00.017133+00:00",
+  "pdf_sha256": "68157e452f71c7c3e73f9292c513dd2d1f6b6844374a6b39d3df03d350d879f1",
+  "independent_review": "fresh v6 audit pending; v5 reviews and failed audit archived separately",
+  "deterministic_regeneration": "24 generated figures/tables/statistics reproduce byte-identically.",
+  "visual_check": {
+    "pages_inspected": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18
+    ],
+    "figures": 7,
+    "result": "Author inspected all 18 pages at overview resolution and Figures 4 and 5 at readable resolution. Fig. 4 now appears on p.9 after its p.8 citation; the former waveform supplement is Fig.5 on p.11. No clipping or overlaps observed. Fresh independent audit pending."
+  },
+  "clean_archive_tree_before_metadata_refresh": "54125642cb72d4acfc1eecb50d3948d4531bc488",
+  "source_provenance": "115 inputs byte-identical to pinned source Git blobs and present in staged Git tree; three original v5 review/audit reports byte-identical to source files."
+}

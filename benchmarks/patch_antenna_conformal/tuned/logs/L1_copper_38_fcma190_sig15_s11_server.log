@@ -1,0 +1,10 @@
+patch_conformal_nested_dof [copper_38]: patch_conformal_L1 (150561 edges, 23246 nodes, 124353 tets), R = 100 mm, sigma_0 = 1 (fixture 1); DOFs: 0 radial + 32 outline + 4 corner + 2 feed = 38; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 0.2 s
+    sweep 2.4000 GHz: |S11| = 0.1760 (-15.09 dB), Z = 35.4 +3.6i ohm
+    sweep 2.4104 GHz: |S11| = 0.2339 (-12.62 dB), Z = 31.0 -0.3i ohm
+    sweep 2.4209 GHz: |S11| = 0.3086 (-10.21 dB), Z = 26.5 -2.5i ohm
+    sweep 2.4313 GHz: |S11| = 0.3845 ( -8.30 dB), Z = 22.4 -3.3i ohm
+    sweep 2.4417 GHz: |S11| = 0.4556 ( -6.83 dB), Z = 18.8 -3.3i ohm
+    sweep 2.4522 GHz: |S11| = 0.5197 ( -5.69 dB), Z = 15.9 -2.8i ohm
+    sweep 2.4626 GHz: |S11| = 0.5761 ( -4.79 dB), Z = 13.5 -2.0i ohm
+    sweep 2.4731 GHz: |S11| = 0.6252 ( -4.08 dB), Z = 11.5 -1.0i ohm
+    sweep 2.4835 GHz: |S11| = 0.6676 ( -3.51 dB), Z = 10.0 -0.1i ohm

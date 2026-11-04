@@ -1,0 +1,8 @@
+  cost x0 f #0: 64.4 s, worst -1.467 dB
+  cost x0 f #1: 65.2 s, worst -1.467 dB
+  cost x0 f #2: 64.1 s, worst -1.467 dB
+  geode_adjoint_lbfgs: band worst -9.797 dB, verify worst -9.797 dB
+  geode_cma114: band worst -9.331 dB, verify worst -9.331 dB
+  geode_cma190_s2: band worst -9.810 dB, verify worst -9.810 dB
+  geode_cma190_s3: band worst -9.835 dB, verify worst -9.835 dB
+palace_loop_xeval: ~/runs/costs_palace_r6i.toml

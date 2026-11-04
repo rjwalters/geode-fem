@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "thread": "motor-gradient-optimization",
+  "phases": {
+    "draft": {
+      "state": "done",
+      "started": "2026-10-17T04:46:10.766925+00:00",
+      "completed": "2026-10-17T04:50:48.878002+00:00"
+    },
+    "figures": {
+      "state": "done",
+      "started": "2026-10-17T04:46:10.766925+00:00",
+      "completed": "2026-10-17T04:50:48.878002+00:00"
+    }
+  },
+  "metadata": {
+    "iteration": 1,
+    "max_iterations": 4,
+    "evidence_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798",
+    "manuscript_status": "DRAFTED; independent review and audit pending",
+    "pages": 10,
+    "figure_count": 3,
+    "authorship_status": "not finalized",
+    "evidence_snapshot": {
+      "brief_mtime": 1792212558.9969964,
+      "refs_mtime": 1792212372.0749316
+    }
+  }
+}

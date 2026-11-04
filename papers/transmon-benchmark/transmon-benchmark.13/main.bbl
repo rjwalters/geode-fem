@@ -1,0 +1,272 @@
+\begin{thebibliography}{35}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Akçelik et~al.(2005)Akçelik, Biros, Ghattas, Keyes, Ko, Lee, and
+  Ng]{akcelik2005adjoint}
+Volkan Akçelik, George Biros, Omar Ghattas, David Keyes, Kwok Ko, Lie-Quan
+  Lee, and Esmond~G Ng.
+\newblock Adjoint methods for electromagnetic shape optimization of the
+  low-loss cavity for the {International Linear Collider}.
+\newblock \emph{Journal of Physics: Conference Series}, 16:\penalty0 435--445,
+  2005.
+\newblock \doi{10.1088/1742-6596/16/1/059}.
+
+\bibitem[Anderson et~al.(2021)Anderson, Andrej, Barker, Bramwell, Camier,
+  Cerveny, Dobrev, Dudouit, Fisher, Kolev, Pazner, Stowell, Tomov, Akkerman,
+  Dahm, Medina, and Zampini]{mfem}
+Robert Anderson, Julian Andrej, Andrew Barker, Jamie Bramwell, Jean-Sylvain
+  Camier, Jakub Cerveny, Veselin Dobrev, Yohann Dudouit, Aaron Fisher, Tzanio
+  Kolev, Will Pazner, Mark Stowell, Vladimir Tomov, Ido Akkerman, Johann Dahm,
+  David Medina, and Stefano Zampini.
+\newblock {MFEM}: a modular finite element methods library.
+\newblock \emph{Computers \& Mathematics with Applications}, 81:\penalty0
+  42--74, 2021.
+\newblock \doi{10.1016/j.camwa.2020.06.009}.
+
+\bibitem[{AWS Center for Quantum Computing}(2025{\natexlab{a}})]{devicelayout}
+{AWS Center for Quantum Computing}.
+\newblock {DeviceLayout.jl}: computer-aided design of quantum integrated
+  circuits.
+\newblock \url{https://github.com/aws-cqc/DeviceLayout.jl}, 2025{\natexlab{a}}.
+\newblock v1.15.0 used for geometry and mesh generation in this work.
+
+\bibitem[{AWS Center for Quantum
+  Computing}(2025{\natexlab{b}})]{devicelayout-example}
+{AWS Center for Quantum Computing}.
+\newblock {Single-Transmon Simulation} $\cdot$ {DeviceLayout.jl}.
+\newblock DeviceLayout.jl v1.15.0 documentation and
+  \texttt{examples/SingleTransmon/SingleTransmon.jl},
+  \url{https://aws-cqc.github.io/DeviceLayout.jl/stable/examples/singletransmon/},
+  2025{\natexlab{b}}.
+\newblock Source of the optimization targets, variables and stopping criterion,
+  and of the discretization settings.
+
+\bibitem[Boffi(2010)]{boffi2010finite}
+Daniele Boffi.
+\newblock Finite element approximation of eigenvalue problems.
+\newblock \emph{Acta Numerica}, 19:\penalty0 1--120, 2010.
+\newblock \doi{10.1017/S0962492910000012}.
+
+\bibitem[Braess and Schöberl(2007)]{braess2007equilibrated}
+Dietrich Braess and Joachim Schöberl.
+\newblock Equilibrated residual error estimator for edge elements.
+\newblock \emph{Mathematics of Computation}, 77\penalty0 (262):\penalty0
+  651--672, 2007.
+\newblock \doi{10.1090/s0025-5718-07-02080-7}.
+
+\bibitem[Broyden(1965)]{broyden1965class}
+C.~G. Broyden.
+\newblock A class of methods for solving nonlinear simultaneous equations.
+\newblock \emph{Mathematics of Computation}, 19\penalty0 (92):\penalty0
+  577--593, 1965.
+\newblock \doi{10.1090/S0025-5718-1965-0198670-6}.
+
+\bibitem[Demkowicz(2006)]{demkowicz2006computing}
+Leszek Demkowicz.
+\newblock \emph{Computing with $hp$-Adaptive Finite Elements, Volume 1: One and
+  Two Dimensional Elliptic and {Maxwell} Problems}.
+\newblock Chapman and Hall/CRC, 2006.
+\newblock \doi{10.1201/9781420011685}.
+
+\bibitem[Dunnavant(2026)]{dunnavant2026whiteroom}
+Crutcher Dunnavant.
+\newblock palace\_whiteroom.
+\newblock \url{https://github.com/crutcher/palace_whiteroom}, 2026.
+\newblock Software repository. Accessed 2026-10-13.
+
+\bibitem[Eriksson et~al.(2025)Eriksson, Splitthoff, Upadhyay, Campana,
+  Narendiran, Helambe, Andersson, and Gasparinetti]{eriksson2025automated}
+Axel~M. Eriksson, Lukas~J. Splitthoff, Harsh~Vardhan Upadhyay, Pietro Campana,
+  Niranjan~Pittan Narendiran, Kunal Helambe, Linus Andersson, and Simone
+  Gasparinetti.
+\newblock Automated, physics-guided, multi-parameter design optimization for
+  superconducting quantum devices, 2025.
+\newblock URL \url{https://arxiv.org/abs/2508.18027}.
+
+\bibitem[Ern and Vohralík(2015)]{ern2015polynomial}
+Alexandre Ern and Martin Vohralík.
+\newblock Polynomial-degree-robust a posteriori estimates in a unified setting
+  for conforming, nonconforming, discontinuous galerkin, and mixed
+  discretizations.
+\newblock \emph{SIAM Journal on Numerical Analysis}, 53\penalty0 (2):\penalty0
+  1058--1081, 2015.
+\newblock \doi{10.1137/130950100}.
+
+\bibitem[Eun et~al.(2023)Eun, Park, Seo, Choi, and Hahn]{eun2023shape}
+Sungjun Eun, Seong~Hyeon Park, Kyungsik Seo, Kibum Choi, and Seungyong Hahn.
+\newblock Shape optimization of superconducting transmon qubits for low surface
+  dielectric loss.
+\newblock \emph{Journal of Physics D: Applied Physics}, 56\penalty0
+  (50):\penalty0 505306, 2023.
+\newblock \doi{10.1088/1361-6463/acf7cf}.
+
+\bibitem[Fox and Kapoor(1968)]{foxkapoor1968rates}
+R.~L. Fox and M.~P. Kapoor.
+\newblock Rates of change of eigenvalues and eigenvectors.
+\newblock \emph{AIAA Journal}, 6\penalty0 (12):\penalty0 2426--2429, 1968.
+\newblock \doi{10.2514/3.5008}.
+
+\bibitem[Kazdadi(2026)]{kazdadi2026faer}
+Sarah Qui{\~n}ones~El Kazdadi.
+\newblock {faer}: A linear algebra library for the {Rust} programming language.
+\newblock \emph{Journal of Open Source Software}, 11\penalty0 (123):\penalty0
+  6099, 2026.
+\newblock \doi{10.21105/joss.06099}.
+
+\bibitem[Lehoucq et~al.(1998)Lehoucq, Sorensen, and Yang]{arpack}
+Richard~B. Lehoucq, Danny~C. Sorensen, and Chao Yang.
+\newblock \emph{{ARPACK} Users' Guide: Solution of Large-Scale Eigenvalue
+  Problems with Implicitly Restarted {A}rnoldi Methods}.
+\newblock SIAM, 1998.
+\newblock \doi{10.1137/1.9780898719628}.
+
+\bibitem[Meixner(1972)]{meixner1972behavior}
+Josef Meixner.
+\newblock The behavior of electromagnetic fields at edges.
+\newblock \emph{IEEE Transactions on Antennas and Propagation}, 20\penalty0
+  (4):\penalty0 442--446, 1972.
+\newblock \doi{10.1109/TAP.1972.1140243}.
+
+\bibitem[N{\'e}d{\'e}lec(1980)]{nedelec1980}
+Jean-Claude N{\'e}d{\'e}lec.
+\newblock Mixed finite elements in {$\mathbb{R}^3$}.
+\newblock \emph{Numerische Mathematik}, 35\penalty0 (3):\penalty0 315--341,
+  1980.
+\newblock \doi{10.1007/BF01396415}.
+
+\bibitem[Nelson(1976)]{nelson1976simplified}
+Richard~B. Nelson.
+\newblock Simplified calculation of eigenvector derivatives.
+\newblock \emph{AIAA Journal}, 14\penalty0 (9):\penalty0 1201--1205, 1976.
+\newblock \doi{10.2514/3.7211}.
+
+\bibitem[Nikolova et~al.(2004)Nikolova, Bandler, and Bakr]{nikolova2004adjoint}
+N.K. Nikolova, J.W. Bandler, and M.H. Bakr.
+\newblock Adjoint techniques for sensitivity analysis in high-frequency
+  structure {CAD}.
+\newblock \emph{IEEE Transactions on Microwave Theory and Techniques},
+  52\penalty0 (1):\penalty0 403--419, 2004.
+\newblock \doi{10.1109/tmtt.2003.820905}.
+
+\bibitem[Oberkampf and Roy(2010)]{oberkampf2010verification}
+William~L. Oberkampf and Christopher~J. Roy.
+\newblock \emph{Verification and Validation in Scientific Computing}.
+\newblock Cambridge University Press, 2010.
+\newblock \doi{10.1017/cbo9780511760396}.
+
+\bibitem[{Palace developers, AWS Center for Quantum Computing}(2023)]{palace}
+{Palace developers, AWS Center for Quantum Computing}.
+\newblock {Palace}: {PA}rallel {LA}rge-scale {C}omputational
+  {E}lectromagnetics.
+\newblock \url{https://github.com/awslabs/palace}, 2023.
+\newblock Open-source 3D finite-element solver; git fba6a5b used in this work.
+
+\bibitem[Peairs and Carson(2025)]{devicelayout-blog}
+Greg Peairs and Hugh Carson.
+\newblock Design quantum integrated circuits with open-source software
+  {DeviceLayout.jl} from {AWS}.
+\newblock
+  \url{https://aws.amazon.com/blogs/quantum-computing/design-quantum-integrated-circuits-with-open-source-software-devicelayout-jl-from-aws/},
+  2025.
+\newblock AWS Quantum Technologies Blog; source of the SingleTransmon designs
+  and their published frequencies.
+
+\bibitem[Powell(2009)]{powell2009bobyqa}
+M.~J.~D. Powell.
+\newblock The {BOBYQA} algorithm for bound constrained optimization without
+  derivatives.
+\newblock Technical Report DAMTP 2009/NA06, Department of Applied Mathematics
+  and Theoretical Physics, University of Cambridge, 2009.
+
+\bibitem[Prager and Synge(1947)]{prager1947approximations}
+W.~Prager and J.~L. Synge.
+\newblock Approximations in elasticity based on the concept of function space.
+\newblock \emph{Quarterly of Applied Mathematics}, 5\penalty0 (3):\penalty0
+  241--269, 1947.
+\newblock \doi{10.1090/qam/25902}.
+
+\bibitem[Rajabzadeh et~al.(2023)Rajabzadeh, Wang, Lee, Makihara, Guo, and
+  Safavi-Naeini]{rajabzadeh2023analysis}
+Taha Rajabzadeh, Zhaoyou Wang, Nathan Lee, Takuma Makihara, Yudan Guo, and
+  Amir~H. Safavi-Naeini.
+\newblock Analysis of arbitrary superconducting quantum circuits accompanied by
+  a {Python} package: {SQcircuit}.
+\newblock \emph{Quantum}, 7:\penalty0 1118, 2023.
+\newblock \doi{10.22331/q-2023-09-25-1118}.
+
+\bibitem[Raviart and Thomas(1977)]{raviart1977mixed}
+P.~A. Raviart and J.~M. Thomas.
+\newblock A mixed finite element method for 2-nd order elliptic problems.
+\newblock In \emph{Mathematical Aspects of Finite Element Methods}, volume 606
+  of \emph{Lecture Notes in Mathematics}, pages 292--315. Springer, 1977.
+\newblock \doi{10.1007/bfb0064470}.
+
+\bibitem[Shanto et~al.(2024)Shanto, Kuo, Miyamoto, Zhang, Maurya, Vlachos,
+  Hecht, Shum, and Levenson-Falk]{shanto2024squadds}
+Sadman Shanto, Andre Kuo, Clark Miyamoto, Haimeng Zhang, Vivek Maurya,
+  Evangelos Vlachos, Malida Hecht, Chung~Wa Shum, and Eli Levenson-Falk.
+\newblock {SQuADDS}: A validated design database and simulation workflow for
+  superconducting qubit design.
+\newblock \emph{Quantum}, 8:\penalty0 1465, 2024.
+\newblock \doi{10.22331/q-2024-09-09-1465}.
+
+\bibitem[Sommers et~al.(2025)Sommers, Degnan, Gautam, Chen, Chiu, Fedorov, and
+  Pakkiam]{sommers2025open}
+David Sommers, Zach Degnan, Divita Gautam, Yi-Hsun Chen, Chun-Ching Chiu,
+  Arkady Fedorov, and Prasanna Pakkiam.
+\newblock Open-source highly parallel electromagnetic simulations for
+  superconducting circuits, 2025.
+\newblock URL \url{https://arxiv.org/abs/2511.01220}.
+
+\bibitem[Specogna(2011)]{specogna2011complementary}
+Ruben Specogna.
+\newblock Complementary geometric formulations for electrostatics.
+\newblock \emph{International Journal for Numerical Methods in Engineering},
+  86\penalty0 (8):\penalty0 1041--1068, 2011.
+\newblock \doi{10.1002/nme.3089}.
+
+\bibitem[{Tracel AI}(2024)]{burn}
+{Tracel AI}.
+\newblock Burn: a comprehensive deep-learning and tensor-computation framework
+  in {Rust}.
+\newblock \url{https://github.com/tracel-ai/burn}, 2024.
+\newblock v0.21.0 used. No journal or arXiv paper; cited as software.
+
+\bibitem[Walters(2025)]{loom}
+Robb Walters.
+\newblock Loom: {AI}-powered development orchestration.
+\newblock \url{https://github.com/rjwalters/loom}, 2025.
+\newblock Software repository. Accessed 2026-10-13.
+
+\bibitem[Walters(2026)]{walters2026conformal}
+Robb Walters.
+\newblock Shape-adjoint design of a curved conformal 2.4\,{GHz} patch antenna
+  on a fixed 1.6\,mm board with a differentiable open-radiator {FEM}, 2026.
+\newblock Manuscript in preparation, \path{papers/conformal-antenna-diffopt/}
+  in \url{https://github.com/rjwalters/geode-fem}.
+
+\bibitem[Wang et~al.(2025)Wang, Wu, Zhao, Wan, and Ni]{wang2025supergrad}
+Ziang Wang, Feng Wu, Hui-Hai Zhao, Xin Wan, and Xiaotong Ni.
+\newblock {SuperGrad}: a differentiable simulator for superconducting
+  processors.
+\newblock \emph{Quantum}, 9:\penalty0 1722, 2025.
+\newblock \doi{10.22331/q-2025-04-24-1722}.
+
+\bibitem[Ye et~al.(2025)Ye, Wang, and Liu]{ye2025electromagnetic}
+Jiale Ye, Jiaheng Wang, and Yu-xi Liu.
+\newblock Electromagnetic feature extraction in superconducting quantum
+  circuits: An open-source finite-element workflow using {Palace}, 2025.
+\newblock URL \url{https://arxiv.org/abs/2511.09041}.
+
+\bibitem[Zhang(2023)]{zhang2023prima}
+Zaikun Zhang.
+\newblock {PRIMA}: Reference implementation for {Powell}'s methods with
+  modernization and amelioration.
+\newblock \url{http://www.libprima.net}, 2023.
+\newblock Software.
+
+\end{thebibliography}

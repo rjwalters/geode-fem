@@ -1,0 +1,1486 @@
+\documentclass{anvil-paper}
+\usepackage{array}
+\usepackage{float}
+\newcommand{\Nm}{\mathrm{N\,m}}
+\newcommand{\dd}{\,\mathrm{d}}
+\title{Adjoint Gradients for Torque-Ripple Optimization\\of a Nonlinear Motor}
+\author{Robb Walters\thanks{Corresponding author: \href{mailto:robb@2amlogic.com}{robb@2amlogic.com}}\\
+  {\normalsize 2AM Logic}
+  \and Crutcher Dunnavant\\
+  {\normalsize ZSpaceLabs.ai}}
+\date{October 2026\\[0.5ex]
+  {\normalsize DOI: \href{https://doi.org/10.5281/zenodo.23580548}{10.5281/zenodo.23580548}}}
+\hypersetup{pdftitle={Adjoint Gradients for Torque-Ripple Optimization of a Nonlinear Motor},pdfauthor={Robb Walters, Crutcher Dunnavant},pdfsubject={Matched optimization, torque-ripple reproduction and discrete design-gradient verification}}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+A design gradient pays off only if it shortens the path to a validated
+design. We reconstruct a published nonlinear
+permanent-magnet motor in our GEODE finite-element code and minimize its
+torque ripple over 8 or 18 shape parameters. The optimizers query a coarse
+simulation; each new best design is rescored on a finer validation
+simulation no optimizer sees, and only validated scores count. Cost is
+whole-run wall time on one single-threaded core per run. In a
+preregistered, budget-matched study, SLSQP with adjoint gradients beat the
+derivative-free COBYQA at the same coarse resolution in all 45 of the 50
+paired comparisons where both succeeded, by geometric means of 3.10 and
+7.79 at the primary targets, 90\% and 99\% reductions of the ripple
+objective with 8 and 18 parameters. Two post-hoc ablations, under
+protocols frozen beforehand, kept SLSQP but used forward differences,
+splitting that advantage into a gradient factor and an optimizer factor.
+The adjoint reached the primary target 1.71 and 2.70 times sooner, from
+every start, than forward differences with warm-started solves, and 2.47
+and 4.11 times sooner than cold-started ones; COBYQA against
+finite-difference SLSQP contributes the remaining 1.2 to 1.8 with 8
+parameters and 1.9 to 2.9 with 18. The adjoint cuts the gradient's share
+of the time to target from 45--77\% to about 5\%, so validation and
+coarse-simulation evaluations bound the end-to-end gain. Every target crossing
+selected for final checks, 25 of the main study's 111 and 10 in each
+ablation, kept its target on a finer mesh.
+\end{abstract}
+
+\section{Introduction}
+Whether to pay for derivatives is a practical design decision. An adjoint
+gives the sensitivities of a few outputs to many parameters for a cost
+that does not grow with the number of parameters, whereas a
+finite-difference gradient needs one extra solve per parameter
+\citep{giles2000introduction,martins2013review}. That does not settle
+whether following adjoint gradients reaches a good design sooner than a
+derivative-free search or a cheaper gradient, or whether the design
+survives a better model: the adjoint differentiates the chosen discrete
+model and excitation policy. In aerodynamic shape optimization an adjoint
+gradient-based method has needed far fewer function evaluations than a
+genetic algorithm \citep{zingg2008comparative}, so the direction of an
+advantage is expected. Its size for a nonlinear motor, measured on a
+validated target with failures retained, is the question here.
+
+We answer it in two steps. A preregistered, budget-matched study compares
+five methods in two nested design spaces of a published nonlinear
+permanent-magnet motor \citep{wiesheu2024spline}, judges every candidate
+on one validation simulation, finer than any coarse simulation an optimizer
+queries, and charges
+whole-run wall time with nothing subtracted (Section~\ref{sec:optimization}).
+There SLSQP with adjoint gradients beats COBYQA, but the contrast changes
+the search strategy and the gradient together. Two post-hoc ablations
+therefore keep SLSQP and replace the adjoint by forward differences
+(Section~\ref{sec:exp2-fd}), so that the main contrast factors into a
+gradient factor (finite-difference SLSQP against adjoint SLSQP) and an
+optimizer factor (COBYQA against finite-difference SLSQP).
+
+Table~\ref{tab:decomp} gives the main result. On one core per run, with
+the finite-difference stencil (one perturbed coarse solve per parameter)
+solved serially, the gradient factor is 1.71--2.47 with eight parameters
+and 2.68--4.10 with 18, and the optimizer factor is 1.22--1.76 and
+1.91--2.92. The range in each factor is the gap between the two
+finite-difference baselines: stencil solves warm-started from the base
+point's solution (FD-warm) or started from zero (FD-cold). The gradient
+factor is set by the cost of the gradient, since every SLSQP variant,
+adjoint or finite-difference, crosses each primary target after the same
+number of validated designs, and it is bounded by the time all of them
+spend on validation and coarse forwards (Fig.~\ref{fig:decomp}).
+
+Two checks make these measurements interpretable. The ripple objective
+depends on the rotor--stator interface model: truncating harmonic coupling
+at the reference's order 45 changes loaded ripple by 7--9\% and cogging by
+59\% on the finest mesh, so the study validates at order 93
+(Section~\ref{sec:model}). The design gradients pass finite-difference and
+Taylor checks, yet verified ripple sensitivities differ between
+interface/estimator models, and the excitation rule reverses mean-torque
+sensitivities (Section~\ref{sec:gradients}). The numerical methods are
+established; the contribution is the measured time-to-target evidence for
+adjoint gradients, separated from the choice of optimizer, with the checks
+that show what the gradients represent. Section~\ref{sec:discussion} states
+what transfers.
+
+\section{Related work}
+\citet{wiesheu2024spline} combine spline-based rotor and stator shape
+optimization with engineering parameters for a nonlinear permanent-magnet
+synchronous motor, and their related study combines parameter and shape
+optimization with isogeometric analysis \citep{wiesheu2025combined}. Their
+public implementation and saved outputs provide the reproduction target.
+We inherit the initial geometry, material table and excitation
+conventions and replace the field discretization; the comparison is
+between numerical models, not with a measured motor.
+
+Adjoint shape sensitivity for nonlinear magnetostatics is long
+established. \citet{park1992design} applied the adjoint variable method to
+the finite-element equations of a saturated two-dimensional magnet design,
+and \citet{elbechari2022adjoint} detail a discrete adjoint for linear and
+nonlinear magnetostatics with geometric and physical variables, verified
+against finite differences.
+\citet{gangl2015shape} derive rotor shape sensitivities with a
+shape-Lagrangian formulation to smooth the rotation pattern of a motor;
+\citet{kuci2017design} derive shape sensitivities from the Lie derivative
+and apply them to an interior permanent-magnet machine
+\citep{kuci2016shape}. \citet{scotzniovsky2025} combine free-form
+deformation, differentiable mesh warping and adjoint derivatives, and
+\citet{merkel2021shape} use isogeometric shape derivatives with harmonic
+rotor--stator coupling. \citet{martins2013review} review finite
+differences, complex steps, algorithmic differentiation and direct and
+adjoint methods in one framework, \citet{giles2000introduction} introduce
+the adjoint approach to design, \citet{nikolova2004adjoint} review
+adjoint-variable sensitivities for electromagnetic structure design, and
+\citet{peter2010numerical} and \citet{kenway2019effective} survey
+sensitivity-analysis approaches and adjoint practice for aerodynamic
+optimization. These works establish why an adjoint gradient is cheaper than
+a finite-difference one; Section~\ref{sec:exp2-fd} measures what that
+saving is worth in time to a validated target. The accuracy of a
+finite-difference gradient also depends on its step relative to the
+function's computational noise, which \citet{more2011estimating} show how
+to estimate and \citet{more2012estimating} use to choose a near-optimal
+step; our finite-difference baselines instead use one step fixed in advance.
+For iteratively solved problems the perturbed solves' convergence error
+enters as well: \citet{haftka1985sensitivity} gives a modified procedure
+that improves such derivatives and \citet{eyi2011finite} chooses the step
+from an estimate of that error, whereas our warm-started baseline keeps the
+frozen tolerance and reports the resulting error. The direct method, one
+linearized solve per parameter \citep{adelman1986sensitivity}, and the
+semi-analytic method, which can be inaccurate for shape variables
+\citep{barthelemy1990accuracy}, lie between the two in cost; neither was
+tested.
+
+Interface order already matters for torque:
+\citet{degersem2004harmonic} formulate harmonic weighting functions at the
+sliding interface, \citet{bontinck2018isogeometric} use harmonic interface
+constraints between isogeometric subdomains and analyze their stability,
+and \citet{egger2022torque} derive torque from a harmonic mortar
+formulation and vary the transmitted order in a linear cogging
+experiment. We quantify its effect on loaded nonlinear ripple and design sensitivities,
+using coupling torque and the gap-averaged stress of \citet{arkkio1987};
+\citet{howe1992cogging} and \citet{arkkio2012proper} study discretization
+effects on torque.
+
+Optimizer benchmarks in machine design compare derivative-free methods:
+\citet{duan2013review} compare response-surface and differential-evolution
+search on a five-variable permanent-magnet motor, and
+\citet{bramerdorfer2018modern} survey optimization practice for electrical
+machines, and \citet{lei2017review} review their design-optimization
+methods. \citet{ion2018robust} compare deterministic gradient-based and
+stochastic search for electric devices. \citet{gangl2022multi} report
+minutes for gradient-based free-form shape optimization of a synchronous
+reluctance machine against hours for a stochastic parametric optimization
+that found similar shapes, a comparison that also changes the
+parametrization and the solver. \citet{zingg2008comparative}
+found that a genetic algorithm needed 5 to 200 times as many function
+evaluations as an adjoint method in aerodynamic shape optimization.
+On an eight-variable wing twist problem, \citet{yu2018influence} found
+gradient-free optimizers 4 times (NOMAD) to over 100 times (NSGA2, which
+converged to a slightly worse design) as expensive as adjoint-driven ones,
+the counterpart of our eight-parameter
+SLSQP-against-COBYQA ratios of 3.10--3.25. They do not compare adjoint with
+finite-difference gradients, which our ablation does, but state its premise:
+finite-difference cost grows with the number of variables and adjoint cost does not. Our
+time-to-target measure follows the performance profiles of
+\citet{dolan2002benchmarking} and the data profiles of
+\citet{more2009benchmarking}, with a wall-time budget and censored
+targets.
+
+\section{Motor model}\label{sec:model}
+\subsection{Geometry and operating states}
+The full machine has six poles and 36 stator slots. We model a
+$60^\circ$ sector, polar angles $60^\circ$ to $120^\circ$ at zero
+rotation, with antiperiodic conditions on the radial boundaries. The rotor
+(radii 16 to 44\,mm) carries one buried permanent magnet per pole and
+turns; the stator (radii 45 to 67.5\,mm) is fixed and carries the windings
+in the slots between its teeth. Axial length is $L=0.1$\,m. The 1\,mm air
+gap is split at the coupling radius $r_c=44.5$\,mm, where the separately
+meshed rotor and stator meet. Figure~\ref{fig:geometry} shows the initial
+design with its parts, the eight scalar design parameters that form the
+smaller design space, S8, and the 55 control points whose grouped offsets
+the larger space, S18, adds (both defined in
+Section~\ref{sec:optimization}).
+
+\begin{figure}[htbp]
+\centering\includegraphics[width=\linewidth]{figures/geometry.pdf}
+\caption{Initial design, rendered from the committed coarsest mesh
+(element edges hidden). (a) The modeled sector and its parts, with the
+rotor parameters: MAG, iron depth between the magnet and the rotor surface
+on the pole axis; MH, magnet height; MW, magnet width. Winding group~1,
+whose current density the reference optimizer holds fixed
+(Section~\ref{sec:gradients}), is hatched. (b) One slot, turned so that its
+axis is vertical, with the stator parameters: SW1, tooth width; SW2 and
+SW3, width and depth of the slot opening; SW4, back-iron depth on the slot
+axis; Sr1, radius of the fillets at the slot bottom. (c) The 55 control
+points on the rotor surface and the stator bore, by polar angle. The
+18-parameter space S18 (Section~\ref{sec:optimization}) adds ten offsets,
+one per group (CPR1--CPR7 on the
+rotor, CPS1--CPS3 on the stator); an offset moves every point of its group
+radially by the same distance, inward on the rotor (at most 1.5\,mm, 1\,mm
+for CPR3) and outward on the stator (at most 0.5\,mm). Markers in (a) and
+(b) use the colors of (c).}
+\label{fig:geometry}
+\end{figure}
+
+The reference describes the geometry as NURBS patches, spline pieces
+defined by weighted control points, and the reconstruction uses its initial
+exports. Their control points are stored with weights already multiplied
+in, and patch orientation must be accounted for when integrating areas. Two
+thin rotor patches described as air slits in source comments receive iron
+under the reference's material assignment; we follow that assignment. The
+mesh generator, built on Gmsh 4.15.2 \citep{geuzaine2009gmsh}, keeps the
+12 winding groups (the two coil sides of each slot) separate, since their
+two characteristic areas are approximately 36.29 and 31.22\,mm$^2$.
+
+At mechanical angle $\beta$, phase currents are
+\begin{equation}
+ I_q(\beta)=a I_*\sin(\phi_0+3\beta+\delta_q),\qquad
+ (\delta_U,\delta_V,\delta_W)=(0,-2\pi/3,2\pi/3),
+ \label{eq:current}
+\end{equation}
+where the current fraction $a\in\{0,0.5,1\}$ selects three operating
+states (at $a=0$ only the magnets act; $a=0.5$ and $1$ are loaded),
+$I_*=9.677657374$\,A, and the electrical phase offset $\phi_0=0$ for the
+initial design. Angles in
+Eq.~\eqref{eq:current} are in radians. Each winding group carries current
+density $J_g=12s_g I_q/|\Omega_g|$, with its own area and prescribed sign
+$s_g\in\{-1,1\}$. Using a common area would change the current density
+between groups by about 16\%. We compare 20 distinct mechanical angles,
+$0^\circ,1^\circ,\ldots,19^\circ$, excluding the duplicated endpoint in
+the source CSV. The reference's optimization grid contains the ten even
+angles; both grids are retained in the artifacts.
+
+\subsection{Field model and rotor--stator coupling}
+We solve two-dimensional nonlinear magnetostatics for the vector potential
+$A_z$ with continuous piecewise-linear triangles and a tabulated M27 iron
+law, using Newton's method with the consistent material tangent. The
+separately meshed rotor and stator meet on the coupling circle, across
+which the rotor mesh turns, in one of two ways. A conforming interface
+identifies matching trace nodes after rotation. The harmonic model,
+following the reference, matches the two sides only in the Fourier modes
+of the field on that circle of orders $n=3,9,\ldots,N_h$, through Lagrange
+multipliers, with $N_h=45$ unless stated otherwise. It passes only the
+lower orders of the interface field, like a low-pass filter; a higher
+interface order $N_h$ passes more of them, and the conforming interface
+passes all that the mesh resolves. Torque is evaluated either by the
+Arkkio expression, the Maxwell stress averaged over the air-gap annulus
+\citep{arkkio1987}, or, for the harmonic model, by the coupling torque, the
+derivative of the stored energy with respect to rotation through the
+interface constraint \citep{egger2022torque}. The forward comparisons of
+Section~\ref{sec:coupling-results} use Arkkio for both couplings to
+isolate the interface change; the derivative study of
+Section~\ref{sec:gradients} pairs harmonic coupling with coupling torque
+and conforming coupling with Arkkio; and the optimization study of
+Section~\ref{sec:optimization} runs its optimizers on order-45 coupling
+torque (its \emph{coarse simulation}) and scores them at order 93 (its
+\emph{validation simulation}). Retaining every order below the trace
+Nyquist limit reproduces the conforming Arkkio torques within
+$4.1\times10^{-9}$\,N\,m and $1.3\times10^{-9}$\,N\,m on the two coarsest
+meshes, L0 and L1 (Section~\ref{sec:meshes}), without fitting any
+parameter to the saved torque. Appendix~\ref{sec:fieldmodel} gives the
+weak form, tangent, iron law, coupling constraints and torque expressions.
+
+\subsection{Meshes and statistics}\label{sec:meshes}
+The study uses four meshes, L0 (coarsest) to L3 (finest), with 3,153,
+9,937, 36,083 and 139,268 nodes. The $60^\circ$ coupling arc has $120\cdot2^\ell$ segments at level
+$\ell$, so integer-degree rotation is represented at every level.
+A solution at one angle initializes the next angle at the same current.
+We report the mean $\bar T$ and the population standard deviation
+$\sigma_T$ of the torque over the $N=20$ angles; $\sigma_T$ is the ripple
+metric. At zero current it measures
+cogging, the torque variation caused by the permanent magnets and slots
+without applied phase current. The squared-ripple objective is
+$F=\sum_{a\in\{0,0.5,1\}}\sigma_T(a)^2$, in $\mathrm{N^2\,m^2}$, on the
+20-angle grid. Torque ripple is a source of vibration and acoustic noise,
+and the reference optimization minimizes it; because a design can also
+lower ripple by giving up torque, the optimization study holds a floor on
+the mean torque
+(Section~\ref{sec:optimization}). Appendix~\ref{sec:fieldmodel} lists the
+implementation checks.
+
+\subsection{Interface order sets the validation simulation}\label{sec:coupling-results}
+Table~\ref{tab:torque} compares the same geometry, material and excitation
+with two interface models. The conforming L3 means are 0.15\% and 0.16\%
+below the saved reference at half and full current. Harmonic coupling reduces the mean deviations
+to $-0.002\%$ and $+0.051\%$, with both reference means inside the estimated
+refinement intervals. The loaded ripple deviations fall from $+9.9\%$
+and $+11.3\%$ to $+1.7\%$ and $+1.3\%$.
+
+\begin{table}[htbp]\centering\small
+\caption{L3 population standard deviation and mean torque, in N\,m per
+sector, on the 20-angle grid. The last column gives ripple deviation from the
+saved reference; n/a identifies the reference itself. The reference is
+subsequently refined in Section~\ref{sec:refinement}.}
+\label{tab:torque}
+\input{tables/coupling.tex}
+\end{table}
+
+Spatial refinement at fixed order and order refinement on a fixed mesh
+answer different questions (Fig.~\ref{fig:convergence}; Appendix~\ref{sec:forward} defines the refinement interval). At L3, order 45
+raises cogging standard deviation by about 59\% and lowers loaded
+standard deviation by 7--9\%, relative to the conforming values. At L1 and L2,
+order 189 approaches the conforming torque to within $1.1\times10^{-4}$\,N\,m.
+A spatially refined order-45 solution thus remains a solution of a
+truncated interface model. Matching that truncation improves reproduction
+of the published calculation; it does not establish which model better
+represents the physical motor.
+
+\begin{figure}[!t]\centering
+\includegraphics[width=.92\linewidth]{figures/coupling-convergence.pdf}
+\caption{Left: ripple deviation from the reference under spatial
+refinement, with solid lines for harmonic order 45 and dashed lines for
+conforming coupling; L3 bars use Eq.~\eqref{eq:band}. Right: order
+refinement on L1 with logarithmic order spacing, normalized by the
+conforming ripple at that same level.
+The saved reference uses order 45; see Section~\ref{sec:refinement} for its
+refinement. Colors identify current, not coupling.}
+\label{fig:convergence}\end{figure}
+
+Rerunning the public reference with its own isogeometric model at four
+refinement levels reduces its cogging discrepancy with GEODE from 12.9\%
+to 0.10\%, so the coarse saved reference explains the initial cogging gap
+at matched order, although neither refinement sequence is fully converged.
+For the reference's saved optimized design (its iteration-120 design,
+Opt120), raising the order from 45 to 93 multiplies its squared-ripple
+objective by 3.6. Appendix~\ref{sec:forward}
+gives these checks, the estimator and material controls, and the saved
+design's size and current normalizations. For the optimization study
+(Section~\ref{sec:optimization}) this sets the validation simulation: its
+optimizers search at order 45, and a design is credited only after it is
+rescored at order 93 on a finer mesh, so that a reduction that exists only
+in the truncated model does not count.
+
+\section{Design-gradient verification}\label{sec:gradients}
+\subsection{Differentiated model and excitation policy}
+For a design vector $p$, the converged state $z$ contains the reduced
+potential and, for harmonic coupling, its multipliers. Writing the full
+constrained residual as $R(z,p)=0$, the discrete adjoint is
+\begin{equation}
+ R_z^T\psi=F_z^T,\qquad
+ \frac{\dd F}{\dd p}=F_p-\psi^T R_p.
+ \label{eq:adjoint}
+\end{equation}
+We differentiate mesh coordinates, element terms, magnet sources, current
+loads, harmonic constraints and the torque functional. The explicit
+coordinate derivative of Arkkio is included for conforming coupling.
+Fixed-topology mesh motion $X(p)$ supplies the chain rule
+$\dd F/\dd p_k=\langle\dd F/\dd X,\partial X/\partial p_k\rangle$
+for geometric parameters, with direct terms added where needed.
+
+The 12 parameters comprise nine geometric lengths (MAG, MH, MW,
+SW1--SW4, SD1 and Sr1), axial length, operating angle and radial scale.
+The two designs are the initial parameters and an interior point halfway
+toward the saved optimized scalar parameters
+(Appendix~\ref{sec:parameters}). This verifies a local scalar
+parametrization. The reference's optimized geometry also uses grouped
+surface-control displacements; reproducing its 12 scalar values alone
+does not reproduce that geometry. The gradients that the optimizers of
+Section~\ref{sec:optimization} use, including the grouped offsets of S18
+and its mesh-motion map, are checked separately there.
+
+The excitation rule changes these derivatives. Holding peak current fixed
+differs from the reference optimizer's rule, which holds winding-group-1
+current density fixed (Appendix~\ref{sec:cost} defines both). At L1
+(harmonic coupling, coupling torque, full current), the mean-torque
+derivative with respect to the stator tooth width SW1 is $+1.68$\,N\,m/m
+under fixed current and $-220.85$\,N\,m/m under fixed group-1 density
+(Fig.~\ref{fig:gradients}): a wider tooth narrows the slot and lowers
+current under the density rule. At this state the policy changes seven of
+the ten geometric/scale derivatives and reverses the mean-torque signs for
+SW1, SW4 and SD1. The fixed-size problem of Section~\ref{sec:optimization}
+holds physical current fixed for every method.
+
+\subsection{Finite differences and Taylor remainders}
+The derivative objectives are mean torque and population standard
+deviation on the ten even mechanical angles, matching the reference's
+optimization grid. Central differences move the same mesh at $p\pm h e_k$;
+step sweeps separate truncation from floating-point and nonlinear-solve
+error. We also check the first-order remainder
+$|F(p+h e_k)-F(p)-h\,\dd F/\dd p_k|$ for quadratic decay.
+
+Across initial and perturbed designs, L0--L2 and the recorded loaded
+current/rule subsets, there are 800 objective--parameter records. They pool
+harmonic/coupling-torque and conforming/Arkkio evaluations. The fixed-density
+MAG, MH and MW records repeat 96 fixed-current comparisons byte-for-byte,
+leaving 704 distinct comparisons. Of these, 688 have a best-step relative
+error at most $2.8\times10^{-7}$; the maximum is $1.07\times10^{-5}$ for
+a small Sr1 ripple derivative. This is a best-step verification statistic,
+not the accuracy of a finite-difference step chosen in advance.
+Figure~\ref{fig:gradients} includes the 704 distinct cases and an explicit
+Taylor sweep. The artifact retains every step, rejected displacement and
+relative error. The recorded subsets do not form a full factorial study.
+Of 592 eligible distinct loaded comparisons, 530 have a quadratic
+Taylor-remainder window spanning at least four decades of step size.
+Verified is not the same as model-independent: at the same design the two
+model--estimator pairs give ripple sensitivities whose box-scaled vectors
+differ by 6.7\% and 10.2\% of their norm, more than either changes under
+mesh refinement. Appendix~\ref{sec:cost} gives the Taylor windows, the
+weaker zero-current checks, mesh convergence and this model dependence.
+
+\begin{figure}[!htb]\centering
+\includegraphics[width=.72\linewidth]{figures/design-gradients.pdf}
+\caption{Discrete gradient evidence. (a) The 704 distinct loaded best-step
+finite-difference errors, sorted, pooling harmonic/coupling-torque and
+conforming/Arkkio objective--parameter cases. (b) SW1 Taylor remainders at L1, initial design,
+full current, harmonic coupling and coupling torque, fixed current; the
+plotted remainders are divided by $|F(p)|$, and dotted $h^2$ guides are anchored at $h=10^{-5}$\,m. (c) Mean-torque sensitivities for the nine geometric
+parameters under two current rules at that same state; the vertical axis
+is symmetric-log, linear within $\pm2$\,N\,m/m. (d) Recorded cost
+ratios for harmonic coupling at tolerance $10^{-14}$; gradients include
+the forward evaluation, and FD includes its shared base forward.
+L0/L1 use medians of three runs, L2 a single run; the seconds are in
+Appendix~\ref{sec:cost}.
+These timing data were collected under uncontrolled host load.}
+\label{fig:gradients}\end{figure}
+
+On one loaded host, across L0--L2, both couplings and tolerances $10^{-8}$
+and $10^{-14}$, the full gradient of both aggregate objectives with respect
+to all 12 parameters costs 1.13--1.20 forwards, whereas central differences
+cost 8.2--10.5 including the shared base solve (Fig.~\ref{fig:gradients}d;
+Appendix~\ref{sec:cost} gives the protocol and seconds). A forward here is
+one ten-angle sweep at full current on a multithreaded host, not the
+60-solve, single-core forward charged in the optimization study
+(Section~\ref{sec:optimization}); the two studies' cost ratios are not
+interchangeable.
+
+\input{optimization}
+
+\section{What transfers, and limits}\label{sec:discussion}
+Three findings should transfer beyond this motor. First, SLSQP's advantage
+over a derivative-free search factors into a gradient factor and an
+optimizer factor, and both matter (Table~\ref{tab:decomp}). Second, with the
+optimization path held fixed, the gradient factor is a ratio of
+end-to-end times, not of gradient costs. The adjoint made the gradient
+about 5\% of the time to target, so the time every arm spends on
+validation and coarse forwards bounds the factor: per-gradient cost
+ratios of 18--70 became end-to-end ratios of 1.71--4.11, and from 8 to 18
+parameters the per-gradient ratio grew about as $n$ while the end-to-end
+ratio grew 1.6- to 1.7-fold. The factor also depends on how the stencil is
+solved: warm-starting it halved the cost of a stencil solve and cut the
+gradient factor from 2.47 and 4.11 to 1.71 and 2.70, at some cost in
+accuracy on small components, and a cheaper gradient still, such as a
+direct or semi-analytic sensitivity, would shift more of the advantage to
+the optimizer factor. Third, validating each incumbent compresses
+same-resolution ratios toward one and inflates SLSQP's lead over the
+coarse competitor D, which needs more validated incumbents
+(Section~\ref{sec:optimization}).
+
+The evidence has clear limits. It is a paired case study over five
+deterministic starts of one motor; the ratios are not population estimates.
+The ablations are post hoc; FD-cold's forward differences carry a truncation
+error and FD-warm's warm stencils a Newton-tolerance offset, each exceeding the
+per-component check limit on small components (Section~\ref{sec:exp2-fd}). CMA-ES and other population or
+multi-start methods remain untested.
+Method C ran with the preregistered settings of
+Appendix~\ref{sec:settings} and was not tuned; its low attainment bounds
+this configuration, not radial-basis surrogates in general. No reduced
+physical model, such as a nonlinear magnetic equivalent circuit
+\citep{kemmetmueller2015}, a waveform-targeting surrogate \citep{roomi2022}
+or an adaptive reduced model \citep{wen2023}, was compared: D searches a coarse finite-element simulation, not such a baseline, and
+the slotless screening control of Appendix~\ref{sec:slotless} cautions
+against inferring an advantage from parameter count alone. The forward model is two-dimensional and
+magnetostatic, without thermal, demagnetization, fatigue, end-effect or
+loss models, and is compared with published computational artifacts, not
+with measurements on a physical motor.
+
+Cheap, verified gradients also make methods affordable that this study did
+not test. Second-order information is one: Hessian-vector products through a
+second-order adjoint, or quasi-Newton methods driven by exact gradients beyond
+the BFGS update inside SLSQP. Gradient-enhanced population and multistart
+searches are another, such as particle swarms or CMA-style searches seeded or
+steered by adjoint gradients, with runs in parallel across starts; every run
+here used one single-threaded core. Each still pays for validation and coarse
+forwards, which already bound the end-to-end gain (Fig.~\ref{fig:decomp}), and
+can gain beyond that only by needing fewer of them or, in wall time but not in
+compute, by running them in parallel. A natural next problem for the same
+pipeline is the rotor flux-barrier design of synchronous reluctance machines,
+a classic shape-optimization target because their torque ripple is high;
+gradient-based free-form shape optimization has already been applied to such a
+machine \citep{gangl2022multi}.
+
+\section{Conclusion}
+On a common validation simulation, SLSQP with adjoint gradients reached the
+primary ripple targets 3.10 and 7.79 times sooner than COBYQA with 8 and 18
+parameters, and post-hoc ablations split that advantage into two factors.
+The gradient factor, adjoint against forward differences in the same
+SLSQP, was 1.71 and 2.70 against warm-started stencils and 2.47 and 4.11
+against cold ones; the optimizer factor, COBYQA against finite-difference
+SLSQP, made up the rest. The adjoint left the gradient about 5\% of the
+time to target, so validation and coarse forwards now bound the
+remaining gain. Before trusting such a gradient, check what it
+differentiates: interface order and excitation rule change the objective
+or its sensitivities.
+
+\section*{Author contributions}
+C.D. wrote the four-layer operator specification that GEODE realizes
+\citep{dunnavant2026whiteroom}, whose layers are unrelated to the mesh
+levels L0--L3, and gave design input and review. R.W. ran the work and the
+software agents that carried it out and is responsible for the results.
+
+\section*{Code and data availability}
+The original forward and gradient evidence is fixed at GEODE commit
+\href{https://github.com/rjwalters/geode-fem/tree/910593bad6f64f9f01671c2632b57034e72b9c61}{\texttt{910593ba}}.
+The repository contains the
+\href{https://github.com/rjwalters/geode-fem/tree/910593bad6f64f9f01671c2632b57034e72b9c61/benchmarks/motor_reference/forward_harmonic}{raw motor runs and analysis},
+\href{https://github.com/rjwalters/geode-fem/tree/910593bad6f64f9f01671c2632b57034e72b9c61/benchmarks/motor_reference/geometry}{geometry and mesh-generation scripts},
+\href{https://github.com/rjwalters/geode-fem/tree/910593bad6f64f9f01671c2632b57034e72b9c61/benchmarks/motor_shape_gradient/design}{design-gradient sweeps and timing records},
+and \href{https://github.com/rjwalters/geode-fem/tree/910593bad6f64f9f01671c2632b57034e72b9c61/benchmarks/motor_nonlinear_m1}{solver verification logs}.
+Candidate-validation records are pinned at
+\href{https://github.com/rjwalters/geode-fem/tree/224332c526be1191183af82b610973c7778de720/benchmarks/motor_validation}{\texttt{224332c5}},
+and independent reference reruns at
+\href{https://github.com/rjwalters/geode-fem/tree/8acd21ecf85d89fe077275a3c04ca70b53963d43/benchmarks/motor_reference/reference_refinement}{\texttt{8acd21ec}}.
+Reference data are extracted from the authors'
+\href{https://github.com/MichaelWiesheu/ICEMsnapshot/tree/b145aaf4ab1a6424828bc941eaf172f48fa0d458}{ICEM snapshot at \texttt{b145aaf4}},
+a later repository revision rather than a claim to the original conference
+release. Source hashes, extraction checks and the upstream GPL-3.0-or-later license
+are retained. Recomputing the physical study requires the separately
+documented mesh and solver commands; the benchmark READMEs record the
+GEODE-side Gmsh and Rust toolchain versions.
+
+\begin{sloppypar}
+The matched optimization study (Section~\ref{sec:optimization}) follows the
+optimization harness at
+\href{https://github.com/rjwalters/geode-fem/tree/9486a9da58beeca91968d4d3608f06b998abff45/benchmarks/motor_optimization}{\texttt{9486a9da}},
+the source of the study's evaluator, and its
+\href{https://github.com/rjwalters/geode-fem/tree/9486a9da58beeca91968d4d3608f06b998abff45/benchmarks/motor_optimization/runs}{coarse-gradient finite-difference records};
+the final-refinement binary was built from the program at
+\href{https://github.com/rjwalters/geode-fem/blob/63b3e3d8bbc30504f845eebb5b78e8be6a2ee12f/crates/geode-core/examples/icem_final_refinement.rs}{\texttt{63b3e3d8}},
+which differs from the version at
+\href{https://github.com/rjwalters/geode-fem/blob/3e4ee0c63a86dbf014a76c9faf04dd962da16911/crates/geode-core/examples/icem_final_refinement.rs}{\texttt{3e4ee0c6}}
+only by one unused import.
+This paper's PDF and \LaTeX{} source are archived at
+\href{https://doi.org/10.5281/zenodo.23580548}{doi:10.5281/zenodo.23580548}.
+The paper package is the directory
+\href{https://github.com/rjwalters/geode-fem/tree/main/papers/motor-gradient-optimization/motor-gradient-optimization.22}{\texttt{papers/}\allowbreak\texttt{motor-gradient-optimization/}\allowbreak\texttt{motor-gradient-optimization.22}}
+of the \href{https://github.com/rjwalters/geode-fem}{GEODE repository}. It
+contains a manifest of every copied input with its source commit and
+SHA-256, the figure inputs and regeneration scripts (rebuilding the figures
+does not require rerunning FEM), four standard-library verifiers (one
+entry point that runs the other three) that recompute the reported numbers
+from those inputs, the per-run validation
+histories and ledger charges, the 213 final-check results, copies of the
+coarse-gradient checks, and the study's SHA-256 inventory of all 5,453
+output files. The inventory was taken when the session finished; its
+existence by 2026-10-20 03:50~UTC is timestamped (RFC~3161 and
+OpenTimestamps), and each extracted run and session record is bound to it
+by hash. The session, calibration and anchor-recomputation records are
+included, as is an export of the governing preregistration comments taken
+on 2026-10-18 at 09:34~UTC, before the main session began at 18:16~UTC.
+\end{sloppypar}
+
+For the two post-hoc ablations (named \texttt{F} and \texttt{F\_w} in their records), the package holds the 40 and 20 run
+extracts with their evaluation timelines, the setup records, each session's SHA-256 inventory (2,118 and
+1,180 files) with its RFC~3161 and OpenTimestamps records, the final-check
+results, the comparison of the original and rebuilt refinement binaries,
+and an export of each protocol. FD-cold's evaluator source is
+\href{https://github.com/rjwalters/geode-fem/tree/5cc86ad81aeea4847a2608fcafde22a1bbfb6990/benchmarks/motor_optimization}{\texttt{5cc86ad8}},
+its L1 gradient check is pinned at
+\href{https://github.com/rjwalters/geode-fem/tree/74843242db03e8d57edf971420171064bf19f107/benchmarks/motor_optimization/harness}{\texttt{74843242}}
+and its step sweep at
+\href{https://github.com/rjwalters/geode-fem/tree/f94acad3f312c7d417830ff82b66a78a1ea89fb2/benchmarks/motor_optimization/harness}{\texttt{f94acad3}};
+FD-warm's evaluator source and L1 checks are at
+\href{https://github.com/rjwalters/geode-fem/tree/669029c5653cb5fe4724ec0c7525ba60c770975e/benchmarks/motor_optimization}{\texttt{669029c5}}.
+FD-cold's \href{https://github.com/rjwalters/geode-fem/issues/1218}{protocol}
+was posted at 22:34~UTC on 2026-10-20 and frozen by a comment at
+23:00~UTC, before the first FD-cold run began at 02:07~UTC on 2026-10-21;
+FD-warm's timeline is in Appendix~\ref{sec:exp2-times}. These are GitHub
+timestamps, and neither protocol text was ever edited. The raw traces of all
+three sessions, the 5,453, 2,118 and 1,180 inventory-listed files with the
+inventories and their timestamp records, are packed in one archive with
+each session's final-check requests and results, the ablations' selection
+outputs and the binary comparison with the rebuilt binary:
+\texttt{motor-paper-raw-traces.tar.zst} (2,790,582,024 bytes, SHA-256
+\texttt{1dfbf3883a9f1f3d8ddc44f67ce594b8}\allowbreak\texttt{8291ec235a154337d24efa07a1b98b07}), deposited at
+DOI \href{https://doi.org/10.5281/zenodo.23580550}{10.5281/zenodo.23580550}. Every file was checked against its inventory
+when the archive was built, and the archive's manifest lists the SHA-256
+of every file it holds. Given the unpacked archive, the package's verifiers
+re-derive the run, timeline and final-check extracts of all three sessions
+from the raw traces and results.
+
+\appendix
+\section{Field model details}\label{sec:fieldmodel}
+\subsection{Nonlinear field equation}
+The two-dimensional magnetic vector potential $A=A_z$ determines the
+flux density $\mathbf B=(\partial_y A,-\partial_x A)$. Iron is described
+by an isotropic reluctivity $\nu(|\mathbf B|^2)$, where reluctivity is
+the inverse of permeability. For a test function $v$ that satisfies the
+homogeneous constraints, the weak equation is
+\begin{equation}
+ \int_\Omega \nu(|\nabla A|^2)\nabla A\cdot\nabla v\dd\Omega
+ =\int_\Omega J_z v\dd\Omega
+  +\int_{\Omega_m}\mathbf M\cdot(\partial_y v,-\partial_x v)\dd\Omega.
+ \label{eq:weak}
+\end{equation}
+Here $\mathbf M$ denotes the permanent-magnet source in
+$\mathbf H=\nu\mathbf B-\mathbf M$. In the magnet,
+$\mu_r=1.05$ and $B_r=1.4$\,T, so its source magnitude is
+$H_c=B_r/(\mu_0\mu_r)$, not $B_r/\mu_0$. Its direction is $\pi/2$
+in the rotor frame and rotates with the rotor. Air and windings have
+$\mu_r=1$. The inner and outer circular boundaries have $A=0$.
+
+We use continuous piecewise-linear triangles. With nodal vector $u$,
+element gradients $g_i=\nabla\varphi_i$, $G=\nabla A$ and $s=G\cdot G$,
+the residual derivative on one element is
+\begin{equation}
+ K^e_{ij}=|\Omega_e|\left[\nu(s)g_i\cdot g_j
+       +2\nu'(s)(g_i\cdot G)(g_j\cdot G)\right].
+ \label{eq:tangent}
+\end{equation}
+The second term is required when the material changes with field strength.
+Newton steps use this consistent tangent, with damping and a stopping
+reference independent of the initial guess. Constant potential offsets,
+where allowed by the boundary conditions, do not change that reference.
+The solver reports whether it stopped at the requested tolerance or an
+estimated floating-point floor. All 500 baseline and sensitivity solves, and all 1,140
+additional harmonic-coupling solves, stopped at the requested tolerance.
+
+The iron law uses 47 tabulated M27 $B$--$H$ points from 0 to 2.30\,T.
+Monotonicity is imposed on $H(B)$, not on $\nu(B^2)=H(B)/B$.
+The tabulated $H/B$ is non-monotone up to about 0.75\,T.
+The two material tangent eigenvalues must satisfy
+\begin{equation}
+ \nu>0,\qquad \nu+2s\nu'=\frac{\dd H}{\dd B}>0.
+\end{equation}
+The GEODE and reference interpolants agree to round-off between 0.05 and
+2.25\,T. GEODE uses an odd cubic near zero and a continuous slope into the
+vacuum-slope tail above 2.30\,T. The reference uses a low-field clamp and
+a different last-knot slope. The maximum relative difference in
+reluctivity near zero is 6.66\%; the last segment differs in $H$ by at
+most $2.17\times10^{-4}$ relatively. Appendix~\ref{sec:controls} tests the
+torque effect of the low-field difference.
+
+\subsection{Rotation, coupling and torque}
+At the modeled angles, the two circular traces have matching nodes after
+rotation. Our conforming interface identifies their potentials, including
+the antiperiodic sign on sector wrap-around. Writing the full nodal vector
+as $u=P\hat u+u_D$, the reduced residual and tangent are
+$\hat R=P^T R(P\hat u+u_D)$ and $\hat K=P^T K P$.
+The rotor geometry and magnet source rotate together; currents use the
+same mechanical angle in Eq.~\eqref{eq:current}.
+
+We average Maxwell stress over the air gap using the Arkkio expression
+\citep{arkkio1987}
+\begin{equation}
+ T(\beta)=\frac{L}{\mu_0(r_2-r_1)}
+  \int_{\Omega_{\rm gap}}r B_r B_\theta\dd\Omega,
+ \qquad(r_1,r_2)=(44,45)\ {\rm mm}.
+ \label{eq:torque}
+\end{equation}
+Positive torque acts counter-clockwise on the rotor. All torques in this
+paper include axial length and refer to the modeled sector. We apply no
+factor of six when comparing with the saved reference arrays, despite a
+per-length label appearing in the reference evaluation plots.
+
+The alternative harmonic model imposes
+\begin{equation}
+ \int_{\Gamma_c}(A_s-A_r)e_n\dd\Gamma=0,\qquad
+ e_n\in\{\sin(n\theta),\cos(n\theta)\},\quad n=3,9,\ldots,N_h,
+\end{equation}
+with maximum order $N_h=45$ unless stated otherwise. The 16 order-45
+constraints match the reference's eight orders. Rotor and stator
+retain distinct trace unknowns. With constraint matrix $C$, Lagrange
+multipliers $\eta$ and reduced potential $\hat u$, Newton's method uses
+the saddle tangent
+\begin{equation}
+ \begin{bmatrix}K&C\\ C^T&0\end{bmatrix}.
+\end{equation}
+The trace moments use the exact Fourier integrals of the piecewise-linear
+hats. Rotation enters their centers; the constrained energy derivative gives
+\begin{equation}
+ T_c=-L\eta^T\frac{\partial(C^T\hat u)}{\partial\beta},
+ \label{eq:couplingtorque}
+\end{equation}
+with the state held fixed in the partial derivative, consistent with
+\citet{egger2022torque}. The studies pair couplings and estimators as
+stated in Section~\ref{sec:model}, with coupling torque as a separate check
+in the forward comparisons; the two objectives and their gradients are
+consequently comparisons of those specified model--estimator pairs.
+
+The main harmonic runs retain antiperiodic trace-end pairing. An additional
+set frees those ends, matching the reference's treatment. The full-order
+identity check is summarized in Section~\ref{sec:model}.
+
+\subsection{Implementation checks}
+The nonlinear implementation is checked against linear assembly, residual
+finite differences, a manufactured solution and a saturated annulus with
+an independent radial field relation. Sector tests compare the
+constrained solution with a full-machine solve, check the reduced tangent
+by finite differences, and exercise positive, negative and wrapped rotation
+steps. Clockwise and counter-clockwise triangle orderings give equivalent
+magnet sources and fields. The motor regression also detects changes in
+magnet strength, magnet direction, phase ordering and rotation direction.
+The verification records are linked in the data-availability section.
+
+\section{Optimizer and search settings}\label{sec:settings}
+Table~\ref{tab:settings} lists the settings a replication needs beyond
+Section~\ref{sec:optimization}; the pinned harness documents them in full.
+All methods work in the unit box $u\in[0,1]^n$ of the free coordinates,
+minimize $F_r/F_r(\theta_0)$ on their coarse simulation $r$ and impose the
+mean floor as $\bar T_{r,1}/\bar T_{r,1}(\theta_0)-1.0025\geq0$.
+No method validates its start point, and a point validated once is not
+validated again.
+
+\begin{table}[H]\centering\small
+\caption{Optimizer settings. $n$ is the number of free coordinates (8 or
+18), $x_v$ the last admissible evaluated point and $x$ a refused request.}
+\label{tab:settings}
+\begin{tabular}{>{\raggedright\arraybackslash}p{.11\linewidth}>{\raggedright\arraybackslash}p{.83\linewidth}}\toprule
+Method & Settings\\\midrule
+A, E & SciPy SLSQP, \texttt{ftol} $10^{-15}$, \texttt{maxiter} $10^5$. Adjoint gradients of the objective and the mean constraint; analytic Jacobians of the geometry constraints. Safeguard: a refused request (unbuildable, mesh-infeasible or derivative undefined) aborts the current solve; the first admissible point $y_k=x_v+2^{-k}(x-x_v)$, $k=1,\ldots,20$, is restored and SLSQP restarts from it with fresh state, at most 20 times. Validation: each iterate the SLSQP callback reports.\\
+B, D & SciPy COBYQA, $2n+1$ initial interpolation points, trust radius $0.1$ to $10^{-6}$, \texttt{maxiter} $=$ \texttt{maxfev} $=10^9$. A refused point returns NaN for objective and mean constraint; geometry constraints keep their values. Validation: the callback's best point whenever it changes, after the initial set.\\
+C & Four cubic radial-basis interpolants, $\phi(r)=r^3$ with a linear tail: the three objective-current standard deviations, each over $\sqrt{F_r(\theta_0)}$, and the full-current mean, refitted after every evaluation. Initial design: the start and $u_0\pm\Delta_0e_i$, $\Delta_0=0.1$ ($n+1$ points). Subproblem: SLSQP on the surrogate in the box and $\|u-u_k\|_\infty\leq\Delta$, at most 200 iterations. Acceptance: a candidate better than the incumbent, feasible first (lower violation, then lower $F$). On acceptance with $\rho\geq0.75$ and a step of at least $0.9\Delta$, $\Delta\leftarrow\min(2\Delta,0.5)$; on rejection $\Delta\leftarrow\Delta/2$, with a geometry point $u_k\pm\Delta e_j$ after every second rejection. Stop at $\Delta<10^{-6}$. Refused points are skipped and count as rejections. Validation: each acceptance.\\
+\bottomrule\end{tabular}
+\end{table}
+
+The Latin-hypercube starts \citep{mckay1979comparison} use seeds 1--4;
+the computations use NumPy \citep{harris2020array} and SciPy
+\citep{virtanen2020scipy}.
+
+\section{Study protocol details}\label{sec:protocol-details}
+\paragraph{Coarse gradients.}
+Section~\ref{sec:gradients} verifies a different, scalar parameter set; the
+gradients that A and E use were checked separately. In both spaces, the L1
+coarse objective $F$ and full-current mean were compared with central
+differences at $\theta_0$ and at an interior point, along a fixed
+box-scaled direction and for three (S8) or four (S18) components,
+including the offsets CPR1 and CPS1. With Newton tolerance $10^{-12}$, the
+directional relative errors at $h=10^{-4}$ are $1.5\times10^{-8}$ to
+$2.8\times10^{-7}$ for $F$ and $2.4\times10^{-9}$ to $4.7\times10^{-9}$ for
+the mean, and the component errors at $h=10^{-6}$ are at most
+$2.8\times10^{-6}$. The directional error falls by 72 to 156 times from
+$h=10^{-3}$ to $10^{-4}$, as truncation error should. The evaluator's own
+gradient replies at the coarse simulation's Newton tolerance of $10^{-8}$ agree at
+the interior point within $3.1\times10^{-6}$ directionally; the largest
+component error, $4.3\times10^{-5}$, belongs to the small Sr1 derivative.
+At $\theta_0$, S18's offsets sit on their bounds, so the central
+stencils there step outside the design box. The records are pinned with the
+optimization harness (Code and data availability).
+
+\paragraph{Session.}
+The session ran on one AWS c7a.4xlarge host (x86-64; NumPy 2.5.4 and
+SciPy 1.18.1 with OpenBLAS) with 15 concurrent single-threaded processes.
+Before calibration, the host recomputed the initial-design validation
+waveforms in both spaces. $F_0$ agreed with the canonical anchor to
+$2.4\times10^{-13}$ relative, within the preregistered $10^{-9}$ tolerance,
+and the two spaces agreed bit for bit. The calibrated unit was
+$70.94\,\mathrm{s}$, the median of 45 concurrent cold validations. All 100
+runs completed in one session with no recovery, deferral or contamination:
+the one-minute load average peaked at 21.1, below the contamination
+threshold of $1.5N=22.5$. The in-run cost totals 109~CPU-hours. Of the
+100 runs, 38 stopped on reaching $T_{99}$, 46 on optimizer convergence and
+13 at the budget. The other three are SLSQP runs (A) in S8 whose
+solver stopped without converging: both repeats from LHS~2, after about 43
+units, and repeat~1 from LHS~3, after 119 units.
+
+\paragraph{Refinement host.}
+The registered pipeline begins by capturing the closed study on its
+original host, a step that could not be completed after that host had been
+restarted. The refinement instead used a copy of the study outputs whose
+integrity is established by a SHA-256 inventory of every output file, taken
+when the session finished, and independently timestamped; the timestamps
+establish that the inventory existed by 2026-10-20 03:50~UTC. It ran on a different host (Apple M3 Ultra,
+macOS arm64). For the 16 selected designs validated on the moved reference
+mesh, the primary check reproduces the study's $F_{\mathrm{val}}$ to below
+$2.2\times10^{-12}$ relative. The other 15 candidates needed a fresh mesh,
+which Gmsh triangulates differently on the two platforms; their $F$
+differs by at most $1.7\times10^{-3}$ relative. The remaining two designs
+are $\theta_0$ in each space, which reproduces $F_0$. The fresh-mesh
+differences measure the sensitivity of $F$ to remeshing and are far below
+the 10\% allowance $\delta F$.
+
+
+\section{Per-start times, ratios and final checks}\label{sec:exp2-times}
+\begin{table}[H]\centering\small
+\caption{Charged wall-time units to the first attaining validation,
+repeat~1. A dash means the target was not attained within 120 units.
+$T_{99}$ was attained by no run in S8.}
+\label{tab:exp2-time}\input{tables/exp2-time-to-target.tex}
+\end{table}
+
+\begin{table}[H]\centering\small
+\caption{Paired per-start time ratios (repeat~1). B/A and D/E vary the
+optimizer at fixed resolution; E/A and D/B vary the resolution; D/A
+compares A with the coarse derivative-free competitor. Ratios above one
+favor the denominator. Geometric means use the finite pairs only, so the
+D/E and E/A means omit the starts where E failed to attain the target.}
+\label{tab:exp2-ratios}\input{tables/exp2-ratios.tex}
+\end{table}
+
+\begin{table}[H]\centering\scriptsize
+\caption{Final checks of the selected designs. ``best'' marks a method's
+representative; ``A $T_{90}$'' marks the earliest repeat-1 crossing of that
+target by that method. The L2 column is the primary check on the
+refinement host. L3 and conforming changes are in percent; the 40-angle,
+tight and shifted changes are relative, in units of $10^{-4}$. ``held-out'' is the objective at currents $0.25$ and
+$0.75$ relative to $\theta_0$'s at the same currents. A dash means the
+conforming check does not apply because stator offsets are nonzero.}
+\label{tab:exp2-refinement}\input{tables/exp2-refinement.tex}
+\end{table}
+
+\paragraph{Validation and the A--D contrast.}
+Excluding the validation charges up to each crossing
+(Section~\ref{sec:exp2-results}), two of the ten S8 D/A pairs favor D
+(0.97 and 0.54). We conjecture that part of the larger
+S18 optimizer-contrast ratios comes from COBYQA's initial interpolation set, which costs
+$2n+1=37$ coarse evaluations before its first model step there, against
+17 in S8.
+
+\paragraph{Held-out currents.}
+The held-out currents test the ripple reduction outside the three objective
+currents. We compare each design's objective at currents $0.25$ and $0.75$,
+relative to $\theta_0$'s at the same currents, with its relative objective
+at the objective currents. Across the candidates, the held-out ratio is 0.65
+to 1.73 times the objective-current ratio; values above one mean a smaller
+reduction at the held-out currents. For the five best S8 designs it
+is 1.07--1.09. In S18, four of the five best designs keep less of
+their reduction: their remaining objective fraction at the held-out currents
+is 1.23--1.73 times that at the objective currents, while for B's best
+design it is 0.89. D's best design has $0.0044F_0$ at the objective currents but
+$0.0076$ of $\theta_0$'s value at the held-out currents. Part of the extra
+reduction from S18's added freedom is therefore specific to the three
+objective currents.
+
+\begin{table}[tbp]\centering\small
+\caption{Validation charges, repeat~1. ``To crossing'' counts the
+validations up to and including the first attaining one, and ``share''
+gives the fraction of the time to that target charged to validation, as
+medians (ranges) over the method's attained targets and starts. ``Run''
+gives the range over starts of the fraction of the whole run's charged time
+spent in validation.}
+\label{tab:exp2-validation}\input{tables/exp2-validation.tex}
+\end{table}
+
+\paragraph{Ablation gradients and the optimizer factor.}
+On the L1 coarse simulation with the frozen step, FD-cold's gradients agree with the
+adjoint within a max-norm relative error of $5.2\times10^{-4}$ to
+$1.9\times10^{-3}$ for $F$ and at most $7.2\times10^{-4}$ for the
+full-current mean at $\theta_0$ and an interior point in each space, but
+one small component exceeds the check's per-component limit of $10^{-1}$
+through forward-difference truncation, which a central difference with the
+same step reduces from 0.24 to $2.2\times10^{-4}$ relative
+(below). In
+the FD-warm session a warm stencil evaluation takes a median of 60 Newton iterations over its 60
+field solves, against 170 and 167 for a cold coarse evaluation, and is
+charged a median of 0.117 and
+0.126 units against 0.220 and 0.233 for the session's base coarse forwards,
+about half. B/FD-warm per start, in each session's units, is 1.83,
+2.07, 1.01, 1.38 and 3.23 in S8 (geometric mean 1.76) and 6.11, 3.35,
+1.94 and 1.82 in S18 (2.92); in seconds, which removes the 3\%
+difference in time unit, the means are 1.81 and about 3.0.
+
+\paragraph{Cost estimate and measurement.}
+The two-factor estimates of Section~\ref{sec:exp2-fd} run 6--16\% above
+the measured ratios. Their cost model counts only coarse forwards, adjoints and
+stencil solves, so it omits the per-evaluation overhead of both arms
+(evaluator start-up, mesh motion and optimizer work), and it uses
+whole-run medians where the measurement runs to the crossing. The coarse
+forward that every coarse evaluation costs is taken per session: as a
+median over runs of coarse-simulation time per coarse forward, it is 0.240
+and 0.236 units for FD-cold against 0.232 and 0.245 for its A$'$, and
+0.220 and 0.238 for FD-warm's A$'$. FD-warm's coarse-simulation time also
+contains its warm stencils, so for FD-warm we take the median charge of
+one base coarse forward, 0.220 and 0.233 units (0.216 and 0.233 for its
+A$'$ on the same measure). Up to the
+crossings, an A$'$ evaluation costs a median 0.32 to 0.34 units, overhead
+included, against the cost model's 0.27 to 0.31, an excess of 10--17\%. The
+finite-difference arms' evaluations differ from their cost model by +7\% for both
+FD-cold and FD-warm in S8, and by $-5$\% (FD-cold) and +1\% (FD-warm) in S18. The overhead weighs most against A$'$'s cheap evaluations, which
+is where the cost model errs most. The gradient shares up to
+each crossing are counted from the evaluation timelines in the package.
+
+\paragraph{Validation in the ablation.}
+Validation is a median 61--65\% of A$'$'s time to
+a target and 16--27\% of FD-cold's (Table~\ref{tab:exp2b-validation}), which
+pulls the measured ratio toward one.
+
+\paragraph{Ablation runs after the crossings.}
+After the crossings in S8, FD-cold's SLSQP met its stopping test in two of ten runs and ran to the
+budget in the other eight, whereas A$'$ converged in four, stopped in the
+solver in four and reached the budget in two. The extra time bought FD-cold
+nothing: from every start its best validated objective is within 0.4\% of
+A$'$'s. Why FD-cold rarely met the stopping test (\texttt{ftol} $10^{-15}$,
+Table~\ref{tab:settings}) was not tested; it does not affect the time to
+target, since every crossing happens at the same validation count.
+
+\paragraph{Control.}
+As a check of the control,
+A$'$'s primary crossing times in the FD-cold session are 0.94--1.04 times those
+of the main-study A from the same start and repeat (0.97--1.05 in the
+FD-warm session), each in its own session's unit.
+
+\paragraph{Coarse and validation objectives.}
+The coarse simulation also reads lower than validation. At $\theta_0$, the
+order-45 coarse objective is 0.887 (L1) and 0.894 (L0) of $F_0$. At the
+31 selected designs, the ratio of coarse to validation objective lies
+between 0.57 and 1.19 times its $\theta_0$ value. The lowest values belong
+to S18 designs near $T_{99}$: E's and A's $T_{99}$ crossings (0.57 and
+0.71) and D's best design (0.65); the best S18 designs of B and C are at
+0.99 and 1.19. Large reductions therefore often, but not always, come with a
+coarse objective that underestimates validation more than at $\theta_0$.
+This is consistent with the cancellation conjecture of
+Section~\ref{sec:opt120} but does not establish it.
+
+\paragraph{Ablation session and finite-difference accuracy.}
+On the L0 coarse simulation, FD-cold's gradients agree with the adjoint to a max-norm
+relative error of $5.1\times10^{-4}$ to $1.9\times10^{-3}$ for $F$ and
+$1.0\times10^{-4}$ to $6.7\times10^{-4}$ for the full-current mean, at
+$\theta_0$ and an interior point in each space. Single small components are
+less accurate, up to $5.7\times10^{-2}$ for SW3 at the S18 interior
+point. These errors, at the frozen step, are part of what FD-cold is; the frozen
+acceptance limits were $5\times10^{-3}$ for the norm and $10^{-1}$ per
+component. The last gradient of each S8 $\theta_0$ run of FD-cold was cut
+off by the budget and is excluded from the cost medians. The L1 check was
+run after the ablation, with the frozen step
+and the frozen limits; it was not part of the ablation's protocol. Its
+status is FAIL because of one component: at the S8 interior point, the
+SW3 component of the mean gradient is $-9.62\times10^{-3}$ by finite
+differences against $-7.74\times10^{-3}$ by the adjoint, a relative error
+of 0.24, on a component $8.7\times10^{-5}$ times the largest. The records
+show a pattern rather than scatter. For every one of the eight scalar
+components, the finite-difference-minus-adjoint error of the mean gradient
+has the same sign at all four points, at L1 and at L0, and for SW3 it is
+nearly the same at all four (three distinct designs, since $\theta_0$ is
+shared by both spaces): $-1.8$ to $-1.9\times10^{-3}$ at L1 and $-3.0$ to
+$-3.1\times10^{-3}$ at L0. The SW3 failure is therefore this offset on a component whose adjoint
+value is small at that design. A step sweep at the failing point,
+recorded separately from the L1 check, identifies the offset. For SW3, MH
+and SW2, forward differences at steps of $10^{-5}$, $10^{-6}$ and
+$10^{-7}$\,m give an error that, divided by the step, keeps its sign and
+its size to within 0.9\% (3.0\% for the MH component of the objective
+gradient), as truncation error does and noise would not. Central
+differences remove it: the SW3 mean component's error falls from 0.24
+relative (forward, $10^{-6}$) to $2.2\times10^{-4}$ (central, $10^{-6}$),
+and its central error falls 94-fold from $10^{-5}$ to $10^{-6}$, close to
+the 100-fold that $h^2$ predicts. At $10^{-6}$ the remaining central errors
+of the MH and SW2 components are $9\times10^{-8}$ to $3.4\times10^{-7}$ in
+absolute terms, so computational noise at that step is of that order or
+smaller, unless it cancels against the remaining truncation term. For the
+mean gradient, the magnitude of SW3's forward error per unit step,
+$1.9\times10^{3}$\,N\,m/m$^2$, is smaller than MH's
+($2.8\times10^{3}$\,N\,m/m$^2$) and SW2's ($9.7\times10^{3}$\,N\,m/m$^2$), so SW3 fails because its mean-gradient
+slope at this design is small ($-7.7\times10^{-3}$\,N\,m/m), not because
+its curvature is large. In the terms of \citet{more2011estimating,more2012estimating},
+the frozen step lies where truncation, not computational noise, dominates
+the forward-difference error. The sweep is deterministic: a repeated base
+solve agrees bit for bit, and its forward values at $10^{-6}$ equal those of
+the L1 check.
+
+The session ran on the same type of host as the main study (c7a.4xlarge,
+15 concurrent processes) with a calibrated unit of $66.66\,\mathrm{s}$,
+against $70.94\,\mathrm{s}$ in the main session. The anchor recomputation
+again agreed within $2.4\times10^{-13}$, no run was host-contaminated, and
+the one-minute load peaked at 19.7. A SHA-256 inventory of the 2,118
+session files was taken on the host before it stopped and timestamped by
+two RFC~3161 authorities; every ablation number in this paper is
+recomputed from traces bound to it.
+
+\paragraph{Ablation final checks.}
+The final checks confirm FD-cold's and A$'$'s selected designs
+(Table~\ref{tab:exp2b-refinement}). All 90 checks of the 14 designs
+completed. The primary check reproduces the study's $F_{\mathrm{val}}$
+within $6.3\times10^{-4}$ relative. L3 changes $F$ by $-2.9\%$ to $+2.6\%$
+($-2.9\%$ to $+1.1\%$ at the crossings), the 40-angle, tight and shifted
+checks by less than $0.03\%$, and the conforming estimator gives $1.1\%$ to
+$4.4\%$ more ripple on the S8 designs. All ten target crossings keep
+their target at L3 with at least 15\% margin, and every candidate keeps the
+mean floor, the closest by 0.044\%. An independent selection program chose
+the same 14 designs, bit for bit.
+
+\begin{table}[H]\centering\small
+\caption{Post-hoc ablation (Section~\ref{sec:exp2-fd}): charged time units
+to the first attaining validation for A$'$ and FD-cold, repeat~1, and their
+ratio per start; the last column gives the geometric mean, with repeat~2 in
+parentheses. Units are those of the ablation session.}
+\label{tab:exp2b-ratios}\input{tables/exp2b-ratios.tex}
+\end{table}
+
+\begin{table}[H]\centering\small
+\caption{Validation charges in the ablation, repeat~1. ``To crossing''
+counts the validations up to and including the first attaining one;
+``share'' is the fraction of the time to that target charged to validation,
+as medians (ranges) over all attained targets and starts; ``run'' is the
+range over starts of the fraction of the whole run's charged time spent in
+validation.}
+\label{tab:exp2b-validation}\input{tables/exp2b-validation.tex}
+\end{table}
+
+\begin{table}[H]\centering\small
+\caption{Final checks of the ablation's selected designs, as in
+Table~\ref{tab:exp2-refinement}: L2 objective, L3 change, the largest
+40-angle, tight or shifted change, and the conforming change where stator
+offsets are zero.}
+\label{tab:exp2b-refinement}\input{tables/exp2b-refinement.tex}
+\end{table}
+
+\paragraph{Paths before the crossings.}
+Up to the primary crossing the validated objectives of FD-cold and A$'$ agree
+within 0.4\% in S8 and within 0.9\% at three S18 starts; at
+S18 LHS~2 and LHS~4 the iterates drift apart before the $T_{99}$
+crossing, by 29\% at the crossing validation and 18\% one validation
+before it, respectively, and at LHS~2 FD-cold uses one coarse evaluation fewer, yet each
+crossing comes at the same validation. FD-warm and its A$'$ cross every
+target after the same number of validations as FD-cold from every start, except
+FD-warm's $T_{50}$ crossing at S18 LHS~3: its third validated objective,
+$0.46F_0$, misses $T_{50}$ once the allowance is added, and its next five
+fall below the mean floor, so it crosses six validations later (the
+per-start ratio of 6.92 below).
+
+\paragraph{Warm-stencil arm FD-warm.}
+Its \href{https://github.com/rjwalters/geode-fem/issues/1224}{protocol} was
+posted at 15:18~UTC on 2026-10-21 and frozen by a comment at 17:54~UTC,
+before the first FD-warm run began at 20:30~UTC (GitHub timestamps; the
+protocol text was never edited). The freeze comment recorded the result of
+the L1 accuracy gate and fixed the warm-start source. The session ran on the same host type with
+15 concurrent processes and a calibrated unit of $69.09\,\mathrm{s}$; the
+anchor recomputation agreed within $2.4\times10^{-13}$, no run was
+host-contaminated, and the one-minute load peaked at 17.4. A SHA-256
+inventory of its 1,180 files was taken on the host before it stopped and
+timestamped by two RFC~3161 authorities. In S8, FD-warm ran to the budget
+in four of five runs and converged in one, and its A$'$ converged in two,
+stopped in the solver in two and reached the budget in one; in S18 all
+ten runs stopped at $T_{99}$. The other targets give FD-warm/A$'$ of 1.69 in
+S8 and 2.59 ($T_{90}$) and 3.02 ($T_{50}$, with one start at 6.92) in
+S18 (Table~\ref{tab:exp2c-ratios}). Of FD-warm's 263 gradients, 262
+warm-started every stencil from its base; one, at 110 units in S8
+LHS~2, long after that run's crossings, fell back to cold stencils because
+its base had not been retained.
+This session's A$'$ reproduces the FD-cold session's A$'$ at the primary targets
+within 4\% in each session's units, and the selected A$'$ designs coincide
+for six of seven roles; the earliest S18 $T_{50}$ crossing differs
+because three starts cross within 1.56--1.60 units of each other and the
+timing noise reorders them.
+
+On the L1 check, FD-warm's max-norm relative errors are 0.92 to 1.08 times
+FD-cold's at the four points, which passes the frozen gate of ten times FD-cold's, and
+its component-wise check fails at every point: SW3 of the mean gradient at
+the S8 interior point (as for FD-cold), Sr1 of the objective gradient at
+both $\theta_0$ points, and SW1, SW4 and Sr1 at the S18 interior point.
+In the step sweep at that point the forward errors of the three failing
+objective-gradient components are $-3.1\times10^{-4}$ to $-3.8\times10^{-4}$,
+$-3.1\times10^{-3}$ and $-3.0\times10^{-2}$ to $-3.1\times10^{-2}$ at steps
+of $10^{-5}$, $10^{-6}$ and $10^{-7}$\,m, and central differences at
+$10^{-6}$ bring them below $1.2\times10^{-7}$. In the sessions, 58 of
+S8's 1,810 warm stencil evaluations and 20 of S18's 648, 3.2\% in
+all, recorded fewer than 60 Newton iterations, as few as 40, so at least
+one of their 60 field solves took no Newton update and returned the base
+state. They perturb SW1, SW4 or Sr1 in S8 and SW4 or Sr1 in S18,
+all among the objective-gradient components that fail the L1 check. On a single thread of the
+check host, a warm stencil takes 0.32--0.37 of a cold stencil's Newton
+iterations and 0.48--0.53 of its wall time.
+
+In detail, three of the four failures are on small objective-gradient
+components (SW1, SW4 and Sr1, $9\times10^{-5}$ to $6.3\times10^{-4}$ of the
+largest), with a sign reversal on Sr1 at the S18 interior point (relative
+error 1.58), and the fourth is at the S8 interior point on SW3 of the mean
+gradient, where truncation dominates at the frozen step as for FD-cold (a
+forward error per unit step of $-1.7\times10^{3}$\,N\,m/m$^2$, against
+FD-cold's $-1.9\times10^{3}$); unlike FD-cold's, this error changes sign at
+$10^{-7}$\,m. At the S18 interior point the three failing components share
+one signed forward error, $-3.11\times10^{-3}\,\mathrm{N^2\,m^2/m}$ at a
+step of $10^{-6}$\,m to within 0.3\%, which grows about tenfold per decade
+of decreasing step and which a central difference removes. The stencil
+objectives there thus differ from the base value by a common offset of
+about $-3\times10^{-9}\,\mathrm{N^2\,m^2}$, whichever component is
+perturbed; we did not isolate its source.
+
+The final checks of FD-warm's and its A$'$'s selected designs completed all 84
+checks of 13 designs (Table~\ref{tab:exp2b-refinement} has the
+corresponding FD-cold results). The primary check reproduces the study's
+$F_{\mathrm{val}}$ within $4.1\times10^{-4}$ relative; L3 changes $F$ by
+$-2.9\%$ to $+2.6\%$ ($-2.9\%$ to $+1.1\%$ at the crossings), the 40-angle,
+tight and shifted checks by at most $0.03\%$, and the conforming estimator
+gives $0.9\%$ to $4.4\%$ more ripple on the S8 designs. All ten target
+crossings keep their target at L3 with at least 15\% margin, every
+candidate keeps the mean floor, the closest by 0.044\%, and an independent
+selection program chose the same 13 designs, bit for bit. These checks used
+a rebuilt refinement binary: the pinned one (SHA-256 \texttt{679a40c8}) was
+deleted with its build directory and rebuilt from the same source commit,
+\href{https://github.com/rjwalters/geode-fem/commit/63b3e3d8bbc30504f845eebb5b78e8be6a2ee12f}{\texttt{63b3e3d8}}, as \texttt{c75fe847}. Twelve earlier checks covering all
+seven check types, rerun with the rebuilt binary, reproduce every
+non-timing result field (4,181 fields) exactly.
+
+\begin{table}[H]\centering\small
+\caption{Warm-stencil arm: charged time units to the first attaining
+validation for A$'$ and FD-warm (repeat~1, FD-warm session units) and their
+ratio per start, with the geometric mean.}
+\label{tab:exp2c-ratios}\input{tables/exp2c-ratios.tex}
+\end{table}
+
+\section{Forward reproduction details}\label{sec:forward}
+Each mesh
+level contains 60 baseline solves: three current levels and 20 angles. For
+a scalar statistic $q$, the estimated L3 refinement interval is
+\begin{equation}
+ q_3\ \pm\ e_q,\qquad
+ e_q=\max\{|q_2-q_1|,|q_3-q_2|\}.
+ \label{eq:band}
+\end{equation}
+We use the same construction pointwise for waveforms. This interval is a
+refinement diagnostic, not a proven error bound or a statistical confidence
+interval. It does not cover reference-model error or angular quadrature
+error. The loaded means change direction between the last two increments,
+so a last-increment estimate alone would be particularly weak.
+
+Figure~\ref{fig:waveforms} in Appendix~\ref{sec:controls} shows the improvement angle by angle. The largest
+full-current difference falls from 0.0272 to 0.0034\,N\,m. The harmonic
+full-current ripple interval contains the saved reference; the saved half-current
+value lies approximately $5\times10^{-5}$\,N\,m below its interval.
+Mean agreement is therefore insufficient to characterize waveform accuracy.
+
+The saved zero-current reference exposes a separate discretization effect. Harmonic coupling changes the
+cogging standard deviation from 29.1\% below to 12.9\% above the reference.
+Its waveform is close to a 1.13-fold scaling of the saved waveform, but the
+reference lies outside the estimated ripple interval. This motivates
+refining the reference itself before interpreting the discrepancy. The harmonic cogging standard deviations are
+0.0101, 0.0119, 0.0121 and 0.0121\,N\,m on L0--L3, compared with
+0.0107\,N\,m in the reference. The independent reference refinement below tests this coarse-reference
+explanation directly.
+
+Two additional controls narrow the explanation. At L3, coupling torque
+and the inner- and outer-half Arkkio estimates are each within
+$9\times10^{-5}$\,N\,m of full-band Arkkio in the order-45 solution.
+Freeing the coupling-arc ends changes torque by less than
+$5.4\times10^{-5}$\,N\,m. These effects, and the material, tolerance and
+winding-area controls of Appendix~\ref{sec:controls}, are too small to
+explain the remaining cogging gap at the tested resolution.
+
+\subsection{Independent reference refinement}\label{sec:refinement}
+We rerun the public reference with its own degree-two isogeometric model,
+harmonic orders $3,9,\ldots,45$ and coupling torque, at $3$, $6$, $12$ and
+$24$ subdivisions in each patch direction. The $3\times3$ rerun first
+reproduces all 60 saved torques with differences at most $9.8\times10^{-13}$\,N\,m.
+The run uses GNU Octave 11.3.0 \citep{eaton2026octave}, GeoPDEs
+\citep{defalco2011geopdes,vazquez2016geopdes} at revision \texttt{53ae5ca1}
+and nurbs 1.4.3; compatibility edits, source hashes and raw records are retained.
+The corresponding field degrees of freedom are 4,079, 12,518, 43,220
+and 159,920.
+
+The reference cogging standard deviation changes from 0.01071 to 0.01220,
+0.01212 and 0.01208\,N\,m (Fig.~\ref{fig:validation}a). GEODE L3 at order
+45 gives 0.01209\,N\,m, a 0.10\% difference from the finest reference.
+The maximum pointwise discrepancy drops from $2.1\times10^{-3}$ to
+$3.4\times10^{-5}$\,N\,m. At half and full current, the finest reference
+standard deviations are 0.03947 and 0.08014\,N\,m;
+% <!-- anvil-lint-disable: numeric_consistency -->
+GEODE is 0.35\% and 0.27\% higher (panel b). All five finest-reference
+statistics, the three
+standard deviations and two loaded means, lie within GEODE's L3
+refinement intervals. The coarse saved reference therefore accounts for
+the cogging mismatch in Section~\ref{sec:coupling-results} at the matched interface order.
+
+\begin{figure}[!htb]\centering
+\includegraphics[width=\linewidth]{figures/refined-validation.pdf}
+\caption{Reference and candidate validation from raw torque records.
+(a) Independent IGA reference cogging refinement at order 45; the dashed
+line is GEODE L3 and its shaded band uses Eq.~\eqref{eq:band}.
+(b) Loaded standard deviation relative to the finest
+reference at each current; circles are IGA, horizontal lines are GEODE L3.
+The finest IGA point is zero by construction.
+Panels (a,b) use the initial geometry and 20 angles; GEODE uses Arkkio,
+with coupling torque checked separately. (c) Initial and Opt120 squared
+ripple sums at L3 on fresh meshes and 20 angles, under fixed unscaled
+current. Harmonic values use coupling torque; conforming values use
+outer-band Arkkio. (d) Full-current mean at order 45 for Opt120 under
+three current rules at its saved size (Appendix~\ref{sec:opt120-policy});
+the dashed line is the initial mean at the initial size. All candidate
+values use coupling torque.}\label{fig:validation}
+\end{figure}
+
+This agreement still concerns finite discretizations. The last cogging
+increments approximately halve; extending that trend would put a limit
+near 0.0120\,N\,m, an estimate without a bound. The last two half-current
+standard-deviation increments are both about $-0.3\%$ and do not shrink;
+we therefore leave its remaining error unestimated. The 0.10\% cogging
+agreement is a comparison of finite-resolution values, not an accuracy
+bound; neither refinement sequence is fully converged.
+Tightening the reference Newton stopping threshold from $10^{-6}$ to
+$10^{-14}$ changes the checked cogging torques by at most
+$4.4\times10^{-8}$\,N\,m. GEODE retains straight-sided geometry, and the
+high-field extrapolation of the iron law has not been varied in a paired
+torque experiment. Neither cross-code agreement nor refinement proves
+physical accuracy for the machine.
+
+\subsection{The saved optimized design}\label{sec:opt120}
+The saved reference design at iteration 120, denoted Opt120, includes
+12 scalar parameters and ten grouped surface-control offsets. We evaluate
+its full exported geometry on freshly generated meshes; simply moving
+the finest initial mesh produces four inverted triangles. Its inner
+air-gap band no longer has the annular area assumed by the full-band
+Arkkio functional, so harmonic results here use coupling torque.
+Conforming results use only outer-band Arkkio on the fresh exported mesh.
+On the same L3, order-45 Opt120 field at full current, the outer-band and
+coupling estimates differ by about $1.3\times10^{-4}$\,N\,m in mean and
+$1.1\times10^{-5}$\,N\,m in standard deviation. This paired check supports
+the estimator substitution at this resolution.
+This estimator restriction is specific to these geometries; it does not
+validate outer-band Arkkio on arbitrary moved meshes or stator offsets.
+
+With the evaluation current held fixed in the unscaled geometry, raising
+the transmitted order from 45 to 93 multiplies Opt120's $F$ by 3.6, from
+$1.07\times10^{-6}$ to $3.86\times10^{-6}\,\mathrm{N^2\,m^2}$
+(Fig.~\ref{fig:validation}c). The initial design's
+$F$ rises by 16\%. Its ratio to Opt120 is consequently 7,631 at order 45,
+2,454 at order 93 and 2,444 for conforming coupling. The full-current
+Opt120 standard deviation rises from 0.00066 to 0.00164\,N\,m.
+The large ripple reduction survives these checks, but its magnitude
+depends strongly on the interface model: the order-93 change is about 96
+times the last spatial-refinement increment of $F$
+(Appendix~\ref{sec:opt120-policy}).
+
+A possible explanation is that optimization against order 45 favors
+cancellation within that truncated model. This is a conjecture, not an
+ablation result: increasing the order raises full-current ripple but
+lowers Opt120 cogging standard deviation from 0.00061 to 0.00035\,N\,m.
+Appendix~\ref{sec:exp2-times} reports the corresponding coarse-to-validation
+ratios at the designs selected in the optimization study.
+Opt120 is also outside the fixed-size, fixed-physical-current problem of
+Section~\ref{sec:optimization}: it shortens the stack from 100 to 80\,mm and
+scales the radius by 1.0477, so its mean torque must be compared with the
+initial motor only after both size factors and the current rule are fixed.
+Appendix~\ref{sec:opt120-policy} gives those normalizations, a reproduction
+comparison at the saved reference current, and the effect of angular
+sampling at this low ripple.
+
+
+\section{Forward-model controls}\label{sec:controls}
+\begin{figure}[H]\centering
+\includegraphics[width=\linewidth]{figures/coupling-waveforms.pdf}
+\caption{Top: L3 torque for conforming and order-45 harmonic coupling,
+compared with the saved reference. Bottom: each GEODE waveform minus the
+reference; shading is the harmonic model's pointwise estimated refinement
+interval from Eq.~\eqref{eq:band}. Each residual panel has its own vertical
+scale, so compare residual magnitudes by their axis values, not by curve
+height. All GEODE curves use Arkkio torque, so the paired difference changes the
+coupling while holding the estimator fixed. The saved reference is coarse;
+Section~\ref{sec:refinement} reports its refinement.}
+\label{fig:waveforms}\end{figure}
+
+The controlled changes in Table~\ref{tab:sensitivity} are too small to
+explain the observed waveform gap at the tested settings. The near-zero
+material difference has particularly little effect on torque despite its
+6.66\% local reluctivity difference. This is a measured sensitivity of
+the initial design and does not establish insensitivity after optimization.
+
+\begin{table}[H]\centering\small
+\caption{Maximum absolute torque change relative to the baseline at the
+same mesh level, using conforming coupling and Arkkio torque. Entries
+summarize the recorded angle/current subsets.}
+\label{tab:sensitivity}
+\begin{tabular}{p{.48\linewidth}ll}\toprule
+Change & Levels & Max. $|\Delta T|$ (N\,m)\\\midrule
+Reference low-field interpolation and clamp & L2, L3 & $2.1\times10^{-6}$\\
+Relative Newton tolerance $10^{-12}$ vs $10^{-8}$ & L2; L3 full current & $7.3\times10^{-8}$\\
+Exact winding areas vs mesh areas & L2 & $3.9\times10^{-4}$\\
+Inner or outer half of the Arkkio band & L3 & $7.3\times10^{-5}$\\
+\bottomrule\end{tabular}
+\end{table}
+
+In the recorded estimator study, single-circle Maxwell-stress estimates
+vary more with the integration radius than the half-band Arkkio estimates.
+The paired coupling-torque and half-band checks of
+Section~\ref{sec:forward} avoid selecting a favorable radius. A
+post-processing filter of the solved conforming field also gives
+non-monotone ripple changes across the tested cuts and currents; it does
+not replace a field solve with a truncated interface. The complete filter
+results are retained in the accompanying forward-study records.
+
+\section{Opt120: size, current policy and angular sampling}\label{sec:opt120-policy}
+Between L2 and L3, changes in
+$F$, normalized by L3, reach 1.36\% for the initial design and 2.71\%
+for Opt120 across the three models on the exported mesh family; these increments are not error bounds.
+For Opt120 at order 45, the successive L1--L2 and L2--L3 increases in $F$
+are $3.05\times10^{-8}$ and $2.90\times10^{-8}$\,N$^2$\,m$^2$,
+so they barely shrink and do not establish an asymptotic rate. An alternate
+freshly constructed mesh family changes by 3.22\% for Opt120 from L2 to L3.
+The $2.79\times10^{-6}$\,N$^2$\,m$^2$ interface effect is about
+96 times the last export-mesh increment, despite this unresolved remainder.
+
+Current policy changes Opt120's feasibility (Fig.~\ref{fig:validation}d). At L3 and order 45,
+the initial full-current mean is 1.4433\,N\,m. Opt120 gives 1.3147\,N\,m
+under fixed \emph{unscaled} current, 1.2550\,N\,m under fixed physical
+current, and 1.4983\,N\,m under the reference's fixed group-1 density rule.
+The first two are 8.9\% and 13.0\% below the initial mean; the density-rule
+value is 3.8\% above it. These policy comparisons use the same Opt120
+geometry, but comparisons with the initial motor also change size:
+Opt120 shortens the stack from 100 to 80\,mm and has radial scale
+$s=1.0477$, unscaled outer diameter 130.293\,mm and operating angle
+$-11.646^\circ$ (Table~\ref{tab:parameters}). Every Opt120 torque carries
+the explicit size factor $s^2L/(0.1\,\mathrm{m})=0.878175$.
+Removing both size factors from the fixed-unscaled-current mean gives
+1.4971\,N\,m, 3.7\% above the initial mean. Applying the same normalization
+to fixed physical current gives 1.4291\,N\,m, 1.0\% below the initial mean;
+the density-rule value becomes 1.7061\,N\,m, 18.2\% above it. Normalizing
+only length to 100\,mm under fixed unscaled current gives 1.6434\,N\,m
+(+13.9\%), retaining the radial factor $s^2=1.098$.
+These algebraic normalizations separate the size factors from the current
+rule; they are not reoptimized designs. Most of the saved-size deficit
+therefore comes from the size factor, although the normalized
+fixed-physical-current value remains lower.
+
+A separate reproduction comparison uses the saved reference current at
+each design, rather than fixed unscaled current. At Opt120, GEODE's
+order-45 full-current mean is 1.4986\,N\,m versus 1.5000\,N\,m in the
+saved arrays, but its standard deviation is $3.53\times10^{-4}$ versus
+$1.76\times10^{-4}$\,N\,m, a factor of 2.0. The half-current values are
+$5.53\times10^{-4}$ and $4.37\times10^{-4}$\,N\,m.
+The largest pointwise difference across the two loaded currents is about
+$2.1\times10^{-3}$\,N\,m. With this matched current policy and zero-current
+values included (zero current is rule-independent and taken from the
+fixed-current record), the initial-to-Opt120 objective ratios are 10,170 for
+GEODE and 11,982 for the saved reference. The 7,631 ratio of
+Section~\ref{sec:opt120} instead holds unscaled current fixed. Reference
+refinement was run only at the initial design, so the cause of the Opt120
+discrepancy remains unresolved.
+
+Angular sampling becomes more consequential at this low ripple. Relative
+to the 40-angle grid, the ten-angle Opt120 objective reads about 1.05\%
+high at order 45 and 5.90\% low at order 93 on the fresh L3 mesh; the
+conforming value reads 17.1\% low. The accompanying records retain shifted
+20-angle grids and withheld currents 0.25 and 0.75. Candidate validation
+must check these effects at the candidate, since initial-design agreement
+alone would miss them. All 3,240 solve rows in the 18 successful records used for
+these candidate comparisons stopped at tolerance.
+Figure~\ref{fig:opt-waveforms} shows the full and mean-subtracted waveforms.
+
+\begin{figure}[H]\centering
+\includegraphics[width=\linewidth]{figures/opt120-waveforms.pdf}
+\caption{Opt120 full-current torque on fresh L3 meshes at 40 angles,
+with fixed unscaled current. Harmonic orders 45 and 93 use coupling torque;
+conforming coupling uses outer-band Arkkio. Left: full torque, retaining
+each model's mean. Right: each curve minus its own 40-angle mean.
+The interface change mainly alters the resolved ripple.}
+\label{fig:opt-waveforms}
+\end{figure}
+
+\section{Gradient verification details and derivative cost}\label{sec:cost}
+\subsection*{Excitation rules}
+In the scalar derivative study, fixed current means fixed peak current in
+the unscaled geometry, so $J_g=12s_g I_q/|\Omega_g(X)|$ changes when a slot
+changes area. The reference optimizer's rule, denoted \emph{fixed group-1
+density}, sets $I_*\propto |\Omega_1(X)|s$, where $s$ is radial scale, with
+the proportionality constant fixed at the initial design; the unscaled
+geometry is evaluated and torque is multiplied by $s^2$, following the
+reference. Both rules agree at the initial geometry but have different
+derivatives. Group-2 density is not held fixed because the ratio of the two
+winding areas can change. Rotor parameters MAG, MH and MW leave winding area
+unchanged and therefore give identical derivatives under the two rules. The
+fixed-size problem sets radial scale to one, making fixed physical and
+unscaled current coincide.
+
+\subsection*{Taylor remainders}
+After removing duplicates and the analytic axial-length and radial-scale
+cases, 530 of 592 loaded comparisons have an anchored quadratic-remainder
+window spanning at least four decades in step size; 388 span at least five.
+The window is the contiguous run where remainder/$h^2$ stays within a
+factor of two of its value at $h=10^{-5}$\,m (or $10^{-2}$ degrees for
+operating angle). Smaller gradients reach round-off sooner. An anchored-window diagnostic fails for the initial-design, full-current
+conforming/fixed-density SW1 ripple cases at L0 and L1: at L0 the
+remainder changes sign near the anchor, whereas at L1 remainder/$h^2$ is
+still drifting there. Their widest quadratic windows span two decades. The nearly cancelling
+zero-current mean is a weaker check: its best relative errors reach
+$7.0\times10^{-4}$. Cogging standard-deviation errors are at most
+$8.9\times10^{-7}$. Thus the loaded agreement does not describe every
+zero-current derivative. Discrete derivative accuracy also does not imply
+mesh convergence, as the next paragraph shows.
+
+\subsection*{Model dependence of verified sensitivities}
+The two model--estimator pairs give different ripple sensitivities even
+at the same design (Fig.~\ref{fig:modelgradients}). At L2 and full fixed
+current, the MAG ripple derivative is 1.28\,N\,m/m for harmonic/coupling
+torque versus 1.94 for conforming/Arkkio at the initial design. At the
+perturbed design the values are 0.75 and 1.87\,N\,m/m. These differences
+persist under mesh refinement. At L3 the MAG pairs are 1.22 versus 1.87
+at the initial design and 0.57 versus 1.67\,N\,m/m at the perturbed design.
+In particular, the latter harmonic component changes appreciably even
+though the box-scaled vector changes by only 1.19\% of its L2 norm;
+the norm itself decreases by 0.19\%. Mean-torque
+sensitivities agree more closely in the box-scaled comparison: the
+Euclidean norm of the vector difference, divided by the conforming vector
+norm, is 0.58\% and 0.66\% for the mean at the initial and perturbed
+designs, versus 6.7\% and 10.2\% for ripple. The norm weights the largest
+components most heavily: the initial SW2 and SW3 mean components differ
+by 6.5\% and 16.5\% relative to conforming values.
+At L3, the ripple gaps remain 6.58\% and 10.25\%, while each model
+changes by 0.46--1.19\% from L2 to L3. The mean gaps fall to 0.16\%
+and 0.26\%; the conforming model itself changes by 0.52--0.54\%.
+The L2 mean gap is therefore comparable to spatial refinement, whereas
+the ripple gap persists beyond the measured refinement increments. Because the
+estimator changes with the model, this experiment measures their combined
+effect; it does not isolate an interface-only derivative error or establish
+which gradient is closer to the physical machine.
+
+Discrete derivative accuracy also does not imply mesh convergence. In the
+harmonic model, SW3 mean-torque sensitivities change sign between coarse
+levels and their increments shrink with refinement; ripple gradients converge
+more slowly than most mean gradients. The conforming/Arkkio SW2 mean
+sensitivity is non-monotone across L0--L3 ($-46.5$, $-41.3$, $-44.4$,
+$-47.2$\,N\,m/m), whereas harmonic/coupling torque approaches $-47.1$
+from $-49.8$\,N\,m/m. Fresh-remesh checks of MW, SW1 and SW2 are limited
+at small steps by changes in connectivity. The L2 MW mean-derivative fit
+has relative gap $2.6\times10^{-6}$, but individual remeshed steps at
+$h\geq10^{-4}$\,m scatter by about $6\times10^{-4}$. The largest L2 full-current
+remeshed-versus-moved fitted discrepancy is 3.8\% for the SW1 ripple
+derivative. These checks support the discrete chain rule while leaving
+refinement of candidate designs necessary.
+
+\begin{figure}[H]\centering
+\includegraphics[width=\linewidth]{figures/model-gradients.pdf}
+\caption{Full fixed-current sensitivities at L2, scaled by each geometric
+parameter's reference box width $w_k$. Top: initial design; bottom:
+perturbed design. L3 MAG values and refinement changes are given in the
+text. Left: mean torque; right: standard deviation. The plotted
+quantity $w_k\partial q/\partial p_k$ is a local sensitivity, not a finite
+change across the box. Coupling and torque estimator both differ between
+the two series. Gray segments join the two estimates for each parameter. Horizontal axes are symmetric-log, linear within
+$\pm1$\,mN\,m. All nine widths, in mm, are 9, 10, 15, 4, 3, 1, 18, 70 and
+1.5 in the displayed order.}\label{fig:modelgradients}
+\end{figure}
+
+
+The recorded timings use an Apple M3 Ultra with 28 cores, default solver
+threading, and concurrent host load averaging 14--24. The effective thread
+count was not pinned. A forward evaluation covers ten angles, starts from
+zero, and warm-starts successive angles. The full gradient includes that
+forward, ten torque adjoints, mesh derivatives and contractions for all
+12 parameters and both aggregate objectives. Central differences use 24
+forward sweeps, each warm-started from the base states, at step
+$h=10^{-6}$ in each parameter's stored unit (m, degrees or dimensionless
+scale), plus the shared base forward for a common starting point. Across
+L0--L2, both couplings and tolerances $10^{-8}$ and $10^{-14}$, the full
+gradient costs 1.13--1.20 forwards, whereas central differences cost
+8.2--10.5 including the shared base solve (Fig.~\ref{fig:gradients}d and
+Table~\ref{tab:cost}). Shape-map setup is a separate one-time cost of
+these timings; the optimization study charges whole-run wall time, so it is
+included there. These derivative timings concern one loaded host and are a
+separate workload from the 1,640 forward validation solves of
+Section~\ref{sec:forward}.
+
+\begin{table}[H]\centering\small
+\caption{Recorded harmonic-model cost at relative tolerance $10^{-14}$,
+initial design and full current. Times are seconds for ten-angle sweeps;
+FD includes the shared base sweep, and setup is a one-time shape-map cost.}
+\label{tab:cost}\input{tables/gradient-cost.tex}
+\end{table}
+
+\section{Linear slotless screening control}\label{sec:slotless}
+The stored slotless model has 24 distinct angles. Fitting
+$T(\phi)=c_0+c_1\cos\phi+c_2\sin\phi$, with electrical angle $\phi=p\theta_r$, mechanical rotor angle $\theta_r$
+and pole-pair count $p$, on alternate angles and
+evaluating on the other twelve gives normalized held-out RMSE
+$3.08\times10^{-10}$ and maximum error $6.82\times10^{-10}$, using the
+recorded analytic-amplitude normalization. This is a locked-rotor angle sweep,
+not synchronous operating ripple. For a fixed linear field operator and
+sinusoidal sources, the field lies in a small basis of source responses;
+a quadratic torque functional can contain only the corresponding finite
+set of harmonics. The particular model needs just the three fitted
+coefficients. This is an angular interpolation test at one geometry,
+not a shape-gradient test or evidence of generalization across designs.
+
+\section{Design points for derivative checks}\label{sec:parameters}
+Table~\ref{tab:parameters} identifies the scalar derivative-study coordinates
+and the saved Opt120 coordinates. Values are rounded for display; the accompanying records
+retain full precision. The operating angle is stored in degrees and
+converted to radians in the current equation. These coordinates describe
+the scalar design space; the saved reference optimum additionally contains
+surface-control offsets.
+\begin{table}[H]\centering\small
+\caption{Initial and interior perturbed design points for derivative
+checks, alongside Opt120 for the forward validation. Lengths refer to the
+unscaled geometry; surface-control offsets are retained in the data.}\label{tab:parameters}
+\input{tables/design-points.tex}
+\end{table}
+
+\setlength{\bibsep}{3pt}
+\bibliographystyle{plainnat}
+\bibliography{refs}
+\end{document}

@@ -1,0 +1,50 @@
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh: 3153 nodes, 5938 triangles; attached 947 boundary nodes (77 at curve ends), 2206 free, 16 sliding edge pairs; edges Slide, stiffening 0; max attach distance 7.557e-16 m; setup 0.020 s
+opt120 design: {"inverted":0,"max_angle_deg":138.34405866734502,"max_area_ratio":3.803270177876552,"min_angle_deg":12.428580811867798,"min_area_ratio":0.21757166077070864}
+  worst: tri 4918 tag 7 r 45.7985 mm, theta 93.671 deg: area ratio 2.1757e-1, min angle 44.897 deg
+  worst: tri 4877 tag 7 r 45.7985 mm, theta 86.329 deg: area ratio 2.1757e-1, min angle 44.897 deg
+  worst: tri 4836 tag 7 r 45.7985 mm, theta 76.329 deg: area ratio 2.1757e-1, min angle 44.896 deg
+  worst: tri 4959 tag 7 r 45.7985 mm, theta 103.671 deg: area ratio 2.1757e-1, min angle 44.896 deg
+  worst: tri 5001 tag 7 r 45.7985 mm, theta 113.671 deg: area ratio 2.1757e-1, min angle 44.894 deg
+  worst: tri 4796 tag 7 r 45.7985 mm, theta 66.329 deg: area ratio 2.1757e-1, min angle 44.894 deg
+  worst: tri 4878 tag 7 r 45.7986 mm, theta 83.672 deg: area ratio 2.1757e-1, min angle 45.078 deg
+  worst: tri 4919 tag 7 r 45.7986 mm, theta 96.328 deg: area ratio 2.1757e-1, min angle 45.078 deg
+wrote benchmarks/motor_reference/parametric_cp/meshes/icem_opt120cp_sector_L0.msh
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L1.msh: 9937 nodes, 19163 triangles; attached 1807 boundary nodes (77 at curve ends), 8130 free, 30 sliding edge pairs; edges Slide, stiffening 0; max attach distance 7.557e-16 m; setup 0.074 s
+opt120 design: {"inverted":0,"max_angle_deg":170.44257136973079,"max_area_ratio":3.797516253583649,"min_angle_deg":2.18051046465985,"min_area_ratio":0.12381783975487903}
+  worst: tri 11580 tag 6 r 59.4223 mm, theta 76.947 deg: area ratio 1.2382e-1, min angle 2.181 deg
+  worst: tri 12548 tag 6 r 59.4223 mm, theta 86.947 deg: area ratio 1.2382e-1, min angle 2.181 deg
+  worst: tri 14468 tag 6 r 59.4223 mm, theta 106.947 deg: area ratio 1.2485e-1, min angle 2.214 deg
+  worst: tri 13506 tag 6 r 59.4223 mm, theta 96.947 deg: area ratio 1.2485e-1, min angle 2.214 deg
+  worst: tri 2968 tag 1 r 42.1567 mm, theta 111.087 deg: area ratio 1.9118e-1, min angle 15.545 deg
+  worst: tri 2969 tag 1 r 42.1579 mm, theta 68.916 deg: area ratio 1.9201e-1, min angle 15.157 deg
+  worst: tri 10605 tag 6 r 59.3959 mm, theta 63.179 deg: area ratio 1.9520e-1, min angle 17.145 deg
+  worst: tri 13501 tag 6 r 59.4009 mm, theta 93.179 deg: area ratio 1.9560e-1, min angle 16.378 deg
+wrote benchmarks/motor_reference/parametric_cp/meshes/icem_opt120cp_sector_L1.msh
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh: 36083 nodes, 70757 triangles; attached 3511 boundary nodes (77 at curve ends), 32572 free, 61 sliding edge pairs; edges Slide, stiffening 0; max attach distance 7.557e-16 m; setup 0.342 s
+opt120 design: {"inverted":0,"max_angle_deg":173.9195771612366,"max_area_ratio":3.79416524856048,"min_angle_deg":1.3280412281946705,"min_area_ratio":0.0161181576542908}
+  worst: tri 4570 tag 1 r 42.0927 mm, theta 68.861 deg: area ratio 1.6118e-2, min angle 1.343 deg
+  worst: tri 11438 tag 1 r 42.0865 mm, theta 111.128 deg: area ratio 1.9436e-2, min angle 1.368 deg
+  worst: tri 2601 tag 1 r 42.0836 mm, theta 68.748 deg: area ratio 2.4382e-2, min angle 1.703 deg
+  worst: tri 17324 tag 1 r 42.0836 mm, theta 111.252 deg: area ratio 2.8356e-2, min angle 1.979 deg
+  worst: tri 51628 tag 6 r 59.3530 mm, theta 96.972 deg: area ratio 9.6589e-2, min angle 1.328 deg
+  worst: tri 55103 tag 6 r 59.3530 mm, theta 106.972 deg: area ratio 9.6589e-2, min angle 1.328 deg
+  worst: tri 41303 tag 6 r 59.3530 mm, theta 66.972 deg: area ratio 9.6589e-2, min angle 1.328 deg
+  worst: tri 58560 tag 6 r 59.3530 mm, theta 116.972 deg: area ratio 9.9614e-2, min angle 1.386 deg
+wrote benchmarks/motor_reference/parametric_cp/meshes/icem_opt120cp_sector_L2.msh
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L3.msh: 139268 nodes, 275736 triangles; attached 6963 boundary nodes (77 at curve ends), 132305 free, 122 sliding edge pairs; edges Slide, stiffening 0; max attach distance 7.557e-16 m; setup 1.707 s
+opt120 design: {"inverted":4,"max_angle_deg":164.66498699785643,"max_area_ratio":3.792341682191368,"min_angle_deg":5.438437660978614,"min_area_ratio":-0.21421052994008022}
+  worst: tri 50246 tag 1 r 42.0472 mm, theta 111.164 deg: area ratio -2.1421e-1, min angle 16.118 deg
+  worst: tri 50247 tag 1 r 42.0458 mm, theta 68.838 deg: area ratio -2.1179e-1, min angle 14.869 deg
+  worst: tri 68279 tag 1 r 42.0448 mm, theta 111.228 deg: area ratio -2.0330e-1, min angle 12.168 deg
+  worst: tri 10177 tag 1 r 42.0448 mm, theta 68.772 deg: area ratio -2.0063e-1, min angle 12.000 deg
+  worst: tri 203405 tag 6 r 59.3152 mm, theta 96.958 deg: area ratio 1.4032e-1, min angle 5.438 deg
+  worst: tri 216730 tag 6 r 59.3152 mm, theta 103.042 deg: area ratio 1.4035e-1, min angle 5.440 deg
+  worst: tri 229971 tag 6 r 59.3152 mm, theta 113.042 deg: area ratio 1.4035e-1, min angle 5.440 deg
+  worst: tri 176854 tag 6 r 59.3152 mm, theta 76.958 deg: area ratio 1.4037e-1, min angle 5.442 deg
+
+thread 'main' (807443383) panicked at crates/geode-core/examples/icem_cp_parametric.rs:566:5:
+assertion `left == right` failed: the moved mesh has inverted triangles; not writing it
+  left: 4
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+L3: move refused (inverted triangles)

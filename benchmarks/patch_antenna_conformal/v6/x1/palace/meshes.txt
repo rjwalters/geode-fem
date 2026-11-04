@@ -1,0 +1,11 @@
+Meshes the Palace runs read (MSH 2.2 ASCII, not committed; issue #1126).
+Written by `patch_conformal_nested_dof --verify-only --write-mesh`, which writes the
+moved mesh with the fixture's physical tags (attributes 1 substrate, 2 air, 3 upml,
+11 port, 12 patch, 13 ground, 14 outer boundary).
+
+98232da017cd0dd5a91b6294295c294990bbfd95b1c16e84a0d0de83abbd0f2b  initial_L1.msh
+  the initial patch (x = 0) on patch_conformal_L1 (sha256 b8119101...); see initial_on_L1_mesh.toml
+3286759fbf408f6651e2e7dc4bd831424276f07d558ba1ceea84087f74d0c77d  final_rbD_L1.msh
+  rbD_L1_copper_38_sm45 on patch_conformal_rbD_L1 (sha256 9376aa0a...), flags as in
+  ../../copper/verify/rbD_L1_copper_38_sm45_on_rbD_L1_p2.toml plus --feed-support-legacy
+  --verify-n 0 --wide-step 0 --write-mesh final_rbD_L1.msh

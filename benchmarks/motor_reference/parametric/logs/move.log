@@ -1,0 +1,88 @@
+/Volumes/Stripe/geode-fem/issue-1173/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh: 3153 nodes, 5938 triangles; attached 947 boundary nodes (73 at curve ends), 2206 free, 16 sliding edge pairs; edges Slide, stiffening 1; max attach distance 7.557e-16 m; setup 0.012 s
+optimized design: {"min_angle_deg": 13.160613, "max_angle_deg": 138.851888, "min_area_ratio": 1.675930e-1, "max_area_ratio": 2.523767e0, "inverted": 0}
+  worst: tri 4775 tag 7 centroid (19.1207, 41.5765) mm, r 45.7625 mm, theta 65.303 deg: area ratio 1.6759e-1, min angle 59.152 deg
+  worst: tri 4980 tag 7 centroid (-19.1207, 41.5765) mm, r 45.7625 mm, theta 114.697 deg: area ratio 1.6759e-1, min angle 59.152 deg
+  worst: tri 4816 tag 7 centroid (11.6106, 44.2651) mm, r 45.7625 mm, theta 75.303 deg: area ratio 1.6760e-1, min angle 59.151 deg
+  worst: tri 4939 tag 7 centroid (-11.6106, 44.2651) mm, r 45.7625 mm, theta 104.697 deg: area ratio 1.6760e-1, min angle 59.151 deg
+  worst: tri 4898 tag 7 centroid (-3.7476, 45.6088) mm, r 45.7625 mm, theta 94.697 deg: area ratio 1.6760e-1, min angle 59.151 deg
+  worst: tri 4857 tag 7 centroid (3.7476, 45.6088) mm, r 45.7625 mm, theta 85.303 deg: area ratio 1.6760e-1, min angle 59.151 deg
+  worst: tri 4973 tag 7 centroid (-19.5608, 41.3723) mm, r 45.7634 mm, theta 115.305 deg: area ratio 1.6993e-1, min angle 59.001 deg
+  worst: tri 4768 tag 7 centroid (19.5608, 41.3723) mm, r 45.7634 mm, theta 64.695 deg: area ratio 1.6993e-1, min angle 59.001 deg
+wrote benchmarks/motor_reference/parametric/meshes/icem_opt120moved_sector_L0.msh
+/Volumes/Stripe/geode-fem/issue-1173/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L1.msh: 9937 nodes, 19163 triangles; attached 1807 boundary nodes (73 at curve ends), 8130 free, 30 sliding edge pairs; edges Slide, stiffening 1; max attach distance 7.557e-16 m; setup 0.044 s
+optimized design: {"min_angle_deg": 7.846267, "max_angle_deg": 154.116160, "min_area_ratio": 1.172927e-1, "max_area_ratio": 2.727881e0, "inverted": 0}
+  worst: tri 15443 tag 7 centroid (19.1666, 41.6389) mm, r 45.8384 mm, theta 65.283 deg: area ratio 1.1729e-1, min angle 56.020 deg
+  worst: tri 15589 tag 7 centroid (11.6449, 44.3345) mm, r 45.8384 mm, theta 75.283 deg: area ratio 1.1729e-1, min angle 56.021 deg
+  worst: tri 15880 tag 7 centroid (-3.9922, 45.6634) mm, r 45.8375 mm, theta 94.997 deg: area ratio 1.1915e-1, min angle 53.375 deg
+  worst: tri 15476 tag 7 centroid (18.8864, 41.8622) mm, r 45.9254 mm, theta 65.717 deg: area ratio 1.3212e-1, min angle 44.833 deg
+  worst: tri 15622 tag 7 centroid (11.3302, 44.5058) mm, r 45.9254 mm, theta 75.717 deg: area ratio 1.3212e-1, min angle 44.833 deg
+  worst: tri 15765 tag 7 centroid (4.2211, 45.6560) mm, r 45.8507 mm, theta 84.718 deg: area ratio 1.3605e-1, min angle 54.719 deg
+  worst: tri 15913 tag 7 centroid (-4.3482, 45.7165) mm, r 45.9228 mm, theta 95.433 deg: area ratio 1.4088e-1, min angle 47.397 deg
+  worst: tri 15435 tag 7 centroid (19.0881, 41.7534) mm, r 45.9097 mm, theta 65.432 deg: area ratio 1.4593e-1, min angle 48.320 deg
+wrote benchmarks/motor_reference/parametric/meshes/icem_opt120moved_sector_L1.msh
+/Volumes/Stripe/geode-fem/issue-1173/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh: 36083 nodes, 70757 triangles; attached 3511 boundary nodes (73 at curve ends), 32572 free, 61 sliding edge pairs; edges Slide, stiffening 1; max attach distance 7.557e-16 m; setup 0.239 s
+optimized design: {"min_angle_deg": 6.896608, "max_angle_deg": 153.280747, "min_area_ratio": 1.072707e-1, "max_area_ratio": 2.776077e0, "inverted": 0}
+  worst: tri 60720 tag 7 centroid (-11.3590, 44.4826) mm, r 45.9100 mm, theta 104.325 deg: area ratio 1.0727e-1, min angle 41.425 deg
+  worst: tri 61255 tag 7 centroid (-18.9108, 41.8343) mm, r 45.9100 mm, theta 114.325 deg: area ratio 1.0727e-1, min angle 41.425 deg
+  worst: tri 60338 tag 7 centroid (-3.6457, 45.8005) mm, r 45.9453 mm, theta 94.551 deg: area ratio 1.1404e-1, min angle 46.202 deg
+  worst: tri 60915 tag 7 centroid (-12.1604, 44.2008) mm, r 45.8430 mm, theta 105.383 deg: area ratio 1.1434e-1, min angle 52.829 deg
+  worst: tri 61450 tag 7 centroid (-19.6511, 41.4176) mm, r 45.8430 mm, theta 115.383 deg: area ratio 1.1435e-1, min angle 52.828 deg
+  worst: tri 59343 tag 7 centroid (12.1605, 44.2007) mm, r 45.8430 mm, theta 74.617 deg: area ratio 1.1435e-1, min angle 53.254 deg
+  worst: tri 58806 tag 7 centroid (19.6511, 41.4175) mm, r 45.8430 mm, theta 64.617 deg: area ratio 1.1435e-1, min angle 53.255 deg
+  worst: tri 58673 tag 7 centroid (19.3210, 41.5660) mm, r 45.8370 mm, theta 65.070 deg: area ratio 1.1436e-1, min angle 49.139 deg
+wrote benchmarks/motor_reference/parametric/meshes/icem_opt120moved_sector_L2.msh
+/Volumes/Stripe/geode-fem/issue-1173/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L3.msh: 139268 nodes, 275736 triangles; attached 6963 boundary nodes (73 at curve ends), 132305 free, 122 sliding edge pairs; edges Slide, stiffening 1; max attach distance 7.557e-16 m; setup 1.947 s
+optimized design: {"min_angle_deg": 7.143128, "max_angle_deg": 155.262020, "min_area_ratio": 1.116911e-1, "max_area_ratio": 2.965755e0, "inverted": 0}
+  worst: tri 235567 tag 7 centroid (3.8093, 45.7215) mm, r 45.8799 mm, theta 85.237 deg: area ratio 1.1169e-1, min angle 53.337 deg
+  worst: tri 238753 tag 7 centroid (-11.8697, 44.4069) mm, r 45.9659 mm, theta 104.965 deg: area ratio 1.1271e-1, min angle 45.757 deg
+  worst: tri 240840 tag 7 centroid (-19.4005, 41.6711) mm, r 45.9659 mm, theta 114.965 deg: area ratio 1.1272e-1, min angle 45.759 deg
+  worst: tri 238749 tag 7 centroid (-11.5167, 44.5006) mm, r 45.9667 mm, theta 104.510 deg: area ratio 1.1319e-1, min angle 47.937 deg
+  worst: tri 240836 tag 7 centroid (-19.0692, 41.8247) mm, r 45.9667 mm, theta 114.510 deg: area ratio 1.1320e-1, min angle 47.938 deg
+  worst: tri 232527 tag 7 centroid (11.5431, 44.4764) mm, r 45.9499 mm, theta 75.451 deg: area ratio 1.1416e-1, min angle 47.471 deg
+  worst: tri 230457 tag 7 centroid (19.0910, 41.7963) mm, r 45.9499 mm, theta 65.451 deg: area ratio 1.1417e-1, min angle 47.471 deg
+  worst: tri 238743 tag 7 centroid (-11.9284, 44.3940) mm, r 45.9686 mm, theta 105.040 deg: area ratio 1.1614e-1, min angle 39.712 deg
+wrote benchmarks/motor_reference/parametric/meshes/icem_opt120moved_sector_L3.msh
+/Volumes/Stripe/geode-fem/issue-1173/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh: 3153 nodes, 5938 triangles; attached 947 boundary nodes (73 at curve ends), 2206 free, 16 sliding edge pairs; edges Slide, stiffening 1; max attach distance 7.557e-16 m; setup 0.011 s
+optimized design: {"min_angle_deg": 13.160613, "max_angle_deg": 138.851888, "min_area_ratio": 1.675930e-1, "max_area_ratio": 2.523767e0, "inverted": 0}
+  worst: tri 4775 tag 7 centroid (19.1207, 41.5765) mm, r 45.7625 mm, theta 65.303 deg: area ratio 1.6759e-1, min angle 59.152 deg
+  worst: tri 4980 tag 7 centroid (-19.1207, 41.5765) mm, r 45.7625 mm, theta 114.697 deg: area ratio 1.6759e-1, min angle 59.152 deg
+  worst: tri 4816 tag 7 centroid (11.6106, 44.2651) mm, r 45.7625 mm, theta 75.303 deg: area ratio 1.6760e-1, min angle 59.151 deg
+  worst: tri 4939 tag 7 centroid (-11.6106, 44.2651) mm, r 45.7625 mm, theta 104.697 deg: area ratio 1.6760e-1, min angle 59.151 deg
+  worst: tri 4898 tag 7 centroid (-3.7476, 45.6088) mm, r 45.7625 mm, theta 94.697 deg: area ratio 1.6760e-1, min angle 59.151 deg
+  worst: tri 4857 tag 7 centroid (3.7476, 45.6088) mm, r 45.7625 mm, theta 85.303 deg: area ratio 1.6760e-1, min angle 59.151 deg
+  worst: tri 4973 tag 7 centroid (-19.5608, 41.3723) mm, r 45.7634 mm, theta 115.305 deg: area ratio 1.6993e-1, min angle 59.001 deg
+  worst: tri 4768 tag 7 centroid (19.5608, 41.3723) mm, r 45.7634 mm, theta 64.695 deg: area ratio 1.6993e-1, min angle 59.001 deg
+wrote benchmarks/motor_reference/parametric/meshes/icem_opt120moved_sector_L0.msh
+/Volumes/Stripe/geode-fem/issue-1173/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L1.msh: 9937 nodes, 19163 triangles; attached 1807 boundary nodes (73 at curve ends), 8130 free, 30 sliding edge pairs; edges Slide, stiffening 1; max attach distance 7.557e-16 m; setup 0.047 s
+optimized design: {"min_angle_deg": 7.846267, "max_angle_deg": 154.116160, "min_area_ratio": 1.172927e-1, "max_area_ratio": 2.727881e0, "inverted": 0}
+  worst: tri 15443 tag 7 centroid (19.1666, 41.6389) mm, r 45.8384 mm, theta 65.283 deg: area ratio 1.1729e-1, min angle 56.020 deg
+  worst: tri 15589 tag 7 centroid (11.6449, 44.3345) mm, r 45.8384 mm, theta 75.283 deg: area ratio 1.1729e-1, min angle 56.021 deg
+  worst: tri 15880 tag 7 centroid (-3.9922, 45.6634) mm, r 45.8375 mm, theta 94.997 deg: area ratio 1.1915e-1, min angle 53.375 deg
+  worst: tri 15476 tag 7 centroid (18.8864, 41.8622) mm, r 45.9254 mm, theta 65.717 deg: area ratio 1.3212e-1, min angle 44.833 deg
+  worst: tri 15622 tag 7 centroid (11.3302, 44.5058) mm, r 45.9254 mm, theta 75.717 deg: area ratio 1.3212e-1, min angle 44.833 deg
+  worst: tri 15765 tag 7 centroid (4.2211, 45.6560) mm, r 45.8507 mm, theta 84.718 deg: area ratio 1.3605e-1, min angle 54.719 deg
+  worst: tri 15913 tag 7 centroid (-4.3482, 45.7165) mm, r 45.9228 mm, theta 95.433 deg: area ratio 1.4088e-1, min angle 47.397 deg
+  worst: tri 15435 tag 7 centroid (19.0881, 41.7534) mm, r 45.9097 mm, theta 65.432 deg: area ratio 1.4593e-1, min angle 48.320 deg
+wrote benchmarks/motor_reference/parametric/meshes/icem_opt120moved_sector_L1.msh
+/Volumes/Stripe/geode-fem/issue-1173/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh: 36083 nodes, 70757 triangles; attached 3511 boundary nodes (73 at curve ends), 32572 free, 61 sliding edge pairs; edges Slide, stiffening 1; max attach distance 7.557e-16 m; setup 0.251 s
+optimized design: {"min_angle_deg": 6.896608, "max_angle_deg": 153.280747, "min_area_ratio": 1.072707e-1, "max_area_ratio": 2.776077e0, "inverted": 0}
+  worst: tri 60720 tag 7 centroid (-11.3590, 44.4826) mm, r 45.9100 mm, theta 104.325 deg: area ratio 1.0727e-1, min angle 41.425 deg
+  worst: tri 61255 tag 7 centroid (-18.9108, 41.8343) mm, r 45.9100 mm, theta 114.325 deg: area ratio 1.0727e-1, min angle 41.425 deg
+  worst: tri 60338 tag 7 centroid (-3.6457, 45.8005) mm, r 45.9453 mm, theta 94.551 deg: area ratio 1.1404e-1, min angle 46.202 deg
+  worst: tri 60915 tag 7 centroid (-12.1604, 44.2008) mm, r 45.8430 mm, theta 105.383 deg: area ratio 1.1434e-1, min angle 52.829 deg
+  worst: tri 61450 tag 7 centroid (-19.6511, 41.4176) mm, r 45.8430 mm, theta 115.383 deg: area ratio 1.1435e-1, min angle 52.828 deg
+  worst: tri 59343 tag 7 centroid (12.1605, 44.2007) mm, r 45.8430 mm, theta 74.617 deg: area ratio 1.1435e-1, min angle 53.254 deg
+  worst: tri 58806 tag 7 centroid (19.6511, 41.4175) mm, r 45.8430 mm, theta 64.617 deg: area ratio 1.1435e-1, min angle 53.255 deg
+  worst: tri 58673 tag 7 centroid (19.3210, 41.5660) mm, r 45.8370 mm, theta 65.070 deg: area ratio 1.1436e-1, min angle 49.139 deg
+wrote benchmarks/motor_reference/parametric/meshes/icem_opt120moved_sector_L2.msh
+/Volumes/Stripe/geode-fem/issue-1173/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L3.msh: 139268 nodes, 275736 triangles; attached 6963 boundary nodes (73 at curve ends), 132305 free, 122 sliding edge pairs; edges Slide, stiffening 1; max attach distance 7.557e-16 m; setup 2.117 s
+optimized design: {"min_angle_deg": 7.143128, "max_angle_deg": 155.262020, "min_area_ratio": 1.116911e-1, "max_area_ratio": 2.965755e0, "inverted": 0}
+  worst: tri 235567 tag 7 centroid (3.8093, 45.7215) mm, r 45.8799 mm, theta 85.237 deg: area ratio 1.1169e-1, min angle 53.337 deg
+  worst: tri 238753 tag 7 centroid (-11.8697, 44.4069) mm, r 45.9659 mm, theta 104.965 deg: area ratio 1.1271e-1, min angle 45.757 deg
+  worst: tri 240840 tag 7 centroid (-19.4005, 41.6711) mm, r 45.9659 mm, theta 114.965 deg: area ratio 1.1272e-1, min angle 45.759 deg
+  worst: tri 238749 tag 7 centroid (-11.5167, 44.5006) mm, r 45.9667 mm, theta 104.510 deg: area ratio 1.1319e-1, min angle 47.937 deg
+  worst: tri 240836 tag 7 centroid (-19.0692, 41.8247) mm, r 45.9667 mm, theta 114.510 deg: area ratio 1.1320e-1, min angle 47.938 deg
+  worst: tri 232527 tag 7 centroid (11.5431, 44.4764) mm, r 45.9499 mm, theta 75.451 deg: area ratio 1.1416e-1, min angle 47.471 deg
+  worst: tri 230457 tag 7 centroid (19.0910, 41.7963) mm, r 45.9499 mm, theta 65.451 deg: area ratio 1.1417e-1, min angle 47.471 deg
+  worst: tri 238743 tag 7 centroid (-11.9284, 44.3940) mm, r 45.9686 mm, theta 105.040 deg: area ratio 1.1614e-1, min angle 39.712 deg
+wrote benchmarks/motor_reference/parametric/meshes/icem_opt120moved_sector_L3.msh

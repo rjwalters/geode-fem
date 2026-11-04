@@ -1,0 +1,35 @@
+{
+  "check": "audience_check",
+  "version_dir": "motor-gradient-optimization.17",
+  "body_path": "main.tex",
+  "files": [
+    "main.tex",
+    "tables/coupling.tex",
+    "optimization.tex",
+    "tables/exp2-time-to-target.tex",
+    "tables/exp2-ratios.tex",
+    "tables/exp2-refinement.tex",
+    "tables/exp2-validation.tex",
+    "tables/exp2b-ratios.tex",
+    "tables/exp2b-validation.tex",
+    "tables/exp2b-refinement.tex",
+    "tables/exp2c-ratios.tex",
+    "tables/gradient-cost.tex",
+    "tables/design-points.tex"
+  ],
+  "declared_audience": [
+    "Computational electromagnetics, electric-machine optimization, and differentiable scientific computing researchers"
+  ],
+  "public_repo_url": "https://github.com/rjwalters/geode-fem",
+  "public_repo_url_source": "anvil_json",
+  "public_repo_url_declared": true,
+  "hits": [],
+  "counts": {
+    "governance_vocabulary": 0,
+    "private_locator": 0,
+    "unlinked_artifact_path": 0
+  },
+  "suppressed_count": 0,
+  "advisory": true,
+  "pass": true
+}

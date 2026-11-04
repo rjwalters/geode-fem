@@ -1,0 +1,176 @@
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh: 3153 nodes, 5938 triangles; attached 947 boundary nodes (77 at curve ends), 2206 free, 16 sliding edge pairs; edges Slide, stiffening 0; max attach distance 7.557e-16 m; setup 0.020 s
+opt120 design: {"inverted":0,"max_angle_deg":138.34405866734502,"max_area_ratio":3.803270177876552,"min_angle_deg":12.428580811867798,"min_area_ratio":0.21757166077070864}
+  worst: tri 4918 tag 7 r 45.7985 mm, theta 93.671 deg: area ratio 2.1757e-1, min angle 44.897 deg
+  worst: tri 4877 tag 7 r 45.7985 mm, theta 86.329 deg: area ratio 2.1757e-1, min angle 44.897 deg
+  worst: tri 4836 tag 7 r 45.7985 mm, theta 76.329 deg: area ratio 2.1757e-1, min angle 44.896 deg
+  worst: tri 4959 tag 7 r 45.7985 mm, theta 103.671 deg: area ratio 2.1757e-1, min angle 44.896 deg
+  worst: tri 5001 tag 7 r 45.7985 mm, theta 113.671 deg: area ratio 2.1757e-1, min angle 44.894 deg
+  worst: tri 4796 tag 7 r 45.7985 mm, theta 66.329 deg: area ratio 2.1757e-1, min angle 44.894 deg
+  worst: tri 4878 tag 7 r 45.7986 mm, theta 83.672 deg: area ratio 2.1757e-1, min angle 45.078 deg
+  worst: tri 4919 tag 7 r 45.7986 mm, theta 96.328 deg: area ratio 2.1757e-1, min angle 45.078 deg
+wrote benchmarks/motor_reference/parametric_cp/runs/quality_L0_slide_chi0.json
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh: 3153 nodes, 5938 triangles; attached 947 boundary nodes (77 at curve ends), 2206 free, 16 sliding edge pairs; edges Slide, stiffening 0.5; max attach distance 7.557e-16 m; setup 0.019 s
+opt120 design: {"inverted":0,"max_angle_deg":137.24371133215377,"max_area_ratio":3.814233106920636,"min_angle_deg":12.834036158764054,"min_area_ratio":0.1924535915810395}
+  worst: tri 4775 tag 7 r 45.7625 mm, theta 65.303 deg: area ratio 1.9245e-1, min angle 56.724 deg
+  worst: tri 4980 tag 7 r 45.7625 mm, theta 114.697 deg: area ratio 1.9245e-1, min angle 56.724 deg
+  worst: tri 4939 tag 7 r 45.7625 mm, theta 104.697 deg: area ratio 1.9245e-1, min angle 56.725 deg
+  worst: tri 4816 tag 7 r 45.7625 mm, theta 75.303 deg: area ratio 1.9245e-1, min angle 56.725 deg
+  worst: tri 4857 tag 7 r 45.7625 mm, theta 85.303 deg: area ratio 1.9246e-1, min angle 56.725 deg
+  worst: tri 4898 tag 7 r 45.7625 mm, theta 94.697 deg: area ratio 1.9246e-1, min angle 56.725 deg
+  worst: tri 4973 tag 7 r 45.7634 mm, theta 115.305 deg: area ratio 1.9367e-1, min angle 56.996 deg
+  worst: tri 4768 tag 7 r 45.7634 mm, theta 64.695 deg: area ratio 1.9367e-1, min angle 56.996 deg
+wrote benchmarks/motor_reference/parametric_cp/runs/quality_L0_slide_chi0.5.json
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh: 3153 nodes, 5938 triangles; attached 947 boundary nodes (77 at curve ends), 2206 free, 16 sliding edge pairs; edges Slide, stiffening 1; max attach distance 7.557e-16 m; setup 0.019 s
+opt120 design: {"inverted":0,"max_angle_deg":153.08192419916833,"max_area_ratio":3.825194400370283,"min_angle_deg":9.776687720499188,"min_area_ratio":0.11208549326084852}
+  worst: tri 840 tag 1 r 42.2799 mm, theta 111.034 deg: area ratio 1.1209e-1, min angle 9.777 deg
+  worst: tri 825 tag 1 r 42.2807 mm, theta 68.972 deg: area ratio 1.1387e-1, min angle 9.792 deg
+  worst: tri 1177 tag 1 r 42.3007 mm, theta 111.306 deg: area ratio 1.1408e-1, min angle 14.821 deg
+  worst: tri 186 tag 1 r 42.3007 mm, theta 68.694 deg: area ratio 1.1582e-1, min angle 15.037 deg
+  worst: tri 685 tag 1 r 42.0167 mm, theta 110.731 deg: area ratio 1.6426e-1, min angle 12.443 deg
+  worst: tri 4775 tag 7 r 45.7625 mm, theta 65.303 deg: area ratio 1.6759e-1, min angle 59.151 deg
+  worst: tri 4980 tag 7 r 45.7625 mm, theta 114.697 deg: area ratio 1.6759e-1, min angle 59.151 deg
+  worst: tri 4939 tag 7 r 45.7625 mm, theta 104.697 deg: area ratio 1.6759e-1, min angle 59.150 deg
+wrote benchmarks/motor_reference/parametric_cp/runs/quality_L0_slide_chi1.json
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh: 3153 nodes, 5938 triangles; attached 947 boundary nodes (77 at curve ends), 2206 free, 0 sliding edge pairs; edges Stretch, stiffening 0; max attach distance 7.557e-16 m; setup 0.018 s
+opt120 design: {"inverted":0,"max_angle_deg":153.05381840191018,"max_area_ratio":3.803270177876552,"min_angle_deg":12.143181605790065,"min_area_ratio":0.164868205633488}
+  worst: tri 3142 tag 6 r 59.4842 mm, theta 63.426 deg: area ratio 1.6487e-1, min angle 23.888 deg
+  worst: tri 4754 tag 6 r 59.4590 mm, theta 116.425 deg: area ratio 2.0631e-1, min angle 40.588 deg
+  worst: tri 4761 tag 6 r 59.4457 mm, theta 115.756 deg: area ratio 2.0631e-1, min angle 18.876 deg
+  worst: tri 4918 tag 7 r 45.7985 mm, theta 93.671 deg: area ratio 2.1757e-1, min angle 44.897 deg
+  worst: tri 4877 tag 7 r 45.7985 mm, theta 86.329 deg: area ratio 2.1757e-1, min angle 44.897 deg
+  worst: tri 4836 tag 7 r 45.7985 mm, theta 76.329 deg: area ratio 2.1757e-1, min angle 44.896 deg
+  worst: tri 4959 tag 7 r 45.7985 mm, theta 103.671 deg: area ratio 2.1757e-1, min angle 44.896 deg
+  worst: tri 5001 tag 7 r 45.7985 mm, theta 113.671 deg: area ratio 2.1757e-1, min angle 44.894 deg
+wrote benchmarks/motor_reference/parametric_cp/runs/quality_L0_stretch_chi0.json
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L1.msh: 9937 nodes, 19163 triangles; attached 1807 boundary nodes (77 at curve ends), 8130 free, 30 sliding edge pairs; edges Slide, stiffening 0; max attach distance 7.557e-16 m; setup 0.067 s
+opt120 design: {"inverted":0,"max_angle_deg":170.44257136973079,"max_area_ratio":3.797516253583649,"min_angle_deg":2.18051046465985,"min_area_ratio":0.12381783975487903}
+  worst: tri 11580 tag 6 r 59.4223 mm, theta 76.947 deg: area ratio 1.2382e-1, min angle 2.181 deg
+  worst: tri 12548 tag 6 r 59.4223 mm, theta 86.947 deg: area ratio 1.2382e-1, min angle 2.181 deg
+  worst: tri 14468 tag 6 r 59.4223 mm, theta 106.947 deg: area ratio 1.2485e-1, min angle 2.214 deg
+  worst: tri 13506 tag 6 r 59.4223 mm, theta 96.947 deg: area ratio 1.2485e-1, min angle 2.214 deg
+  worst: tri 2968 tag 1 r 42.1567 mm, theta 111.087 deg: area ratio 1.9118e-1, min angle 15.545 deg
+  worst: tri 2969 tag 1 r 42.1579 mm, theta 68.916 deg: area ratio 1.9201e-1, min angle 15.157 deg
+  worst: tri 10605 tag 6 r 59.3959 mm, theta 63.179 deg: area ratio 1.9520e-1, min angle 17.145 deg
+  worst: tri 13501 tag 6 r 59.4009 mm, theta 93.179 deg: area ratio 1.9560e-1, min angle 16.378 deg
+wrote benchmarks/motor_reference/parametric_cp/runs/quality_L1_slide_chi0.json
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L1.msh: 9937 nodes, 19163 triangles; attached 1807 boundary nodes (77 at curve ends), 8130 free, 30 sliding edge pairs; edges Slide, stiffening 0.5; max attach distance 7.557e-16 m; setup 0.069 s
+opt120 design: {"inverted":2,"max_angle_deg":158.75645915121416,"max_area_ratio":4.011929488712655,"min_angle_deg":0.2879067120886211,"min_area_ratio":-0.009157057703881328}
+  worst: tri 2969 tag 1 r 42.1579 mm, theta 68.916 deg: area ratio -9.1571e-3, min angle 0.708 deg
+  worst: tri 650 tag 1 r 42.1549 mm, theta 68.694 deg: area ratio -6.3988e-3, min angle 0.409 deg
+  worst: tri 2968 tag 1 r 42.1567 mm, theta 111.087 deg: area ratio 3.5803e-3, min angle 0.288 deg
+  worst: tri 4406 tag 1 r 42.1549 mm, theta 111.306 deg: area ratio 7.2042e-3, min angle 0.459 deg
+  worst: tri 15443 tag 7 r 45.8384 mm, theta 65.283 deg: area ratio 1.6670e-1, min angle 54.296 deg
+  worst: tri 15589 tag 7 r 45.8384 mm, theta 75.283 deg: area ratio 1.6670e-1, min angle 54.296 deg
+  worst: tri 15880 tag 7 r 45.8375 mm, theta 94.997 deg: area ratio 1.6813e-1, min angle 52.832 deg
+  worst: tri 15765 tag 7 r 45.8507 mm, theta 84.718 deg: area ratio 1.7661e-1, min angle 55.025 deg
+wrote benchmarks/motor_reference/parametric_cp/runs/quality_L1_slide_chi0.5.json
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L1.msh: 9937 nodes, 19163 triangles; attached 1807 boundary nodes (77 at curve ends), 8130 free, 30 sliding edge pairs; edges Slide, stiffening 1; max attach distance 7.557e-16 m; setup 0.069 s
+opt120 design: {"inverted":4,"max_angle_deg":171.24977021055383,"max_area_ratio":4.259928702076671,"min_angle_deg":1.8775144832587984,"min_area_ratio":-0.19424430987793231}
+  worst: tri 650 tag 1 r 42.1549 mm, theta 68.694 deg: area ratio -1.9424e-1, min angle 11.540 deg
+  worst: tri 2969 tag 1 r 42.1579 mm, theta 68.916 deg: area ratio -1.9236e-1, min angle 14.310 deg
+  worst: tri 4406 tag 1 r 42.1549 mm, theta 111.306 deg: area ratio -1.6256e-1, min angle 9.615 deg
+  worst: tri 2968 tag 1 r 42.1567 mm, theta 111.087 deg: area ratio -1.6145e-1, min angle 12.706 deg
+  worst: tri 2956 tag 1 r 42.0123 mm, theta 69.068 deg: area ratio 3.0246e-2, min angle 1.878 deg
+  worst: tri 2138 tag 1 r 42.0447 mm, theta 69.348 deg: area ratio 5.7576e-2, min angle 3.296 deg
+  worst: tri 2957 tag 1 r 42.0111 mm, theta 110.936 deg: area ratio 9.4786e-2, min angle 6.020 deg
+  worst: tri 15443 tag 7 r 45.8384 mm, theta 65.283 deg: area ratio 1.1729e-1, min angle 56.019 deg
+wrote benchmarks/motor_reference/parametric_cp/runs/quality_L1_slide_chi1.json
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L1.msh: 9937 nodes, 19163 triangles; attached 1807 boundary nodes (77 at curve ends), 8130 free, 0 sliding edge pairs; edges Stretch, stiffening 0; max attach distance 7.557e-16 m; setup 0.066 s
+opt120 design: {"inverted":0,"max_angle_deg":170.45782489685723,"max_area_ratio":3.797516253583649,"min_angle_deg":2.1770012152411473,"min_area_ratio":0.10529810466421946}
+  worst: tri 10605 tag 6 r 59.3959 mm, theta 63.179 deg: area ratio 1.0530e-1, min angle 11.721 deg
+  worst: tri 15427 tag 6 r 59.3959 mm, theta 116.821 deg: area ratio 1.0749e-1, min angle 12.124 deg
+  worst: tri 14468 tag 6 r 59.4223 mm, theta 106.947 deg: area ratio 1.2336e-1, min angle 2.191 deg
+  worst: tri 11580 tag 6 r 59.4223 mm, theta 76.947 deg: area ratio 1.2363e-1, min angle 2.177 deg
+  worst: tri 12548 tag 6 r 59.4223 mm, theta 86.947 deg: area ratio 1.2382e-1, min angle 2.180 deg
+  worst: tri 13506 tag 6 r 59.4223 mm, theta 96.947 deg: area ratio 1.2483e-1, min angle 2.214 deg
+  worst: tri 15421 tag 6 r 59.4397 mm, theta 116.387 deg: area ratio 1.7589e-1, min angle 26.553 deg
+  worst: tri 10599 tag 6 r 59.4310 mm, theta 63.633 deg: area ratio 1.7707e-1, min angle 28.796 deg
+wrote benchmarks/motor_reference/parametric_cp/runs/quality_L1_stretch_chi0.json
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh: 36083 nodes, 70757 triangles; attached 3511 boundary nodes (77 at curve ends), 32572 free, 61 sliding edge pairs; edges Slide, stiffening 0; max attach distance 7.557e-16 m; setup 0.327 s
+opt120 design: {"inverted":0,"max_angle_deg":173.9195771612366,"max_area_ratio":3.79416524856048,"min_angle_deg":1.3280412281946705,"min_area_ratio":0.0161181576542908}
+  worst: tri 4570 tag 1 r 42.0927 mm, theta 68.861 deg: area ratio 1.6118e-2, min angle 1.343 deg
+  worst: tri 11438 tag 1 r 42.0865 mm, theta 111.128 deg: area ratio 1.9436e-2, min angle 1.368 deg
+  worst: tri 2601 tag 1 r 42.0836 mm, theta 68.748 deg: area ratio 2.4382e-2, min angle 1.703 deg
+  worst: tri 17324 tag 1 r 42.0836 mm, theta 111.252 deg: area ratio 2.8356e-2, min angle 1.979 deg
+  worst: tri 51628 tag 6 r 59.3530 mm, theta 96.972 deg: area ratio 9.6589e-2, min angle 1.328 deg
+  worst: tri 55103 tag 6 r 59.3530 mm, theta 106.972 deg: area ratio 9.6589e-2, min angle 1.328 deg
+  worst: tri 41303 tag 6 r 59.3530 mm, theta 66.972 deg: area ratio 9.6589e-2, min angle 1.328 deg
+  worst: tri 58560 tag 6 r 59.3530 mm, theta 116.972 deg: area ratio 9.9614e-2, min angle 1.386 deg
+wrote benchmarks/motor_reference/parametric_cp/runs/quality_L2_slide_chi0.json
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh: 36083 nodes, 70757 triangles; attached 3511 boundary nodes (77 at curve ends), 32572 free, 61 sliding edge pairs; edges Slide, stiffening 0.5; max attach distance 7.557e-16 m; setup 0.331 s
+opt120 design: {"inverted":4,"max_angle_deg":171.52301931738342,"max_area_ratio":3.9320832322003394,"min_angle_deg":1.575862015348112,"min_area_ratio":-0.2851799889393676}
+  worst: tri 4570 tag 1 r 42.0927 mm, theta 68.861 deg: area ratio -2.8518e-1, min angle 22.132 deg
+  worst: tri 2601 tag 1 r 42.0836 mm, theta 68.748 deg: area ratio -2.8290e-1, min angle 17.759 deg
+  worst: tri 17324 tag 1 r 42.0836 mm, theta 111.252 deg: area ratio -2.7542e-1, min angle 17.197 deg
+  worst: tri 11438 tag 1 r 42.0865 mm, theta 111.128 deg: area ratio -2.7500e-1, min angle 18.547 deg
+  worst: tri 6941 tag 1 r 42.0155 mm, theta 68.937 deg: area ratio 2.2286e-2, min angle 1.576 deg
+  worst: tri 12523 tag 1 r 42.0401 mm, theta 69.080 deg: area ratio 6.0233e-2, min angle 4.261 deg
+  worst: tri 12602 tag 1 r 42.0093 mm, theta 111.052 deg: area ratio 9.0060e-2, min angle 5.206 deg
+  worst: tri 11305 tag 1 r 42.0209 mm, theta 110.907 deg: area ratio 9.8263e-2, min angle 6.098 deg
+wrote benchmarks/motor_reference/parametric_cp/runs/quality_L2_slide_chi0.5.json
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh: 36083 nodes, 70757 triangles; attached 3511 boundary nodes (77 at curve ends), 32572 free, 61 sliding edge pairs; edges Slide, stiffening 1; max attach distance 7.557e-16 m; setup 0.331 s
+opt120 design: {"inverted":11,"max_angle_deg":167.5156337137505,"max_area_ratio":4.145614326863874,"min_angle_deg":1.0210145297841022,"min_area_ratio":-0.5699971214516241}
+  worst: tri 2601 tag 1 r 42.0836 mm, theta 68.748 deg: area ratio -5.7000e-1, min angle 33.706 deg
+  worst: tri 4570 tag 1 r 42.0927 mm, theta 68.861 deg: area ratio -5.6706e-1, min angle 38.844 deg
+  worst: tri 17324 tag 1 r 42.0836 mm, theta 111.252 deg: area ratio -5.5191e-1, min angle 32.254 deg
+  worst: tri 11438 tag 1 r 42.0865 mm, theta 111.128 deg: area ratio -5.4067e-1, min angle 34.227 deg
+  worst: tri 6941 tag 1 r 42.0155 mm, theta 68.937 deg: area ratio -2.8028e-1, min angle 17.316 deg
+  worst: tri 12523 tag 1 r 42.0401 mm, theta 69.080 deg: area ratio -2.5250e-1, min angle 16.030 deg
+  worst: tri 11305 tag 1 r 42.0209 mm, theta 110.907 deg: area ratio -1.7407e-1, min angle 9.955 deg
+  worst: tri 12602 tag 1 r 42.0093 mm, theta 111.052 deg: area ratio -1.7219e-1, min angle 9.183 deg
+wrote benchmarks/motor_reference/parametric_cp/runs/quality_L2_slide_chi1.json
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh: 36083 nodes, 70757 triangles; attached 3511 boundary nodes (77 at curve ends), 32572 free, 0 sliding edge pairs; edges Stretch, stiffening 0; max attach distance 7.557e-16 m; setup 0.326 s
+opt120 design: {"inverted":1,"max_angle_deg":178.26472926299704,"max_area_ratio":3.79416524856048,"min_angle_deg":0.7045452205751698,"min_area_ratio":-0.026865655787385076}
+  worst: tri 58560 tag 6 r 59.3530 mm, theta 116.972 deg: area ratio -2.6866e-2, min angle 0.386 deg
+  worst: tri 4570 tag 1 r 42.0927 mm, theta 68.861 deg: area ratio 1.6118e-2, min angle 1.343 deg
+  worst: tri 11438 tag 1 r 42.0865 mm, theta 111.128 deg: area ratio 1.9436e-2, min angle 1.368 deg
+  worst: tri 2601 tag 1 r 42.0836 mm, theta 68.748 deg: area ratio 2.4382e-2, min angle 1.703 deg
+  worst: tri 17324 tag 1 r 42.0836 mm, theta 111.252 deg: area ratio 2.8356e-2, min angle 1.979 deg
+  worst: tri 41300 tag 6 r 59.3471 mm, theta 63.094 deg: area ratio 6.7036e-2, min angle 4.424 deg
+  worst: tri 41303 tag 6 r 59.3530 mm, theta 66.972 deg: area ratio 8.3875e-2, min angle 1.153 deg
+  worst: tri 57219 tag 6 r 59.0982 mm, theta 117.715 deg: area ratio 8.6401e-2, min angle 0.705 deg
+wrote benchmarks/motor_reference/parametric_cp/runs/quality_L2_stretch_chi0.json
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L3.msh: 139268 nodes, 275736 triangles; attached 6963 boundary nodes (77 at curve ends), 132305 free, 122 sliding edge pairs; edges Slide, stiffening 0; max attach distance 7.557e-16 m; setup 1.535 s
+opt120 design: {"inverted":4,"max_angle_deg":164.66498699785643,"max_area_ratio":3.792341682191368,"min_angle_deg":5.438437660978614,"min_area_ratio":-0.21421052994008022}
+  worst: tri 50246 tag 1 r 42.0472 mm, theta 111.164 deg: area ratio -2.1421e-1, min angle 16.118 deg
+  worst: tri 50247 tag 1 r 42.0458 mm, theta 68.838 deg: area ratio -2.1179e-1, min angle 14.869 deg
+  worst: tri 68279 tag 1 r 42.0448 mm, theta 111.228 deg: area ratio -2.0330e-1, min angle 12.168 deg
+  worst: tri 10177 tag 1 r 42.0448 mm, theta 68.772 deg: area ratio -2.0063e-1, min angle 12.000 deg
+  worst: tri 203405 tag 6 r 59.3152 mm, theta 96.958 deg: area ratio 1.4032e-1, min angle 5.438 deg
+  worst: tri 216730 tag 6 r 59.3152 mm, theta 103.042 deg: area ratio 1.4035e-1, min angle 5.440 deg
+  worst: tri 229971 tag 6 r 59.3152 mm, theta 113.042 deg: area ratio 1.4035e-1, min angle 5.440 deg
+  worst: tri 176854 tag 6 r 59.3152 mm, theta 76.958 deg: area ratio 1.4037e-1, min angle 5.442 deg
+wrote benchmarks/motor_reference/parametric_cp/runs/quality_L3_slide_chi0.json
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L3.msh: 139268 nodes, 275736 triangles; attached 6963 boundary nodes (77 at curve ends), 132305 free, 122 sliding edge pairs; edges Slide, stiffening 0.5; max attach distance 7.557e-16 m; setup 1.435 s
+opt120 design: {"inverted":20,"max_angle_deg":170.90469442413095,"max_area_ratio":3.9658653080168045,"min_angle_deg":2.07931031175531,"min_area_ratio":-0.6463199472676411}
+  worst: tri 68279 tag 1 r 42.0448 mm, theta 111.228 deg: area ratio -6.4632e-1, min angle 32.332 deg
+  worst: tri 50246 tag 1 r 42.0472 mm, theta 111.164 deg: area ratio -6.4435e-1, min angle 43.425 deg
+  worst: tri 10177 tag 1 r 42.0448 mm, theta 68.772 deg: area ratio -6.3994e-1, min angle 31.933 deg
+  worst: tri 50247 tag 1 r 42.0458 mm, theta 68.838 deg: area ratio -6.3615e-1, min angle 41.188 deg
+  worst: tri 52778 tag 1 r 42.0074 mm, theta 111.127 deg: area ratio -1.6514e-1, min angle 9.219 deg
+  worst: tri 53807 tag 1 r 42.0150 mm, theta 111.056 deg: area ratio -1.5373e-1, min angle 10.669 deg
+  worst: tri 53806 tag 1 r 42.0116 mm, theta 68.949 deg: area ratio -1.1889e-1, min angle 7.635 deg
+  worst: tri 52779 tag 1 r 42.0060 mm, theta 68.876 deg: area ratio -1.1610e-1, min angle 6.127 deg
+wrote benchmarks/motor_reference/parametric_cp/runs/quality_L3_slide_chi0.5.json
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L3.msh: 139268 nodes, 275736 triangles; attached 6963 boundary nodes (77 at curve ends), 132305 free, 122 sliding edge pairs; edges Slide, stiffening 1; max attach distance 7.557e-16 m; setup 1.415 s
+opt120 design: {"inverted":57,"max_angle_deg":178.7361260783692,"max_area_ratio":4.178989535387154,"min_angle_deg":0.29107789690876995,"min_area_ratio":-1.0711608060373135}
+  worst: tri 68279 tag 1 r 42.0448 mm, theta 111.228 deg: area ratio -1.0712e0, min angle 27.833 deg
+  worst: tri 10177 tag 1 r 42.0448 mm, theta 68.772 deg: area ratio -1.0559e0, min angle 27.910 deg
+  worst: tri 50246 tag 1 r 42.0472 mm, theta 111.164 deg: area ratio -1.0540e0, min angle 42.418 deg
+  worst: tri 50247 tag 1 r 42.0458 mm, theta 68.838 deg: area ratio -1.0342e0, min angle 47.374 deg
+  worst: tri 53807 tag 1 r 42.0150 mm, theta 111.056 deg: area ratio -5.4637e-1, min angle 32.352 deg
+  worst: tri 52778 tag 1 r 42.0074 mm, theta 111.127 deg: area ratio -5.4349e-1, min angle 25.721 deg
+  worst: tri 53806 tag 1 r 42.0116 mm, theta 68.949 deg: area ratio -4.5815e-1, min angle 25.636 deg
+  worst: tri 52779 tag 1 r 42.0060 mm, theta 68.876 deg: area ratio -4.4608e-1, min angle 20.883 deg
+wrote benchmarks/motor_reference/parametric_cp/runs/quality_L3_slide_chi1.json
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L3.msh: 139268 nodes, 275736 triangles; attached 6963 boundary nodes (77 at curve ends), 132305 free, 0 sliding edge pairs; edges Stretch, stiffening 0; max attach distance 7.557e-16 m; setup 1.444 s
+opt120 design: {"inverted":10,"max_angle_deg":178.6314256397328,"max_area_ratio":3.792341682191368,"min_angle_deg":0.15422596315517612,"min_area_ratio":-0.21421052994008022}
+  worst: tri 50246 tag 1 r 42.0472 mm, theta 111.164 deg: area ratio -2.1421e-1, min angle 16.118 deg
+  worst: tri 50247 tag 1 r 42.0458 mm, theta 68.838 deg: area ratio -2.1179e-1, min angle 14.869 deg
+  worst: tri 68279 tag 1 r 42.0448 mm, theta 111.228 deg: area ratio -2.0330e-1, min angle 12.168 deg
+  worst: tri 10177 tag 1 r 42.0448 mm, theta 68.772 deg: area ratio -2.0063e-1, min angle 12.000 deg
+  worst: tri 161630 tag 6 r 59.3152 mm, theta 62.827 deg: area ratio -1.1641e-1, min angle 1.269 deg
+  worst: tri 224908 tag 6 r 59.3152 mm, theta 117.173 deg: area ratio -1.1641e-1, min angle 1.269 deg
+  worst: tri 224205 tag 6 r 59.1859 mm, theta 117.555 deg: area ratio -7.9249e-2, min angle 0.731 deg
+  worst: tri 160927 tag 6 r 59.1859 mm, theta 62.445 deg: area ratio -7.9249e-2, min angle 0.731 deg
+wrote benchmarks/motor_reference/parametric_cp/runs/quality_L3_stretch_chi0.json

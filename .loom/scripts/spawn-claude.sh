@@ -415,9 +415,14 @@ if [[ "${LOOM_SWEEP_CPU_QUOTA:-1}" != "0" ]]; then
     # on its side.
     export LOOM_SWEEP_CPU_BUDGET_CORES="$_cpu_budget_cores"
     if [[ "$_cpu_shared" == "1" ]]; then
+        # #12884: the sweep count the budget was divided by, for the phase
+        # spans. Only a shared budget measured it; unshared, `1` is a
+        # placeholder, so the key is unset (no parent value leaks through).
+        export LOOM_SWEEP_CPU_INFLIGHT="$_cpu_inflight"
         log_info "spawn-claude: CPU budget = ${_cpu_budget_cores} core(s) of ${_cpu_total_cores} (reserved ${_cpu_reserved}) divided across ${_cpu_inflight} in-flight sweep(s) on this host — exported as LOOM_SWEEP_CPU_BUDGET_CORES (issues #5111/#5979)"
     else
         log_info "spawn-claude: CPU budget = ${_cpu_budget_cores} core(s) of ${_cpu_total_cores} (reserved ${_cpu_reserved}) — host-wide sharing disabled (LOOM_SWEEP_SHARED_CPU_BUDGET=0, #5979) — exported as LOOM_SWEEP_CPU_BUDGET_CORES (issue #5111)"
+        unset LOOM_SWEEP_CPU_INFLIGHT
     fi
 
     _systemd_user_lib="${_script_dir}/lib/systemd-user.sh"
@@ -438,15 +443,17 @@ if [[ "${LOOM_SWEEP_CPU_QUOTA:-1}" != "0" ]]; then
         # kernel's global OOM killer choosing a victim. The policy and the
         # systemd probe live in `loom-daemon ram-scope-limit` (exit 0 apply,
         # 3 rejected by systemd, anything else — incl. an older binary — no limit).
+        # Its stderr is one `ram-scope-limit: …` line naming the source that
+        # decided (env, config tier or default; issue #12246), so it is kept.
         # requires-daemon: ram-scope-limit optional   #11094 — any non-0/3 exit (incl. an older binary's unknown-subcommand error) means the scope runs with no MemoryMax, exactly the pre-#11094 behaviour.
         # shellcheck source=lib/locate-daemon-bin.sh
         source "${_script_dir}/lib/locate-daemon-bin.sh"
         _mem_bin="$(loom_locate_daemon_bin "$WORKSPACE" 2>/dev/null || true)"
         _mem_rc=0
-        _mem_max_mb="$([[ -n "$_mem_bin" ]] && "$_mem_bin" ram-scope-limit --workspace "$WORKSPACE" --probe 2>/dev/null)" || _mem_rc=$?
+        _mem_max_mb="$([[ -n "$_mem_bin" ]] && "$_mem_bin" ram-scope-limit --workspace "$WORKSPACE" --probe)" || _mem_rc=$?
         case "$_mem_rc:$_mem_max_mb" in
             0:[0-9]*) _cpu_quota_props+=(-p "MemoryMax=${_mem_max_mb}M")
-                log_info "spawn-claude: scope MemoryMax=${_mem_max_mb}M from observed per-repo peak (LOOM_SWEEP_MEMORY_MAX=0 disables; issue #11094)" ;;
+                log_info "spawn-claude: scope MemoryMax=${_mem_max_mb}M (autonomous.agentMemoryMax=off or LOOM_SWEEP_MEMORY_MAX=0 disables; issue #11094)" ;;
             3:[0-9]*) log_warn "spawn-claude: MemoryMax=${_mem_max_mb}M rejected by systemd (memory controller not delegated?); scope runs without a memory limit (issue #11094)" ;;
         esac
         if [[ "$_cpu_wallclock" != "0" ]]; then
@@ -631,9 +638,11 @@ fi
 # registry — the SAME "sweeps survive by design" property launchd already
 # gives bare-metal sweeps today (see daemon-reference.md), now extended to
 # systemd too, via the container boundary instead of process reparenting.
-# `loom-daemon restart --drain` remains the recommended path on both
-# supervisors — it waits for in-flight sweeps (containerized or not) to
-# finish before the daemon exits, so the orphan case above is a hard-stop
+# `loom-daemon restart --drain` (relaunch) and `restart --pause --then-exit`
+# (host maintenance, #11812) remain the recommended paths on both
+# supervisors — the first waits for in-flight sweeps (containerized or not)
+# to finish before the daemon exits, the second pauses them for the next
+# start's H5 to resume — so the orphan case above is a hard-stop
 # fallback, not the common path. Reconciling a still-running orphaned
 # container after a daemon restart (`SweepRegistry::reconstruct`'s
 # container-recognition extension) remains a real, named Phase 3 obligation
@@ -780,57 +789,24 @@ if [[ "$CONTAINMENT_ENABLED" == "1" ]]; then
     # the env-var form already in this process's environment (forwarded by
     # name); best-effort read-only bind of ~/.config/gh only when neither
     # token env var is present.
-    #
-    # Forge-egress policy (#9987): `loom-daemon forge egress container-args`
-    # makes the whole decision and this block only appends its lines. Line 1
-    # is an explicit `loom-forge-egress: <status>`; a managed host gets 2am's
-    # gh launcher, upstream gh, policy and credential REFERENCE read-only and
-    # neither ~/.config/gh nor GH_TOKEN/GITHUB_TOKEN; an unconfigured (or
-    # observe-unmanaged, findings logged) host gets the legacy credentials
-    # above. Without a capable daemon only a host with no policy or managed
-    # marker keeps them. Anything else — a refusal (unreadable/invalid policy,
-    # missing launcher or image check under `required`), a failed helper,
-    # empty output — has no status line and REFUSES (78): never empty-means-none.
-    # requires-daemon: forge >= 0.19.758   #9987 — `forge egress container-args --image`, declared at this repo's VERSION because it lands WITH this marker (the first release carrying it is the post-merge bump). Hard on a host with a forge-egress policy (this block refuses, exit 78, below the floor); a host with no policy never needs it and keeps today's behaviour.
+    for _containment_var in GH_TOKEN GITHUB_TOKEN; do
+        if [[ -n "${!_containment_var+x}" ]]; then _containment_mounts+=(-e "$_containment_var"); fi
+    done
+    if [[ -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}" && -n "${HOME:-}" && -d "${HOME}/.config/gh" ]]; then
+        _containment_mounts+=(-v "${HOME}/.config/gh:${HOME}/.config/gh:ro")
+    fi
+    # The agent `gh` front's ledger sink (#10607), read-write, so a contained
+    # worker's forge-call rows reach the daemon. Best-effort: no daemon, or one
+    # without the verb, mounts nothing.
+    # requires-daemon: gh-shim optional   `gh-shim container-mount`; an older binary prints usage on stderr and nothing on stdout, so no sink is mounted.
     # shellcheck source=lib/locate-daemon-bin.sh
     source "${_script_dir}/lib/locate-daemon-bin.sh"
-    _containment_gh=()
     _containment_gh_bin="$(loom_locate_daemon_bin "$WORKSPACE" 2>/dev/null || true)"
-    if [[ -n "$_containment_gh_bin" ]] && "$_containment_gh_bin" forge egress container-args --help >/dev/null 2>&1; then
-        # stderr passes through: the named refusal or observe findings reach the log.
-        _containment_gh_out="$("$_containment_gh_bin" forge egress container-args --image "$_containment_image")" || _containment_gh_out=""
+    if [[ -n "$_containment_gh_bin" ]]; then
         while IFS= read -r _containment_gh_line; do # Bash 3.2: no mapfile
-            _containment_gh+=("$_containment_gh_line")
-        done <<<"$_containment_gh_out"
-    else
-        # No capable daemon: only a host with nothing policy-shaped keeps the
-        # legacy credentials. Probe the policy DIRECTORIES, not the files: a
-        # root-owned 0700 dir hides its policy/marker from `-e` (EACCES), and
-        # like the daemon only "not there at all" means absent. The env list
-        # can only ADD directories (tests), never remove the fixed two.
-        _containment_gh_policy="${LOOM_FORGE_EGRESS_POLICY:-}${LOOM_FORGE_EGRESS_MANAGED:-}"
-        # shellcheck disable=SC2086 # word-split the optional extra dirs
-        for _containment_var in /etc/loom/forge-egress /etc/2am/github-egress ${LOOM_FORGE_EGRESS_PROBE_DIRS:-}; do
-            if [[ -e "$_containment_var" || -L "$_containment_var" ]]; then _containment_gh_policy+="$_containment_var"; fi
-        done
-        if [[ -z "$_containment_gh_policy" ]]; then
-            _containment_gh=("loom-forge-egress: unconfigured")
-            for _containment_var in GH_TOKEN GITHUB_TOKEN; do
-                if [[ -n "${!_containment_var+x}" ]]; then _containment_gh+=(-e "$_containment_var"); fi
-            done
-            if [[ -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}" && -n "${HOME:-}" && -d "${HOME}/.config/gh" ]]; then
-                _containment_gh+=(-v "${HOME}/.config/gh:${HOME}/.config/gh:ro")
-            fi
-        fi
+            if [[ -n "$_containment_gh_line" ]]; then _containment_mounts+=("$_containment_gh_line"); fi
+        done < <("$_containment_gh_bin" gh-shim container-mount 2>/dev/null || true)
     fi
-    case "${_containment_gh[0]:-}" in
-        "loom-forge-egress: managed" | "loom-forge-egress: unconfigured" | "loom-forge-egress: observe-unmanaged") ;;
-        *)
-            log_error "spawn-claude: no explicit forge egress answer (a refused policy, a failed helper, or a policy host without a capable loom-daemon) — refusing to mount ~/.config/gh or forward GH_TOKEN/GITHUB_TOKEN (#9987)."
-            exit 78 # EX_CONFIG
-            ;;
-    esac
-    _containment_mounts+=("${_containment_gh[@]:1}")
     # Git commit identity (check-git-identity.sh's global user.name/user.email).
     if [[ -n "${HOME:-}" && -f "${HOME}/.gitconfig" ]]; then
         _containment_mounts+=(-v "${HOME}/.gitconfig:${HOME}/.gitconfig:ro")
@@ -885,8 +861,7 @@ if [[ "$CONTAINMENT_ENABLED" == "1" ]]; then
 
     # --- Env passthrough ---
     # Every LOOM_*/CLAUDE_*/SAFEHOUSE*/CODEX_* var (GH_TOKEN/GITHUB_TOKEN
-    # come from the forge-egress block above, never under a policy, #9987)
-    # already present in THIS process's environment (exported by the daemon
+    # come from the forge auth block above) already present in THIS process's environment (exported by the daemon
     # before it spawned this script — LOOM_SWEEP_CLAIM_OWNED, LOOM_ROLE,
     # LOOM_RUNTIME, LOOM_MODEL/LOOM_EFFORT when set, etc. — or already
     # resolved above, e.g. CLAUDE_CODE_OAUTH_TOKEN when
@@ -1190,7 +1165,7 @@ if [[ -z "${LOOM_SPAWN_NO_EXPORT:-}" && -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; th
     _account_provider="$(_loom_account_provider_for_runtime claude)"
     _select_args=(tokens select --workspace "$WORKSPACE" --provider "$_account_provider" --export)
     # Pre-flight: auto-unpin if every allowlisted account has hit the
-    # consecutive-failure threshold (default 5). Without this, an
+    # failure-count threshold (default 5). Without this, an
     # operator-set pin can trap the spawner once all pinned accounts
     # exhaust their weekly quota. Empty-pool guard: we never silently
     # clear .bad_tokens — if that file blocks every account, the user
@@ -1304,6 +1279,21 @@ if [[ "$_loom_print_mode" == "true" ]]; then
 fi
 unset _loom_print_mode
 
+# --- Refuse to invent a git identity (issue #13088) ---
+# A worker with no user.name/user.email commits as `user@hostname` (git's
+# auto-detected fallback), which fails DCO/attribution checks only after a full
+# Judge/Doctor cycle. `user.useConfigOnly=true` makes git refuse to commit
+# unless the identity is explicit (config or GIT_AUTHOR_*/GIT_COMMITTER_*
+# env). Injected per-process via GIT_CONFIG_COUNT/KEY_n/VALUE_n, appending
+# after any count already set, so no config file (the shared primary clone or
+# the host-global config) is written. Fix on refusal: set a real identity
+# (git config --global user.name/user.email, or GIT_AUTHOR_* env).
+_gc_count="${GIT_CONFIG_COUNT:-0}"
+[[ "$_gc_count" =~ ^[0-9]+$ ]] || _gc_count=0
+export "GIT_CONFIG_KEY_${_gc_count}=user.useConfigOnly" "GIT_CONFIG_VALUE_${_gc_count}=true"
+export GIT_CONFIG_COUNT=$((_gc_count + 1))
+unset _gc_count
+
 # --- Session pinning and roll resume (issue #10830) ---
 # Pause-and-roll (docs/design/daemon-roll-pause-resume.md) resumes a paused
 # agent from its saved session, so the daemon pins every Claude session id at
@@ -1415,12 +1405,16 @@ if [[ "$_CONTAINMENT_CRED_PROXY" != "1" && -f "$_mcp_config_lib" ]]; then
             if [[ ! -S "$_sh_socket" && ! -e "$_sh_socket" ]]; then
                 log_warn "spawn-claude: safehouse socket '$_sh_socket' not present at spawn; injecting anyway (best-effort — safehouse-mcp connects lazily and never blocks the worker)."
             fi
-            _mcp_session_config="$(mktemp -t loom-mcp-config.XXXXXX 2>/dev/null || mktemp)"
-            if loom_mcp_emit_config "$WORKSPACE" "$_sh_socket" "$_sh_persona" "$_sh_command" >"$_mcp_session_config" 2>/dev/null; then
+            # #9896: deterministic path keyed by user + workspace + persona so
+            # repeated spawns overwrite one file (the script exec's claude, so
+            # no trap could ever delete a per-spawn mktemp file). Written
+            # atomically: mktemp in the same dir, then mv -f.
+            _mcp_session_config="${TMPDIR:-/tmp}/loom-mcp-config-$(id -u)-$(printf '%s|%s|%s|%s' "$WORKSPACE" "$_sh_persona" "$_sh_socket" "$_sh_command" | cksum | cut -d' ' -f1).json"
+            if loom_mcp_emit_config "$WORKSPACE" "$_sh_socket" "$_sh_persona" "$_sh_command" >"$_mcp_session_config.$$" 2>/dev/null && mv -f "$_mcp_session_config.$$" "$_mcp_session_config"; then
                 PASSTHROUGH_ARGS+=(--mcp-config "$_mcp_session_config")
                 log_info "spawn-claude: injected safehouse MCP server (persona=$_sh_persona, socket=$_sh_socket, config=$_mcp_session_config)"
             else
-                rm -f "$_mcp_session_config"
+                rm -f "$_mcp_session_config.$$"
                 log_warn "spawn-claude: failed to generate safehouse MCP config; skipping injection (loom MCP unaffected)."
             fi
         fi
@@ -1429,7 +1423,7 @@ fi
 
 # --- Per-role tool restriction at spawn (#8256) ---
 # Defense in depth for the guard hooks: the role JSON's
-# toolPolicy.allowedCapabilities (plus any forge-egress policy) become
+# toolPolicy.allowedCapabilities become
 # --disallowedTools specs, computed by `loom-daemon role-tool-policy
 # deny-specs`. Bypassable on its own (`bash -c 'ssh …'`), which is why the hooks
 # are the backstop. Appended last so no positional follows the variadic flag,

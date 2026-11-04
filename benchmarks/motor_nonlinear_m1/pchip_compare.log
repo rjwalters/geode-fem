@@ -1,0 +1,35 @@
+python 3.14.5, numpy 2.5.4, scipy 1.18.1
+MATLAB pchip vs scipy PchipInterpolator: {
+ "max_abs_dH_rel_to_max_H": 2.690137660658962e-16,
+ "max_rel_dH_B_gt_0": 4.3799787022380034e-16,
+ "max_rel_slope": 6.9550628570791235e-15,
+ "endpoint_slope_first_matlab": 426.04341000000005,
+ "endpoint_slope_first_scipy": 426.04341000000005,
+ "endpoint_slope_last_matlab": 789828.5273200028,
+ "endpoint_slope_last_scipy": 789828.5273200027,
+ "interior_knot_slopes_max_rel_diff": 4.1488684839464567e-16
+}
+knot slopes: {
+ "geode_nu0_m_per_H": 397.6613271082522,
+ "reference_nu_at_B_le_1e-5_m_per_H": 426.032056043536,
+ "pchip_slope_at_B0_m_per_H": 426.04341000000005,
+ "first_secant_m_per_H": 341.19656,
+ "slope_at_B1_geode": 228.2670257834955,
+ "slope_at_B1_pchip": 228.2670257834955,
+ "slope_at_B_end_geode": 795774.7154594767,
+ "slope_at_B_end_pchip_endpoint": 789828.5273200028,
+ "slope_at_B_end_reference_left_of_join": 789828.5273200028,
+ "reference_tail_slope_1_over_mu0": 795774.7154594767,
+ "reference_slope_jump_at_B_end_rel": 0.007472200390333589,
+ "last_secant_m_per_H": 790771.5369000029,
+ "reference_self_tangent_mismatch_below_clamp_max_rel": 2.6653111216258635e-05,
+ "reference_self_tangent_mismatch_below_clamp_at_B_T": 1e-05
+}
+
+| region | samples | max dH/H (at B) | max dnu/nu (at B) | max d(dH/dB) vs pchip' (at B) |
+|---|---|---|---|---|
+| origin_clamp | 37 | 6.659e-02 (1e-05 T) | 6.659e-02 (1e-05 T) | 6.662e-02 (1e-08 T) |
+| first_segment | 123 | 6.659e-02 (1.21153e-05 T) | 6.659e-02 (1.21153e-05 T) | 6.656e-02 (1.21153e-05 T) |
+| interior | 4401 | 4.181e-16 (1.3295 T) | 4.173e-16 (1.7785 T) | 5.286e-15 (0.7185 T) |
+| last_segment | 101 | 2.171e-04 (2.2825 T) | 2.171e-04 (2.2825 T) | 7.528e-03 (2.3 T) |
+| tail | 280 | 2.430e-16 (2.63 T) | 3.196e-16 (2.63 T) | 0.000e+00 (2.3025 T) |

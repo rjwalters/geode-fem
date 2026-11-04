@@ -1,0 +1,363 @@
+{
+  "issue": 1177,
+  "winding_tags": {
+    "slot0_outer": 11,
+    "slot0_inner": 12,
+    "slot1_inner": 13,
+    "slot5_outer": 14,
+    "slot1_outer": 15,
+    "slot2_outer": 16,
+    "slot2_inner": 17,
+    "slot3_inner": 18,
+    "slot3_outer": 19,
+    "slot4_inner": 20,
+    "slot4_outer": 21,
+    "slot5_inner": 22
+  },
+  "meshes": [
+    {
+      "design": "theta0",
+      "level": 0,
+      "file": "icem_remesh_theta0_L0.msh",
+      "nodes": 2867,
+      "triangles": 5375,
+      "min_angle_deg": 18.07472736951201
+    },
+    {
+      "design": "MW_p1e-3",
+      "level": 0,
+      "file": "icem_remesh_MW_p1e-3_L0.msh",
+      "nodes": 2854,
+      "triangles": 5349,
+      "min_angle_deg": 18.07472736951201
+    },
+    {
+      "design": "MW_m1e-3",
+      "level": 0,
+      "file": "icem_remesh_MW_m1e-3_L0.msh",
+      "nodes": 2875,
+      "triangles": 5391,
+      "min_angle_deg": 18.07472736951201
+    },
+    {
+      "design": "MW_p3e-4",
+      "level": 0,
+      "file": "icem_remesh_MW_p3e-4_L0.msh",
+      "nodes": 2858,
+      "triangles": 5357,
+      "min_angle_deg": 18.07472736951201
+    },
+    {
+      "design": "MW_m3e-4",
+      "level": 0,
+      "file": "icem_remesh_MW_m3e-4_L0.msh",
+      "nodes": 2875,
+      "triangles": 5391,
+      "min_angle_deg": 18.07472736951201
+    },
+    {
+      "design": "MW_p1e-4",
+      "level": 0,
+      "file": "icem_remesh_MW_p1e-4_L0.msh",
+      "nodes": 2866,
+      "triangles": 5373,
+      "min_angle_deg": 18.07472736951201
+    },
+    {
+      "design": "MW_m1e-4",
+      "level": 0,
+      "file": "icem_remesh_MW_m1e-4_L0.msh",
+      "nodes": 2854,
+      "triangles": 5349,
+      "min_angle_deg": 18.07472736951201
+    },
+    {
+      "design": "MW_p3e-5",
+      "level": 0,
+      "file": "icem_remesh_MW_p3e-5_L0.msh",
+      "nodes": 2868,
+      "triangles": 5377,
+      "min_angle_deg": 18.07472736951201
+    },
+    {
+      "design": "MW_m3e-5",
+      "level": 0,
+      "file": "icem_remesh_MW_m3e-5_L0.msh",
+      "nodes": 2866,
+      "triangles": 5373,
+      "min_angle_deg": 18.07472736951201
+    },
+    {
+      "design": "MW_p1e-5",
+      "level": 0,
+      "file": "icem_remesh_MW_p1e-5_L0.msh",
+      "nodes": 2867,
+      "triangles": 5375,
+      "min_angle_deg": 18.07472736951201
+    },
+    {
+      "design": "MW_m1e-5",
+      "level": 0,
+      "file": "icem_remesh_MW_m1e-5_L0.msh",
+      "nodes": 2872,
+      "triangles": 5385,
+      "min_angle_deg": 18.07472736951201
+    },
+    {
+      "design": "MW_p3e-6",
+      "level": 0,
+      "file": "icem_remesh_MW_p3e-6_L0.msh",
+      "nodes": 2867,
+      "triangles": 5375,
+      "min_angle_deg": 18.07472736951201
+    },
+    {
+      "design": "MW_m3e-6",
+      "level": 0,
+      "file": "icem_remesh_MW_m3e-6_L0.msh",
+      "nodes": 2866,
+      "triangles": 5373,
+      "min_angle_deg": 18.07472736951201
+    },
+    {
+      "design": "MW_p1e-6",
+      "level": 0,
+      "file": "icem_remesh_MW_p1e-6_L0.msh",
+      "nodes": 2867,
+      "triangles": 5375,
+      "min_angle_deg": 18.07472736951201
+    },
+    {
+      "design": "MW_m1e-6",
+      "level": 0,
+      "file": "icem_remesh_MW_m1e-6_L0.msh",
+      "nodes": 2867,
+      "triangles": 5375,
+      "min_angle_deg": 18.07472736951201
+    },
+    {
+      "design": "SW1_p1e-3",
+      "level": 0,
+      "file": "icem_remesh_SW1_p1e-3_L0.msh",
+      "nodes": 2860,
+      "triangles": 5361,
+      "min_angle_deg": 20.66652115439227
+    },
+    {
+      "design": "SW1_m1e-3",
+      "level": 0,
+      "file": "icem_remesh_SW1_m1e-3_L0.msh",
+      "nodes": 2917,
+      "triangles": 5475,
+      "min_angle_deg": 17.05925843590612
+    },
+    {
+      "design": "SW1_p3e-4",
+      "level": 0,
+      "file": "icem_remesh_SW1_p3e-4_L0.msh",
+      "nodes": 2886,
+      "triangles": 5413,
+      "min_angle_deg": 16.82650825104822
+    },
+    {
+      "design": "SW1_m3e-4",
+      "level": 0,
+      "file": "icem_remesh_SW1_m3e-4_L0.msh",
+      "nodes": 2848,
+      "triangles": 5337,
+      "min_angle_deg": 17.137209459243426
+    },
+    {
+      "design": "SW1_p1e-4",
+      "level": 0,
+      "file": "icem_remesh_SW1_p1e-4_L0.msh",
+      "nodes": 2837,
+      "triangles": 5315,
+      "min_angle_deg": 16.899872284517055
+    },
+    {
+      "design": "SW1_m1e-4",
+      "level": 0,
+      "file": "icem_remesh_SW1_m1e-4_L0.msh",
+      "nodes": 2858,
+      "triangles": 5357,
+      "min_angle_deg": 17.01958509663288
+    },
+    {
+      "design": "SW1_p3e-5",
+      "level": 0,
+      "file": "icem_remesh_SW1_p3e-5_L0.msh",
+      "nodes": 2881,
+      "triangles": 5403,
+      "min_angle_deg": 16.942047663404686
+    },
+    {
+      "design": "SW1_m3e-5",
+      "level": 0,
+      "file": "icem_remesh_SW1_m3e-5_L0.msh",
+      "nodes": 2865,
+      "triangles": 5371,
+      "min_angle_deg": 17.154415653711236
+    },
+    {
+      "design": "SW1_p1e-5",
+      "level": 0,
+      "file": "icem_remesh_SW1_p1e-5_L0.msh",
+      "nodes": 2876,
+      "triangles": 5393,
+      "min_angle_deg": 18.058233660501596
+    },
+    {
+      "design": "SW1_m1e-5",
+      "level": 0,
+      "file": "icem_remesh_SW1_m1e-5_L0.msh",
+      "nodes": 2855,
+      "triangles": 5351,
+      "min_angle_deg": 18.091240644355636
+    },
+    {
+      "design": "SW1_p3e-6",
+      "level": 0,
+      "file": "icem_remesh_SW1_p3e-6_L0.msh",
+      "nodes": 2867,
+      "triangles": 5375,
+      "min_angle_deg": 18.00360787657098
+    },
+    {
+      "design": "SW1_m3e-6",
+      "level": 0,
+      "file": "icem_remesh_SW1_m3e-6_L0.msh",
+      "nodes": 2867,
+      "triangles": 5375,
+      "min_angle_deg": 18.07967543587997
+    },
+    {
+      "design": "SW1_p1e-6",
+      "level": 0,
+      "file": "icem_remesh_SW1_p1e-6_L0.msh",
+      "nodes": 2866,
+      "triangles": 5373,
+      "min_angle_deg": 19.82027930095991
+    },
+    {
+      "design": "SW1_m1e-6",
+      "level": 0,
+      "file": "icem_remesh_SW1_m1e-6_L0.msh",
+      "nodes": 2871,
+      "triangles": 5383,
+      "min_angle_deg": 16.960635603255497
+    },
+    {
+      "design": "SW2_p1e-3",
+      "level": 0,
+      "file": "icem_remesh_SW2_p1e-3_L0.msh",
+      "nodes": 2885,
+      "triangles": 5411,
+      "min_angle_deg": 21.851157760946606
+    },
+    {
+      "design": "SW2_m1e-3",
+      "level": 0,
+      "file": "icem_remesh_SW2_m1e-3_L0.msh",
+      "nodes": 2885,
+      "triangles": 5411,
+      "min_angle_deg": 17.47244632625501
+    },
+    {
+      "design": "SW2_p3e-4",
+      "level": 0,
+      "file": "icem_remesh_SW2_p3e-4_L0.msh",
+      "nodes": 2885,
+      "triangles": 5411,
+      "min_angle_deg": 17.910450179022003
+    },
+    {
+      "design": "SW2_m3e-4",
+      "level": 0,
+      "file": "icem_remesh_SW2_m3e-4_L0.msh",
+      "nodes": 2862,
+      "triangles": 5365,
+      "min_angle_deg": 18.14554038232103
+    },
+    {
+      "design": "SW2_p1e-4",
+      "level": 0,
+      "file": "icem_remesh_SW2_p1e-4_L0.msh",
+      "nodes": 2880,
+      "triangles": 5401,
+      "min_angle_deg": 17.957323589037042
+    },
+    {
+      "design": "SW2_m1e-4",
+      "level": 0,
+      "file": "icem_remesh_SW2_m1e-4_L0.msh",
+      "nodes": 2862,
+      "triangles": 5365,
+      "min_angle_deg": 18.057478044225697
+    },
+    {
+      "design": "SW2_p3e-5",
+      "level": 0,
+      "file": "icem_remesh_SW2_p3e-5_L0.msh",
+      "nodes": 2860,
+      "triangles": 5361,
+      "min_angle_deg": 17.993827463297613
+    },
+    {
+      "design": "SW2_m3e-5",
+      "level": 0,
+      "file": "icem_remesh_SW2_m3e-5_L0.msh",
+      "nodes": 2880,
+      "triangles": 5401,
+      "min_angle_deg": 16.970471629188285
+    },
+    {
+      "design": "SW2_p1e-5",
+      "level": 0,
+      "file": "icem_remesh_SW2_p1e-5_L0.msh",
+      "nodes": 2867,
+      "triangles": 5375,
+      "min_angle_deg": 18.069743598806063
+    },
+    {
+      "design": "SW2_m1e-5",
+      "level": 0,
+      "file": "icem_remesh_SW2_m1e-5_L0.msh",
+      "nodes": 2875,
+      "triangles": 5391,
+      "min_angle_deg": 18.013987453507593
+    },
+    {
+      "design": "SW2_p3e-6",
+      "level": 0,
+      "file": "icem_remesh_SW2_p3e-6_L0.msh",
+      "nodes": 2869,
+      "triangles": 5379,
+      "min_angle_deg": 18.007497683914004
+    },
+    {
+      "design": "SW2_m3e-6",
+      "level": 0,
+      "file": "icem_remesh_SW2_m3e-6_L0.msh",
+      "nodes": 2871,
+      "triangles": 5383,
+      "min_angle_deg": 18.076215397402027
+    },
+    {
+      "design": "SW2_p1e-6",
+      "level": 0,
+      "file": "icem_remesh_SW2_p1e-6_L0.msh",
+      "nodes": 2866,
+      "triangles": 5373,
+      "min_angle_deg": 18.008499980729887
+    },
+    {
+      "design": "SW2_m1e-6",
+      "level": 0,
+      "file": "icem_remesh_SW2_m1e-6_L0.msh",
+      "nodes": 2869,
+      "triangles": 5379,
+      "min_angle_deg": 18.009486489265548
+    }
+  ]
+}

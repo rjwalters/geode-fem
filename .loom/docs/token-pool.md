@@ -944,6 +944,19 @@ The `classify_error <output> <exit_code>` function returns one of `SUCCESS`,
 `TIMEOUT`, `CWD_DELETED`, `TOKEN_EXPIRED`, `TOKEN_EXHAUSTED`,
 `MODEL_CREDITS_EXHAUSTED`, `SESSION_LIMIT`, `MODEL_REFUSAL`, `RECOVERABLE`,
 `FATAL`.
+
+Since #11208 the classifier also ships natively as **`loom-daemon
+classify-error`** (`loom-daemon/src/classify_error.rs`): the error text on
+stdin (or `--stdout-tail`/`--stderr-tail` files) plus `--exit-code` and an
+optional `--provider` in, one category line out (`0` classified, `1` terminal
+for `--transient <CATEGORY>`, `2` usage error). The shell library delegates to
+it whenever a daemon binary resolves and carries no tables of its own
+(#11219): with no capable daemon it gives the fail-safe degraded answer
+(RECOVERABLE / retry). The native classifier is pinned by the shared
+`tests/fixtures/classify_error/vectors.tsv` fixture. Consumers that install
+the signed daemon (rather than vendoring the shell file) get the same
+classification through the binary alone.
+
 Critical fix from #3233: exit code is checked **before** output substring
 matching — clean exits (`exit_code == 0`) always return `SUCCESS` regardless of
 stdout content.
@@ -1890,16 +1903,19 @@ of the cooldown fix — but confirming that required inspecting the host's
 installed binaries after the fact, which is exactly the forensics this log line
 removes.)
 
-**Auto-unpin** (`failure_counts`): the wrapper tracks consecutive
-`TOKEN_EXHAUSTED` failures per account in `.loom/tokens/.failure_counts` (JSON).
+**Auto-unpin** (`failure_counts`): the wrapper tracks a running
+total of `TOKEN_EXHAUSTED` marks per account (since its last reset — not strictly
+consecutive) in `.loom/tokens/.failure_counts` (JSON).
 When **every** account in the allowlist hits the threshold (default 5), the
 wrapper auto-clears `.allowlist` and `.failure_counts` with a loud stderr log
 line. Operators can re-pin afterwards. The threshold is `>= 5`, so a 6th failure
 does not silently exceed; it still triggers (idempotent at-or-above).
 
-Counters are reset on:
-- a successful spawn for that account, or
-- any operator allowlist mutation (`pin`, `unpin`, `add`, `remove`).
+A successful spawn does **not** reset the counter: `spawn-claude.sh` `exec`s
+`claude` and never regains control to attribute an outcome. Counters are reset on:
+- `loom-daemon tokens unblock <name>` (that account only),
+- any operator allowlist mutation (`pin`, `unpin`, `add`, `remove`), or
+- the auto-unpin itself (which clears `.failure_counts`).
 
 **Empty-pool guard**: if the selector finds the allowlist minus `.bad_tokens` is
 empty, `spawn-claude.sh` exits `78` (`EX_CONFIG`) with operator instructions. It
@@ -2334,6 +2350,15 @@ CLI: [`runtime-model-trials.md` § "API-key account pool"](runtime-model-trials.
 [`tokens import-from-monitor`](#importing-live-tokens-from-claude-monitor-4006): a **pull**-based
 convergence on an operator-maintained source of truth, so an ephemeral or
 autoscaled host that nobody runs `add` on still boots with the fleet's accounts.
+
+**Live marking from the egress proxy (#11300).** When a launch runs behind the
+credential proxy, the proxy sees a 429 or quota response before the harness's
+retry ladder gives up, and bad-marks that launch's account immediately (same
+model-class scoping and reset-aligned cooldown as the log-based marking above;
+escalate-only, once per level per launch). With observe mode on it also exports
+per-request, per-seat usage telemetry (counts and classified error codes only,
+never bodies or credentials). Details:
+[`runtime-adapters.md` § "Observe mode"](runtime-adapters.md#observe-mode-passive-per-request-telemetry-issue-11300-slice-1).
 
 ### Kimi's Moonshot-platform API-key route (#8563)
 

@@ -1,0 +1,2132 @@
+{
+ "issue": 1195,
+ "label": "smoke",
+ "method": "slsqp",
+ "method_label": "exact-gradient SLSQP (adjoint)",
+ "space": "a",
+ "start": "theta0",
+ "repeat": 1,
+ "order_position": 0,
+ "session": "smoke-20261018T031255Z",
+ "budget_fe": 20.0,
+ "unit_seconds": 3.283741,
+ "started_utc": "2026-10-18T03:12:56Z",
+ "load_before": [
+  9.58984375,
+  9.7724609375,
+  12.26904296875
+ ],
+ "x_start": [
+  0.007,
+  0.007,
+  0.019,
+  0.004,
+  0.0023,
+  0.001,
+  0.00825,
+  0.001
+ ],
+ "stop_reason": "budget",
+ "message": "wall-time budget spent",
+ "error": null,
+ "attainment": {
+  "T50": {
+   "wall_fe": 4.653899520707655,
+   "solve_fe": 4.862362733084003,
+   "seconds": 15.282200666028075,
+   "validation": 1,
+   "x": [
+    0.006,
+    0.006789918058729448,
+    0.017949507195316565,
+    0.0041597568607972535,
+    0.001,
+    0.0009729768844028192,
+    0.008405189095243598,
+    0.0010005700793935157
+   ],
+   "F_val": 0.0005069296366728906,
+   "mean_full": 1.4511795037610375,
+   "attained": true,
+   "censored": false
+  },
+  "T90": {
+   "wall_fe": 4.653899520707655,
+   "solve_fe": 4.862362733084003,
+   "seconds": 15.282200666028075,
+   "validation": 1,
+   "x": [
+    0.006,
+    0.006789918058729448,
+    0.017949507195316565,
+    0.0041597568607972535,
+    0.001,
+    0.0009729768844028192,
+    0.008405189095243598,
+    0.0010005700793935157
+   ],
+   "F_val": 0.0005069296366728906,
+   "mean_full": 1.4511795037610375,
+   "attained": true,
+   "censored": false
+  },
+  "T99": {
+   "attained": false,
+   "censored": true
+  }
+ },
+ "validations": [
+  {
+   "wall_fe": 2.811911805152699,
+   "solve_fe": 2.9082418220560022,
+   "seconds": 9.233590082963929,
+   "index": 0,
+   "x": [
+    0.006,
+    0.006864488097202791,
+    0.017658952278578027,
+    0.00413266251974023,
+    0.0010000000000000178,
+    0.0009824928122680512,
+    0.008270324106345484,
+    0.0010002226574176679
+   ],
+   "note": "slsqp iterate",
+   "F_val": 0.0004892423414342872,
+   "mean_full": 1.4220003638428904,
+   "stds": [
+    0.0010282206867181373,
+    0.010437870875873756,
+    0.01947398149409305
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 137.03933223170307,
+     "max_area_ratio": 1.3863225350911264,
+     "min_angle_deg": 13.137187536104891,
+     "min_area_ratio": 0.35122652553120365
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "delta_F": 4.892423414342872e-05,
+   "F_upper": 0.0005381665755777159,
+   "mean_ok": false,
+   "mean_floor": 1.448620886053446,
+   "F_train": 0.0003848981442644372,
+   "mean_train": 1.4218762353291055
+  },
+  {
+   "wall_fe": 4.653899520707655,
+   "solve_fe": 4.862362733084003,
+   "seconds": 15.282200666028075,
+   "index": 1,
+   "x": [
+    0.006,
+    0.006789918058729448,
+    0.017949507195316565,
+    0.0041597568607972535,
+    0.001,
+    0.0009729768844028192,
+    0.008405189095243598,
+    0.0010005700793935157
+   ],
+   "note": "slsqp iterate",
+   "F_val": 0.0005069296366728906,
+   "mean_full": 1.4511795037610375,
+   "stds": [
+    0.0011082217601814798,
+    0.010633479316969922,
+    0.01981490849887336
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 137.03048526111988,
+     "max_area_ratio": 1.3645863884377036,
+     "min_angle_deg": 13.144063139850422,
+     "min_area_ratio": 0.3483468963348114
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "delta_F": 5.0692963667289055e-05,
+   "F_upper": 0.0005576226003401796,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "F_train": 0.00040054853750945256,
+   "mean_train": 1.4510730944850714
+  },
+  {
+   "wall_fe": 6.49339730446573,
+   "solve_fe": 6.816483644112005,
+   "seconds": 21.3226349579636,
+   "index": 2,
+   "x": [
+    0.006,
+    0.006662928866886747,
+    0.01797377204099143,
+    0.004192015324797052,
+    0.001,
+    0.0009612084933041099,
+    0.00856353636555884,
+    0.0010009801977646701
+   ],
+   "note": "slsqp iterate",
+   "F_val": 0.0005030819403707754,
+   "mean_full": 1.4511589449662232,
+   "stds": [
+    0.0011129562265858016,
+    0.010600694403372758,
+    0.01973495748601402
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 137.04157765863863,
+     "max_area_ratio": 1.3388927343135593,
+     "min_angle_deg": 13.14278606468942,
+     "min_area_ratio": 0.34478564586275035
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "delta_F": 5.030819403707755e-05,
+   "F_upper": 0.000553390134407853,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "F_train": 0.00039739500473554473,
+   "mean_train": 1.4510548648847639
+  },
+  {
+   "wall_fe": 8.32174947961637,
+   "solve_fe": 8.770604555140007,
+   "seconds": 27.326469957944937,
+   "index": 3,
+   "x": [
+    0.006000000000000001,
+    0.006003369789200783,
+    0.01810548947272307,
+    0.004345178938577259,
+    0.001,
+    0.000902494968312177,
+    0.009320672509167216,
+    0.0010029679075644177
+   ],
+   "note": "slsqp iterate",
+   "F_val": 0.00048312993240308584,
+   "mean_full": 1.449334719101746,
+   "stds": [
+    0.0011279729955055522,
+    0.01043361458391436,
+    0.019313137912799816
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 137.09880070332247,
+     "max_area_ratio": 1.4183584451174014,
+     "min_angle_deg": 13.136313846540437,
+     "min_area_ratio": 0.3252917295339523
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "delta_F": 4.8312993240308584e-05,
+   "F_upper": 0.0005314429256433944,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "F_train": 0.00038090070906013655,
+   "mean_train": 1.44924109540356
+  },
+  {
+   "wall_fe": 10.119843749256523,
+   "solve_fe": 10.724725466168008,
+   "seconds": 33.23094583302736,
+   "index": 4,
+   "x": [
+    0.006,
+    0.0024001592677298923,
+    0.019047030994417957,
+    0.005129204192449943,
+    0.001,
+    0.0005928760816219904,
+    0.013214137648951135,
+    0.0010132685140514432
+   ],
+   "note": "slsqp iterate",
+   "F_val": 0.00029553700721493694,
+   "mean_full": 1.3176533349490431,
+   "stds": [
+    0.0009195759551760854,
+    0.008724087917921742,
+    0.01478450801609478
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 139.30779269675443,
+     "max_area_ratio": 2.035925021491309,
+     "min_angle_deg": 11.774704533693447,
+     "min_area_ratio": 0.204138314820343
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "delta_F": 2.9553700721493694e-05,
+   "F_upper": 0.0003250907079364306,
+   "mean_ok": false,
+   "mean_floor": 1.448620886053446,
+   "F_train": 0.00022185575737672,
+   "mean_train": 1.3176204179334436
+  },
+  {
+   "wall_fe": 12.84062034734442,
+   "solve_fe": 13.63296728822401,
+   "seconds": 42.16527150000911,
+   "index": 5,
+   "x": [
+    0.006,
+    0.002,
+    0.019811549655136197,
+    0.005257411553760824,
+    0.001,
+    0.0005415655995319932,
+    0.013842996700867997,
+    0.0010149493715988422
+   ],
+   "note": "slsqp iterate",
+   "F_val": 0.0002906078572799981,
+   "mean_full": 1.3199794253437152,
+   "stds": [
+    0.000943402690725986,
+    0.008701292744861264,
+    0.014628921806180858
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 149.64603482934345,
+     "max_area_ratio": 2.12179528024152,
+     "min_angle_deg": 11.111121637756249,
+     "min_area_ratio": 0.16554086505556223
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "delta_F": 2.906078572799981e-05,
+   "F_upper": 0.0003196686430079979,
+   "mean_ok": false,
+   "mean_floor": 1.448620886053446,
+   "F_train": 0.00022028597251333155,
+   "mean_train": 1.319978943159089
+  },
+  {
+   "wall_fe": 15.570978623466075,
+   "solve_fe": 16.541209110280015,
+   "seconds": 51.131060915999115,
+   "index": 6,
+   "x": [
+    0.006000000000000002,
+    0.0020000000000000013,
+    0.020556807452981614,
+    0.005331589327065659,
+    0.0010000000000000002,
+    0.00051135815892353,
+    0.014207721991198994,
+    0.0010159478994299274
+   ],
+   "note": "slsqp iterate",
+   "F_val": 0.00034624966310258627,
+   "mean_full": 1.3819296551720475,
+   "stds": [
+    0.001123056043792025,
+    0.009261516006170216,
+    0.01610008476662596
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 150.7643178542072,
+     "max_area_ratio": 2.201611574552534,
+     "min_angle_deg": 10.75762119088648,
+     "min_area_ratio": 0.17191401585706287
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "delta_F": 3.462496631025863e-05,
+   "F_upper": 0.0003808746294128449,
+   "mean_ok": false,
+   "mean_floor": 1.448620886053446,
+   "F_train": 0.00027198500509301084,
+   "mean_train": 1.3819582342438168
+  },
+  {
+   "wall_fe": 18.302767065071404,
+   "solve_fe": 19.449450932336013,
+   "seconds": 60.10154662502464,
+   "index": 7,
+   "x": [
+    0.006000000000000002,
+    0.0028597987890969954,
+    0.01990023826593639,
+    0.005126362277915105,
+    0.0010000000000000002,
+    0.0005909316409093627,
+    0.01320177323192219,
+    0.0010132952784189446
+   ],
+   "note": "slsqp iterate",
+   "F_val": 0.00039876532309660994,
+   "mean_full": 1.451074667631128,
+   "stds": [
+    0.0012830593267820374,
+    0.009790044120360566,
+    0.0173572497240191
+   ],
+   "fractions": [
+    0.0,
+    0.5,
+    1.0
+   ],
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true,
+   "mesh": {
+    "kind": "moved",
+    "quality": {
+     "inverted": 0,
+     "max_angle_deg": 137.30503156164954,
+     "max_area_ratio": 1.9759690805280727,
+     "min_angle_deg": 11.787234589072904,
+     "min_area_ratio": 0.20336967110659074
+    }
+   },
+   "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+   "delta_F": 3.9876532309661e-05,
+   "F_upper": 0.0004386418554062709,
+   "mean_ok": true,
+   "mean_floor": 1.448620886053446,
+   "F_train": 0.0003156056372358573,
+   "mean_train": 1.4510771882175075
+  }
+ ],
+ "best_validated_feasible": {
+  "wall_fe": 18.302767065071404,
+  "solve_fe": 19.449450932336013,
+  "seconds": 60.10154662502464,
+  "index": 7,
+  "x": [
+   0.006000000000000002,
+   0.0028597987890969954,
+   0.01990023826593639,
+   0.005126362277915105,
+   0.0010000000000000002,
+   0.0005909316409093627,
+   0.01320177323192219,
+   0.0010132952784189446
+  ],
+  "note": "slsqp iterate",
+  "F_val": 0.00039876532309660994,
+  "mean_full": 1.451074667631128,
+  "stds": [
+   0.0012830593267820374,
+   0.009790044120360566,
+   0.0173572497240191
+  ],
+  "fractions": [
+   0.0,
+   0.5,
+   1.0
+  ],
+  "attained": {
+   "T50": true,
+   "T90": true,
+   "T99": false
+  },
+  "credited": true,
+  "mesh": {
+   "kind": "moved",
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.30503156164954,
+    "max_area_ratio": 1.9759690805280727,
+    "min_angle_deg": 11.787234589072904,
+    "min_area_ratio": 0.20336967110659074
+   }
+  },
+  "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+  "delta_F": 3.9876532309661e-05,
+  "F_upper": 0.0004386418554062709,
+  "mean_ok": true,
+  "mean_floor": 1.448620886053446,
+  "F_train": 0.0003156056372358573,
+  "mean_train": 1.4510771882175075
+ },
+ "feasible_validated": true,
+ "infeasible": false,
+ "events": [
+  {
+   "wall_fe": 0.9721372538307129,
+   "solve_fe": 0.9541209110280012,
+   "seconds": 3.192246958031319,
+   "kind": "train",
+   "x": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.001
+   ],
+   "F": 0.008584802316481453,
+   "mean_full": 1.4475011967377915,
+   "stds": [
+    0.010143707533009428,
+    0.0405590283375799,
+    0.08268538404263241
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 136.8123718069391,
+    "max_area_ratio": 1.0,
+    "min_angle_deg": 13.19805792813359,
+    "min_area_ratio": 1.0
+   },
+   "newton_iterations": 187
+  },
+  {
+   "wall_fe": 1.9000783073400491,
+   "solve_fe": 1.9082418220560025,
+   "seconds": 6.23936504102312,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.006864488097202791,
+    0.017658952278578027,
+    0.00413266251974023,
+    0.0010000000000000178,
+    0.0009824928122680512,
+    0.008270324106345484,
+    0.0010002226574176679
+   ],
+   "F": 0.0003848981442644372,
+   "mean_full": 1.4218762353291055,
+   "stds": [
+    0.001983544812876757,
+    0.00906687013754475,
+    0.017284546859800697
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.03933223170307,
+    "max_area_ratio": 1.3863225350911264,
+    "min_angle_deg": 13.137187536104891,
+    "min_area_ratio": 0.35122652553120365
+   },
+   "newton_iterations": 177
+  },
+  {
+   "wall_fe": 2.811911805152699,
+   "solve_fe": 2.9082418220560022,
+   "seconds": 9.233590082963929,
+   "kind": "validate",
+   "x": [
+    0.006,
+    0.006864488097202791,
+    0.017658952278578027,
+    0.00413266251974023,
+    0.0010000000000000178,
+    0.0009824928122680512,
+    0.008270324106345484,
+    0.0010002226574176679
+   ],
+   "F_val": 0.0004892423414342872,
+   "mean_full": 1.4220003638428904,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true
+  },
+  {
+   "wall_fe": 3.73800171816111,
+   "solve_fe": 3.8623627330840034,
+   "seconds": 12.274629499996081,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.006789918058729448,
+    0.017949507195316565,
+    0.0041597568607972535,
+    0.001,
+    0.0009729768844028192,
+    0.008405189095243598,
+    0.0010005700793935157
+   ],
+   "F": 0.00040054853750945256,
+   "mean_full": 1.4510730944850714,
+   "stds": [
+    0.0021691948713050283,
+    0.009249665745424808,
+    0.01761495996923273
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.03048526111988,
+    "max_area_ratio": 1.3645863884377036,
+    "min_angle_deg": 13.144063139850422,
+    "min_area_ratio": 0.3483468963348114
+   },
+   "newton_iterations": 177
+  },
+  {
+   "wall_fe": 4.653899520707655,
+   "solve_fe": 4.862362733084003,
+   "seconds": 15.282200666028075,
+   "kind": "validate",
+   "x": [
+    0.006,
+    0.006789918058729448,
+    0.017949507195316565,
+    0.0041597568607972535,
+    0.001,
+    0.0009729768844028192,
+    0.008405189095243598,
+    0.0010005700793935157
+   ],
+   "F_val": 0.0005069296366728906,
+   "mean_full": 1.4511795037610375,
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true
+  },
+  {
+   "wall_fe": 5.5769295851829845,
+   "solve_fe": 5.816483644112005,
+   "seconds": 18.31319233297836,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.006662928866886747,
+    0.01797377204099143,
+    0.004192015324797052,
+    0.001,
+    0.0009612084933041099,
+    0.00856353636555884,
+    0.0010009801977646701
+   ],
+   "F": 0.00039739500473554473,
+   "mean_full": 1.4510548648847639,
+   "stds": [
+    0.002173356270042014,
+    0.00921943246276548,
+    0.017540626907939175
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.04157765863863,
+    "max_area_ratio": 1.3388927343135593,
+    "min_angle_deg": 13.14278606468942,
+    "min_area_ratio": 0.34478564586275035
+   },
+   "newton_iterations": 177
+  },
+  {
+   "wall_fe": 6.49339730446573,
+   "solve_fe": 6.816483644112005,
+   "seconds": 21.3226349579636,
+   "kind": "validate",
+   "x": [
+    0.006,
+    0.006662928866886747,
+    0.01797377204099143,
+    0.004192015324797052,
+    0.001,
+    0.0009612084933041099,
+    0.00856353636555884,
+    0.0010009801977646701
+   ],
+   "F_val": 0.0005030819403707754,
+   "mean_full": 1.4511589449662232,
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true
+  },
+  {
+   "wall_fe": 7.417147152588132,
+   "solve_fe": 7.770604555140007,
+   "seconds": 24.355990207986906,
+   "kind": "train",
+   "x": [
+    0.006000000000000001,
+    0.006003369789200783,
+    0.01810548947272307,
+    0.004345178938577259,
+    0.001,
+    0.000902494968312177,
+    0.009320672509167216,
+    0.0010029679075644177
+   ],
+   "F": 0.00038090070906013655,
+   "mean_full": 1.44924109540356,
+   "stds": [
+    0.0021809922348086405,
+    0.009064595009798561,
+    0.017145760386759638
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.09880070332247,
+    "max_area_ratio": 1.4183584451174014,
+    "min_angle_deg": 13.136313846540437,
+    "min_area_ratio": 0.3252917295339523
+   },
+   "newton_iterations": 176
+  },
+  {
+   "wall_fe": 8.32174947961637,
+   "solve_fe": 8.770604555140007,
+   "seconds": 27.326469957944937,
+   "kind": "validate",
+   "x": [
+    0.006000000000000001,
+    0.006003369789200783,
+    0.01810548947272307,
+    0.004345178938577259,
+    0.001,
+    0.000902494968312177,
+    0.009320672509167216,
+    0.0010029679075644177
+   ],
+   "F_val": 0.00048312993240308584,
+   "mean_full": 1.449334719101746,
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true
+  },
+  {
+   "wall_fe": 9.231323752698513,
+   "solve_fe": 9.724725466168008,
+   "seconds": 30.31327629100997,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.0024001592677298923,
+    0.019047030994417957,
+    0.005129204192449943,
+    0.001,
+    0.0005928760816219904,
+    0.013214137648951135,
+    0.0010132685140514432
+   ],
+   "F": 0.00022185575737672,
+   "mean_full": 1.3176204179334436,
+   "stds": [
+    0.0015607026485959592,
+    0.007443724298751292,
+    0.012806675336853245
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 139.30779269675443,
+    "max_area_ratio": 2.035925021491309,
+    "min_angle_deg": 11.774704533693447,
+    "min_area_ratio": 0.204138314820343
+   },
+   "newton_iterations": 172
+  },
+  {
+   "wall_fe": 10.119843749256523,
+   "solve_fe": 10.724725466168008,
+   "seconds": 33.23094583302736,
+   "kind": "validate",
+   "x": [
+    0.006,
+    0.0024001592677298923,
+    0.019047030994417957,
+    0.005129204192449943,
+    0.001,
+    0.0005928760816219904,
+    0.013214137648951135,
+    0.0010132685140514432
+   ],
+   "F_val": 0.00029553700721493694,
+   "mean_full": 1.3176533349490431,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true
+  },
+  {
+   "wall_fe": 11.034103417696034,
+   "solve_fe": 11.67884637719601,
+   "seconds": 36.233137790928595,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.004545081191096378,
+    0.018486549435094916,
+    0.004662489037872185,
+    0.001,
+    0.0007771862500100991,
+    0.010896432733731084,
+    0.0010071367611199013
+   ],
+   "F": 0.0003395067312226951,
+   "mean_full": 1.4364638693435325,
+   "stds": [
+    0.002143793706661572,
+    0.008683005947465416,
+    0.016109509225369145
+   ],
+   "gradient": true,
+   "purpose": "line_search",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.2198944523337,
+    "max_area_ratio": 1.6647976540266258,
+    "min_angle_deg": 13.124500792193588,
+    "min_area_ratio": 0.2769963917017709
+   },
+   "newton_iterations": 175
+  },
+  {
+   "wall_fe": 11.940171400537533,
+   "solve_fe": 12.63296728822401,
+   "seconds": 39.20843037497252,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.002,
+    0.019811549655136197,
+    0.005257411553760824,
+    0.001,
+    0.0005415655995319932,
+    0.013842996700867997,
+    0.0010149493715988422
+   ],
+   "F": 0.00022028597251333155,
+   "mean_full": 1.319978943159089,
+   "stds": [
+    0.001644998913281798,
+    0.0074296051890325975,
+    0.012742877140729764
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 149.64603482934345,
+    "max_area_ratio": 2.12179528024152,
+    "min_angle_deg": 11.111121637756249,
+    "min_area_ratio": 0.16554086505556223
+   },
+   "newton_iterations": 172
+  },
+  {
+   "wall_fe": 12.84062034734442,
+   "solve_fe": 13.63296728822401,
+   "seconds": 42.16527150000911,
+   "kind": "validate",
+   "x": [
+    0.006,
+    0.002,
+    0.019811549655136197,
+    0.005257411553760824,
+    0.001,
+    0.0005415655995319932,
+    0.013842996700867997,
+    0.0010149493715988422
+   ],
+   "F_val": 0.0002906078572799981,
+   "mean_full": 1.3199794253437152,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true
+  },
+  {
+   "wall_fe": 13.757798841307837,
+   "solve_fe": 14.587088199252012,
+   "seconds": 45.177048124955036,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.003345368070958786,
+    0.01911113467572684,
+    0.004942926593370915,
+    0.001,
+    0.0006661182075669562,
+    0.012285398815860667,
+    0.0010108195085807288
+   ],
+   "F": 0.00030260312512197856,
+   "mean_full": 1.423301697607297,
+   "stds": [
+    0.0021259511297026475,
+    0.008344712249660005,
+    0.015114537187306426
+   ],
+   "gradient": true,
+   "purpose": "line_search",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.3017774628778,
+    "max_area_ratio": 1.85783681391105,
+    "min_angle_deg": 12.79847242461051,
+    "min_area_ratio": 0.23309116451312617
+   },
+   "newton_iterations": 175
+  },
+  {
+   "wall_fe": 14.670694377235957,
+   "solve_fe": 15.541209110280013,
+   "seconds": 48.17476062499918,
+   "kind": "train",
+   "x": [
+    0.006000000000000002,
+    0.0020000000000000013,
+    0.020556807452981614,
+    0.005331589327065659,
+    0.0010000000000000002,
+    0.00051135815892353,
+    0.014207721991198994,
+    0.0010159478994299274
+   ],
+   "F": 0.00027198500509301084,
+   "mean_full": 1.3819582342438168,
+   "stds": [
+    0.002079241982255833,
+    0.007983356087981876,
+    0.01428032854820639
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 150.7643178542072,
+    "max_area_ratio": 2.201611574552534,
+    "min_angle_deg": 10.75762119088648,
+    "min_area_ratio": 0.17191401585706287
+   },
+   "newton_iterations": 174
+  },
+  {
+   "wall_fe": 15.570978623466075,
+   "solve_fe": 16.541209110280015,
+   "seconds": 51.131060915999115,
+   "kind": "validate",
+   "x": [
+    0.006000000000000002,
+    0.0020000000000000013,
+    0.020556807452981614,
+    0.005331589327065659,
+    0.0010000000000000002,
+    0.00051135815892353,
+    0.014207721991198994,
+    0.0010159478994299274
+   ],
+   "F_val": 0.00034624966310258627,
+   "mean_full": 1.3819296551720475,
+   "attained": {
+    "T50": false,
+    "T90": false,
+    "T99": false
+   },
+   "credited": true
+  },
+  {
+   "wall_fe": 16.48843827540966,
+   "solve_fe": 17.495330021308014,
+   "seconds": 54.14376079093199,
+   "kind": "train",
+   "x": [
+    0.006000000000000001,
+    0.0027940491067900914,
+    0.01970355754890754,
+    0.0051021968632524155,
+    0.001,
+    0.0006026990202422672,
+    0.013073148462000047,
+    0.0010129210740867523
+   ],
+   "F": 0.00029547787160677345,
+   "mean_full": 1.4255654168816523,
+   "stds": [
+    0.0022098517489880214,
+    0.00827626076219473,
+    0.014902950535059288
+   ],
+   "gradient": true,
+   "purpose": "line_search",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.3223151479448,
+    "max_area_ratio": 1.9682003571565931,
+    "min_angle_deg": 11.91966694599737,
+    "min_area_ratio": 0.20802135428355284
+   },
+   "newton_iterations": 175
+  },
+  {
+   "wall_fe": 17.407014844661546,
+   "solve_fe": 18.449450932336013,
+   "seconds": 57.16012833302375,
+   "kind": "train",
+   "x": [
+    0.006000000000000002,
+    0.0028597987890969954,
+    0.01990023826593639,
+    0.005126362277915105,
+    0.0010000000000000002,
+    0.0005909316409093627,
+    0.01320177323192219,
+    0.0010132952784189446
+   ],
+   "F": 0.0003156056372358573,
+   "mean_full": 1.4510771882175075,
+   "stds": [
+    0.0023931185493861144,
+    0.008479818526294846,
+    0.015426318374957393
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.30503156164954,
+    "max_area_ratio": 1.9759690805280727,
+    "min_angle_deg": 11.787234589072904,
+    "min_area_ratio": 0.20336967110659074
+   },
+   "newton_iterations": 176
+  },
+  {
+   "wall_fe": 18.302767065071404,
+   "solve_fe": 19.449450932336013,
+   "seconds": 60.10154662502464,
+   "kind": "validate",
+   "x": [
+    0.006000000000000002,
+    0.0028597987890969954,
+    0.01990023826593639,
+    0.005126362277915105,
+    0.0010000000000000002,
+    0.0005909316409093627,
+    0.01320177323192219,
+    0.0010132952784189446
+   ],
+   "F_val": 0.00039876532309660994,
+   "mean_full": 1.451074667631128,
+   "attained": {
+    "T50": true,
+    "T90": true,
+    "T99": false
+   },
+   "credited": true
+  },
+  {
+   "wall_fe": 19.22148994851419,
+   "solve_fe": 20.403571843364013,
+   "seconds": 63.11839462502394,
+   "kind": "train",
+   "x": [
+    0.006,
+    0.0028111006459301206,
+    0.01995813976837716,
+    0.005176199374447886,
+    0.001,
+    0.0005665157426845463,
+    0.013471950157179915,
+    0.0010140695511783107
+   ],
+   "F": 0.00031465313387999056,
+   "mean_full": 1.4510222725461088,
+   "stds": [
+    0.002402771685406084,
+    0.008463030074870082,
+    0.01540314721281485
+   ],
+   "gradient": true,
+   "purpose": "iterate",
+   "note": "slsqp",
+   "generation": 0,
+   "remesh": false,
+   "quality": {
+    "inverted": 0,
+    "max_angle_deg": 137.3065355789743,
+    "max_area_ratio": 1.990541367086087,
+    "min_angle_deg": 11.518233223037038,
+    "min_area_ratio": 0.1937179874300573
+   },
+   "newton_iterations": 176
+  }
+ ],
+ "surrogate_steps": null,
+ "assessment": null,
+ "aborted_request": {
+  "category": "validation",
+  "op": "validate"
+ },
+ "ledger": {
+  "fe_rule": {
+   "rule": "wall_time",
+   "unit_seconds": 3.283741
+  },
+  "budget_fe": 20.0,
+  "budget_seconds": 65.67482,
+  "total_fe": 20.0,
+  "total_seconds": 65.67482,
+  "elapsed_seconds": 65.68294633296318,
+  "solve_fe": 20.403571843364013,
+  "weights": {
+   "validation_eval": 1.0,
+   "train_forward_eval": 0.7787130402489112,
+   "adjoint_eval": 0.17540787077909006,
+   "validation_solve": 0.016666666666666666,
+   "train_forward_solve": 0.012978550670815187,
+   "adjoint_solve": 0.0029234645129848345,
+   "validation_solves_per_eval": 60,
+   "train_solves_per_eval": 60
+  },
+  "exhausted": true,
+  "totals": {
+   "setup_calibration": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "forward": {
+    "seconds": 24.529813335,
+    "fe": 7.470081634026557,
+    "entries": 10,
+    "forward_solves": 600,
+    "adjoint_solves": 0
+   },
+   "adjoint": {
+    "seconds": 7.486251952999999,
+    "fe": 2.279793672217145,
+    "entries": 13,
+    "forward_solves": 0,
+    "adjoint_solves": 780
+   },
+   "line_search": {
+    "seconds": 7.300402675000001,
+    "fe": 2.2231968584002213,
+    "entries": 3,
+    "forward_solves": 180,
+    "adjoint_solves": 0
+   },
+   "mesh_motion": {
+    "seconds": 0.008087333,
+    "fe": 0.0024628413142205796,
+    "entries": 21,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "remesh": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "validation": {
+    "seconds": 26.305084582973613,
+    "fe": 8.010706259407673,
+    "entries": 9,
+    "forward_solves": 480,
+    "adjoint_solves": 0
+   },
+   "surrogate_update": {
+    "seconds": 0,
+    "fe": 0.0,
+    "entries": 0,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   },
+   "overhead": {
+    "seconds": 0.045180121026391795,
+    "fe": 0.013758734634184545,
+    "entries": 44,
+    "forward_solves": 0,
+    "adjoint_solves": 0
+   }
+  },
+  "entries": [
+   {
+    "seq": 0,
+    "category": "overhead",
+    "seconds": 0.03669512493070215,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "process start-up"
+   },
+   {
+    "seq": 1,
+    "category": "overhead",
+    "seconds": 0.0011862911051139235,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 2,
+    "category": "mesh_motion",
+    "seconds": 0.000383083,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 3,
+    "category": "forward",
+    "seconds": 2.5756300829999996,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 4,
+    "category": "adjoint",
+    "seconds": 0.5781071670000004,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 5,
+    "category": "overhead",
+    "seconds": 0.00024520899550317665,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 6,
+    "category": "overhead",
+    "seconds": 0.00038062490057200193,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 7,
+    "category": "mesh_motion",
+    "seconds": 0.000367583,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 8,
+    "category": "forward",
+    "seconds": 2.4684393350000002,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 9,
+    "category": "adjoint",
+    "seconds": 0.577686458,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 10,
+    "category": "overhead",
+    "seconds": 0.0002440820912292807,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 11,
+    "category": "overhead",
+    "seconds": 9.899993892759085e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 12,
+    "category": "mesh_motion",
+    "seconds": 0.000370291,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 13,
+    "category": "validation",
+    "seconds": 2.993577458,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 14,
+    "category": "overhead",
+    "seconds": 0.0001782930018805473,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 15,
+    "category": "overhead",
+    "seconds": 0.00017495802603662014,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 16,
+    "category": "mesh_motion",
+    "seconds": 0.000383584,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 17,
+    "category": "forward",
+    "seconds": 2.466423667,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 18,
+    "category": "adjoint",
+    "seconds": 0.573839209,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 19,
+    "category": "overhead",
+    "seconds": 0.00021799900611796375,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 20,
+    "category": "overhead",
+    "seconds": 8.083297871053219e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 21,
+    "category": "mesh_motion",
+    "seconds": 0.000373209,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 22,
+    "category": "validation",
+    "seconds": 3.00694775,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 23,
+    "category": "overhead",
+    "seconds": 0.00016937405328398825,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 24,
+    "category": "overhead",
+    "seconds": 0.00016320892609655857,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 25,
+    "category": "mesh_motion",
+    "seconds": 0.000382542,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 26,
+    "category": "forward",
+    "seconds": 2.4537383360000002,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 27,
+    "category": "adjoint",
+    "seconds": 0.5764982489999998,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 28,
+    "category": "overhead",
+    "seconds": 0.00020933102418752014,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 29,
+    "category": "overhead",
+    "seconds": 8.26249597594142e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 30,
+    "category": "mesh_motion",
+    "seconds": 0.000392209,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 31,
+    "category": "validation",
+    "seconds": 3.008767917,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 32,
+    "category": "overhead",
+    "seconds": 0.00019987402547982924,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 33,
+    "category": "overhead",
+    "seconds": 0.00019812502432614565,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 34,
+    "category": "mesh_motion",
+    "seconds": 0.000393375,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 35,
+    "category": "forward",
+    "seconds": 2.4543891270000002,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 36,
+    "category": "adjoint",
+    "seconds": 0.5781112059999998,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 37,
+    "category": "overhead",
+    "seconds": 0.00026341699897969306,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 38,
+    "category": "overhead",
+    "seconds": 8.537503890693188e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 39,
+    "category": "mesh_motion",
+    "seconds": 0.000371583,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 40,
+    "category": "validation",
+    "seconds": 2.96984725,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 41,
+    "category": "overhead",
+    "seconds": 0.0001755419191233898,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 42,
+    "category": "overhead",
+    "seconds": 0.00015824998263269663,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 43,
+    "category": "mesh_motion",
+    "seconds": 0.000391542,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 44,
+    "category": "forward",
+    "seconds": 2.4094918339999998,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 45,
+    "category": "adjoint",
+    "seconds": 0.576541333,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 46,
+    "category": "overhead",
+    "seconds": 0.00022337408239891943,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 47,
+    "category": "overhead",
+    "seconds": 8.370901923626661e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 48,
+    "category": "mesh_motion",
+    "seconds": 0.000398666,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 49,
+    "category": "validation",
+    "seconds": 2.917017542,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 50,
+    "category": "overhead",
+    "seconds": 0.000169624998157758,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 51,
+    "category": "overhead",
+    "seconds": 0.00010924995876848698,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 52,
+    "category": "mesh_motion",
+    "seconds": 0.000389667,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 53,
+    "category": "line_search",
+    "seconds": 2.4271018770000006,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 54,
+    "category": "adjoint",
+    "seconds": 0.5743322069999995,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 55,
+    "category": "overhead",
+    "seconds": 0.00025895694246713674,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 56,
+    "category": "overhead",
+    "seconds": 0.00017762510105967522,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 57,
+    "category": "mesh_motion",
+    "seconds": 0.0003765,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 58,
+    "category": "forward",
+    "seconds": 2.3979413320000003,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 59,
+    "category": "adjoint",
+    "seconds": 0.5765773769999996,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 60,
+    "category": "overhead",
+    "seconds": 0.00021974994286466654,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 61,
+    "category": "overhead",
+    "seconds": 8.200004231184721e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 62,
+    "category": "mesh_motion",
+    "seconds": 0.00038875,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 63,
+    "category": "validation",
+    "seconds": 2.956196875,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 64,
+    "category": "overhead",
+    "seconds": 0.00017349999427551666,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 65,
+    "category": "overhead",
+    "seconds": 0.00012816593516618013,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 66,
+    "category": "mesh_motion",
+    "seconds": 0.000390542,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 67,
+    "category": "line_search",
+    "seconds": 2.4343260019999997,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 68,
+    "category": "adjoint",
+    "seconds": 0.5767022469999998,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 69,
+    "category": "overhead",
+    "seconds": 0.0002296680107605198,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 70,
+    "category": "overhead",
+    "seconds": 0.0001640410628169775,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 71,
+    "category": "mesh_motion",
+    "seconds": 0.000394917,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 72,
+    "category": "forward",
+    "seconds": 2.4229182479999998,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 73,
+    "category": "adjoint",
+    "seconds": 0.5740118360000004,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 74,
+    "category": "overhead",
+    "seconds": 0.00022345798132050732,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 75,
+    "category": "overhead",
+    "seconds": 8.770800195634365e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 76,
+    "category": "mesh_motion",
+    "seconds": 0.000374708,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 77,
+    "category": "validation",
+    "seconds": 2.95564225,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 78,
+    "category": "overhead",
+    "seconds": 0.00019562499797842747,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 79,
+    "category": "overhead",
+    "seconds": 0.0001296249683946371,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 80,
+    "category": "mesh_motion",
+    "seconds": 0.000397166,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 81,
+    "category": "line_search",
+    "seconds": 2.438974796,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 82,
+    "category": "adjoint",
+    "seconds": 0.5729909950000001,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 83,
+    "category": "overhead",
+    "seconds": 0.00020729296448962486,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 84,
+    "category": "overhead",
+    "seconds": 0.00015779200475662947,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 85,
+    "category": "mesh_motion",
+    "seconds": 0.000378291,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 86,
+    "category": "forward",
+    "seconds": 2.440980831,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 87,
+    "category": "adjoint",
+    "seconds": 0.5746360449999999,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 88,
+    "category": "overhead",
+    "seconds": 0.00021458308700772477,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 89,
+    "category": "overhead",
+    "seconds": 8.304195944219828e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 90,
+    "category": "mesh_motion",
+    "seconds": 0.000397875,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 91,
+    "category": "validation",
+    "seconds": 2.940758041,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp iterate"
+   },
+   {
+    "seq": 92,
+    "category": "overhead",
+    "seconds": 0.00017933404144798715,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io validate"
+   },
+   {
+    "seq": 93,
+    "category": "overhead",
+    "seconds": 0.0001659579575061798,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 94,
+    "category": "mesh_motion",
+    "seconds": 0.00039125,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 95,
+    "category": "forward",
+    "seconds": 2.4398605420000004,
+    "forward_solves": 60,
+    "adjoint_solves": 0,
+    "note": "slsqp"
+   },
+   {
+    "seq": 96,
+    "category": "adjoint",
+    "seconds": 0.5762176239999998,
+    "forward_solves": 0,
+    "adjoint_solves": 60,
+    "note": "slsqp"
+   },
+   {
+    "seq": 97,
+    "category": "overhead",
+    "seconds": 0.0002126260417938397,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "io train"
+   },
+   {
+    "seq": 98,
+    "category": "overhead",
+    "seconds": 9.587500244379044e-05,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "driver"
+   },
+   {
+    "seq": 99,
+    "category": "validation",
+    "seconds": 2.5563294999736144,
+    "forward_solves": 0,
+    "adjoint_solves": 0,
+    "note": "validate aborted at the budget"
+   }
+  ]
+ },
+ "anchor": {
+  "F0": 0.009963070019754904,
+  "mean0_full_current": 1.4450083651405945,
+  "level": 0,
+  "msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+  "targets": {
+   "T50": 0.004981535009877452,
+   "T90": 0.0009963070019754904,
+   "T99": 9.963070019754904e-05
+  },
+  "mean_floor": 1.448620886053446,
+  "source": "/Volumes/Stripe/geode-fem/issue-1195/benchmarks/motor_optimization/smoke/anchor_L0_smoke.json",
+  "file_sha256": "e9a2cecfdd19f4e09bcbdaec6275f8e143c8e34a856073ee5e8e07d0456a328d",
+  "file_values": {
+   "F0": 0.009963070019754905,
+   "mean0": 1.4450083651405945
+  }
+ },
+ "load_after": [
+  11.73486328125,
+  10.41796875,
+  12.32958984375
+ ],
+ "finished_utc": "2026-10-18T03:14:01Z"
+}

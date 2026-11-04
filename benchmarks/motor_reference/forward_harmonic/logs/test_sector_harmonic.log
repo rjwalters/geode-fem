@@ -1,0 +1,70 @@
+   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1170/crates/geode-core)
+   Compiling geode-util v0.8.0 (/Volumes/Stripe/geode-fem/issue-1170/crates/geode-util)
+    Finished `release` profile [optimized] target(s) in 55.48s
+     Running tests/magnetostatic_sector_harmonic.rs (/Volumes/Stripe/cargo-target-1170/release/deps/magnetostatic_sector_harmonic-82001e955dbef365)
+
+running 6 tests
+test coupling_torque_matches_energy_derivative ... 
+[4] coupling torque -lambda^T d(G^T A)/dbeta vs -(Pi*(k+1) - Pi*(k-1)) / (2 step) and Arkkio (N m/m, sector), orders 3:6:45
+    ends |   N |  k | T_coupling     | T_energy_fd    | rel diff  | T_arkkio       | T_inner        | T_outer
+    tied |  48 |  3 |  -30.571032316 |  -30.543411933 | 9.043e-4 |  -30.384110470 |  -30.348097487 |  -30.420123453
+    tied |  48 | 11 |  -16.705534526 |  -16.690874215 | 8.783e-4 |  -16.518843965 |  -16.482625103 |  -16.555062826
+    tied |  96 |  3 |  -32.092815074 |  -32.085813719 | 2.182e-4 |  -32.005852975 |  -31.987848051 |  -32.023857898
+    tied |  96 | 11 |  -27.259519625 |  -27.252986462 | 2.397e-4 |  -27.170596531 |  -27.152538216 |  -27.188654847
+    free |  48 |  3 |  -30.859348027 |  -30.823901702 | 1.150e-3 |  -29.631723193 |  -29.635008536 |  -29.628437850
+    free |  48 | 11 |  -16.870708140 |  -16.865221898 | 3.253e-4 |  -15.879019444 |  -16.150736643 |  -15.607302245
+    free |  96 |  3 |  -32.547793131 |  -32.528203297 | 6.022e-4 |  -31.274617546 |  -31.243338014 |  -31.305897078
+    free |  96 | 11 |  -27.236042949 |  -27.236341440 | 1.096e-5 |  -26.560120551 |  -26.775589137 |  -26.344651964
+ok
+test free_end_moments_match_tied_on_antiperiodic_traces ... 
+[4b] free-end vs tied-end hat moments, N = 24, orders 3:6:69
+      k side   | max |G_free^T A - G_tied^T A| / max |G_tied^T A| (antiperiodic) | (ends perturbed)
+      0 rotor  | 2.911e-16 | 2.072e-1
+      0 stator | 2.911e-16 | 2.072e-1
+      5 rotor  | 3.113e-16 | 2.184e-1
+     31 rotor  | 3.241e-16 | 1.905e-1
+    radial-edge links: 29 tied, 27 with free ends
+ok
+test full_harmonic_set_equals_conforming_band ... 
+[1] full harmonic set vs conforming band, N = 24: orders [3, 9, 15, 21, 27, 33, 39, 45, 51, 57, 63, 69] (24 constraints)
+      k | ||dA||/||A||  | T_arkkio conf  | T_arkkio harm  | T_coupling     | max|G^T A| | its
+      0 | 5.357e-16 |  -32.715490940 |  -32.715490940 |  -33.132924148 | 1.36e-19 | 6
+      5 | 1.014e-15 |  -18.445690841 |  -18.445690841 |  -18.847168448 | 2.87e-19 | 5
+     29 | 1.014e-15 |   15.423510069 |   15.423510069 |   15.211559991 | 2.60e-19 | 7
+     -3 | 4.315e-16 |  -33.686174154 |  -33.686174154 |  -34.088009168 | 1.06e-19 | 7
+ok
+test harmonic_coupling_loud_failures ... 
+[5] rejected harmonic order sets (60 deg antiperiodic sector, N = 24):
+    []: sector constraint input: harmonic coupling needs at least one order
+    [3, 6]: sector constraint input: harmonic order 6 does not have the Antiperiodic symmetry of a sector of 1.0471975511965976 rad
+    [0]: sector constraint input: harmonic order 0 does not have the Antiperiodic symmetry of a sector of 1.0471975511965976 rad
+    [3, 75]: sector constraint input: harmonic order 75 is at or above the Nyquist limit of the coupling grid (n * step = 3.2724923474893677 >= pi, step 0.04363323129985824 rad)
+    [72]: sector constraint input: harmonic order 72 does not have the Antiperiodic symmetry of a sector of 1.0471975511965976 rad
+ok
+test harmonic_truncation_converges_to_conforming_band ... 
+[2] truncated harmonic coupling n = 3:6:n_max vs conforming, N = 96, k = 7: T_conf = -29.918309857 N m/m
+    n_max | T_arkkio       | T - T_conf    | T_inner        | T_outer        | T_coupling     | ||dA||/||A||
+        3 |  -29.919789228 | -1.479372e-3 |  -29.901756608 |  -29.937821848 |  -30.007817779 | 3.864e-4
+        9 |  -29.918319253 | -9.396577e-6 |  -29.900288332 |  -29.936350174 |  -30.006353816 | 2.166e-5
+       21 |  -29.918309857 | +1.156053e-11 |  -29.900279021 |  -29.936340692 |  -30.006344586 | 6.642e-9
+       45 |  -29.918309857 | -8.526513e-14 |  -29.900279021 |  -29.936340692 |  -30.006344586 | 1.253e-11
+       93 |  -29.918309857 | -4.263256e-14 |  -29.900279021 |  -29.936340692 |  -30.006344586 | 7.612e-16
+      189 |  -29.918309857 | -6.039613e-14 |  -29.900279021 |  -29.936340692 |  -30.006344586 | 6.017e-16
+      285 |  -29.918309857 | -7.105427e-14 |  -29.900279021 |  -29.936340692 |  -30.006344586 | 7.624e-16
+ok
+test saddle_tangent_fd_check ... 
+[3] saddle tangent [[K, C], [C^T, 0]], N = 24, k = 29, orders [3, 9, 15, 21, 27, 33, 39, 45]: 648 reduced unknowns, 16 multipliers
+    FD state: max nu in iron 104194.3 m/H (initial slope 160.0 m/H)
+        h    | ||FD - J [v; mu]|| / ||J [v; mu]||
+         1e-2 | 7.522e-2
+         1e-3 | 2.470e-3
+         1e-4 | 1.827e-5
+         1e-5 | 1.792e-7
+         1e-6 | 1.794e-9
+         1e-7 | 3.976e-10
+         1e-8 | 4.354e-9
+    at the solution: ||R + C lambda|| = 3.569e-5 (tolerance 4.151e-4), max|C^T a + d| = 3.094e-19
+ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.31s
+

@@ -1,0 +1,1738 @@
+{
+  "label": "smoke",
+  "issue": 1202,
+  "space": "a",
+  "scope": "theta0 model separation and nonlinear diagnostics only; no optimizer speedup evidence",
+  "command": [
+    "/Volumes/Stripe/geode-fem/codex-issue-1202/target/release/examples/icem_harness_eval",
+    "--space",
+    "a",
+    "--train-mesh",
+    "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh",
+    "--train-level",
+    "0",
+    "--val-mesh",
+    "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+    "--val-level",
+    "2",
+    "--anchor",
+    "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_optimization/anchor.json",
+    "--mesh-out",
+    "benchmarks/motor_optimization/smoke/mixed_l0_l2_1202_a.meshes"
+  ],
+  "python": "3.12.13 (main, May 10 2026, 19:20:41) [Clang 22.1.3 ]",
+  "binary_sha256": "3b682fb158d384b708835a33acf66f31bef3c232345d27d79f44fa5efd1d7293",
+  "base_commit": "d2d2246d927feea5da5c3e28873f56e8107fb4a2",
+  "tree_clean": false,
+  "input_sha256": {
+    "benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+    "benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
+    "benchmarks/motor_optimization/anchor.json": "715ed8334a48dbed701acfd56f1c738a4574033309240bdea825316ccf4b1f3f"
+  },
+  "source_sha256": {
+    "benchmarks/motor_optimization/harness/test_baseline_wiring.py": "822d009c09260270c3db7f3598aa27cfa434978df31d8255925bd1762ca28d78",
+    "benchmarks/motor_optimization/harness/physical_diagnostic.py": "bc3ad1fd113fc8f9661856e795cfe18db516fa495eac30a4c80d2a189a4761f2",
+    "benchmarks/motor_optimization/harness/run.py": "5a20887bdc81f13d9092ef53fce4d552d6746ccfef38932d978285292e5e569b",
+    "benchmarks/motor_optimization/harness/resource_usage.py": "38d7c3ef6522766d15a08defe9668d5b6298b2ac52c86f82578a54d0fa6cb368",
+    "benchmarks/motor_optimization/harness/test_harness.py": "20cf1b5cffc668d1a33f7593d1e234792c6439efb4584ee553d4697a3aef5ecc",
+    "benchmarks/motor_optimization/harness/mixed_model_smoke.py": "eb729482e01bd521f4a198a7c95e7aa676713502921921c2c9b5da12ae9d6a47",
+    "benchmarks/motor_optimization/harness/acceptance.py": "a224695f0c10082ac2b1ebf8473d11c050f25e5edb669bd9d4db283072346db6",
+    "benchmarks/motor_optimization/harness/test_physical_diagnostic.py": "ca4c5a5b705f8e4070e8220f61463bd0b2d92296d1a0d22b7687fecb3ae2aabb",
+    "benchmarks/motor_optimization/harness/summarize_pilot.py": "35103a2b70f19cfbc39c82a97ed39e4b0ff5b31f97a01b6d820aa6d3d41794b0",
+    "benchmarks/motor_optimization/harness/summarize_session.py": "5eb96346eed517f0db1fb96f7cdb5632dbd6775d9ef6778477e93fdb99bfc20e",
+    "benchmarks/motor_optimization/harness/ledger.py": "f9e30323b718944c7519b33aff8aa5b30bf7531008656130dc5adfb5b6dd3ea0",
+    "benchmarks/motor_optimization/harness/session.py": "93e3270ba1ac0955ed60ddaaef5f85c20c6cfd5ba2b6014c9d9d6b4ef8b3a246",
+    "benchmarks/motor_optimization/harness/test_safeguards.py": "f6c20c426cfc13ffa1de438c19081559282973171838762bd06e15e80195668d",
+    "benchmarks/motor_optimization/harness/resource_lifecycle_mutations.py": "66fcdd3d92f12debb1bcff9b6a38f796fe04a8af673770b101b2c0394d2b8f2e",
+    "benchmarks/motor_optimization/harness/fd_check.py": "995ba489aa00916c13121f718665cef9ae9f461ee89c978215915be416c627b0",
+    "benchmarks/motor_optimization/harness/lhs.py": "3a3e85b34dfbec5742fbb9a9c0e7ed106e3a929f75c098a7ba3d1b155707badc",
+    "benchmarks/motor_optimization/harness/main_preparation_mutations.py": "b2e5056473a556aa27fe385e8e00e83b64d0a3f0545c27fecacccb85a71f5f33",
+    "benchmarks/motor_optimization/harness/surrogate.py": "b893ce4665be2a96bd9341b67cd5b10edb9402d7f93d7a502ac581489af895c8",
+    "benchmarks/motor_optimization/harness/resource_wiring_smoke.py": "e5009b861ab65b11b560e9efbd86ac21764d107b1e948a2bfd354f53076c9a7c",
+    "benchmarks/motor_optimization/harness/main_schedule.py": "40d7b61d963b6f9315afedde1d86665ec86f2370b084df98836a0c908877b84d",
+    "benchmarks/motor_optimization/harness/driver.py": "da3bb9405150bee20a102e1fa4f30c44a1804410564a93dc53416ea5587037be",
+    "benchmarks/motor_optimization/harness/mutation_checks.py": "979e0c7ac61cb9ff4163a85c3f161dbf38319448d457f95fa2bf4edbca901454",
+    "benchmarks/motor_optimization/harness/test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8",
+    "benchmarks/motor_optimization/harness/baseline_wiring_mutations.py": "af2d6af9e32f8f381382551420dd2b39b13427eca9d2a504f817237768aaead8",
+    "benchmarks/motor_optimization/harness/recover_pilot_failures.py": "1e97e9aabd162081bbc8d3becd86a9abfc6f735c656408c18104af79b4b0dbfd",
+    "benchmarks/motor_optimization/harness/make_starts.py": "930f903c2d43f5d540d0f30c0be77e566fe08b498501881472553cbccd00540a",
+    "benchmarks/motor_optimization/harness/evaluator.py": "089d605677fd6bd7c02342feb983fd995dad186582cca3dfd22b399222b4e83f",
+    "benchmarks/motor_optimization/harness/physical_diagnostic_mutations.py": "ab8d6e872e5dcdb283a7b4f1f2345034fe33fe6bdb98c1ef3e7711cb09e81eca",
+    "benchmarks/motor_optimization/harness/test_evaluator_resources.py": "9b64c0be9d05c7c152c8052396f11986bb2e4c6a1cda439e54f00cf5b0c4c15a",
+    "crates/geode-core/tests/common/icem_forward.rs": "b14a284f2c7e65645f64a70b1eb2e72d6796fb604e2e0f6e9b8d545426e506e7",
+    "crates/geode-core/tests/common/icem_experiment2.rs": "b733005d351b47e9181c255b80dd70e870986ffc18bd25a82b3d3a3f1344247f",
+    "crates/geode-core/tests/common/icem_cp_design.rs": "5117ee01eaf33200f2f4680fcd129479593e1925808428328662fe7f9b7bca7e",
+    "crates/geode-core/tests/common/icem_design.rs": "b7a8758119f5331a831fdc0999536cc51e094a8476b16bea1c29d83bc0ae09ee",
+    "crates/geode-core/tests/common/icem_harness.rs": "115041334518c0e0c448fa04e4d55cff098df491d610efb48c4e6e9ac3372526",
+    "crates/geode-core/tests/common/icem_remesh.rs": "c033de3800738227248a0907ca0f2cbc8b9d820724ab3dd6b4060917398a0eb6",
+    "crates/geode-core/tests/common/icem_shape.rs": "83336a2fcb544bc61d1a9612f91b34085b869ad06a0ac4c3951e5e7f4b71abc9",
+    "crates/geode-core/examples/icem_harness_eval.rs": "c109381f7099a650bfc3e906cd0437dd99047e392ef24566d7a8d3139aa0eee9",
+    "crates/geode-core/tests/common/motor_resources.rs": "bdeb665c35c5a473f533407ddcc917cec1a9f36c1e3ba4a9dcae19bff5208448"
+  },
+  "status": "PASS",
+  "ready": {
+    "anchor": {
+      "F0": 0.009603404147653405,
+      "delta_f_abs_N2m2": 2.5e-07,
+      "delta_f_rel": 0.1,
+      "level": 2,
+      "mean0_full_current": 1.4408390361492982,
+      "mean_floor": 1.4444411337396714,
+      "mean_floor_margin": 0.0025,
+      "msh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
+      "target_fractions": {
+        "T50": 0.5,
+        "T90": 0.1,
+        "T99": 0.01
+      },
+      "targets": {
+        "T50": 0.004801702073826702,
+        "T90": 0.0009603404147653405,
+        "T99": 9.603404147653405e-05
+      }
+    },
+    "charges": [],
+    "handler_s": 5.0541e-05,
+    "id": null,
+    "ok": true,
+    "op": "ready",
+    "point_names": [
+      "MAG",
+      "MH",
+      "MW",
+      "SW1",
+      "SW2",
+      "SW3",
+      "SW4",
+      "SD1",
+      "Sr1",
+      "LENGTH",
+      "OPERATING_ANGLE",
+      "ScaleR"
+    ],
+    "protocol": "icem-harness/1",
+    "resources": {
+      "after": {
+        "pid": 44362,
+        "reaped_children": {
+          "available": true,
+          "maxrss_bytes": 0,
+          "maxrss_raw": 0,
+          "maxrss_raw_unit": "bytes",
+          "system_seconds": 0.0,
+          "user_seconds": 0.0
+        },
+        "self": {
+          "available": true,
+          "maxrss_bytes": 136396800,
+          "maxrss_raw": 136396800,
+          "maxrss_raw_unit": "bytes",
+          "system_seconds": 0.014544,
+          "user_seconds": 0.296655
+        }
+      },
+      "aggregation": "self plus reaped children once; do not add nested request totals",
+      "before": {
+        "pid": 44362,
+        "reaped_children": {
+          "available": true,
+          "maxrss_bytes": 0,
+          "maxrss_raw": 0,
+          "maxrss_raw_unit": "bytes",
+          "system_seconds": 0.0,
+          "user_seconds": 0.0
+        },
+        "self": {
+          "available": true,
+          "maxrss_bytes": 2326528,
+          "maxrss_raw": 2326528,
+          "maxrss_raw_unit": "bytes",
+          "system_seconds": 0.001887,
+          "user_seconds": 0.001256
+        }
+      },
+      "children_complete": true,
+      "cpu": {
+        "reaped_children": {
+          "system_seconds": 0.0,
+          "total_seconds": 0.0,
+          "user_seconds": 0.0
+        },
+        "self": {
+          "system_seconds": 0.012657,
+          "total_seconds": 0.308056,
+          "user_seconds": 0.295399
+        }
+      },
+      "cpu_complete": true,
+      "error": null,
+      "incomplete_reason": null,
+      "label": "startup",
+      "observed_cpu_seconds": 0.308056,
+      "platform": "macos",
+      "rss": {
+        "reaped_children": 0,
+        "self": 136396800,
+        "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+      },
+      "source": "nix::getrusage"
+    },
+    "session": {
+      "registered": false,
+      "training": {
+        "degrees": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "fractions": [
+          0.0,
+          0.5,
+          1.0
+        ],
+        "i_peak0_A": 9.677657374172274,
+        "level": 0,
+        "mesh_repair": true,
+        "mode": "h45",
+        "newton_max_iterations": 60,
+        "newton_rel_tol": 1e-08,
+        "policy_min_angle_deg": 5.0,
+        "torque": "h45/coupling",
+        "warm": "Cold"
+      },
+      "validation": {
+        "angles_deg": [
+          0.0,
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0,
+          6.0,
+          7.0,
+          8.0,
+          9.0,
+          10.0,
+          11.0,
+          12.0,
+          13.0,
+          14.0,
+          15.0,
+          16.0,
+          17.0,
+          18.0,
+          19.0
+        ],
+        "fractions": [
+          0.0,
+          0.5,
+          1.0
+        ],
+        "i_peak0_A": 9.677657374172274,
+        "level": 2,
+        "mesh_repair": true,
+        "mode": "h93",
+        "name": "primary",
+        "newton_max_iterations": 60,
+        "newton_rel_tol": 1e-08,
+        "policy_min_angle_deg": 5.0,
+        "start": "cold",
+        "torque": "h93/coupling"
+      }
+    },
+    "space": {
+      "free": [
+        "MAG",
+        "MH",
+        "MW",
+        "SW1",
+        "SW2",
+        "SW3",
+        "SW4",
+        "Sr1"
+      ],
+      "frozen": [
+        {
+          "name": "LENGTH",
+          "value": 0.1
+        },
+        {
+          "name": "SD1",
+          "value": 0.135
+        },
+        {
+          "name": "ScaleR",
+          "value": 1.0
+        },
+        {
+          "name": "OPERATING_ANGLE",
+          "value": 0.0
+        }
+      ],
+      "label": "A",
+      "lower": [
+        0.006,
+        0.002,
+        0.01,
+        0.002,
+        0.001,
+        0.0005,
+        0.002,
+        0.0005
+      ],
+      "map": "scalar",
+      "upper": [
+        0.015,
+        0.012,
+        0.025,
+        0.006,
+        0.004,
+        0.0015,
+        0.02,
+        0.002
+      ],
+      "x0": [
+        0.007,
+        0.007,
+        0.019,
+        0.004,
+        0.0023,
+        0.001,
+        0.00825,
+        0.001
+      ]
+    },
+    "startup_s": 0.308442,
+    "train_msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+    "validation_msh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5"
+  },
+  "train": {
+    "F": 0.008584802316481453,
+    "attempts": null,
+    "charges": [
+      {
+        "adjoint_solves": 0,
+        "category": "geometry_check",
+        "forward_solves": 0,
+        "note": "buildability",
+        "seconds": 3.1375e-05
+      },
+      {
+        "adjoint_solves": 0,
+        "category": "mesh_motion",
+        "forward_solves": 0,
+        "note": "",
+        "seconds": 0.000425709
+      },
+      {
+        "adjoint_solves": 0,
+        "category": "forward",
+        "forward_solves": 60,
+        "note": "",
+        "seconds": 2.6109698310000002
+      },
+      {
+        "adjoint_solves": 60,
+        "category": "adjoint",
+        "forward_solves": 0,
+        "note": "",
+        "seconds": 0.5853423369999997
+      }
+    ],
+    "dF": [
+      0.2726432910050977,
+      0.29389831458737836,
+      1.2967835404260561,
+      -0.048309357616743584,
+      13.392486050361562,
+      0.13995047112179212,
+      0.013546584717536472,
+      0.003422996481454855
+    ],
+    "dmean_full": [
+      -68.20796522356257,
+      21.403383988930912,
+      94.45171994006719,
+      1.7342261881575558,
+      -49.77683497964017,
+      -0.7844542400154288,
+      1.0680349738084212,
+      0.3239750685732864
+    ],
+    "event": null,
+    "fractions": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "generation": 0,
+    "handler_s": 3.196911666,
+    "id": 1,
+    "mean_full": 1.4475011967377915,
+    "means": [
+      -1.2762695866793371e-06,
+      0.6647621484399652,
+      1.4475011967377915
+    ],
+    "newton_iterations": 187,
+    "ok": true,
+    "op": "train",
+    "quality": {
+      "inverted": 0,
+      "max_angle_deg": 136.8123718069391,
+      "max_area_ratio": 1.0,
+      "min_angle_deg": 13.19805792813359,
+      "min_area_ratio": 1.0
+    },
+    "remesh_meshes": [],
+    "resources": {
+      "after": {
+        "pid": 44362,
+        "reaped_children": {
+          "available": true,
+          "maxrss_bytes": 0,
+          "maxrss_raw": 0,
+          "maxrss_raw_unit": "bytes",
+          "system_seconds": 0.0,
+          "user_seconds": 0.0
+        },
+        "self": {
+          "available": true,
+          "maxrss_bytes": 187891712,
+          "maxrss_raw": 187891712,
+          "maxrss_raw_unit": "bytes",
+          "system_seconds": 0.026138,
+          "user_seconds": 3.478646
+        }
+      },
+      "aggregation": "self plus reaped children once; do not add nested request totals",
+      "before": {
+        "pid": 44362,
+        "reaped_children": {
+          "available": true,
+          "maxrss_bytes": 0,
+          "maxrss_raw": 0,
+          "maxrss_raw_unit": "bytes",
+          "system_seconds": 0.0,
+          "user_seconds": 0.0
+        },
+        "self": {
+          "available": true,
+          "maxrss_bytes": 136462336,
+          "maxrss_raw": 136462336,
+          "maxrss_raw_unit": "bytes",
+          "system_seconds": 0.014614,
+          "user_seconds": 0.296688
+        }
+      },
+      "children_complete": true,
+      "cpu": {
+        "reaped_children": {
+          "system_seconds": 0.0,
+          "total_seconds": 0.0,
+          "user_seconds": 0.0
+        },
+        "self": {
+          "system_seconds": 0.011524000000000001,
+          "total_seconds": 3.193482,
+          "user_seconds": 3.181958
+        }
+      },
+      "cpu_complete": true,
+      "error": null,
+      "incomplete_reason": null,
+      "label": "train",
+      "observed_cpu_seconds": 3.193482,
+      "platform": "macos",
+      "rss": {
+        "reaped_children": 0,
+        "self": 187891712,
+        "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+      },
+      "source": "nix::getrusage"
+    },
+    "seconds": 3.196822583,
+    "solves": 60,
+    "status": "ok",
+    "stds": [
+      0.010143707533009428,
+      0.0405590283375799,
+      0.08268538404263241
+    ],
+    "x": [
+      0.007,
+      0.007,
+      0.019,
+      0.004,
+      0.0023,
+      0.001,
+      0.00825,
+      0.001
+    ],
+    "x_bits": [
+      4574720472685930873,
+      4574720472685930873,
+      4581133598555306459,
+      4571261708172110332,
+      4567449861447503944,
+      4562254508917369340,
+      4575909422987556684,
+      4562254508917369340
+    ]
+  },
+  "validate": {
+    "F_val": 0.009603404147653403,
+    "acceptance": {
+      "F_upper": 0.010563744562418743,
+      "F_val": 0.009603404147653403,
+      "admissible": true,
+      "delta_F": 0.0009603404147653403,
+      "mean_floor": 1.4444411337396714,
+      "mean_full": 1.4408390361492982,
+      "mean_ok": false,
+      "targets": [
+        {
+          "F_ok": false,
+          "T": 0.004801702073826702,
+          "attained": false,
+          "name": "T50",
+          "slack": -0.005762042488592041
+        },
+        {
+          "F_ok": false,
+          "T": 0.0009603404147653405,
+          "attained": false,
+          "name": "T90",
+          "slack": -0.009603404147653403
+        },
+        {
+          "F_ok": false,
+          "T": 9.603404147653405e-05,
+          "attained": false,
+          "name": "T99",
+          "slack": -0.01046771052094221
+        }
+      ]
+    },
+    "admissibility": {
+      "admissible": true,
+      "buildable": true,
+      "inadmissible_guards": [],
+      "min_h": 0.95
+    },
+    "anchor_msh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
+    "charges": [
+      {
+        "adjoint_solves": 0,
+        "category": "geometry_check",
+        "forward_solves": 0,
+        "note": "buildability",
+        "seconds": 2.5208e-05
+      },
+      {
+        "adjoint_solves": 0,
+        "category": "mesh_motion",
+        "forward_solves": 0,
+        "note": "",
+        "seconds": 4.1e-08
+      },
+      {
+        "adjoint_solves": 0,
+        "category": "validation",
+        "forward_solves": 60,
+        "note": "",
+        "seconds": 37.631326166
+      }
+    ],
+    "config": {
+      "angles_deg": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0,
+        13.0,
+        14.0,
+        15.0,
+        16.0,
+        17.0,
+        18.0,
+        19.0
+      ],
+      "fractions": [
+        0.0,
+        0.5,
+        1.0
+      ],
+      "i_peak0_A": 9.677657374172274,
+      "level": 2,
+      "mesh_repair": true,
+      "mode": "h93",
+      "name": "primary",
+      "newton_max_iterations": 60,
+      "newton_rel_tol": 1e-08,
+      "policy_min_angle_deg": 5.0,
+      "start": "cold",
+      "torque": "h93/coupling"
+    },
+    "fractions": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "handler_s": 37.634221042,
+    "id": 2,
+    "mean_full": 1.4408390361492982,
+    "means": [
+      -5.329786954416183e-06,
+      0.6613644103999053,
+      1.4408390361492982
+    ],
+    "mesh": {
+      "kind": "own",
+      "quality": {
+        "inverted": 0,
+        "max_angle_deg": 124.74300310443203,
+        "max_area_ratio": 1.0,
+        "min_angle_deg": 13.198057928133505,
+        "min_area_ratio": 1.0
+      }
+    },
+    "msh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
+    "ok": true,
+    "op": "validate",
+    "resources": {
+      "after": {
+        "pid": 44362,
+        "reaped_children": {
+          "available": true,
+          "maxrss_bytes": 0,
+          "maxrss_raw": 0,
+          "maxrss_raw_unit": "bytes",
+          "system_seconds": 0.0,
+          "user_seconds": 0.0
+        },
+        "self": {
+          "available": true,
+          "maxrss_bytes": 1593360384,
+          "maxrss_raw": 1593360384,
+          "maxrss_raw_unit": "bytes",
+          "system_seconds": 1.216496,
+          "user_seconds": 39.706933
+        }
+      },
+      "aggregation": "self plus reaped children once; do not add nested request totals",
+      "before": {
+        "pid": 44362,
+        "reaped_children": {
+          "available": true,
+          "maxrss_bytes": 0,
+          "maxrss_raw": 0,
+          "maxrss_raw_unit": "bytes",
+          "system_seconds": 0.0,
+          "user_seconds": 0.0
+        },
+        "self": {
+          "available": true,
+          "maxrss_bytes": 187891712,
+          "maxrss_raw": 187891712,
+          "maxrss_raw_unit": "bytes",
+          "system_seconds": 0.026157,
+          "user_seconds": 3.4786799999999998
+        }
+      },
+      "children_complete": true,
+      "cpu": {
+        "reaped_children": {
+          "system_seconds": 0.0,
+          "total_seconds": 0.0,
+          "user_seconds": 0.0
+        },
+        "self": {
+          "system_seconds": 1.190339,
+          "total_seconds": 37.418592000000004,
+          "user_seconds": 36.228253
+        }
+      },
+      "cpu_complete": true,
+      "error": null,
+      "incomplete_reason": null,
+      "label": "validate",
+      "observed_cpu_seconds": 37.418592000000004,
+      "platform": "macos",
+      "rss": {
+        "reaped_children": 0,
+        "self": 1593360384,
+        "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+      },
+      "source": "nix::getrusage"
+    },
+    "seconds": 37.634144625,
+    "solve_seconds": 37.631326166,
+    "solves": 60,
+    "status": "ok",
+    "stds": [
+      0.00760612113876732,
+      0.04264911239203962,
+      0.08790110511846237
+    ],
+    "validator_msh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
+    "x": [
+      0.007,
+      0.007,
+      0.019,
+      0.004,
+      0.0023,
+      0.001,
+      0.00825,
+      0.001
+    ],
+    "x_bits": [
+      4574720472685930873,
+      4574720472685930873,
+      4581133598555306459,
+      4571261708172110332,
+      4567449861447503944,
+      4562254508917369340,
+      4575909422987556684,
+      4562254508917369340
+    ]
+  },
+  "run_evaluator_resources": {
+    "requests": [
+      {
+        "op": "startup",
+        "id": null,
+        "measurement": {
+          "after": {
+            "pid": 44362,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 136396800,
+              "maxrss_raw": 136396800,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.014544,
+              "user_seconds": 0.296655
+            }
+          },
+          "aggregation": "self plus reaped children once; do not add nested request totals",
+          "before": {
+            "pid": 44362,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 2326528,
+              "maxrss_raw": 2326528,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.001887,
+              "user_seconds": 0.001256
+            }
+          },
+          "children_complete": true,
+          "cpu": {
+            "reaped_children": {
+              "system_seconds": 0.0,
+              "total_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "system_seconds": 0.012657,
+              "total_seconds": 0.308056,
+              "user_seconds": 0.295399
+            }
+          },
+          "cpu_complete": true,
+          "error": null,
+          "incomplete_reason": null,
+          "label": "startup",
+          "observed_cpu_seconds": 0.308056,
+          "platform": "macos",
+          "rss": {
+            "reaped_children": 0,
+            "self": 136396800,
+            "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+          },
+          "source": "nix::getrusage"
+        }
+      },
+      {
+        "op": "train",
+        "id": 1,
+        "measurement": {
+          "after": {
+            "pid": 44362,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 187891712,
+              "maxrss_raw": 187891712,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.026138,
+              "user_seconds": 3.478646
+            }
+          },
+          "aggregation": "self plus reaped children once; do not add nested request totals",
+          "before": {
+            "pid": 44362,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 136462336,
+              "maxrss_raw": 136462336,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.014614,
+              "user_seconds": 0.296688
+            }
+          },
+          "children_complete": true,
+          "cpu": {
+            "reaped_children": {
+              "system_seconds": 0.0,
+              "total_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "system_seconds": 0.011524000000000001,
+              "total_seconds": 3.193482,
+              "user_seconds": 3.181958
+            }
+          },
+          "cpu_complete": true,
+          "error": null,
+          "incomplete_reason": null,
+          "label": "train",
+          "observed_cpu_seconds": 3.193482,
+          "platform": "macos",
+          "rss": {
+            "reaped_children": 0,
+            "self": 187891712,
+            "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+          },
+          "source": "nix::getrusage"
+        }
+      },
+      {
+        "op": "validate",
+        "id": 2,
+        "measurement": {
+          "after": {
+            "pid": 44362,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 1593360384,
+              "maxrss_raw": 1593360384,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 1.216496,
+              "user_seconds": 39.706933
+            }
+          },
+          "aggregation": "self plus reaped children once; do not add nested request totals",
+          "before": {
+            "pid": 44362,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 187891712,
+              "maxrss_raw": 187891712,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.026157,
+              "user_seconds": 3.4786799999999998
+            }
+          },
+          "children_complete": true,
+          "cpu": {
+            "reaped_children": {
+              "system_seconds": 0.0,
+              "total_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "system_seconds": 1.190339,
+              "total_seconds": 37.418592000000004,
+              "user_seconds": 36.228253
+            }
+          },
+          "cpu_complete": true,
+          "error": null,
+          "incomplete_reason": null,
+          "label": "validate",
+          "observed_cpu_seconds": 37.418592000000004,
+          "platform": "macos",
+          "rss": {
+            "reaped_children": 0,
+            "self": 1593360384,
+            "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+          },
+          "source": "nix::getrusage"
+        }
+      },
+      {
+        "op": "shutdown",
+        "id": 3,
+        "measurement": {
+          "after": {
+            "pid": 44362,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 1593360384,
+              "maxrss_raw": 1593360384,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 1.216525,
+              "user_seconds": 39.706969
+            }
+          },
+          "aggregation": "self plus reaped children once; do not add nested request totals",
+          "before": {
+            "pid": 44362,
+            "reaped_children": {
+              "available": true,
+              "maxrss_bytes": 0,
+              "maxrss_raw": 0,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "available": true,
+              "maxrss_bytes": 1593360384,
+              "maxrss_raw": 1593360384,
+              "maxrss_raw_unit": "bytes",
+              "system_seconds": 1.2165219999999999,
+              "user_seconds": 39.706968
+            }
+          },
+          "children_complete": true,
+          "cpu": {
+            "reaped_children": {
+              "system_seconds": 0.0,
+              "total_seconds": 0.0,
+              "user_seconds": 0.0
+            },
+            "self": {
+              "system_seconds": 3.0000000001972893e-06,
+              "total_seconds": 3.999999997672532e-06,
+              "user_seconds": 9.999999974752427e-07
+            }
+          },
+          "cpu_complete": true,
+          "error": null,
+          "incomplete_reason": null,
+          "label": "shutdown",
+          "observed_cpu_seconds": 3.999999997672532e-06,
+          "platform": "macos",
+          "rss": {
+            "reaped_children": 0,
+            "self": 1593360384,
+            "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+          },
+          "source": "nix::getrusage"
+        }
+      }
+    ],
+    "child_receipt": {
+      "pid": 44362,
+      "source": "wait4",
+      "platform": "darwin",
+      "state": "reaped",
+      "available": true,
+      "returncode": 0,
+      "cpu_complete": true,
+      "error": null,
+      "wait_status": 0,
+      "cpu": {
+        "user_seconds": 39.707074,
+        "system_seconds": 1.236404,
+        "total_seconds": 40.943478
+      },
+      "rss": {
+        "raw": 1593360384,
+        "raw_unit": "bytes",
+        "bytes": 1593360384,
+        "semantics": "OS wait4 statistic for this child; not a summed process-tree peak"
+      },
+      "aggregation": "cross-check only; already included in reaped-child run CPU"
+    },
+    "aggregation": "request totals and child lifetime receipt overlap; do not sum"
+  },
+  "diagnostic": {
+    "kind": "nonlinear_physical_model",
+    "counted_in_run_budget": false,
+    "fractions": [
+      0.25,
+      0.75
+    ],
+    "selection": {
+      "x": [
+        0.007,
+        0.007,
+        0.019,
+        0.004,
+        0.0023,
+        0.001,
+        0.00825,
+        0.001
+      ],
+      "source": "last_buildable_training_incumbent",
+      "validation": null,
+      "common_feasibility_established": false
+    },
+    "units": {
+      "torque": "N m",
+      "seconds": "s"
+    },
+    "reply": {
+      "charges": [
+        {
+          "adjoint_solves": 0,
+          "category": "mesh_motion",
+          "forward_solves": 0,
+          "note": "diagnostic training",
+          "seconds": 0.000394208
+        },
+        {
+          "adjoint_solves": 0,
+          "category": "forward",
+          "forward_solves": 40,
+          "note": "diagnostic training",
+          "seconds": 1.8184163340000001
+        },
+        {
+          "adjoint_solves": 0,
+          "category": "mesh_motion",
+          "forward_solves": 0,
+          "note": "diagnostic validation",
+          "seconds": 1.67e-07
+        },
+        {
+          "adjoint_solves": 0,
+          "category": "validation",
+          "forward_solves": 40,
+          "note": "diagnostic validation",
+          "seconds": 25.313197709
+        }
+      ],
+      "fractions": [
+        0.25,
+        0.75
+      ],
+      "handler_s": 27.134944875,
+      "id": 1,
+      "ok": true,
+      "op": "diagnose",
+      "resources": {
+        "after": {
+          "pid": 51280,
+          "reaped_children": {
+            "available": true,
+            "maxrss_bytes": 0,
+            "maxrss_raw": 0,
+            "maxrss_raw_unit": "bytes",
+            "system_seconds": 0.0,
+            "user_seconds": 0.0
+          },
+          "self": {
+            "available": true,
+            "maxrss_bytes": 1583415296,
+            "maxrss_raw": 1583415296,
+            "maxrss_raw_unit": "bytes",
+            "system_seconds": 0.827475,
+            "user_seconds": 26.528586
+          }
+        },
+        "aggregation": "self plus reaped children once; do not add nested request totals",
+        "before": {
+          "pid": 51280,
+          "reaped_children": {
+            "available": true,
+            "maxrss_bytes": 0,
+            "maxrss_raw": 0,
+            "maxrss_raw_unit": "bytes",
+            "system_seconds": 0.0,
+            "user_seconds": 0.0
+          },
+          "self": {
+            "available": true,
+            "maxrss_bytes": 134545408,
+            "maxrss_raw": 134545408,
+            "maxrss_raw_unit": "bytes",
+            "system_seconds": 0.014881,
+            "user_seconds": 0.303152
+          }
+        },
+        "children_complete": true,
+        "cpu": {
+          "reaped_children": {
+            "system_seconds": 0.0,
+            "total_seconds": 0.0,
+            "user_seconds": 0.0
+          },
+          "self": {
+            "system_seconds": 0.8125939999999999,
+            "total_seconds": 27.038028,
+            "user_seconds": 26.225434
+          }
+        },
+        "cpu_complete": true,
+        "error": null,
+        "incomplete_reason": null,
+        "label": "diagnose",
+        "observed_cpu_seconds": 27.038028,
+        "platform": "macos",
+        "rss": {
+          "reaped_children": 0,
+          "self": 1583415296,
+          "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+        },
+        "source": "nix::getrusage"
+      },
+      "training": {
+        "angles_deg": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "fractions": [
+          0.25,
+          0.75
+        ],
+        "generation": 0,
+        "means": [
+          0.3184641510594117,
+          1.0406957529911776
+        ],
+        "mesh_hash_scope": "reference mesh before design motion; bind with x_bits",
+        "reference_msh_sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41",
+        "remesh_meshes": [],
+        "stds": [
+          0.02103530110138633,
+          0.061371402301733304
+        ],
+        "torques": [
+          [
+            0.3483887495663776,
+            0.3470084919081994,
+            0.3379754282190057,
+            0.3247522573792366,
+            0.3090555443421077,
+            0.29421799599789433,
+            0.28735391390626974,
+            0.29469840517076007,
+            0.314203830799379,
+            0.33451155759614254,
+            0.34463530677134385,
+            0.34282400565898485,
+            0.33384495714638557,
+            0.3211404846149472,
+            0.3063320895898705,
+            0.29259546414765264,
+            0.2868818454722714,
+            0.2953816840468285,
+            0.31604509643822437,
+            0.3374359124163537
+          ],
+          [
+            1.1305904027850804,
+            1.130712535814223,
+            1.0987113726655982,
+            1.0510465202680483,
+            1.003666078665293,
+            0.9688609476578878,
+            0.9579953474711529,
+            0.979911344457304,
+            1.030051537027011,
+            1.0855394349824827,
+            1.1194433499280034,
+            1.1174084900197203,
+            1.0848597410774727,
+            1.0382993386460584,
+            0.993328006688532,
+            0.9616997662611881,
+            0.9543576960996154,
+            0.9800117042085628,
+            1.0340486375221958,
+            1.0933728075781142
+          ]
+        ]
+      },
+      "validation": {
+        "angles_deg": [
+          0.0,
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0,
+          6.0,
+          7.0,
+          8.0,
+          9.0,
+          10.0,
+          11.0,
+          12.0,
+          13.0,
+          14.0,
+          15.0,
+          16.0,
+          17.0,
+          18.0,
+          19.0
+        ],
+        "fractions": [
+          0.25,
+          0.75
+        ],
+        "means": [
+          0.31669819585463216,
+          1.035658599505221
+        ],
+        "mesh": {
+          "kind": "own",
+          "quality": {
+            "inverted": 0,
+            "max_angle_deg": 124.74300310443203,
+            "max_area_ratio": 1.0,
+            "min_angle_deg": 13.198057928133505,
+            "min_area_ratio": 1.0
+          }
+        },
+        "msh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
+        "stds": [
+          0.021298927914886658,
+          0.06501978842614611
+        ],
+        "torques": [
+          [
+            0.3434954982794071,
+            0.34542020249022864,
+            0.33666186881378457,
+            0.32038330392438436,
+            0.30194671084490543,
+            0.287603972489233,
+            0.2846277068770576,
+            0.2992232154868392,
+            0.3215179097704992,
+            0.33407957489028856,
+            0.34008751917014557,
+            0.34125958916062005,
+            0.3320933697341336,
+            0.3161245023374154,
+            0.2989087299710604,
+            0.2861904440691095,
+            0.2844510199444395,
+            0.3000055591856228,
+            0.3232243025306695,
+            0.33665891712279805
+          ],
+          [
+            1.1220969679590636,
+            1.119271201608326,
+            1.0948841771916842,
+            1.0490827658210125,
+            0.9947902016350669,
+            0.9525459606621199,
+            0.9399342342039761,
+            0.9759197384967134,
+            1.0445352872669826,
+            1.0948114750807318,
+            1.111988931543347,
+            1.1064442014726246,
+            1.0800265617079035,
+            1.034330379112285,
+            0.9831142311886887,
+            0.9455656791434252,
+            0.9369468772002723,
+            0.9763672743140992,
+            1.048493049829853,
+            1.1020227946662433
+          ]
+        ]
+      },
+      "x": [
+        0.007,
+        0.007,
+        0.019,
+        0.004,
+        0.0023,
+        0.001,
+        0.00825,
+        0.001
+      ],
+      "x_bits": [
+        4574720472685930873,
+        4574720472685930873,
+        4581133598555306459,
+        4571261708172110332,
+        4567449861447503944,
+        4562254508917369340,
+        4575909422987556684,
+        4562254508917369340
+      ]
+    },
+    "charges": [
+      {
+        "adjoint_solves": 0,
+        "category": "mesh_motion",
+        "forward_solves": 0,
+        "note": "diagnostic training",
+        "seconds": 0.000394208
+      },
+      {
+        "adjoint_solves": 0,
+        "category": "forward",
+        "forward_solves": 40,
+        "note": "diagnostic training",
+        "seconds": 1.8184163340000001
+      },
+      {
+        "adjoint_solves": 0,
+        "category": "mesh_motion",
+        "forward_solves": 0,
+        "note": "diagnostic validation",
+        "seconds": 1.67e-07
+      },
+      {
+        "adjoint_solves": 0,
+        "category": "validation",
+        "forward_solves": 40,
+        "note": "diagnostic validation",
+        "seconds": 25.313197709
+      }
+    ],
+    "rows": [
+      {
+        "fraction": 0.25,
+        "mean_train": 0.3184641510594117,
+        "mean_val": 0.31669819585463216,
+        "std_train": 0.02103530110138633,
+        "std_val": 0.021298927914886658,
+        "mean_train_minus_val": 0.001765955204779568,
+        "std_train_minus_val": -0.00026362681350032904
+      },
+      {
+        "fraction": 0.75,
+        "mean_train": 1.0406957529911776,
+        "mean_val": 1.035658599505221,
+        "std_train": 0.061371402301733304,
+        "std_val": 0.06501978842614611,
+        "mean_train_minus_val": 0.005037153485956569,
+        "std_train_minus_val": -0.00364838612441281
+      }
+    ],
+    "status": "ok",
+    "resources": {
+      "label": "post_run_diagnostic",
+      "before": {
+        "pid": 44292,
+        "platform": "darwin",
+        "monotonic_seconds": 750628.34258025,
+        "source": "getrusage",
+        "self": {
+          "available": true,
+          "user_seconds": 0.22774799999999998,
+          "system_seconds": 0.13469899999999999,
+          "maxrss_raw": 80314368,
+          "maxrss_raw_unit": "bytes",
+          "maxrss_bytes": 80314368
+        },
+        "reaped_children": {
+          "available": true,
+          "user_seconds": 39.727346,
+          "system_seconds": 1.6108609999999999,
+          "maxrss_raw": 1593360384,
+          "maxrss_raw_unit": "bytes",
+          "maxrss_bytes": 1593360384
+        }
+      },
+      "after": {
+        "pid": 44292,
+        "platform": "darwin",
+        "monotonic_seconds": 750655.829364791,
+        "source": "getrusage",
+        "self": {
+          "available": true,
+          "user_seconds": 0.229126,
+          "system_seconds": 0.137647,
+          "maxrss_raw": 80379904,
+          "maxrss_raw_unit": "bytes",
+          "maxrss_bytes": 80379904
+        },
+        "reaped_children": {
+          "available": true,
+          "user_seconds": 66.25608,
+          "system_seconds": 2.458246,
+          "maxrss_raw": 1593360384,
+          "maxrss_raw_unit": "bytes",
+          "maxrss_bytes": 1593360384
+        }
+      },
+      "children_complete": true,
+      "incomplete_reason": null,
+      "cpu": {
+        "self": {
+          "user_seconds": 0.001378000000000018,
+          "system_seconds": 0.002948000000000006,
+          "total_seconds": 0.004326000000000024
+        },
+        "reaped_children": {
+          "user_seconds": 26.528734,
+          "system_seconds": 0.847385,
+          "total_seconds": 27.376119
+        }
+      },
+      "rss": {
+        "self": {
+          "available": true,
+          "bytes": 80379904,
+          "raw": 80379904,
+          "raw_unit": "bytes",
+          "semantics": "self lifetime high-water mark observed at phase end"
+        },
+        "reaped_children": {
+          "available": true,
+          "bytes": 1593360384,
+          "raw": 1593360384,
+          "raw_unit": "bytes",
+          "semantics": "OS statistic for reaped children at phase end; not a process-tree peak"
+        }
+      },
+      "errors": [],
+      "observed_cpu_seconds": 27.380444999999998,
+      "cpu_complete": true,
+      "aggregation": "self plus reaped children once; do not add nested request totals",
+      "evaluator": {
+        "requests": [
+          {
+            "op": "startup",
+            "id": null,
+            "measurement": {
+              "after": {
+                "pid": 51280,
+                "reaped_children": {
+                  "available": true,
+                  "maxrss_bytes": 0,
+                  "maxrss_raw": 0,
+                  "maxrss_raw_unit": "bytes",
+                  "system_seconds": 0.0,
+                  "user_seconds": 0.0
+                },
+                "self": {
+                  "available": true,
+                  "maxrss_bytes": 134479872,
+                  "maxrss_raw": 134479872,
+                  "maxrss_raw_unit": "bytes",
+                  "system_seconds": 0.014859,
+                  "user_seconds": 0.303114
+                }
+              },
+              "aggregation": "self plus reaped children once; do not add nested request totals",
+              "before": {
+                "pid": 51280,
+                "reaped_children": {
+                  "available": true,
+                  "maxrss_bytes": 0,
+                  "maxrss_raw": 0,
+                  "maxrss_raw_unit": "bytes",
+                  "system_seconds": 0.0,
+                  "user_seconds": 0.0
+                },
+                "self": {
+                  "available": true,
+                  "maxrss_bytes": 2326528,
+                  "maxrss_raw": 2326528,
+                  "maxrss_raw_unit": "bytes",
+                  "system_seconds": 0.002053,
+                  "user_seconds": 0.001277
+                }
+              },
+              "children_complete": true,
+              "cpu": {
+                "reaped_children": {
+                  "system_seconds": 0.0,
+                  "total_seconds": 0.0,
+                  "user_seconds": 0.0
+                },
+                "self": {
+                  "system_seconds": 0.012806000000000001,
+                  "total_seconds": 0.314643,
+                  "user_seconds": 0.301837
+                }
+              },
+              "cpu_complete": true,
+              "error": null,
+              "incomplete_reason": null,
+              "label": "startup",
+              "observed_cpu_seconds": 0.314643,
+              "platform": "macos",
+              "rss": {
+                "reaped_children": 0,
+                "self": 134479872,
+                "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+              },
+              "source": "nix::getrusage"
+            }
+          },
+          {
+            "op": "diagnose",
+            "id": 1,
+            "measurement": {
+              "after": {
+                "pid": 51280,
+                "reaped_children": {
+                  "available": true,
+                  "maxrss_bytes": 0,
+                  "maxrss_raw": 0,
+                  "maxrss_raw_unit": "bytes",
+                  "system_seconds": 0.0,
+                  "user_seconds": 0.0
+                },
+                "self": {
+                  "available": true,
+                  "maxrss_bytes": 1583415296,
+                  "maxrss_raw": 1583415296,
+                  "maxrss_raw_unit": "bytes",
+                  "system_seconds": 0.827475,
+                  "user_seconds": 26.528586
+                }
+              },
+              "aggregation": "self plus reaped children once; do not add nested request totals",
+              "before": {
+                "pid": 51280,
+                "reaped_children": {
+                  "available": true,
+                  "maxrss_bytes": 0,
+                  "maxrss_raw": 0,
+                  "maxrss_raw_unit": "bytes",
+                  "system_seconds": 0.0,
+                  "user_seconds": 0.0
+                },
+                "self": {
+                  "available": true,
+                  "maxrss_bytes": 134545408,
+                  "maxrss_raw": 134545408,
+                  "maxrss_raw_unit": "bytes",
+                  "system_seconds": 0.014881,
+                  "user_seconds": 0.303152
+                }
+              },
+              "children_complete": true,
+              "cpu": {
+                "reaped_children": {
+                  "system_seconds": 0.0,
+                  "total_seconds": 0.0,
+                  "user_seconds": 0.0
+                },
+                "self": {
+                  "system_seconds": 0.8125939999999999,
+                  "total_seconds": 27.038028,
+                  "user_seconds": 26.225434
+                }
+              },
+              "cpu_complete": true,
+              "error": null,
+              "incomplete_reason": null,
+              "label": "diagnose",
+              "observed_cpu_seconds": 27.038028,
+              "platform": "macos",
+              "rss": {
+                "reaped_children": 0,
+                "self": 1583415296,
+                "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+              },
+              "source": "nix::getrusage"
+            }
+          },
+          {
+            "op": "shutdown",
+            "id": 2,
+            "measurement": {
+              "after": {
+                "pid": 51280,
+                "reaped_children": {
+                  "available": true,
+                  "maxrss_bytes": 0,
+                  "maxrss_raw": 0,
+                  "maxrss_raw_unit": "bytes",
+                  "system_seconds": 0.0,
+                  "user_seconds": 0.0
+                },
+                "self": {
+                  "available": true,
+                  "maxrss_bytes": 1583415296,
+                  "maxrss_raw": 1583415296,
+                  "maxrss_raw_unit": "bytes",
+                  "system_seconds": 0.827505,
+                  "user_seconds": 26.528625
+                }
+              },
+              "aggregation": "self plus reaped children once; do not add nested request totals",
+              "before": {
+                "pid": 51280,
+                "reaped_children": {
+                  "available": true,
+                  "maxrss_bytes": 0,
+                  "maxrss_raw": 0,
+                  "maxrss_raw_unit": "bytes",
+                  "system_seconds": 0.0,
+                  "user_seconds": 0.0
+                },
+                "self": {
+                  "available": true,
+                  "maxrss_bytes": 1583415296,
+                  "maxrss_raw": 1583415296,
+                  "maxrss_raw_unit": "bytes",
+                  "system_seconds": 0.827502,
+                  "user_seconds": 26.528624
+                }
+              },
+              "children_complete": true,
+              "cpu": {
+                "reaped_children": {
+                  "system_seconds": 0.0,
+                  "total_seconds": 0.0,
+                  "user_seconds": 0.0
+                },
+                "self": {
+                  "system_seconds": 3.000000000086267e-06,
+                  "total_seconds": 4.000000001114223e-06,
+                  "user_seconds": 1.0000000010279564e-06
+                }
+              },
+              "cpu_complete": true,
+              "error": null,
+              "incomplete_reason": null,
+              "label": "shutdown",
+              "observed_cpu_seconds": 4.000000001114223e-06,
+              "platform": "macos",
+              "rss": {
+                "reaped_children": 0,
+                "self": 1583415296,
+                "semantics": "separate lifetime high-water observations in bytes; not interval deltas or a process-tree peak"
+              },
+              "source": "nix::getrusage"
+            }
+          }
+        ],
+        "child_receipt": {
+          "pid": 51280,
+          "source": "wait4",
+          "platform": "darwin",
+          "state": "reaped",
+          "available": true,
+          "returncode": 0,
+          "cpu_complete": true,
+          "error": null,
+          "wait_status": 0,
+          "cpu": {
+            "user_seconds": 26.528734,
+            "system_seconds": 0.8473849999999999,
+            "total_seconds": 27.376119
+          },
+          "rss": {
+            "raw": 1583415296,
+            "raw_unit": "bytes",
+            "bytes": 1583415296,
+            "semantics": "OS wait4 statistic for this child; not a summed process-tree peak"
+          },
+          "aggregation": "cross-check only; already included in reaped-child run CPU"
+        },
+        "aggregation": "request totals and child lifetime receipt overlap; do not sum"
+      }
+    },
+    "seconds": 27.48681441694498
+  },
+  "wall_seconds": 68.77551679091994
+}

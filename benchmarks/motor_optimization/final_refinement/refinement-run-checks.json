@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "code_commit": "1885192d03f6d97864b4bb7c935b00188cbdf847",
+  "source_sha256": {
+    "refinement_exec.py": "202d7579ea6076aa753415d93f4ab9578b5057988db0e98dcb05dde9caf41895",
+    "refinement_run.py": "5def9c483c0285a4488bc110aa9974bfcabb83fb625762f251aee34683f5834f",
+    "test_refinement_run.py": "68fcf2cfb8245bce7b1a8b7234ead5305eb960b77e11ad2b0ce19f246697fcf0",
+    "test_runner_native_archive.py": "4263c916de20b7dd1738a116c0bde384d457f872ae4436d310e660c0af18e9ff"
+  },
+  "tests": {
+    "command": "python3 -I -m unittest discover -s benchmarks/motor_optimization/final_refinement -p 'test_*.py'",
+    "passed": 229,
+    "new_tests": 11,
+    "seconds": 26.919,
+    "exit_code": 0
+  },
+  "controlled_process_checks": [
+    "Public run emits full fixed fixture schedule without retries, including explicit refusal and missing output.",
+    "Native exec replacement retains the tracked PID/group and real child exit receipt.",
+    "Separate finalization observes stopped fixture owner/groups and validates all journal/output rows.",
+    "SIGTERM retains failed evidence, emits no successful execution manifest and reaps the owned child.",
+    "Changed executable, output census, exit receipt, missing schedule row/journal and wrong geometry query are refused."
+  ],
+  "actual_native_check": {
+    "status": "PASS",
+    "requests": 2,
+    "returncodes": [
+      0,
+      0
+    ],
+    "source_commit": "1c6784e7e1fc8fe0564b1d793a6c4061588028f5",
+    "request_sha256": "e6e2e6b41f40633059104048f3340001ff4898aee08c27bcc1b23675a842515d",
+    "mesh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
+    "native_result_sha256": "7b7333389f84ad0adc6ffaf25e82374cb10edac8d7bf09300fd0281267988ce2",
+    "geometry_sha256": "66d86ab26d3625e147e0dfda67544c6a533e1921eb0f3b04798866d4d7adb330",
+    "scope": "Real geometry and single primary native request through the owned runner primitive, using retained reference inputs. Environment gate verified separately against synthetic selection. Not a full prepared-cohort run, not main-study selection or speedup evidence. Process absence checked after this script exits.",
+    "can_report_main": false
+  },
+  "scientific_adapter_and_process_check": {
+    "status": "PASS",
+    "native_requests": 1,
+    "geometry_queries": 1,
+    "torque_samples": 60,
+    "processes_stopped": true,
+    "adapter_status": "ok",
+    "scope": "New real native outputs validated in an explicitly synthetic selection context. All other planned checks are missing; no main cohort, optimization, attainment or performance evidence.",
+    "can_report_main": false
+  },
+  "archive": {
+    "path": "smoke/runner_native_1885192d.tar.gz",
+    "sha256": "664c9a2facce6e2b41c0e37970a967805096baf86f0cd82e2fa8d4dfceb5afbd",
+    "members": 50,
+    "bytes": 479366,
+    "relocated_read_only_replay": "PASS",
+    "L2_mesh": "Reuse existing native_binding_L2.msh.gz with recorded uncompressed hash."
+  },
+  "environment_refusal": "Initial smoke refused before native execution because full environment hash differed from the previous environment record. All other recorded runtime fields and input/source/build bindings compared equal. A fresh explicit local environment was recorded for the bounded smoke; refusal/diff and both before/after observations are retained. No timing or performance comparison is claimed.",
+  "scope": "Real bounded geometry/primary execution and scientific-adapter validation; complete public run/finalize behavior uses controlled real processes with synthetic outputs. Not a full prepared main-cohort execution or performance evidence.",
+  "remaining": [
+    "Complete execution-to-report bridge and unified evidence index/PR for independent review.",
+    "Verified closed main capture, selected-cohort run/finalization/reporting after independent review.",
+    "Full optimization-performance analysis and manuscript publication review/audit."
+  ],
+  "can_report_main": false
+}

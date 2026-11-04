@@ -1,0 +1,16 @@
+ladder cv1 start 2026-10-13T16:54:55Z commit 2f2c5db3
+geode cv1_h start 2026-10-13T16:54:55Z
+geode cv1_h end exit=0 2026-10-13T16:55:19Z
+geode cv1_h2 start 2026-10-13T16:55:19Z
+geode cv1_h2 end exit=0 2026-10-13T17:04:24Z
+start cv1_h_p1 np=16 2026-10-13T17:04:24Z
+end cv1_h_p1 exit=0 2026-10-13T17:04:37Z
+start cv1_h_p2 np=32 2026-10-13T17:04:37Z
+end cv1_h_p2 exit=0 2026-10-13T17:09:10Z
+start cv1_r1_p1 np=32 2026-10-13T17:09:10Z
+end cv1_r1_p1 exit=0 2026-10-13T17:10:52Z
+start cv1_r1_p2 np=32 2026-10-13T17:10:52Z
+end cv1_r1_p2 exit=0 2026-10-13T18:12:50Z
+start cv1_r2_p1 np=32 2026-10-13T18:12:50Z
+end cv1_r2_p1 exit=0 2026-10-13T18:30:59Z
+ladder cv1 end 2026-10-13T18:30:59Z
