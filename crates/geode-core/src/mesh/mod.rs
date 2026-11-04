@@ -37,8 +37,8 @@ pub mod tagged_tri;
 pub mod transmon;
 
 pub use extrude::{ExtrudedEdge, ExtrudedTriMesh, extrude_tri_mesh, extrude_tri_mesh_layers};
-#[allow(deprecated)]
 pub use msh_write::write_tagged_tet_mesh;
+#[allow(deprecated)]
 pub use sphere::PHYS_VACUUM_BUFFER;
 pub use sphere::{
     PHYS_OUTER_BOUNDARY, PHYS_PML_INTERFACE, PHYS_PML_SHELL, PHYS_SPHERE_INTERIOR,
