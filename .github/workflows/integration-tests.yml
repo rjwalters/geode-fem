@@ -311,6 +311,7 @@ jobs:
               --test nedelec_matrix_free_equivalence \
               --test nedelec_nu_wrapper \
               --test nedelec_sparse \
+              --test ntff_fom_shape_gradient \
               --test p1_local_matrices \
               --test palace_ingestion \
               --test patch_antenna_benchmark \
@@ -409,6 +410,7 @@ jobs:
               --test nedelec_matrix_free_equivalence \
               --test nedelec_nu_wrapper \
               --test nedelec_sparse \
+              --test ntff_fom_shape_gradient \
               --test p1_local_matrices \
               --test palace_ingestion \
               --test patch_antenna_benchmark \

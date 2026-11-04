@@ -536,6 +536,11 @@ fn main() {
     let _ = writeln!(t, "theta0 = {THETA0}");
     let _ = writeln!(t, "phi0 = {PHI0}");
     let _ = writeln!(t, "n_dofs = {}", model.n_dofs);
+    let _ = writeln!(
+        t,
+        "generated_at_commit = \"{}\"",
+        geode_util::repo::current_commit()
+    );
     BackendInfo::of::<B>(&device()).push_meta(&mut t);
 
     t.push_str("\n[fd_gate]\n");

@@ -299,7 +299,7 @@ pub struct FarFieldCovectors {
 ///
 /// # Panics
 ///
-/// As [`box_surface_faces`] (empty / all-inside box).
+/// As `box_surface_faces` (empty / all-inside box).
 pub fn far_field_covectors(
     mesh: &TetMesh,
     omega: f64,
