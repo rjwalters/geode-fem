@@ -24,7 +24,7 @@ runnable 2D representative (ceviche) plus an operator-gated definitive 3D run
 | --- | --- | --- | --- |
 | **GEODE** shape adjoint (the −10 dB result) | Unstructured tets; boundary nodes **on** the curve; node-motion (moving-boundary) adjoint, single factorization | Nodes on the curve (~1e-14 mm); linear facets 4.4 µm max on L0, 1.1 µm on L1 (`staircasing_demo.py`) | **Done** — committed artifact |
 | **FDTD-density** (Meep-adjoint / ceviche) | Fixed Yee/Cartesian grid; permittivity/density field, later binarized | **Staircased** — O(h) boundary error, cubic 3D refinement cost | 2D **runnable now** (ceviche); 3D **operator-gated** (Meep) |
-| **Low-DOF parametric** | A handful of shape scalars swept / FD-optimized | Can be conformal but cannot reach freeform | Planned (not in this dir) |
+| **Low-DOF parametric** | A handful of shape scalars swept / FD-optimized | Can be conformal; measured gap to freeform is small at 16–48 DOFs (see table) | **Assembled from committed artifacts**: [`../patch_antenna_conformal/head_to_head/`](../patch_antenna_conformal/head_to_head/README.md) (mesh-level-conditional) |
 
 The claim the baseline supports: a density method optimizes a **grid-locked
 field**, never *moves the boundary*, so the curved conductor is permanently the
@@ -182,9 +182,12 @@ Mirror the GEODE `bent_conformal` geometry (below) as a Meep `Simulation`:
 
 ## Honest caveats (enforced by the paper audit)
 
-- The 3-way head-to-head is **planned evaluation / future work** (BRIEF §"Scope &
-  honesty constraints"). This dir builds the substrate; it does **not** yet
-  publish comparative S11 numbers.
+- The 3-way table now exists in
+  [`../patch_antenna_conformal/head_to_head/`](../patch_antenna_conformal/head_to_head/README.md),
+  assembled from committed artifacts only. Its FDTD-density column carries **no
+  |S11|** ("not run — operator-gated"): this dir still publishes no comparative
+  FDTD S11 numbers, and the paper text (BRIEF §"Scope & honesty constraints")
+  is unchanged.
 - The ceviche 2D FDFD result is **representative** (2D, photonics-oriented), not
   apples-to-apples with the 3D metal open radiator. **Meep-3D is the definitive
   baseline.**
