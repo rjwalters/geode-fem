@@ -28,6 +28,7 @@
 #![deny(missing_docs)]
 
 mod backend;
+mod bloch;
 mod capacitance;
 mod check;
 mod dispersion;

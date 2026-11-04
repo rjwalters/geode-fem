@@ -94,6 +94,16 @@ pub struct Layout {
     /// Outer boundary (default: PEC walls).
     #[serde(default)]
     pub boundary: BoundaryDef,
+    /// Lateral axes along which the unit cell is periodic (`"x"`, `"y"`;
+    /// additive in v1, Epic #837 Phase 4a). Each listed axis replaces its
+    /// two PEC walls by the groups `<axis>_lo` / `<axis>_hi`, emitted
+    /// with a Gmsh `Periodic Surface` constraint so the two faces mesh
+    /// identically, and the starter spec wires them as
+    /// `boundary_conditions.periodic` pairs of an `eigen.bloch` spec at Γ.
+    /// Needs `--analysis eigen` (ports are not meshed) and a PEC
+    /// `boundary`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub periodic: Vec<Axis>,
     /// Mesh-size controls.
     pub mesh: MeshControls,
 }
@@ -183,6 +193,16 @@ pub enum Axis {
     X,
     /// `y`.
     Y,
+}
+
+impl Axis {
+    /// The axis name (`"x"` / `"y"`), as in the layout and group names.
+    pub fn name(self) -> &'static str {
+        match self {
+            Axis::X => "x",
+            Axis::Y => "y",
+        }
+    }
 }
 
 /// A lumped gap port.
@@ -704,6 +724,26 @@ impl Layout {
             }
         }
 
+        if !self.periodic.is_empty() {
+            if analysis != MeshAnalysis::Eigen {
+                return Err(format!(
+                    "`periodic` builds a unit cell for a Bloch band solve: use `--analysis eigen` \
+                     (got `{}`; periodic driven / Floquet ports land with Epic #837 Phase 4b)",
+                    analysis.name()
+                ));
+            }
+            if !matches!(self.boundary, BoundaryDef::Pec {}) {
+                return Err(
+                    "`periodic` needs the PEC `boundary`: a UPML shell is not periodic".into(),
+                );
+            }
+            for (i, a) in self.periodic.iter().enumerate() {
+                if self.periodic[..i].contains(a) {
+                    return Err(format!("`periodic` lists axis `{}` twice", a.name()));
+                }
+            }
+        }
+
         // Nets, in first-appearance order.
         let mut nets: Vec<&str> = Vec::new();
         for n in self
@@ -962,6 +1002,9 @@ impl Layout {
 
         // Per-analysis requirements.
         match analysis {
+            // An eigen layout meshes neither ports nor contacts: a PEC
+            // cavity (or, with `periodic`, a Bloch unit cell).
+            MeshAnalysis::Eigen => {}
             MeshAnalysis::Driven => {
                 if self.ports.is_empty() {
                     return Err("`ports` needs ≥ 1 port (driven analysis)".into());
@@ -1641,5 +1684,52 @@ mod tests {
             l.contacts[1].to = "gnd".into();
         });
         assert!(e.contains("passes through"), "{e}");
+    }
+
+    fn periodic_base(periodic: serde_json::Value) -> Layout {
+        serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [{"name": "air", "z_bottom": 0, "thickness": 20}],
+            "conductors": [{"name": "m1", "z_bottom": 5, "polygons": [
+                {"outer": [[0, 0], [4, 0], [4, 4], [0, 4]]}]}],
+            "margin": 5,
+            "periodic": periodic,
+            "mesh": {"size_max": 5, "size_conductor": 1}
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn periodic_needs_the_eigen_analysis_a_pec_boundary_and_distinct_axes() {
+        let ok = periodic_base(serde_json::json!(["x", "y"]));
+        assert!(ok.clone().resolve_for(MeshAnalysis::Eigen).is_ok());
+        let e = ok
+            .clone()
+            .resolve_for(MeshAnalysis::Capacitance)
+            .unwrap_err();
+        assert!(e.contains("--analysis eigen"), "{e}");
+        let e = ok.resolve().unwrap_err();
+        assert!(e.contains("--analysis eigen"), "{e}");
+        let dup = periodic_base(serde_json::json!(["x", "x"]));
+        let e = dup.resolve_for(MeshAnalysis::Eigen).unwrap_err();
+        assert!(e.contains("twice"), "{e}");
+        let mut upml = periodic_base(serde_json::json!(["x"]));
+        upml.boundary = BoundaryDef::Upml {
+            thickness: 2.0,
+            sigma_0: 25.0,
+        };
+        let e = upml.resolve_for(MeshAnalysis::Eigen).unwrap_err();
+        assert!(e.contains("UPML"), "{e}");
+        // An unknown axis is a parse error; the key is additive (absent = none).
+        assert!(
+            serde_json::from_value::<Layout>(serde_json::json!({
+                "schema_version": 1, "length_unit_m": 1, "dielectrics": [],
+                "margin": 1, "mesh": {"size_max": 1, "size_conductor": 1},
+                "periodic": ["z"]
+            }))
+            .is_err()
+        );
+        assert!(periodic_base(serde_json::json!([])).periodic.is_empty());
     }
 }

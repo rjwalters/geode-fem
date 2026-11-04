@@ -30,15 +30,19 @@ use geode_core::driven::ports::{
 };
 use geode_core::driven::solve::{SurfaceImpedanceModel, SurfaceRoughness};
 use geode_core::mesh::patch::box_upml_tensors;
+use geode_core::mesh::periodic::{
+    PeriodicMap, PeriodicMatchOptions, PeriodicPair, PeriodicTransform,
+};
 use geode_core::mesh::{TaggedTetMesh, pec_interior_mask_from_triangles, read_tagged_tet_mesh};
 use sha2::{Digest, Sha256};
 
 use crate::dispersion::DispersionModel;
 use crate::error::CliError;
 use crate::spec::{
-    Analysis, DEFAULT_N_TERMINATION_EVANESCENT, DEFAULT_SENSITIVITY_MIN_REL_GAP, FrequencyUnit,
-    ImpedanceDefinition, ProblemSpec, RoughnessSpec, SPEC_SCHEMA_VERSION, SensitivityParameterKind,
-    ShapeMotion, SolverSpec, WavePortSpec,
+    Analysis, BlochPathSpec, BlochPointSpec, BlochSpec, DEFAULT_N_TERMINATION_EVANESCENT,
+    DEFAULT_SENSITIVITY_MIN_REL_GAP, FrequencyUnit, ImpedanceDefinition, ProblemSpec,
+    RoughnessSpec, SPEC_SCHEMA_VERSION, SensitivityParameterKind, ShapeMotion, SolverSpec,
+    WavePortSpec,
 };
 
 /// How a volume region's permittivity was chosen.
@@ -103,6 +107,58 @@ pub struct Surface {
     pub tag: i32,
     /// Tagged triangles.
     pub triangles: Vec<[u32; 3]>,
+}
+
+/// One resolved periodic master/slave pair (Epic #837 Phase 4a).
+#[derive(Debug, Clone)]
+pub struct PeriodicPairSetup {
+    /// The master face.
+    pub master: Surface,
+    /// The slave face.
+    pub slave: Surface,
+}
+
+/// The resolved periodic boundary conditions: the pairs and the matched
+/// map built at load time (so `check` and the solve see the same pairing
+/// and the same snapped mesh).
+#[derive(Debug, Clone)]
+pub struct PeriodicSetup {
+    /// The pairs, in spec order.
+    pub pairs: Vec<PeriodicPairSetup>,
+    /// The matched node / edge / face map.
+    pub map: PeriodicMap,
+}
+
+impl PeriodicSetup {
+    /// Whether the lattice has a nonzero translation component along each
+    /// axis (`x`, `y`, `z`).
+    pub fn periodic_axes(&self) -> [bool; 3] {
+        let mut axes = [false; 3];
+        for r in &self.map.report().pairs {
+            for (a, d) in axes.iter_mut().zip(r.translation) {
+                *a |= d.abs() > 1e-9 * norm3(r.translation);
+            }
+        }
+        axes
+    }
+}
+
+fn norm3(v: [f64; 3]) -> f64 {
+    (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
+}
+
+/// A resolved `eigen.bloch` request.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BlochTarget {
+    /// One wave vector (rad per mesh length unit).
+    Point([f64; 3]),
+    /// A labelled k-path.
+    Path {
+        /// Labelled vertices.
+        vertices: Vec<(String, [f64; 3])>,
+        /// Samples per segment.
+        points_per_segment: usize,
+    },
 }
 
 /// A resolved Leontovich wall.
@@ -626,6 +682,12 @@ pub struct Problem {
     pub inductance: Option<InductanceTarget>,
     /// The resolved `sensitivity` section, if present (issue #707).
     pub sensitivity: Option<SensitivityTarget>,
+    /// The resolved periodic boundary pairs (`boundary_conditions.periodic`;
+    /// `None` when the spec lists none).
+    pub periodic: Option<PeriodicSetup>,
+    /// The resolved `eigen.bloch` request (`None` for a cavity eigen
+    /// spec).
+    pub bloch: Option<BlochTarget>,
 }
 
 impl Problem {
@@ -1077,6 +1139,7 @@ pub fn load_parsed(
     validate_sensitivity(&spec, analysis)?;
     validate_sweep(&spec, analysis)?;
     validate_open_boundaries(&spec)?;
+    let bloch = validate_periodic(&spec, analysis)?;
     validate_surface_roles(&spec)?;
     // Duplicate / conflicting surface roles were rejected above
     // (`validate_surface_roles`).
@@ -1149,7 +1212,7 @@ pub fn load_parsed(
         err,
     })?;
     let mesh_sha256 = hex(&Sha256::digest(&bytes));
-    let tagged = read_tagged_tet_mesh(&bytes).map_err(|err| CliError::Mesh {
+    let mut tagged = read_tagged_tet_mesh(&bytes).map_err(|err| CliError::Mesh {
         path: mesh_path.clone(),
         err,
     })?;
@@ -1190,6 +1253,17 @@ pub fn load_parsed(
         .silver_muller
         .iter()
         .map(|n| resolve(2, n, "silver_muller"))
+        .collect();
+    let periodic_tags: Vec<[Option<i32>; 2]> = spec
+        .boundary_conditions
+        .periodic
+        .iter()
+        .map(|p| {
+            [
+                resolve(2, &p.master, "periodic master"),
+                resolve(2, &p.slave, "periodic slave"),
+            ]
+        })
         .collect();
     let upml_tags: Vec<Option<i32>> = spec
         .absorbing_regions
@@ -1271,6 +1345,21 @@ pub fn load_parsed(
             .collect();
         return Err(CliError::UnresolvedGroups { missing, available });
     }
+
+    // ---- periodic pairs (Epic #837 Phase 4a) -------------------------
+    // Matched before anything reads node coordinates: a near match snaps
+    // the slave nodes onto the exact translated images (the mesh is then
+    // exactly periodic; the warning reaches the report), and a mismatch
+    // fails here for `check` and the solve alike.
+    let periodic = if spec.boundary_conditions.periodic.is_empty() {
+        None
+    } else {
+        Some(build_periodic(
+            &spec.boundary_conditions.periodic,
+            &periodic_tags,
+            &mut tagged,
+        )?)
+    };
 
     // Faces (sorted node triples) of the tet mesh, built on first use.
     let tet_faces = std::cell::OnceCell::new();
@@ -1633,6 +1722,8 @@ pub fn load_parsed(
         capacitance,
         inductance,
         sensitivity,
+        periodic,
+        bloch,
     })
 }
 
@@ -2195,6 +2286,180 @@ fn ams_material_conflict(
         ));
     }
     None
+}
+
+/// Match the spec's periodic pairs on `tagged` (snapping near-matching
+/// slave nodes in place) and keep the map.
+fn build_periodic(
+    specs: &[crate::spec::PeriodicSpec],
+    tags: &[[Option<i32>; 2]],
+    tagged: &mut TaggedTetMesh,
+) -> Result<PeriodicSetup, CliError> {
+    let mut setups = Vec::with_capacity(specs.len());
+    let mut pairs = Vec::with_capacity(specs.len());
+    for (spec, tag) in specs.iter().zip(tags) {
+        let [mt, st] = tag.map(|t| t.expect("resolved above"));
+        let face = |name: &str, tag: i32| -> Result<Surface, CliError> {
+            let triangles = tagged.triangles_with_tag(tag);
+            if triangles.is_empty() {
+                return Err(invalid(format!(
+                    "periodic surface `{name}` has no tagged triangles in the mesh"
+                )));
+            }
+            Ok(Surface {
+                name: name.to_string(),
+                tag,
+                triangles,
+            })
+        };
+        let master = face(&spec.master, mt)?;
+        let slave = face(&spec.slave, st)?;
+        pairs.push(PeriodicPair {
+            master: master.triangles.clone(),
+            slave: slave.triangles.clone(),
+            transform: spec.translation.map(PeriodicTransform::Translation),
+        });
+        setups.push(PeriodicPairSetup { master, slave });
+    }
+    let map = PeriodicMap::build(&mut tagged.mesh, &pairs, &PeriodicMatchOptions::default())
+        .map_err(|e| invalid(format!("boundary_conditions.periodic: {e}")))?;
+    Ok(PeriodicSetup { pairs: setups, map })
+}
+
+/// The wave vectors of a `bloch` path label (`G`/`Γ`, `X`, `Y`, `Z`, `M`,
+/// `R`) on an orthogonal lattice.
+fn bloch_label_k(label: &str, [a, b, c]: [f64; 3]) -> Option<[f64; 3]> {
+    use std::f64::consts::PI;
+    Some(match label {
+        "G" | "Γ" | "Gamma" => [0.0; 3],
+        "X" => [PI / a, 0.0, 0.0],
+        "Y" => [0.0, PI / b, 0.0],
+        "Z" => [0.0, 0.0, PI / c],
+        "M" => [PI / a, PI / b, 0.0],
+        "R" => [PI / a, PI / b, PI / c],
+        _ => return None,
+    })
+}
+
+/// Rules of the periodic boundary conditions and `eigen.bloch`
+/// (Epic #837 Phase 4a); returns the resolved Bloch target. Everything
+/// that needs the mesh (pair coverage, translation consistency) is the
+/// matcher's, in [`build_periodic`].
+fn validate_periodic(
+    spec: &ProblemSpec,
+    analysis: Analysis,
+) -> Result<Option<BlochTarget>, CliError> {
+    let periodic = &spec.boundary_conditions.periodic;
+    let bloch = spec.eigen.as_ref().and_then(|e| e.bloch.as_ref());
+    for (i, p) in periodic.iter().enumerate() {
+        if p.master == p.slave {
+            return Err(invalid(format!(
+                "boundary_conditions.periodic[{i}]: master and slave are both `{}`; a periodic \
+                 pair joins two different surfaces",
+                p.master
+            )));
+        }
+        if let Some(d) = p.translation
+            && !(d.iter().all(|x| x.is_finite()) && d.iter().any(|x| *x != 0.0))
+        {
+            return Err(invalid(format!(
+                "boundary_conditions.periodic[{i}].translation must be finite and non-zero"
+            )));
+        }
+    }
+    if bloch.is_none() {
+        if periodic.is_empty() {
+            return Ok(None);
+        }
+        return Err(invalid(if analysis == Analysis::Eigen {
+            "`boundary_conditions.periodic` needs `eigen.bloch` (a wave vector or k-path): a \
+             periodic eigen spec is a unit-cell band solve"
+        } else {
+            "`boundary_conditions.periodic` is supported by `eigen.bloch` specs only (periodic \
+             driven / Floquet-port analyses land with Epic #837 Phase 4b)"
+        }));
+    }
+    let bloch = bloch.expect("checked above");
+    if periodic.is_empty() {
+        return Err(invalid(
+            "`eigen.bloch` needs at least one `boundary_conditions.periodic` pair: a Bloch phase \
+             is meaningless without a lattice vector",
+        ));
+    }
+    if !spec.absorbing_regions.is_empty() {
+        return Err(invalid(
+            "`absorbing_regions` (UPML) cannot be combined with periodic boundaries: the stretch \
+             is not periodic along the periodic axis, and the Bloch pencil is lossless",
+        ));
+    }
+    if spec.sensitivity.is_some() {
+        return Err(invalid("`sensitivity` is not supported with `eigen.bloch`"));
+    }
+    for m in &spec.materials {
+        if m.eps_r[1] != 0.0
+            || m.dispersion.is_some()
+            || m.eps_r_diag
+                .as_ref()
+                .is_some_and(|d| d.components().iter().any(|c| c[1] != 0.0))
+        {
+            return Err(invalid(format!(
+                "materials[{}]: `eigen.bloch` solves the lossless Bloch pencil; use a real \
+                 `eps_r` (no loss, no dispersion)",
+                m.physical_group
+            )));
+        }
+    }
+    match bloch {
+        BlochSpec::Point(BlochPointSpec { k }) => {
+            if !k.iter().all(|x| x.is_finite()) {
+                return Err(invalid("eigen.bloch.k must be finite"));
+            }
+            Ok(Some(BlochTarget::Point(*k)))
+        }
+        BlochSpec::Path(BlochPathSpec {
+            path,
+            lattice,
+            points_per_segment,
+        }) => {
+            let period = |name: &str, v: f64| -> Result<f64, CliError> {
+                if v.is_finite() && v > 0.0 {
+                    Ok(v)
+                } else {
+                    Err(invalid(format!(
+                        "eigen.bloch.lattice.{name} must be finite and > 0 (got {v})"
+                    )))
+                }
+            };
+            let a = period("a", lattice.a)?;
+            let b = period("b", lattice.b.unwrap_or(a))?;
+            let c = period("c", lattice.c.unwrap_or(a))?;
+            if path.len() < 2 {
+                return Err(invalid("eigen.bloch.path needs at least two vertices"));
+            }
+            if *points_per_segment == 0 {
+                return Err(invalid("eigen.bloch.points_per_segment must be ≥ 1"));
+            }
+            let mut vertices = Vec::with_capacity(path.len());
+            for label in path {
+                let k = bloch_label_k(label, [a, b, c]).ok_or_else(|| {
+                    invalid(format!(
+                        "eigen.bloch.path: unknown vertex label `{label}` (use G, X, Y, Z, M or R)"
+                    ))
+                })?;
+                vertices.push((label.clone(), k));
+            }
+            if let Some(w) = vertices.windows(2).find(|w| w[0].1 == w[1].1) {
+                return Err(invalid(format!(
+                    "eigen.bloch.path: the segment {} → {} has zero length",
+                    w[0].0, w[1].0
+                )));
+            }
+            Ok(Some(BlochTarget::Path {
+                vertices,
+                points_per_segment: *points_per_segment,
+            }))
+        }
+    }
 }
 
 /// Eigen-spec rules (scalar, before the mesh is read). The eigen pencil
@@ -3793,7 +4058,7 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
         ),
         None => (Vec::new(), Vec::new()),
     };
-    let lists: [(&'static str, Vec<&str>); 9] = [
+    let lists: [(&'static str, Vec<&str>); 10] = [
         (
             "port",
             spec.ports
@@ -3819,6 +4084,13 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
         (
             "Silver-Müller wall",
             bcs.silver_muller.iter().map(String::as_str).collect(),
+        ),
+        (
+            "periodic face",
+            bcs.periodic
+                .iter()
+                .flat_map(|p| [p.master.as_str(), p.slave.as_str()])
+                .collect(),
         ),
         ("capacitance terminal", terminals),
         ("capacitance ground surface", ground),
@@ -3862,8 +4134,8 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
                     return Err(invalid(format!(
                         "physical group `{name}` is both {a_prev} {prev} and {a_role} {role}{why}; a surface \
                          carries at most one of port / wave port / PEC / Leontovich / \
-                         Silver-Müller / capacitance terminal / capacitance ground / inductance \
-                         source / inductance sink"
+                         Silver-Müller / periodic face / capacitance terminal / capacitance ground / \
+                         inductance source / inductance sink"
                     )));
                 }
             }

@@ -180,6 +180,10 @@ pub fn run(
     let out = OutDir::create_opt(outdir)?;
     let target = p.eigen.expect("eigen spec has a resolved eigen section");
 
+    if let Some(bloch) = &p.bloch {
+        return run_bloch(&p, &target, bloch, provenance);
+    }
+
     let t0 = Instant::now();
     let solved = if p.has_complex_materials() {
         solve_lossy(&p, &target)?
@@ -307,7 +311,51 @@ pub fn run(
             upml_reference_k0: solved.upml_reference_k0,
         },
         modes,
+        periodic: None,
+        bands: None,
         sensitivities,
+    })
+}
+
+/// `eigen.bloch`: solve the periodic unit cell (see [`crate::bloch`]).
+/// The pairing was matched at load time, so a mismatched mesh failed
+/// before this point; the report echoes it next to the band table.
+fn run_bloch(
+    p: &Problem,
+    target: &problem::EigenTarget,
+    bloch: &problem::BlochTarget,
+    provenance: Provenance,
+) -> Result<EigenReport, CliError> {
+    let t0 = Instant::now();
+    let solved = crate::bloch::solve(p, target, bloch)?;
+    let wall_time_s = t0.elapsed().as_secs_f64();
+    for w in &solved.bands.warnings {
+        eprintln!("warning: {w}");
+    }
+    Ok(EigenReport {
+        provenance,
+        kind: "eigen",
+        status: "ok",
+        mesh: mesh_summary(p),
+        regions: region_summaries(p),
+        pec: pec_summaries(p),
+        eigen: eigen_settings_summary(p).expect("eigen spec"),
+        absorbing_regions: Vec::new(),
+        solver: EigenSolverStats {
+            method: "hermitian_block_shift_invert",
+            inner: "direct_lu",
+            n_null_filtered: 0,
+            n_overdamped_filtered: None,
+            n_withheld: None,
+            residual_rel_max: solved.residual_rel_max,
+            wall_time_s,
+            pencil: "hermitian",
+            upml_reference_k0: None,
+        },
+        modes: Vec::new(),
+        periodic: crate::check::periodic_summary(p),
+        bands: Some(solved.bands),
+        sensitivities: None,
     })
 }
 

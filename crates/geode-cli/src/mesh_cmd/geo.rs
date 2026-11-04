@@ -37,7 +37,7 @@
 use std::fmt::Write as _;
 
 pub use crate::mesh_cmd::layout::ConductorBody;
-use crate::mesh_cmd::layout::{BoundaryDef, OUTER_BOUNDARY, Rect, ResolvedLayout};
+use crate::mesh_cmd::layout::{Axis, BoundaryDef, OUTER_BOUNDARY, Rect, ResolvedLayout};
 
 /// What a generated physical group is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,8 +54,18 @@ pub enum GroupRole {
     Port(usize),
     /// Contact `i` (dimension 2): a current-path source / sink face.
     Contact(usize),
-    /// The six outer walls (dimension 2, PEC).
+    /// The outer walls (dimension 2, PEC): all six, or the four-to-two
+    /// that are not periodic.
     OuterBoundary,
+    /// One of the two walls of a periodic axis (dimension 2): `hi = false`
+    /// is the master (`<axis>_lo`), `hi = true` the slave (`<axis>_hi`),
+    /// the master translated by the cell period.
+    PeriodicWall {
+        /// The periodic axis.
+        axis: Axis,
+        /// Slave (`true`) or master (`false`).
+        hi: bool,
+    },
 }
 
 /// One generated physical group.
@@ -276,6 +286,16 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
             });
         }
     }
+    for &axis in &l.periodic {
+        for hi in [false, true] {
+            groups.push(GroupDef {
+                dim: 2,
+                tag: next(),
+                name: format!("{}_{}", axis.name(), if hi { "hi" } else { "lo" }),
+                role: GroupRole::PeriodicWall { axis, hi },
+            });
+        }
+    }
     groups.push(GroupDef {
         dim: 2,
         tag: next(),
@@ -295,6 +315,8 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
             GroupRole::Port(_) => "lumped gap port",
             GroupRole::Contact(_) => "current-path contact",
             GroupRole::OuterBoundary => "outer walls (PEC)",
+            GroupRole::PeriodicWall { hi: false, .. } => "periodic master wall",
+            GroupRole::PeriodicWall { hi: true, .. } => "periodic slave wall",
         };
         let _ = writeln!(w, "//   | {} | {} | {} | {role} |", gd.dim, gd.tag, gd.name);
     }
@@ -527,16 +549,35 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
         let _ = writeln!(w, "assigned() += {{g_{t}()}};");
         let _ = writeln!(w, "Physical Surface(\"{}\", {t}) = {{g_{t}()}};", gd.name);
     }
+    // Periodic walls first (each its own group, selected like the outer
+    // walls), then the outer boundary holds the remaining walls.
+    let wall = |axis: Axis, hi: bool| match (axis, hi) {
+        (Axis::X, false) => Rect { x1: d.x0, ..d },
+        (Axis::X, true) => Rect { x0: d.x1, ..d },
+        (Axis::Y, false) => Rect { y1: d.y0, ..d },
+        (Axis::Y, true) => Rect { y0: d.y1, ..d },
+    };
+    for gd in groups.iter().filter(|g| g.dim == 2) {
+        let GroupRole::PeriodicWall { axis, hi } = gd.role else {
+            continue;
+        };
+        let t = gd.tag;
+        let _ = writeln!(
+            w,
+            "g_{t}() = {};",
+            bbox_sel("Surface", &wall(axis, hi), z_min, z_max, eps)
+        );
+        let _ = writeln!(w, "Physical Surface(\"{}\", {t}) = {{g_{t}()}};", gd.name);
+    }
     let outer = groups.last().expect("outer boundary");
     let t = outer.tag;
-    let walls = [
-        (Rect { ..d }, z_min, z_min),
-        (Rect { ..d }, z_max, z_max),
-        (Rect { x1: d.x0, ..d }, z_min, z_max),
-        (Rect { x0: d.x1, ..d }, z_min, z_max),
-        (Rect { y1: d.y0, ..d }, z_min, z_max),
-        (Rect { y0: d.y1, ..d }, z_min, z_max),
-    ];
+    let mut walls = vec![(Rect { ..d }, z_min, z_min), (Rect { ..d }, z_max, z_max)];
+    for axis in [Axis::X, Axis::Y] {
+        if !l.periodic.contains(&axis) {
+            walls.push((wall(axis, false), z_min, z_max));
+            walls.push((wall(axis, true), z_min, z_max));
+        }
+    }
     let _ = writeln!(w, "g_{t}() = {{}};");
     for (q, z0, z1) in walls {
         let _ = writeln!(w, "g_{t}() += {};", bbox_sel("Surface", &q, z0, z1, eps));
@@ -547,6 +588,49 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
         "Physical Surface(\"{OUTER_BOUNDARY}\", {t}) = {{g_{t}()}};"
     );
     let _ = writeln!(w);
+
+    // --- Periodic surfaces ----------------------------------------------
+    // One constraint per axis and per slab, so master and slave faces pair
+    // by construction (a wall is one face per slab; the margin keeps every
+    // conductor off it). `geode` re-derives the pairing from the mesh
+    // geometry (`PeriodicMap`) and checks it against the explicit
+    // `translation` of the starter spec, so a wrong direction convention
+    // here fails `geode check` loudly rather than solving the wrong cell.
+    if !l.periodic.is_empty() {
+        let _ = writeln!(
+            w,
+            "// Periodic surfaces: slave wall = master wall translated by the cell period."
+        );
+        for &axis in &l.periodic {
+            let (lo, hi) = (wall(axis, false), wall(axis, true));
+            let shift = match axis {
+                Axis::X => [lx, 0.0, 0.0],
+                Axis::Y => [0.0, ly, 0.0],
+            };
+            for (i, s) in l.dielectrics.iter().enumerate() {
+                let (z0, z1) = (s.z_bottom, s.z_bottom + s.thickness);
+                let tag = format!("{}{i}", axis.name());
+                let _ = writeln!(
+                    w,
+                    "p_{tag}_m() = {};",
+                    bbox_sel("Surface", &lo, z0, z1, eps)
+                );
+                let _ = writeln!(
+                    w,
+                    "p_{tag}_s() = {};",
+                    bbox_sel("Surface", &hi, z0, z1, eps)
+                );
+                let _ = writeln!(
+                    w,
+                    "Periodic Surface {{p_{tag}_s()}} = {{p_{tag}_m()}} Translate {{{}, {}, {}}};",
+                    num(shift[0]),
+                    num(shift[1]),
+                    num(shift[2])
+                );
+            }
+        }
+        let _ = writeln!(w);
+    }
 
     // --- Size field ---------------------------------------------------
     let size_max = l.mesh.size_max;
@@ -881,5 +965,105 @@ mod tests {
         assert!(!s.text.contains("Port rectangles"));
         assert!(s.text.contains("v_cond() = {v_c1_0, v_c1_1, v_c2_0};"));
         assert!(!s.text.contains("v_solid"));
+    }
+
+    fn periodic_layout(periodic: serde_json::Value) -> Layout {
+        serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [
+                {"name": "substrate", "z_bottom": -10, "thickness": 10, "eps_r": [11.9, 0]},
+                {"name": "air", "z_bottom": 0, "thickness": 20}
+            ],
+            "conductors": [{"name": "m1", "z_bottom": 1, "polygons": [
+                {"name": "a", "outer": [[0, 0], [10, 0], [10, 4], [0, 4]]}]}],
+            "margin": 5,
+            "periodic": periodic,
+            "mesh": {"size_max": 5, "size_conductor": 1}
+        }))
+        .unwrap()
+    }
+
+    /// `periodic: ["x", "y"]` (Epic #837 Phase 4a): the four lateral walls
+    /// become `x_lo`/`x_hi`/`y_lo`/`y_hi` groups, each slab's pair of wall
+    /// faces gets a `Periodic Surface` (slave = master + cell period), and
+    /// `outer_boundary` keeps only the top and bottom.
+    #[test]
+    fn periodic_axes_emit_wall_groups_and_periodic_surfaces() {
+        let l = periodic_layout(serde_json::json!(["x", "y"]));
+        let r = l.resolve_for(super::super::MeshAnalysis::Eigen).unwrap();
+        let s = generate(&r, "test");
+        let names: Vec<_> = s.groups.iter().map(|g| (g.tag, g.name.as_str())).collect();
+        assert_eq!(
+            names[names.len() - 5..],
+            [
+                (102, "x_lo"),
+                (103, "x_hi"),
+                (104, "y_lo"),
+                (105, "y_hi"),
+                (106, "outer_boundary"),
+            ]
+        );
+        // Domain = footprint [0, 10] × [0, 4] plus margin 5: 20 × 14.
+        for needle in [
+            "Physical Surface(\"x_lo\", 102) = {g_102()}",
+            "Physical Surface(\"y_hi\", 105) = {g_105()}",
+            "Periodic Surface {p_x0_s()} = {p_x0_m()} Translate {20, 0, 0};",
+            "Periodic Surface {p_x1_s()} = {p_x1_m()} Translate {20, 0, 0};",
+            "Periodic Surface {p_y0_s()} = {p_y0_m()} Translate {0, 14, 0};",
+            "Periodic Surface {p_y1_s()} = {p_y1_m()} Translate {0, 14, 0};",
+        ] {
+            assert!(s.text.contains(needle), "missing `{needle}` in\n{}", s.text);
+        }
+        // Slab 0 (z in [-10, 0]) master wall: the x = domain.x0 = -5 face.
+        let line = s
+            .text
+            .lines()
+            .find(|l| l.starts_with("p_x0_m() = "))
+            .unwrap();
+        assert!(
+            line.starts_with("p_x0_m() = Surface In BoundingBox{-5.0003, "),
+            "{line}"
+        );
+        // The outer boundary selects only the two z walls.
+        let outer = s
+            .text
+            .lines()
+            .filter(|l| l.starts_with("g_106() +="))
+            .count();
+        assert_eq!(outer, 2, "{}", s.text);
+    }
+
+    #[test]
+    fn one_periodic_axis_keeps_the_other_walls_in_the_outer_boundary() {
+        let l = periodic_layout(serde_json::json!(["x"]));
+        let s = generate(
+            &l.resolve_for(super::super::MeshAnalysis::Eigen).unwrap(),
+            "test",
+        );
+        assert!(s.text.contains("Periodic Surface {p_x0_s()}"));
+        assert!(!s.text.contains("Periodic Surface {p_y"));
+        let outer = s
+            .text
+            .lines()
+            .filter(|l| l.starts_with(&format!("g_{}() +=", s.groups.last().unwrap().tag)))
+            .count();
+        // top, bottom, y_lo, y_hi.
+        assert_eq!(outer, 4);
+    }
+
+    #[test]
+    fn layouts_without_periodic_emit_no_periodic_statements() {
+        let l = periodic_layout(serde_json::json!([]));
+        let s = generate(
+            &l.resolve_for(super::super::MeshAnalysis::Eigen).unwrap(),
+            "test",
+        );
+        assert!(!s.text.contains("Periodic Surface"));
+        assert!(
+            s.groups
+                .iter()
+                .all(|g| !matches!(g.role, GroupRole::PeriodicWall { .. }))
+        );
     }
 }

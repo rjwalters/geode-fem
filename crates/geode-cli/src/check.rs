@@ -8,13 +8,14 @@ use geode_core::assembly::nedelec::sparsity_pattern_from_tet_edges;
 
 use crate::dispersion::DispersionModel;
 use crate::error::CliError;
-use crate::problem::{self, MaterialSource, Problem};
+use crate::problem::{self, BlochTarget, MaterialSource, Problem};
 use crate::report::{
-    CapacitanceSettingsSummary, CheckReport, ConductorSummary, CurrentPathSummary,
-    DebyePoleSummary, DispersionSummary, EigenSettingsSummary, ExtractSettingsSummary,
-    FrequencySummary, InductanceSettingsSummary, LeontovichSummary, MeshSummary, PecSummary,
-    PortSummary, Provenance, RegionSummary, ResourceEstimate, RoughnessSummary,
-    SilverMullerSummary, SolverSummary, UpmlSummary, WavePortMediumSummary, WavePortSummary,
+    BlochRequestSummary, CapacitanceSettingsSummary, CheckReport, ConductorSummary,
+    CurrentPathSummary, DebyePoleSummary, DispersionSummary, EigenSettingsSummary,
+    ExtractSettingsSummary, FrequencySummary, InductanceSettingsSummary, LeontovichSummary,
+    MeshSummary, PecSummary, PeriodicPairSummary, PeriodicSummary, PortSummary, Provenance,
+    RegionSummary, ResourceEstimate, RoughnessSummary, SilverMullerSummary, SolverSummary,
+    UpmlSummary, WavePortMediumSummary, WavePortSummary,
 };
 use crate::spec::{DispersionSpec, FrequencyUnit, RoughnessSpec, SolverSpec};
 
@@ -23,6 +24,10 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
     let p = problem::load(spec_path, None)?;
     p.print_load_warnings();
     let mut warnings = check_warnings(&p);
+    let periodic = periodic_summary(&p);
+    if p.periodic.is_some() {
+        warnings.extend(periodic_warnings(&p)?);
+    }
     let (wave_ports, hybrid_warnings) = wave_port_previews(&p)?;
     warnings.extend(hybrid_warnings);
     Ok(CheckReport {
@@ -66,8 +71,34 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
         // electrostatic system: no fabricated estimate. (The inductance
         // system is a real Nédélec curl-curl, like the anchor's pencil.)
         resources: p.capacitance.is_none().then(|| resource_estimate(&p)),
+        periodic,
         warnings,
     })
+}
+
+/// The warnings of the periodic pairing, reported before any solve: the
+/// matcher's snap notes and the constraint's one-sided-PEC note. Printed
+/// on stderr like every report warning.
+fn periodic_warnings(p: &Problem) -> Result<Vec<crate::report::WarningResult>, CliError> {
+    let setup = p.periodic.as_ref().expect("periodic problem");
+    let constraint = crate::bloch::constraint(p)?;
+    let mut out = Vec::new();
+    let mut push = |kind: &'static str, message: String| {
+        eprintln!("warning: {message}");
+        out.push(crate::report::WarningResult {
+            kind,
+            wave_port: None,
+            physical_group: None,
+            message,
+        });
+    };
+    for w in setup.map.report().warnings() {
+        push("periodic_snap", w);
+    }
+    for w in constraint.warnings() {
+        push("periodic_one_sided_pec", w);
+    }
+    Ok(out)
 }
 
 /// The warnings `check` reports ahead of the hybrid ports' face-sweep
@@ -494,6 +525,55 @@ pub fn eigen_settings_summary(p: &Problem) -> Option<EigenSettingsSummary> {
         max_iters: e.max_iters,
         tol: e.tol,
         residual_tol: e.residual_tol,
+        bloch: p.bloch.as_ref().map(|b| BlochRequestSummary {
+            mode: match b {
+                BlochTarget::Point(_) => "point",
+                BlochTarget::Path { .. } => "path",
+            },
+            n_k_points: crate::bloch::n_k_points(b),
+            path: match b {
+                BlochTarget::Point(_) => None,
+                BlochTarget::Path { vertices, .. } => {
+                    Some(vertices.iter().map(|(l, _)| l.clone()).collect())
+                }
+            },
+        }),
+    })
+}
+
+/// The periodic pairing report (`None` without `boundary_conditions.periodic`).
+/// The matcher ran at load time, so this is available before any solve.
+pub fn periodic_summary(p: &Problem) -> Option<PeriodicSummary> {
+    let setup = p.periodic.as_ref()?;
+    let report = setup.map.report();
+    let axes = setup.periodic_axes();
+    Some(PeriodicSummary {
+        pairs: setup
+            .pairs
+            .iter()
+            .zip(&report.pairs)
+            .map(|(pair, r)| PeriodicPairSummary {
+                master: pair.master.name.clone(),
+                slave: pair.slave.name.clone(),
+                translation: r.translation,
+                translation_inferred: r.translation_inferred,
+                translation_residual: r.translation_residual,
+                n_nodes: r.n_nodes,
+                n_edges: r.n_edges,
+                n_faces: r.n_faces,
+                n_snapped: r.n_snapped,
+                max_snap_displacement: r.max_snap_displacement,
+                n_orientation_reversed: r.n_orientation_reversed,
+            })
+            .collect(),
+        axes: ["x", "y", "z"]
+            .into_iter()
+            .zip(axes)
+            .filter_map(|(name, on)| on.then_some(name))
+            .collect(),
+        n_chained_nodes: report.n_chained_nodes,
+        n_chained_edges: report.n_chained_edges,
+        warnings: report.warnings(),
     })
 }
 

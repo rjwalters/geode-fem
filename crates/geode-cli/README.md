@@ -46,7 +46,7 @@ one worked example per analysis, with the output to expect.
 | `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
 | `capacitance` | live (#705) — static **Maxwell capacitance matrix** (farads) between named conductor surfaces, from one electrostatic solve per terminal (P1 scalar, direct LU); non-driven conductors are **grounded**, never floating (see [Capacitance](#static-capacitance-geode-capacitance-issue-705)); optional SPICE `.subckt` (#715) |
 | `inductance` | live (#714) — static **Maxwell inductance matrix** (henries) between named open current paths (conductor volume + source / sink faces returning through one connected PEC conductor), from a P1 conduction solve per path for the current density and one tree-cotree-gauged magnetostatic solve per path (Nédélec edges, direct LU); **not** `extract`'s RF `l0_h` (see [Inductance](#static-inductance-geode-inductance-issue-714)); optional SPICE `.subckt` (#719) |
-| `mesh`    | live (#704) — layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged Gmsh MSH 4.1 mesh with automatically named physical groups + a starter problem spec (`--analysis driven`, `capacitance` or `inductance`, #720), via the external `gmsh` binary (see [Layout → mesh](#layout--mesh-geode-mesh-issue-704)) |
+| `mesh`    | live (#704) — layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged Gmsh MSH 4.1 mesh with automatically named physical groups + a starter problem spec (`--analysis driven`, `capacitance`, `inductance` (#720) or `eigen` (periodic Bloch cells, #837)), via the external `gmsh` binary (see [Layout → mesh](#layout--mesh-geode-mesh-issue-704)) |
 | `schema`  | live (#709) — print the JSON Schema (draft 2020-12) of the problem spec, the report or the layout (`geode schema spec\|report\|layout [-o PATH]`), derived from the same serde types the binary parses and emits; committed under [`schemas/`](schemas/) (see [JSON Schema](#json-schema-geode-schema-issue-709)) |
 
 ## Install
@@ -320,6 +320,58 @@ the nullspace, with a shift far above it you get the modes around the
 shift instead. If fewer than `n_modes` physical modes are resolved the
 run fails with `solve_failed` (never a silently short list); raise
 `max_iters` or move `shift`.
+
+### Periodic unit cells and Bloch bands (Epic #837 Phase 4a)
+
+`boundary_conditions.periodic` pairs two conforming surface groups of a
+unit cell, and `eigen.bloch` asks `geode eigen` for the **band structure**
+of that cell instead of PEC-cavity modes (additive in schema v1; specs
+without these keys are unchanged):
+
+```json
+"boundary_conditions": {
+  "pec": ["z_lo", "z_hi"],
+  "periodic": [
+    { "master": "x_lo", "slave": "x_hi" },
+    { "master": "y_lo", "slave": "y_hi", "translation": [0, 2.0, 0] }
+  ]
+},
+"eigen": { "n_modes": 6, "unit": "k0", "shift": 1.0,
+           "bloch": { "k": [0.5, 0, 0] } }
+```
+
+* `translation` (`slave − master`, mesh length units) is optional: when
+  omitted it is inferred from the two faces (a least-squares fit over the
+  matched nodes). A given translation that contradicts the mesh fails
+  `check` with `invalid_spec`.
+* `bloch` is either one wave vector `{ "k": [kx, ky, kz] }` (rad per mesh
+  length unit) or a path `{ "path": ["G", "X", "M", "G"], "lattice":
+  { "a": 1.0 }, "points_per_segment": 16 }` (default 16). Labels `G`/`Γ`,
+  `X`, `Y`, `Z`, `M`, `R` refer to an orthogonal lattice with periods
+  `a`, `b`, `c` (`b`, `c` default to `a`).
+* `eigen.shift` is the shift-invert target: the `n_modes` bands closest to
+  it are returned, so for the lowest bands put it just below the first
+  one. `eigen.max_iters` is ignored (the block solver keeps its core basis
+  cap); `eigen.tol` is the solver's residual bound and `eigen.residual_tol`
+  the acceptance gate on every reported band.
+* A Bloch spec is **lossless**: real `eps_r`, no `absorbing_regions`
+  (a UPML stretch is not periodic along the periodic axis), no
+  `sensitivity`. A group may not also be PEC (or carry any other boundary
+  condition). Periodic boundaries in `driven` / Floquet-port analyses are
+  Phase 4b.
+* **`geode check` runs the pairing before any solve** and reports
+  `periodic`: per pair the translation (and whether it was inferred), the
+  matched node / edge / face counts, snapped nodes and the periodic axes,
+  plus the snap warnings (kind `periodic_snap`). A mesh whose two faces
+  do not match node for node fails with `invalid_spec` and the fix
+  (`Periodic Surface` in Gmsh, or `geode mesh` with `periodic`).
+* The `eigen` report carries `bands`: one **row per wave vector**
+  (`k`, `s` and `label` along a path, `frequency_hz` per band,
+  `residual_rel` per band, `v_g_over_c` per band for a path) plus
+  warnings; `modes` is empty. Along a path the bands are tracked by
+  eigenvector overlap, so a band keeps its identity through a crossing.
+  At a Γ-equivalent `k` the harmonic fields appear as `0 Hz` bands
+  (round-off-level values, a few Hz).
 
 ### Lossy / open-cavity eigenmodes (issue #706)
 
@@ -2806,6 +2858,24 @@ references (a Kelvin guard-ring capacitor within `−0.5 % … +2.5 %`, measured
 a shielded microstrip shorted by end caps against a 2-D reference,
 measured −2.6 % from below on the default mesh; see [Golden
 tests](#golden-tests)).
+
+### Periodic unit cells (`periodic`, `--analysis eigen`, Epic #837 Phase 4a)
+
+`"periodic": ["x", "y"]` in the layout makes the cell periodic along the
+listed lateral axes (the key is additive; `z` is not supported). It needs
+`--analysis eigen` (ports are not meshed) and the default PEC `boundary`.
+Each periodic axis replaces its two PEC walls by the groups `x_lo` /
+`x_hi` (resp. `y_lo` / `y_hi`) and the script gets one
+`Periodic Surface {slave} = {master} Translate {…}` per axis and slab, so
+the two faces mesh identically. The starter spec lists the pairs as
+`boundary_conditions.periodic` with the cell period as explicit
+`translation`, and asks for the Bloch bands at Γ; the other walls stay in
+`outer_boundary` (PEC). Without `periodic`, `--analysis eigen` gives a
+plain PEC-cavity eigen starter spec.
+
+```sh
+geode mesh cell.layout.json --analysis eigen --spec-out cell.json && geode check cell.json
+```
 
 ### Layout, schema v1
 
