@@ -20,7 +20,7 @@ reference's, and every other input is the #1168 set-up unchanged.
   current the reference std lies inside the L3 band. At half current it
   lies 5e-5 N m (0.1% of its value) outside the band edge. The pointwise
   full-current gap falls from 0.027 to 0.0034 N m.
-- **The mean torque stays reproduced.** It is within 0.05% of the reference
+- **The mean torque stays reproduced.** It is within 0.051% of the reference
   at L3, inside the band for both currents.
 - **The cogging shape is reproduced, its amplitude is not.** The truncated
   coupling moves cogging ripple from -29% to +12.9% (0.01209 against
