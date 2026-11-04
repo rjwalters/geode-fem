@@ -1,0 +1,780 @@
+%% conformal-antenna-diffopt.5: rewrite around the physical 2.4 GHz bent patch on a fixed
+%% 1.6 mm FR-4 board (copper-only design), its mesh-refinement study and the frequency
+%% space-mapping correction. See changelog.md (critic notes and operator inputs mapped to
+%% changes) and provenance.md (every number to its committed source).
+%% v1-v4 and their critic siblings are unchanged.
+
+\documentclass{anvil-paper}
+\usepackage{xurl}
+\usepackage{array}
+
+\expandafter\def\expandafter\UrlBreaks\expandafter{\UrlBreaks\do\-\do\_}
+\Urlmuskip=0mu plus 1mu
+\renewcommand{\bibfont}{\small}
+\setlength{\bibsep}{2pt plus 1pt}
+
+\newcommand{\anvilfig}[3][0.98]{%
+  \IfFileExists{figures/#2}%
+    {\includegraphics[width=#1\linewidth]{figures/#2}}%
+    {\fbox{\parbox{#1\linewidth}{\centering\vspace{5em}%
+      \texttt{figures/#2}\\[0.5em]%
+      {\small placeholder: render via \texttt{figures/src/#3}}%
+      \vspace{5em}}}}}
+\newcommand{\PL}{P2/L1}
+
+\title{Shape-Adjoint Design of a Curved Conformal 2.4\,GHz Patch Antenna
+on a Fixed 1.6\,mm Board with a Differentiable Open-Radiator FEM}
+\author{Robb Walters\\
+  {\normalsize Independent Researcher}}
+% NOTE: Crutcher Dunnavant to be offered coauthorship at review (operator, 2026-10-13)
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We design a probe-fed 2.4\,GHz patch antenna wrapped on a cylinder of
+radius $100$\,mm, keeping the board a standard uniform $1.6$\,mm FR-4
+shell and changing only the etched copper. The design tool is a
+differentiable three-dimensional N\'ed\'elec finite-element method (FEM)
+on unstructured tetrahedral meshes, whose discrete shape adjoint passes
+through the full open-radiator forward model (box UPML absorber, lossy
+substrate and a lumped feed port whose position and width move), at one
+LU factorization per frequency. Thirty-eight smooth copper degrees of
+freedom (outline splines, corner bumps, feed inset and width) are applied
+by an exact on-cylinder morph, so the board stays $1.6$\,mm thick. A
+mesh-refinement study shows that the antenna's resonance is not converged
+on any affordable mesh: it rises under every $h$- and $p$-refinement, and
+a design optimized on the L1 mesh resonates about $45$--$48$\,MHz higher
+with second-order elements. That detune is close to a pure frequency
+translation, so we correct it by frequency space mapping and verify on
+the finest computed model, second-order elements on the second mesh level
+(\PL). There the design reaches a worst in-band $|S_{11}|$ of
+$-10.78$\,dB and a $94.9$\,MHz $-10$\,dB band ($2.3938$--$2.4887$\,GHz)
+that covers the $2.400$--$2.4835$\,GHz ISM band. On the finest
+first-order mesh it reaches $-8.80$\,dB. Richardson estimates for the initial antenna
+place its converged resonance a further $12.7$--$48.4$\,MHz up; the design
+has tracked the initial antenna's shifts to within $3$\,MHz, and every
+estimate exceeds the $6.2$\,MHz margin at the lower band edge, so the
+converged design probably misses at $2.400$\,GHz. The feed is an idealized $4.3$\,mm port strip.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Gradient-based inverse design has become routine in nanophotonics, where
+differentiable solvers such as \textsc{ceviche} \citep{hughes2019forward},
+the Meep adjoint solver \citep{hammond2022meepadjoint}, SPINS-B
+\citep{su_spinsb} and FDTDX \citep{mahlau2026fdtdx} optimize a permittivity
+density on a structured grid. The same density approach has been carried
+to metallic antennas: \citet{hassan2014topology} optimize the conductivity
+of a microstrip patch on a finite-difference time-domain (FDTD) grid with an
+adjoint gradient and more than $20{,}000$ design variables. Shape
+derivatives of scattering parameters for finite-element models with ports
+are older still \citep{webb2000design,webb2002design,nikolova2004adjoint}
+and are available in commercial tools
+\citep{ansys_hfss_derivatives,comsol_sensitivity_method}.
+
+This paper uses a differentiable finite-element solver, geode-fem, to
+design a specific antenna under manufacturing constraints and asks how far
+the result can be trusted. The antenna is a 2.4\,GHz probe-fed patch bent
+around a cylinder of radius $R = 100$\,mm. The board is a uniform
+$1.6$\,mm FR-4 shell and only the copper changes, so a design is a copper
+outline and a feed position that a board house could etch on standard
+stock. The body-fitted tetrahedral mesh follows the curved conductor
+exactly, and the design variables move it.
+
+Two findings shape the paper. First, the forward model is not converged on
+any mesh we can afford: the resonance of the initial antenna rises by
+$85$\,MHz from the coarsest to the finest computed model, and the order of
+convergence is falling along the ladder, so the converged resonance is
+bounded below but not above (Section~\ref{sec:convergence}). A design
+optimized on a coarse mesh therefore lands off band on a finer one.
+Second, that discrepancy is close to a pure frequency translation, which a
+frequency-only form of space mapping \citep{bandler1994space,bandler2004space}
+corrects with one or two refits (Section~\ref{sec:procedure}).
+
+The contributions are:
+\begin{itemize}
+  \item A discrete shape adjoint for a radiating antenna model on
+  unstructured tetrahedra: N\'ed\'elec elements, a box UPML, a lossy
+  substrate and a lumped port whose position and width are design
+  variables, with element Jacobians from forward-mode automatic
+  differentiation and one LU factorization per frequency shared by the
+  forward and adjoint solves (Section~\ref{sec:method}). The gradient
+  matches central finite differences of the full pipeline to a relative
+  $2.2\times10^{-5}$ or better on every run.
+  \item A copper-only design parametrization on a fixed curved board:
+  $38$ smooth degrees of freedom applied by an exact morph that keeps every
+  substrate node on its own cylinder (Section~\ref{sec:freedom}).
+  \item A design verified against refinement: worst in-band $-10.78$\,dB
+  and a $94.9$\,MHz $-10$\,dB band on the finest computed model, with the
+  finer first-order mesh, an independent sibling mesh and an extrapolation
+  of the converged response reported alongside, including the likely miss
+  at the lower band edge (Section~\ref{sec:results}).
+  \item Two ablations: without the frequency correction the same procedure
+  gives $-4.76$\,dB on the finest model, and an idealized design that also
+  varies the board thickness reaches $-9.16$\,dB there
+  (Section~\ref{sec:ablations}).
+\end{itemize}
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Finite-element S-parameter sensitivities with ports.}
+Design sensitivities of the scattering matrix for tetrahedral edge
+elements were derived by \citet{webb2000design}, extended to the frequency
+response by \citet{webb2002design} and used in gradient optimization of
+microwave devices by \citet{nair2003optimization}. Adjoint and
+self-adjoint formulations for S-parameter sensitivities are reviewed by
+\citet{nikolova2004adjoint} and \citet{nikolova2006network}, and continuum
+shape sensitivity for high-frequency devices is given by
+\citet{choi2011generalized}. HFSS computes analytic S-parameter derivatives
+with respect to geometric parameters by reusing the LU factors
+\citep{ansys_hfss_derivatives,vardapetyan2008sensitivity}, and COMSOL
+documents an adjoint sensitivity method and shape optimization of a
+waveguide filter and a diplexer on a deformed mesh
+\citep{comsol_sensitivity_method,jensen2022comsolshape}. These examples are
+closed waveguide devices with a few geometric parameters. For antennas,
+\citet{ghassemi2013antenna} evolve a microstrip antenna with an FEM adjoint
+sensitivity and a small set of control vertices. Our model differs in
+being an open radiator (box UPML, lumped port, lossy FR-4) with $38$
+smooth boundary degrees of freedom and a moving feed.
+
+\paragraph{Automated shape differentiation.}
+Shape derivatives of finite-element models can be generated
+automatically: in UFL and Firedrake \citep{ham2019automated,ham2020,paganini2021fireshape}
+and in NGSolve \citep{gangl2021fully}. \citet{wang2011} give a discrete
+Maxwell shape adjoint on unstructured meshes in two dimensions, in the time
+domain and without ports. geode-fem obtains the element Jacobians by
+forward-mode differentiation of its closed-form element kernels inside a
+tensor stack \citep{burn}, rather than by symbolic shape calculus.
+
+\paragraph{Structured-grid design of metallic antennas.}
+Density-based topology optimization of conductors on a fixed grid goes
+back at least to \citet{erentok2011topology}. \citet{hassan2014topology}
+and \citet{hassan2014patch} optimize the patch and ground plane of
+coax-fed microstrip antennas with an FDTD adjoint, and
+\citet{nikolova2004sensitivity,nikolova2006scattering} give FDTD
+sensitivities with respect to shape parameters. A plain Yee grid
+staircases a curved conductor, which produces $O(1)$ field errors next to
+the boundary \citep{cangellaris1991analysis,haggblad2014accuracy}, but
+structured grids need not staircase: locally conformal FDTD has handled
+curved PEC for decades \citep{dey1997locally,mittra2000conformal},
+including uniformly stable second-order schemes
+\citep{zagorodnov2003uniformly,benkler2006new}. In differentiable
+photonics, subpixel-smoothed projection gives the Meep density adjoint
+subpixel-accurate binarized boundaries \citep{hammond2025unifying,romano2026ssp2},
+though the material-grid adjoint excludes metallic media
+\citep{meepadjointdocs}; Tidy3D offers autograd shape gradients and
+conformal PEC averaging in its forward solver \citep{tidy3dautograd}; and
+\citet{hooten2025} and \citet{liu2024imagerep} map shape parameters to a
+fixed grid. Precomputed numerical Green's functions make pixelated antenna
+design fast without gradients \citep{sun2025pngf}. We did not find a
+conformal FDTD adjoint for the shape of a curved conductor, and we do not
+compare against any of these methods here (Section~\ref{sec:limits}).
+
+\paragraph{Integral-equation shape sensitivity.}
+Boundary- and integral-equation methods carry recent PEC shape-sensitivity
+work: time-domain boundary-integral shape derivatives
+\citep{takahashi2025tdbie}, freeform tubular scatterers
+\citep{arens2026tubular} and isogeometric coaxial baluns
+\citep{balouchev2024balun}.
+
+\paragraph{Space mapping.}
+Space mapping aligns a cheap coarse model with an accurate fine model and
+optimizes the coarse one \citep{bandler1994space,bandler2004space}. We use
+its simplest form, a frequency shift fitted between two discretizations of
+the same solver.
+
+\paragraph{Position of this work.}
+The closest prior work is the FEM S-parameter sensitivity line above,
+which already reuses factorizations and differentiates with respect to
+geometry. What we add is the combination, for an open radiator, of a box
+UPML, a lumped port whose position and width move, a lossy substrate and a
+smooth many-parameter copper basis on a curved board, together with a
+design verified against mesh and order refinement. We do not claim a first
+EM shape adjoint, and we make no performance comparison with structured-grid
+methods.
+
+\section{Method}
+\label{sec:method}
+
+\begin{figure}[t]
+  \centering
+  \anvilfig{fig1_geometry.pdf}{fig1_geometry.py}
+  \caption{The fixture and the final copper design. (a) Section at $y = 0$,
+  to scale: the FR-4 board (green) on the $R = 100$\,mm cylinder with the
+  patch on top, inside the air box and the $25$\,mm box UPML (hatched).
+  The bend is blended to zero at the air-box wall, so the UPML stays a
+  rectangular box. (b) Section through the feed at $s = 0$, with the
+  vertical axis stretched four times: patch, $1.6$\,mm FR-4, ground, and
+  the lumped-port strip across the gap, final (filled) and initial
+  (dashed). (c) Top view in the chart $(s, y)$: the initial $38\times29$\,mm
+  patch (dashed), the final copper outline (filled), and the initial and
+  final port strips. The board outline and thickness are the same in both.
+  Drawn from \texttt{baseline\_2g4\_L1.toml} and
+  \texttt{geometry/rbD\_L1\_copper\_38\_sm45.json}.}
+  \label{fig:geometry}
+\end{figure}
+
+\subsection{The open-radiator forward model}
+\label{sec:pencil}
+
+The forward problem is the driven frequency-domain curl-curl equation,
+discretized with N\'ed\'elec edge elements of order $p = 1$ or $p = 2$ on
+an unstructured tetrahedral mesh. Lengths are in millimetres and the
+solver works with $\omega = k_0 = 2\pi f/c$ in rad/mm. The assembled system
+is the complex-symmetric pencil
+\begin{equation}
+  A(\omega)\,\mathbf{x}
+  = \Big[\,K(\nu) - \omega^2 M(\varepsilon) + \tfrac{j\omega}{Z_s}\,S_p\,\Big]\,\mathbf{x}
+  = \mathbf{b},
+  \label{eq:pencil}
+\end{equation}
+with curl-curl stiffness $K$, mass matrix $M$ and lumped-port surface
+term $S_p$. The radiating boundary is a box UPML: per-element tensor
+weights $\Lambda$ enter both $K$ (as $\nu = \Lambda^{-1}$) and $M$ (as
+$\varepsilon = \varepsilon_r \Lambda$), with stretching
+$s = 1 - j\sigma_0 (d/w)^2/\omega$ per axis. The FR-4 has
+$\varepsilon_r = 4.4$ and $\tan\delta = 0.02$, and the conductors are
+perfect electric conductors (PEC). The port is a rectangle of width $w$
+along $y$ and length $l = 1.6$\,mm across the substrate gap, with sheet
+impedance $Z_s = R\,w/l$ and $R = 50\,\Omega$ (entered in the solver as
+$50/\eta_0$). The reflection coefficient follows from the port voltage $V$:
+\begin{equation}
+  S_{11} = \frac{Z - R}{Z + R},\qquad Z = \frac{V}{I},\qquad
+  I = \frac{2V_{\mathrm{inc}} - V}{R}.
+  \label{eq:s11}
+\end{equation}
+Every evaluation checks passivity, $|S_{11}| \le 1$.
+
+\subsection{Shape adjoint with one factorization per frequency}
+\label{sec:adjoint}
+
+The design moves mesh node coordinates $X$, so the gradient needs
+$\partial K/\partial X$, $\partial M/\partial X$, $\partial S_p/\partial X$
+and $\partial \mathbf{b}/\partial X$. geode-fem evaluates the closed-form
+element kernels in first-order dual arithmetic: seeding the tangent of one
+node coordinate returns the exact partial derivatives of every local
+matrix entry with respect to it. The UPML weights $\Lambda$ are held fixed
+under node motion, so the tangent flows through geometry only. Because
+$A(\omega)$ is complex symmetric, the adjoint system uses the same
+operator, and one LU factorization per frequency serves both the forward
+and the adjoint solve. The nodal gradient at each frequency is
+$\lambda^{\top}(\partial A/\partial X)\,\mathbf{x}$ plus the explicit
+dependence of the port drive and of the port-voltage functional on the
+geometry.
+
+When a design variable moves the feed, the port faces move: $w$, $l$, the
+drive and the voltage functional all depend on $X$. The moving-port terms
+are differentiated together with the volume terms, and the port is rebuilt
+on every moved mesh. A unit test of the moving-feed gradient on a curved
+mesh, with a current source that varies across the port so that the
+explicit term is not negligible, matches central finite differences to
+below $10^{-8}$; without the explicit term it misses by a relative error
+of about $3$.
+
+\subsection{Copper design freedom on a fixed curved board}
+\label{sec:freedom}
+
+The board is not a design variable. Each substrate node is described in a
+chart $(s, y)$, with $s = R\,\mathrm{atan2}(x, z - z_{\mathrm{axis}})$ the
+mid-plane arc length and $y$ the bend axis. A design applies a chart
+displacement $(\Delta s, \Delta y)$ and moves the node to angle
+$\phi_0 + \Delta s/R$ and height $y_0 + \Delta y$ at its own base radius.
+The radial column through the slab therefore rotates together, the FR-4
+stays a uniform $1.6$\,mm shell, the patch stays on the $R + h/2$ surface
+and the ground on $R - h/2$. Every run records the largest change of any
+substrate node's radius ($\le 1.4\times10^{-14}$\,mm) and the slab thickness
+($1.600$\,mm everywhere). Air nodes follow a harmonic (P1-Laplace)
+extension of the motion; the UPML shell and the outer boundary are fixed.
+The design gradient chains the nodal adjoint gradient through the exact
+Jacobian of this map.
+
+Table~\ref{tab:dofs} lists the $38$ degrees of freedom. They are smooth
+functions of the chart alone, so the same coefficient vector defines the
+same copper on every mesh of the family, which is what lets a design be
+carried between discretizations. The basis cannot open a hole in the
+patch: slots (U-slot, E-patch) change the topology of the conductor and are
+outside this parametrization.
+
+\begin{table}[t]
+  \centering
+  \caption{The $38$ copper degrees of freedom. Units are per unit of the
+  coefficient. The board thickness has no degree of freedom.}
+  \label{tab:dofs}
+  \small
+  \begin{tabular}{@{}l c >{\raggedright\arraybackslash}p{0.66\linewidth}@{}}
+    \toprule
+    Group & Count & What moves \\
+    \midrule
+    Outline & $32$ & $8$ clamped cubic B-splines per patch edge ($\pm y$, $\pm s$); each moves its edge outward in the surface by $1$\,mm, ramped in from the feed band and decaying over the $12$\,mm substrate margin \\
+    Corners & $4$ & one bump per corner, moving it outward along the bisector by $1$\,mm (negative values chamfer), support $1 - \mathrm{smoothstep}(d/6\,\mathrm{mm})$ \\
+    Feed & $2$ & the port's position along $y$ (its inset from the $+y$ edge) and its width $w$ along $y$, each $1$\,mm \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Objective, optimizer and guards}
+\label{sec:objective}
+
+The objective is a soft maximum of $|S_{11}|^2$ over $n_f = 5$ band
+frequencies,
+\begin{equation}
+  G(\mathbf{c}) = \frac{1}{\beta}\ln \sum_{f} \exp\!\big(\beta\,|S_{11}(f;\mathbf{c})|^2\big),
+  \qquad \beta = 25,
+  \label{eq:objective}
+\end{equation}
+over the coefficient vector $\mathbf{c}$. It is minimized by L-BFGS
+(memory $8$) with Armijo backtracking and a cap of $1$ coefficient unit
+per step. A per-element guard rejects any trial step that would shrink a
+tetrahedron's signed volume below $0.25$ of its base value. In the runs
+reported here the guard, not the gradient, ends the descent: every run
+stops at the volume budget (or on a plateau) with the gradient norm still
+nonzero, so the designs are guard-limited rather than stationary.
+
+Before and after each run the full pipeline gradient is compared with a
+central finite difference along the steepest-descent direction and along
+random directions in all $38$ coefficients. The worst relative error over
+all runs is $2.2\times10^{-5}$ (tolerance $5\times10^{-3}$); a per-group
+check of the outline, corner, inset and width coefficients on the two
+coarsest meshes passes to $1.9\times10^{-7}$. The adjoint is implemented
+for $p = 1$ only, so optimization runs at $p = 1$ and second-order
+elements enter through verification.
+
+\section{Fixture and Discretization}
+\label{sec:fixture}
+
+
+\paragraph{Antenna.}
+The initial antenna is a $38\times29$\,mm PEC patch (width $38$\,mm along
+$s$, resonant length $29$\,mm along $y$) on $1.6$\,mm FR-4 with a $12$\,mm
+substrate and ground margin, fed by a lumped-port strip $1.6$\,mm wide
+inset $7.0$\,mm from the $+y$ edge (Figure~\ref{fig:geometry}). The flat
+mesh is wrapped onto a cylinder of radius $100$\,mm about an axis
+parallel to $y$; the $62$\,mm substrate then subtends $\pm0.31$\,rad, with a
+sagitta of $1.8$\,mm at the patch edge. A $40$\,mm air margin separates the
+board from a $25$\,mm box UPML. The target is the $2.400$--$2.4835$\,GHz ISM
+band at $-10$\,dB.
+
+\paragraph{Discretization ladder.}
+Four graded meshes L0--L3 carry the same geometry with $38{,}650$,
+$150{,}561$, $370{,}780$ and $844{,}238$ edges, and second-order elements
+run on L0 and L1 ($204{,}824$ and $804{,}460$ unknowns). We write \PL{} for
+$p = 2$ on L1. The UPML conductivity $\sigma_0 = 1$ was chosen from a
+ladder of $\sigma_0$ and shell thickness on L1, where the residual
+sensitivity of $S_{11}$ to the absorber setting is $|\Delta S_{11}| \le 0.021$.
+
+\paragraph{Bending.}
+At this radius the bend barely moves the resonance: the bent dip lies
+$1.0$ to $1.6$\,MHz below the flat dip on every level. The curvature
+matters for representing the conductor and for the design freedom, not as
+a large detune.
+
+\subsection{The forward model is not converged}
+\label{sec:convergence}
+
+\begin{figure}[t]
+  \centering
+  \anvilfig{fig2_convergence.pdf}{fig2_convergence.py}
+  \caption{Resonance (the $|S_{11}|$ dip) of the initial bent patch under
+  refinement, against the number of unknowns. Left: $p = 1$ on L0--L3 and
+  $p = 2$ on L0 and L1. The dip rises under every refinement step; the
+  dotted line is the finest computed value, $2.3566$\,GHz at \PL, a lower
+  bound on the converged dip under that monotone trend. Right: Richardson
+  extrapolations of the $p = 1$ ladder and of the $p = 2$ pair at the
+  three orders shown ($1$, the local order of the finest triple, and a
+  least-squares slope). They are estimates under assumed orders, not
+  bounds. The shaded band is the ISM band. Data:
+  \texttt{convergence.toml}.}
+  \label{fig:convergence}
+\end{figure}
+
+Figure~\ref{fig:convergence} shows where the initial antenna resonates on
+each model. The dip rises under every $h$- and $p$-refinement step, from
+$2.2717$\,GHz on L0 to $2.3422$\,GHz on L3 and $2.3566$\,GHz at \PL. At a
+similar number of unknowns \PL{} lies $14.5$\,MHz above L3, so the
+second-order model is the more accurate one, and the finest computed dip
+bounds the converged dip from below. The upper end is not determined. The
+local order of the dip frequency falls along the $p = 1$ ladder, from
+$1.18$ on L0--L1--L2 to $0.50$ on L1--L2--L3, so the levels are not in the
+asymptotic range. Extrapolating the $p = 2$ pair gives $2.3693$,
+$2.3779$ and $2.4050$\,GHz at orders $1.49$, $1$ and $0.50$, that is
+$12.7$, $21.3$ and $48.4$\,MHz above \PL. Order $1$ is the rate expected
+from the $r^{-1/2}$ field singularity at the patch edge, but we have no
+measurement that selects it.
+
+For design this has two consequences. A design centred on any computed
+model will resonate higher on a finer one. And since the in-band worst
+case of the initial antenna improves with fidelity but is still $-2.42$\,dB
+at \PL, the optimization problem is real at every fidelity we can compute.
+
+Costs set the ladder. On a $28$-core workstation an L1 forward solve takes
+about $44$\,s and a band gradient at three frequencies $67$\,s, at
+$6$--$8$\,GiB peak memory. A \PL{} solve takes $753$\,s and $132$\,GiB on
+a $32$-vCPU cloud host, and an L3 solve about $8$\,min and $68$\,GiB. We
+therefore optimize on L1 or L2 and verify on L3 and \PL.
+
+\section{Design Procedure}
+\label{sec:procedure}
+
+\paragraph{Coarse optimization.}
+A cold start on L1 optimizes the band directly and reaches a worst-of-band
+$-10.04$\,dB on L1 after $24$ steps, ending when the volume guard binds in
+a tetrahedron between the feed and the $+y$ edge. With \PL{} the same
+copper gives only $-4.76$\,dB (Figure~\ref{fig:response}b): the design
+resonates higher on the finer model.
+
+\paragraph{Frequency space mapping.}
+We model the fine response as the coarse response shifted in frequency,
+$S_{\mathrm{fine}}(f) \approx S_{\mathrm{coarse}}(f - \delta)$, and fit
+$\delta$ by least squares over the fine model's sampled points, with the
+coarse response interpolated on a dense coarse sweep. For the cold L1
+optimum $\delta = 47.85$\,MHz, and the root-mean-square complex misfit
+falls from $0.23$--$0.38$ unshifted to $0.018$--$0.025$ shifted, over the
+copper designs fitted. The shift is within $3$\,MHz of the initial patch's
+own L1-to-\PL{} shift ($44.8$\,MHz), so the copper motion adds almost no
+detune of its own. The corrective step re-optimizes on the coarse model
+for the band shifted down by $\delta$ and checks the result at \PL. One
+refit was needed: the first corrected design gave $-9.96$\,dB at \PL, the
+refitted shift was $44.94$\,MHz, and the second corrected design is the
+final one.
+
+\paragraph{Feed re-basing.}
+Moving the feed toward the $+y$ edge compresses the $5$--$7$\,mm of mesh
+between them, and the cold runs on every level stop there at the volume
+guard. We then regenerate the mesh with the port at its moved position and
+width and carry the design over, shifting the two feed coefficients by the
+change of the fixture's port. From an original mesh this carries the
+copper exactly. Between two regenerated meshes it does not: the feed
+coefficients' support also reaches the $+y$ edge there, and the re-base
+drops that motion, so the target mesh carries a slightly different copper.
+We report that difference wherever it applies (Section~\ref{sec:results}).
+After re-basing, the optimizer widens the patch from $38$ to about
+$49.8$\,mm and the port from $1.6$ to about $4.3$\,mm, until the guard binds
+in the substrate margin $5$--$6$\,mm outside a radiating edge.
+
+Table~\ref{tab:chain} lists the chain that produced the final design.
+
+\begin{table}[t]
+  \centering
+  \caption{The optimization chain of the final design. ``Worst'' is the
+  worst of the band points on the band each run optimized (shifted down
+  by $\delta$ where stated), on the mesh it ran on. All runs are at
+  $p = 1$ on L1 meshes; ``re-based'' means the mesh was regenerated at the
+  moved port. The wall times are on cloud hosts of $16$ or $32$ vCPU.}
+  \label{tab:chain}
+  \small
+  \begin{tabular}{@{}l l c c c l c@{}}
+    \toprule
+    Step & Start & $\delta$ (MHz) & Worst (dB) & Steps & Terminal & Wall \\
+    \midrule
+    1 cold & initial patch & $0$ & $-1.47 \to -10.04$ & $24$ & guard (feed) & $0.8$\,h \\
+    2 re-based & step 1 & $0$ & $-9.97 \to -10.03$ & $4$ & plateau & $0.5$\,h \\
+    3 corrected & step 2 & $47.85$ & $-4.75 \to -10.25$ & $26$ & guard (widening) & $0.8$\,h \\
+    4 refit, re-based & step 3 & $44.94$ & $-10.26 \to -10.78$ & $9$ & guard (widening) & $0.7$\,h \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Results}
+\label{sec:results}
+
+\begin{figure}[t]
+  \centering
+  \anvilfig{fig3_response.pdf}{fig3_response.py}
+  \caption{(a) Return loss of the final design at \PL{} (blue, $41$
+  points) and on L3 (teal, dashed, $41$ points), and of the initial patch
+  at \PL{} (gray, sampled near its dip and at nine in-band points). The
+  dashed orange line is $-10$\,dB and the shaded band is the ISM band. The
+  arrow starts at the lower $-10$\,dB edge at \PL{} and has the length of
+  the largest extrapolated further upshift ($48.4$\,MHz); the smallest is
+  $12.7$\,MHz (Section~\ref{sec:convergence}). (b) The cold L1 optimum
+  (step~1 of Table~\ref{tab:chain}) on L1, where it was optimized, its
+  nine in-band points at \PL, and the L1 curve shifted by the fitted
+  $47.85$\,MHz. Data: \texttt{copper/verify/} and \texttt{convergence/}.}
+  \label{fig:response}
+\end{figure}
+
+\paragraph{Finest computed model.}
+At \PL{} the final design has a worst $|S_{11}|$ of $-10.78$\,dB over nine
+points spanning the ISM band, and the $41$-point sweep gives a contiguous
+$-10$\,dB band from $2.3938$ to $2.4887$\,GHz, $94.9$\,MHz wide, which covers
+the whole $83.5$\,MHz ISM band (Figure~\ref{fig:response}a,
+Table~\ref{tab:verify}). The band is centred to $0.5$\,MHz. The margins are
+small: the $-10$\,dB band starts $6.2$\,MHz below $2.400$\,GHz and ends
+$5.2$\,MHz above $2.4835$\,GHz. This verification runs on the mesh the
+design was optimized on, so the verified copper is the optimized copper
+(they agree to about $10^{-3}$\,mm), and its minimum volume ratio is the
+guard value $0.250$. As built, the patch is $28.80$\,mm long and $49.75$\,mm
+wide at the feed, the port strip is $4.27$\,mm wide and $5.07$\,mm from the
+$+y$ edge, and the board is $1.600$\,mm thick everywhere.
+
+\paragraph{Finest first-order mesh.}
+On L3 the same copper gives $-8.80$\,dB and covers $89\%$ of the band. Its
+$-10$\,dB band is about as wide ($94.6$\,MHz) but sits about $14$\,MHz lower,
+close to the initial patch's $14.5$\,MHz L3-to-\PL{} offset. With $95$\,MHz
+of bandwidth against an $83.5$\,MHz band there are only about $11$\,MHz of
+slack, so a design centred for one model is off centre on the other. The
+L3 mesh of the widened patch has thin air elements next to the slab
+margin, which the default air morph compresses to a volume ratio of
+$0.10$; moving the air on cylinders instead raises it to $0.24$ and changes
+$|S_{11}|$ by $0.01$\,dB, so the L3 shortfall is not a mesh-quality
+artifact.
+
+\paragraph{Where the converged design probably falls.}
+\PL{} is the better reference: the dip rises under refinement and \PL{}
+lies above L3 at a similar size, so L3 misses on the less accurate side.
+The same data put the converged response above \PL. The extrapolated
+further rise of the initial patch's dip is $12.7$--$48.4$\,MHz
+(Section~\ref{sec:convergence}), and the copper design's coarse-to-\PL{}
+shift tracks the initial patch's to within $3$\,MHz, so a similar further
+rise is expected. Every extrapolated rise exceeds the $6.2$\,MHz margin at
+the lower band edge. The design meets the $-10$\,dB target across the ISM
+band on the finest computed model, and on the converged estimate it
+probably misses at $2.400$\,GHz.
+
+\paragraph{Sibling mesh.}
+An independently regenerated L1 mesh at the same port gives $-10.35$\,dB at
+\PL, about $3$\,MHz higher. This is not a pure remeshing test: the re-base
+onto that mesh also shortened the patch by $0.09$\,mm at the feed
+(Section~\ref{sec:procedure}), and a shorter patch resonates higher, so the
+$3$\,MHz mixes remeshing with a small design change.
+
+\paragraph{A related design from an L2 chain.}
+A second chain optimized on L2 (shift $29.33$\,MHz) reaches a design of the
+same family: patch about $28.9\times49.0$\,mm, port $4.5$\,mm. Its
+verifications ran on regenerated meshes whose re-base shortened the $+y$
+edge by $0.47$\,mm at the feed, so they verify a related design, not the L2
+optimum: $-10.10$\,dB and a $94.3$\,MHz band covering the ISM band at \PL,
+with $0.7$\,MHz of margin at $2.400$\,GHz, and $-9.25$\,dB on L3. No copper
+design has been verified on L3 and at \PL{} exactly as optimized on L2.
+
+\begin{table}[t]
+  \centering
+  \caption{Fresh forward verifications. ``Worst'' is over the nine in-band
+  points; the band columns come from dense sweeps ($41$ points,
+  $2.30$--$2.60$\,GHz; $21$ points, $2.35$--$2.55$\,GHz for the related
+  design). Coverage is the fraction of the ISM band below $-10$\,dB.
+  ``Vol'' is the smallest tetrahedron volume ratio on the verifying mesh.}
+  \label{tab:verify}
+  \small
+  \begin{tabular}{@{}l l c c c c@{}}
+    \toprule
+    Design & Model & Worst (dB) & $-10$\,dB band (GHz) & Coverage & Vol \\
+    \midrule
+    Initial patch & \PL & $-2.42$ & none in band & $0\%$ & $1.00$ \\
+    Final & \PL & $-10.78$ & $2.3938$--$2.4887$ & $100\%$ & $0.250$ \\
+    Final & L3 & $-8.80$ & $2.3801$--$2.4746$ & $89\%$ & $0.241$ \\
+    Final, sibling mesh ($-0.09$\,mm) & \PL & $-10.35$ & & & $0.234$ \\
+    Related L2-chain design ($-0.47$\,mm) & \PL & $-10.10$ & $2.3993$--$2.4936$ & $100\%$ & $0.299$ \\
+    Related L2-chain design ($-0.47$\,mm) & L3 & $-9.25$ & & & $0.228$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Bandwidth in context.}
+The closed-form formulas of \citet{jackson1991simple}, in the form given
+in Jackson's course notes \citep{jackson_ece6345}, estimate the bandwidth of
+a flat rectangular patch on this substrate from its space-wave,
+surface-wave and dielectric $Q$ (conductor loss omitted, since the FEM model
+is PEC). At a voltage standing-wave ratio of $2$ they give about $63$\,MHz
+for the initial $38\times29$\,mm patch and $70$\,MHz for the
+$49.8\times28.8$\,mm final patch, with a surface-wave loss of about
+$10\%$ (\path{jackson_bandwidth.py} in this paper's directory). The
+FEM bandwidths are larger: $84$\,MHz for the $38$\,mm cold optimum on its
+own L1 mesh, and $94.9$\,MHz for the final design at \PL. The closed form
+ignores the feed and the curvature, and we have not resolved the
+difference. Within the FEM results, the increase from $84$ to $95$\,MHz
+comes with the two standard bandwidth measures for a single patch, a
+wider patch (lower radiation $Q$) and a wider feed (lower feed
+inductance), rather than any added structure.
+
+\paragraph{Cost.}
+The final chain took $2.8$\,h of optimization on cloud hosts
+(Table~\ref{tab:chain}). The last run made $125$ driven solves in
+$40$\,min; its first gradient (five frequencies, forward and adjoint on one
+LU each) took $104$\,s at $6.2$\,GiB. The $41$-point \PL{} sweep of the
+final design took $5.4$ to $7.7$\,min per frequency at $151$\,GiB peak
+memory on a $32$-vCPU host, in three shards.
+
+\section{Ablations}
+\label{sec:ablations}
+
+\paragraph{Without the frequency correction.}
+The cold L1 optimum (step~1) is the same procedure without space mapping.
+It reaches $-10.04$\,dB on L1 and $-4.76$\,dB at \PL. With the fitted shift
+and one refit, the final design reaches $-10.78$\,dB at \PL. On this
+comparison the correction, not additional design freedom, accounts for
+most of the $6$\,dB. A second coarse model gives the same picture with a
+smaller shift: a design optimized on L2 with a $30$\,MHz hedge gives
+$-9.92$\,dB at \PL, and the fitted L2 shift is $29.33$\,MHz.
+
+\paragraph{Varying the board thickness.}
+In an idealized ablation the design freedom also moves the patch radially,
+so the FR-4 under the patch thickens from $1.6$\,mm to about $3.7$\,mm on
+average (up to $4.7$\,mm), with the feed left at the bottom of a $1.6$\,mm
+crater. Such a board cannot be made from standard stock. Optimized on L2
+without a frequency correction, the best such design reaches $-14.07$\,dB
+on L2, $-12.47$\,dB on L3 and $-9.16$\,dB at \PL, missing the target by
+$0.84$\,dB at $2.400$\,GHz after a $4.9$\,dB loss from L2 to \PL. The same
+freedom optimized on L1 loses $8.4$\,dB to \PL{} ($-14.12$ to $-5.69$\,dB).
+These designs also detune by about $75$\,MHz between models, more than the
+copper designs, because the thickness change adds a detune of its own.
+The copper-only design meets the target at \PL{} with less freedom; on
+this evidence that is due to the frequency correction removing the
+transfer loss, not to copper being a better design variable than
+thickness.
+
+\paragraph{What the data do not separate.}
+We have not compared the adjoint-driven optimizer with a gradient-free
+search or with a low-dimensional parametric sweep of patch size and feed
+position on the same models. The final design widens the patch and the
+feed, which a parametric sweep could also explore, so the result does not
+show that the $38$-parameter basis or the shape gradient is necessary for
+this antenna.
+
+\section{Limitations and Future Work}
+\label{sec:limits}
+
+\paragraph{Feed.}
+The feed is a uniform lumped-port strip across the $1.6$\,mm gap. The
+final design's $4.3$\,mm port is a strip of that width, not a coaxial pin
+(an SMA centre pin is $1.27$\,mm). A real feed would need a wide post or
+strip, or a matching structure presenting the same port, and none is
+modelled or verified. The copper outline is manufacturable on a standard
+board; the feed is not shown to be.
+
+\paragraph{Convergence and centring.}
+\PL{} is the finest model and it is not converged. Centring the design on
+the extrapolated converged response would take another space-mapping step
+with a larger shift, but the $12.7$--$48.4$\,MHz spread of the
+extrapolations exceeds the design's $11$\,MHz of total slack, so the
+extrapolation would have to be narrowed first, for example with a
+second-order L2 solve. The adjoint is first-order only; a $p = 2$ shape
+adjoint would let the optimizer run on the more accurate model directly.
+
+\paragraph{Scope.}
+The objective is impedance match only; radiation pattern, gain and
+efficiency are not computed. Conductors are PEC, so copper loss is not
+modelled. The design is one antenna on one radius and has not been
+fabricated or measured.
+
+\paragraph{Comparison with structured-grid methods.}
+A natural question is how a structured-grid design method would fare on
+the same curved board at matched accuracy. A Meep \citep{oskooi2010meep}
+model of this fixture has been set up and piloted, but its runs are not
+yet converged, so we make no cost or accuracy comparison. Our working
+hypothesis is that a body-fitted mesh reaches a given accuracy on the
+curved conductor at lower cost than a staircased grid; testing it needs a
+converged FDTD reference, ideally including a conformal FDTD scheme
+\citep{dey1997locally,zagorodnov2003uniformly}, and is left to future work.
+
+\section{How geode-fem Was Designed and Built}
+\label{sec:built}
+
+geode-fem implements the whiteroom L1--L4 operator specification of
+Crutcher Dunnavant \citep{dunnavant2026whiteroom}. He also gave design
+input on the solver's operator layer and is the author of 36 commits, made
+in June 2026, that migrated the code to Rust 2024, added the Metal (Apple
+GPU) backend, restructured the core crate and the examples into their
+present layout, and created the geode-util crate. The code, the
+experiments and the drafts of this paper were otherwise produced by
+frontier AI models working as role-separated agents: Anthropic's Claude
+(Opus, Fable and Sonnet models, through Claude Code) and OpenAI's GPT Sol
+and GPT Astra models (via Codex). Codex reviewed the figures and page
+layout of a draft of this paper. The agents were coordinated by Loom
+\citep{loom}, an issue, worktree and pull-request workflow, and by a shared
+Squad room.
+
+The five pull requests that produced this paper's results (the fixture,
+the smooth basis, the refinement study, the thickness ablation and the
+copper design) each received an independent review by a separate agent
+session, which recomputed reported numbers from the committed artifacts
+with its own scripts, reproduced forward points and mutation-tested the
+regression pins. Several claims were corrected because of those reviews.
+Three examples follow. The converged resonance of the initial patch was
+first bracketed $29$--$43$\,MHz below the band from a single fitted slope;
+solving each level triple for its own order showed the order falling, and
+the result is now a lower bound with an undetermined upper end
+(Section~\ref{sec:convergence}). A review found that re-basing the feed
+between two regenerated meshes changes the copper by $0.09$ or $0.47$\,mm,
+so the sibling-mesh check and the L2-chain results are reported as
+perturbed or related designs (Section~\ref{sec:results}). And a review
+required the paper to state which way the converged answer probably falls,
+rather than calling it unknown.
+
+Counts from repository history, up to this revision: the paper and its
+benchmark artifacts changed through 13 merged pull requests from
+2026-07-20 and 30 commits. Of these commits, 26 carry a Claude co-author
+trailer (Opus 19, Fable 7); the other 4 carry no trailer and contain about
+$9\%$ of the added text lines. The human author directed the research,
+made every scoping and claim decision, and takes responsibility for the
+content.
+
+\section{Reproducibility}
+\label{sec:repro}
+
+Every result in this paper is read from a committed, scripted
+artifact.\footnote{The geode-fem source is public at
+\url{https://github.com/rjwalters/geode-fem}. Archival DOI to be added at
+deposit.}
+% TODO(operator): Zenodo DOI (deposit stays an unpublished draft until approved)
+Table~\ref{tab:artifacts} lists them, relative to
+\path{benchmarks/patch_antenna_conformal/}. Each TOML records the exact
+command, the mesh SHA-256 and the commit that produced it, and regression
+tests pin the reported values. The meshes are regenerated from YAML
+recipes in \path{reference/gmsh/} with gmsh. The figure scripts in
+\path{figures/src/} read the artifacts directly, and \path{provenance.md}
+in this paper's directory maps every number to its source field.
+
+\begin{table}[t]
+  \centering
+  \caption{Artifacts behind each result, relative to
+  \texttt{benchmarks/patch\_antenna\_conformal/}.}
+  \label{tab:artifacts}
+  \footnotesize
+  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}>{\raggedright\arraybackslash}p{0.64\linewidth}@{}}
+    \toprule
+    Result & Artifact \\
+    \midrule
+    Fixture and flat-versus-bent baseline & \path{baseline_2g4_L0.toml}, \path{baseline_2g4_L1.toml} \\
+    Refinement study, absorber ladder, cost (Section~\ref{sec:convergence}, Figure~\ref{fig:convergence}) & \path{convergence.toml}, \path{convergence/}, \path{upml_ladder_L1.toml} \\
+    Copper optimizations (Table~\ref{tab:chain}) & \path{copper/*.toml}, \path{copper/README.md} \\
+    Verifications and bands (Table~\ref{tab:verify}, Figure~\ref{fig:response}) & \path{copper/verify/}, \path{copper/g2_summary.toml} from \path{scripts/copper_g2.py} \\
+    Frequency shift fit & \path{scripts/copper_shift_fit.py} \\
+    Geometry of the designs (Figure~\ref{fig:geometry}) & \path{geometry/rbD_L1_copper_38_sm45.json} and the other \path{geometry/*copper*.json} \\
+    Thickness ablation (Section~\ref{sec:ablations}) & \path{nested_dof/}, \path{nested_dof/verify/}, \path{scripts/nested_dof_g2.py} \\
+    Generator and tests & \path{crates/geode-core/examples/patch_conformal_nested_dof.rs}; \path{crates/geode-core/tests/patch_conformal_copper.rs} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+A differentiable finite-element model of a curved, PML-terminated patch
+antenna, with a feed that moves, gives exact shape gradients at one
+factorization per frequency, and with them a copper-only design on a
+standard $1.6$\,mm board reaches $-10.78$\,dB across the ISM band on the
+finest model we can compute. The harder part was the discretization. The
+resonance is not converged on any affordable mesh, an L1 optimum
+lands $45$--$48$\,MHz off at \PL, and the margin left at the
+lower band edge ($6.2$\,MHz) is smaller than every estimate of the
+remaining shift. A frequency-only space mapping removed most of the
+transfer loss, and the same data say the converged design probably misses
+at $2.400$\,GHz. For a gradient-designed antenna, the refinement study is
+part of the result.
+
+\paragraph{Acknowledgments.}
+We thank Crutcher Dunnavant for the whiteroom specification, for his
+design input to the solver's operator layer and for his contributions to
+the codebase. The AI-orchestrated development of geode-fem and of this
+paper is described in Section~\ref{sec:built}.
+% TODO(operator): approve acknowledgment wording
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

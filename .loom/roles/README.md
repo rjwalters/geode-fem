@@ -53,9 +53,6 @@ Each role can have an optional JSON metadata file with default settings:
 {
   "name": "Builder",
   "description": "Implements features and fixes",
-  "defaultInterval": 0,
-  "defaultIntervalPrompt": "",
-  "autonomousRecommended": false,
   "suggestedWorkerType": "claude"
 }
 ```
@@ -65,9 +62,6 @@ Each role can have an optional JSON metadata file with default settings:
 - **`name`** (string): Display name for this role
 - **`description`** (string): Brief description
 - **`suggestedModel`** (string): Default model alias for this role (`haiku`, `sonnet`, `opus`) or a pinned model ID; the role-default tier of the model-selection precedence chain
-- **`defaultInterval`** (number): Default interval in milliseconds (0 = disabled)
-- **`defaultIntervalPrompt`** (string): Default prompt sent at each interval
-- **`autonomousRecommended`** (boolean): Whether autonomous mode is recommended
 - **`suggestedWorkerType`** (string): "claude" or "codex"
 - **`stuckThresholds`** (object): Per-role stuck-detection limits (e.g. `maxNoOutput`, `maxNeedsInput`, in milliseconds)
 - **`toolPolicy`** (object): Per-role sensitive-capability allowlist — see below
@@ -87,10 +81,6 @@ shipped read-only roles (architect, auditor, champion, curator,
 guide, hermit, judge) declare `[]`; builder, doctor, driver and loom declare
 `["*"]`. What `check` matches, and its fail-closed rule, are in
 `defaults/docs/guard-hooks.md` ("Per-role tool restriction").
-
-`deny-specs` also appends the forge-egress bypass specs (#9989) for **every**
-role, whatever its allowlist, when a resolved forge egress policy enforces the
-API route — see `defaults/docs/forge-egress.md`. With no policy it adds nothing.
 
 ```json
 { "toolPolicy": { "allowedCapabilities": [] } }               // reaches none

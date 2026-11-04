@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-23T00:00:00+00:00",
+      "completed": "2026-10-23T00:10:00+00:00"
+    }
+  },
+  "metadata": {
+    "iteration": 22,
+    "max_iterations": 20,
+    "revised_from": 21,
+    "status": "DRAFT",
+    "authorization": "v21 with the operator's short title (geode-fem#1231): \"An Independent Finite-Element Cross-Check of the DeviceLayout.jl Transmon\". No other text, figure or number changed and no computation run. No review score or audit is claimed or carried forward.",
+    "source_paper_commit": "52da100a (main, transmon-benchmark.21 as merged)",
+    "scope": "v22 = v21 with the title \"An Independent Finite-Element Cross-Check of the DeviceLayout.jl Transmon\" (v21: \"Uniform mesh refinement underestimates the frequencies of the DeviceLayout.jl transmon: an independent finite-element cross-check and re-optimization\") and the header comment; 21 pages",
+    "pending_dependencies": [
+      "the issue #1231 Judge nits (precision-argument qualifier, Figure 1 caption exemption), deferred",
+      "independent v22 paper reviews (release gate: both >= 40/44)"
+    ],
+    "evidence_snapshot": {
+      "brief_mtime": null,
+      "refs_mtime": null
+    }
+  }
+}

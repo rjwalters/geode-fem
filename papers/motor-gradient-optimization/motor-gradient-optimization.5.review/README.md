@@ -1,0 +1,1 @@
+Original independent review reports, archived verbatim from Claude’s handoff. Reviewed head: `76d78e1f373b20d0c9c7920582b5a0ddd71082c2`. Opus 42/44 and Fable 39/44, both ADVANCE; the separate audit found two critical flags.

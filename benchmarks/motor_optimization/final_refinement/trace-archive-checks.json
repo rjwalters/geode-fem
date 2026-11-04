@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "source_commit": "8fc3efe07ef734cb20c8feb529441e2f5a592ac0",
+  "scope": "Generation byte/identity loader only; synthetic archives and actual writer with synthetic evaluator. No FEM, scientific eligibility or main study.",
+  "unit_tests": 19,
+  "mutations_detected": 12,
+  "mutations": [
+    "bound_hash_ignored",
+    "queue_unchecked",
+    "frozen_unit_changed",
+    "training_mesh_unchecked",
+    "scientific_failures_dropped",
+    "contaminated_attempts_hidden",
+    "incomplete_loader_grants_selection",
+    "live_owner_unchecked",
+    "end_of_read_hash_check_omitted",
+    "copied_source_identity_rewritten",
+    "duplicate_json_keys_accepted",
+    "overflow_json_numbers_accepted"
+  ],
+  "source_sha256": {
+    "trace_archive.py": "fcebf5fdc02e373045f1f994fce64b189d3839d1f3650ff3f90949e75a200f03",
+    "test_trace_archive.py": "23209ea5606d6920957c9c61037623b74698c944e3f3a6c80d2dc21bf595b424",
+    "archive_mutations.py": "40307f8e113b9f2e63b9a3e1a218db086640cf73a516c77f59dd4d6955c72ac9"
+  },
+  "writer_schema_probe": {
+    "status": "PASS",
+    "harness_commit": "89d0bf9efa901e9a103d551570642330145e44fd",
+    "jobs": 100,
+    "attempts": 5,
+    "source_files_unchanged": true,
+    "log": "harness-probe-v2.json"
+  },
+  "archive": {
+    "file": "trace_archive_8fc3efe0.tar.gz",
+    "sha256": "1f111fa08891aeaab79355efde1a731b194bafcd4c8e123c2da798510ab2ce3e",
+    "files": 67,
+    "each_member_verified": true
+  },
+  "limitations": [
+    "Recovery-chain and external-attestation reconciliation remains pending.",
+    "Canonical source/runtime/anchor, scientific geometry/mesh, mean floor, target and timing checks remain pending.",
+    "Local lock inactivity on a copied archive does not establish remote process absence.",
+    "Full integration and native execution await reviewed dependencies."
+  ]
+}

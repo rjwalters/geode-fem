@@ -1,0 +1,3 @@
+meshes/*.msh
+meshes/remesh_plan.json
+__pycache__/

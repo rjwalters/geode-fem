@@ -1,0 +1,19 @@
+  rebase-feed: design fixture inset 5.123104893 / width 4.185270329 mm -> this fixture 5.068246706 / 4.26754203 mm; feed coefficients [0.000000, -0.000000]
+patch_conformal_nested_dof [copper_38]: patch_conformal_rbF_L1 (165436 edges, 25280 nodes, 137194 tets), R = 100 mm, sigma_0 = 1 (fixture 1); DOFs: 0 radial + 32 outline + 4 corner + 2 feed = 38; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 0.2 s
+  verify-only: design L1_copper_38_sm45 on L1 at p2
+    worst tet: tet 90251 ratio 0.234 in air at (s, y) = (+24.77, -1.59) mm, dr -2.33 mm from the substrate top, 27.11 mm from the feed, 14.14 mm from a corner, 5.77 mm outside the patch
+  crater: feed-node lift +0.000 mm (0.00 mm from the feed), mean lift -0.000 mm (thickness 1.600 mm, max 1.600), steepest |grad lift| 0.000 at 4.40 mm from the feed
+  copper: max slab radius change 1.4e-14 mm; probe at (+0.000, +9.432) mm, width 4.268 mm, inset 4.982 mm; patch 28.713 x 49.752 mm (L x W), area 1307.5 mm^2 (base 1110.8)
+  in-band verification sweep:
+    P2 space: 885574 DOFs (771976 interior)
+    sweep(P2) 2.4000 GHz: |S11| = 0.3038 (-10.35 dB), Z = 59.6 +33.5i ohm, res 2.4e-12, 351 s
+    sweep(P2) 2.4104 GHz: |S11| = 0.2430 (-12.29 dB), Z = 64.3 +24.6i ohm, res 2.4e-12, 385 s
+    sweep(P2) 2.4209 GHz: |S11| = 0.1828 (-14.76 dB), Z = 65.9 +14.3i ohm, res 2.5e-12, 371 s
+    sweep(P2) 2.4313 GHz: |S11| = 0.1289 (-17.80 dB), Z = 64.1 +4.1i ohm, res 2.5e-12, 352 s
+    sweep(P2) 2.4417 GHz: |S11| = 0.0966 (-20.30 dB), Z = 59.6 -4.5i ohm, res 2.4e-12, 350 s
+    sweep(P2) 2.4522 GHz: |S11| = 0.1085 (-19.29 dB), Z = 53.4 -10.8i ohm, res 2.4e-12, 349 s
+    sweep(P2) 2.4626 GHz: |S11| = 0.1534 (-16.28 dB), Z = 46.8 -14.7i ohm, res 2.6e-12, 350 s
+    sweep(P2) 2.4731 GHz: |S11| = 0.2090 (-13.60 dB), Z = 40.4 -16.6i ohm, res 2.5e-12, 347 s
+    sweep(P2) 2.4835 GHz: |S11| = 0.2664 (-11.49 dB), Z = 34.7 -17.2i ohm, res 2.3e-12, 348 s
+  verify L1_copper_38_sm45 on L1 (p2): worst -10.35 dB, best -20.30 dB over 9 points; reached -10 dB = true; 0 dense points; min vol ratio 0.234; no wide sweep; 3202 s, peak RSS 150.7 GiB
+patch_conformal_nested_dof [verify L1_copper_38_sm45 on L1 p2]: <out>/verify/rbD_L1_copper_38_sm45_on_rbF_L1_p2.toml

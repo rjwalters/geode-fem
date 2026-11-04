@@ -1,0 +1,12 @@
+GNU Octave (aarch64-apple-darwin27.0.0) version 11.3.0
+start 2026-10-17T19:06:13Z
+done s3_c123: 
+done s6_c123: 
+done s12_c1: 
+done s12_c2: 
+done s12_c3: 
+done s24_c2: 
+done s24_c1: 
+done s24_c3: 
+end 2026-10-17T20:49:20Z
+./run_all.sh: line 55: ave-cli: command not found

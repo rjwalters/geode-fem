@@ -1,0 +1,51 @@
+issue:          #1092 part 2: the two-parameter re-optimization of DeviceLayout.jl's
+                SingleTransmon toward targets_GHz = [3.0, 4.0]. Palace cells of
+                (a) the Newton iteration on DeviceLayout's own discretization
+                (dl_dl<k>: the example's configfile verbatim on DeviceLayout's
+                mesh_order 2 mesh, solver_order 2) and (b) the resolution
+                ladder at the converged-target design(s) (cv<k>_<level>: the
+                part-1 PEC-box cells).
+results:        benchmarks/transmon_devicelayout_optimize/results.toml, written by
+                crates/geode-core/examples/transmon_devicelayout_optimize.rs
+                (assemble mode), which reads <cell>/eig.csv, port-EPR.csv and
+                time.txt. Step 0 of (a) is the part-1 cell
+                reference/fixtures/transmon_palace/results_crosscheck_1092/dl_initial.
+
+geometry:       every design meshed by DeviceLayout.jl v1.15.0 itself through
+                reference/julia/generate_transmon_param.jl (gmsh_jll 4.15.2,
+                Julia 1.10.11, macOS arm64), with the design's capacitor_length
+                and total_length; generation is deterministic (the initial
+                geometry regenerates bit-identically to the committed
+                reference/fixtures/transmon_devicelayout/initial_o1.msh). The
+                meshes are not committed: sha256 in
+                benchmarks/transmon_devicelayout_optimize/reports/mesh_sha256.txt
+                and ladder_<tag>/mesh_sha256.txt; per-design reports in
+                benchmarks/transmon_devicelayout_optimize/reports/. Ladder
+                refinements and MSH 2.2 conversions with gmsh 4.15.2-git on the
+                same host (benchmarks/transmon_devicelayout_optimize/ladder.sh),
+                as in part 1.
+
+palace:         fba6a5b9d17ef09db2907e9c4c6f92d123d131c0 (v0.17.0-99-gfba6a5b9d),
+                image palace:cpu-1043 built on the worker from
+                reference/palace/docker/Dockerfile (the part-1 image; build info
+                in ../results_crosscheck_1092/palace-build-info.txt).
+host:           AWS EC2 r8g.8xlarge (Graviton4, 32 vCPU, 247 GiB), Ubuntu 24.04
+                arm64, docker. 2026-10-13 UTC.
+launch:         ../results_crosscheck_1092/run.sh, one cell at a time,
+                OMP_NUM_THREADS=1; 32 MPI ranks (16 for the SuperLU h_p1 cells).
+
+configs:        <cell>/palace_config.json.
+  dl_dl<k>      generate_transmon_param.jl --dl-config for the design (the
+                example's configfile(sm; solver_order = 2): first-order
+                Absorbing far field, LumpedPort 1 and 2 R = 50 ohm, LumpedPort 3
+                L || C, sapphire tensor with loss tangent, Eigenmode N 2 Target
+                2.5 GHz Tol 1e-6). Only Model.Mesh, Problem.Output and Save (0)
+                are changed.
+  cv<k>_*       ../results_crosscheck_1092/mkcfg.py from
+                ../palace_config.json, Target 2.0 GHz, N 3: h_p1 (Default /
+                SuperLU), h_p2, r1_p1, r1_p2, r2_p1 (AMS / GMRES), PEC on
+                metal and the exterior boundary, readout ports omitted.
+
+outputs:        <cell>/eig.csv, port-EPR.csv, port-V.csv, port-I.csv,
+                domain-E.csv, error-indicators.csv (and port-Q.csv for the dl
+                cells), palace_run.log, time.txt, palace_config.json.

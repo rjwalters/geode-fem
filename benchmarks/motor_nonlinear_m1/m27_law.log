@@ -1,0 +1,25 @@
+
+running 3 tests
+
+[M27-1] TabulatedBhLaw on the M27 table (47 points, 0..2.30 T)
+    nu(0) = 397.661327 m/H (initial mu_r = 2001.1); last secant = 7.907715e5 m/H; 1/mu0 = 7.957747e5 m/H
+    max |H(B_k) - H_k| / max(H_k, 1) over the 47 knots = 0.000e0
+    dense grid (300049 points, 0..3 T): min dH/dB = 67.512337 m/H; min nu = 105.390137 m/H; min (nu + 2 s nu') = 67.512337 m/H at B = 0.3686 T
+    knot H/B: B=0.05 -> 341.197, B=0.10 -> 256.350, B=0.15 -> 208.922 m/H
+    nu'(s) < 0 from B = 0.00005 to 0.73490 T (30000 samples on 0..1.5 T, 1 sign change(s) of nu'); most negative nu' = -22585.9068 m/(H T^2); nu'(0) = -22585.9068
+    last-knot slope: left 7.957747e5, tail 7.957747e5 (1/mu0)
+.
+[M27-2] central FD (step 1e-6 relative in b^2) on the M27 law, 0..3 T
+    max |FD(nu) - dnu/db2|·b2/(nu + |nu'| b2) = 2.995e-10 (at B = 2.0514 T); max |FD(w) - nu/2|/nu = 1.673e-10
+    knot energy vs Simpson on H(B): max rel diff = 2.941e-16
+.
+[M27-3] saturated-iron Ampere coax with M27 iron: |B|(r) = B_of_H(I/(2 pi r)); I = 1256.64 A
+    n_ang | nodes  | Newton its | status        | max rel err | RMS rel err | mid-annulus mean rel err | |B| in iron (T)
+       32 |    897 |         11 | Tolerance     |   3.4445e-3 |   2.6842e-3 |                2.9639e-3 | 1.499 .. 2.046
+       64 |   3329 |         11 | Tolerance     |   1.6558e-3 |   1.3457e-3 |                1.4942e-3 | 1.496 .. 2.050
+      128 |  13441 |         11 | Tolerance     |   8.1025e-4 |   6.7290e-4 |                7.4804e-4 | 1.494 .. 2.052
+      256 |  52993 |         11 | Tolerance     |   4.0304e-4 |   3.3859e-4 |                3.7647e-4 | 1.493 .. 2.053
+    tripwire: linear iron at nu(0) (n_ang=32) misses the mid-annulus oracle by 7.247e0 (nonlinear: 2.964e-3)
+.
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.54s
+

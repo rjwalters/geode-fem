@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-16T08:00:00+00:00",
+      "completed": "2026-10-16T14:00:00+00:00"
+    },
+    "figures": {
+      "state": "done",
+      "completed": "2026-10-16T14:00:00+00:00",
+      "note": "Figures 1-5 byte-identical to v16; captions only"
+    }
+  },
+  "metadata": {
+    "iteration": 17,
+    "max_iterations": 17,
+    "revised_from": 16,
+    "status": "DRAFT",
+    "authorization": "Revision against the Opus (41/44), Fable (40/44) and Codex reviews of v16 (outside the thread; no .16.review sibling), with the T6/T7 results of PR #1151, under the operator's standing rulings (title, derivative-scope paragraphs, short Section 8, 'bounded', acknowledgment and provenance approved). No review score or audit is claimed or carried forward.",
+    "source_paper_commit": "f0373dd2 (main, after PR #1151; transmon-benchmark.16 as merged by PR #1142)",
+    "scope": "v17 = v16 with the grounded-box bracket carried through contribution 2, Section 6, Section 9, Table 5 and the abstract; Section 9 design paragraph rewritten with fixed referents and Table 6; abstract states the extrapolations are Palace-only; Palace AMR on the final design in Section 5, Table 2 and Table 5; companion pointer with its measured ratios; itemized band rule; GCI numbers; family-b gaps; Ye et al. and one-element-wide strips in the practitioner paragraph; sheet-edge size against film thickness; Burn year; 19 pages",
+    "pending_dependencies": [
+      "Zenodo DOI at deposit (TODO(operator) in source)",
+      "Crutcher Dunnavant's response to the coauthorship offer (source NOTE)",
+      "independent v17 paper reviews (release gate: both >= 40/44), audit and numeric critic (Anvil)"
+    ],
+    "evidence_snapshot": {
+      "brief_mtime": 1792078150.9866397,
+      "refs_mtime": null
+    }
+  }
+}

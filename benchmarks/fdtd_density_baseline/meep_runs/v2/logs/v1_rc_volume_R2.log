@@ -1,0 +1,16 @@
+Using MPI version 4.1, 2 processes
+-----------
+Initializing structure...
+Splitting into 2 chunks by voxels
+time for choose_chunkdivision = 3.3454e-05 s
+Working in 3D dimensions.
+Computational cell is 2 x 2 x 2 with resolution 2
+time for set_epsilon = 5.5656e-05 s
+time for set_conductivity = 6.274e-06 s
+-----------
+Meep: using complex fields.
+run 0 finished at t = 933.5 (3734 timesteps)
+run 1 finished at t = 1033.5 (4134 timesteps)
+RESULT /results/v1_rc_volume_R2.json wall 0.12934345599995822 RSS 307339264 DFT drift 0.0 RC error 0.0004121796197847547
+
+Elapsed run time = 0.1312 s

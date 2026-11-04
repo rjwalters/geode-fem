@@ -1,0 +1,144 @@
+    NEWUOA eval 1: G = 7.249930e-01 (worst -1.47 dB), best worst -1.47 dB, 83 s
+    NEWUOA eval 2: G = 7.278868e-01 (worst -1.45 dB), best worst -1.47 dB, 165 s
+    NEWUOA eval 3: G = 8.083628e-01 (worst -1.03 dB), best worst -1.47 dB, 248 s
+    NEWUOA eval 4: G = 7.517885e-01 (worst -1.32 dB), best worst -1.47 dB, 330 s
+    NEWUOA eval 5: G = 7.246029e-01 (worst -1.47 dB), best worst -1.47 dB, 413 s
+    NEWUOA eval 6: G = 7.220003e-01 (worst -1.49 dB), best worst -1.49 dB, 495 s
+    NEWUOA eval 7: G = 6.027262e-01 (worst -2.24 dB), best worst -2.24 dB, 578 s
+    NEWUOA eval 8: G = 6.994176e-01 (worst -1.62 dB), best worst -2.24 dB, 660 s
+    NEWUOA eval 9: G = 7.260535e-01 (worst -1.46 dB), best worst -2.24 dB, 743 s
+    NEWUOA eval 10: G = 4.208719e-01 (worst -3.79 dB), best worst -3.79 dB, 826 s
+    NEWUOA eval 11: G = 2.682163e-01 (worst -5.75 dB), best worst -5.75 dB, 908 s
+    NEWUOA eval 12: G = 5.332529e-01 (worst -2.76 dB), best worst -5.75 dB, 991 s
+    NEWUOA eval 13: G = 2.896577e-01 (worst -5.42 dB), best worst -5.75 dB, 1074 s
+    NEWUOA eval 14: G = 3.449175e-01 (worst -4.65 dB), best worst -5.75 dB, 1157 s
+    NEWUOA eval 15: G = 1.997403e-01 (worst -7.09 dB), best worst -7.09 dB, 1239 s
+    NEWUOA eval 16: G = 2.991624e-01 (worst -5.27 dB), best worst -7.09 dB, 1322 s
+    NEWUOA eval 17: G = 1.642116e-01 (worst -8.61 dB), best worst -8.61 dB, 1405 s
+    NEWUOA eval 18: G = 1.757989e-01 (worst -7.84 dB), best worst -8.61 dB, 1488 s
+    NEWUOA eval 19: G = 2.555272e-01 (worst -5.97 dB), best worst -8.61 dB, 1570 s
+    NEWUOA eval 20: G = 1.839636e-01 (worst -7.51 dB), best worst -8.61 dB, 1653 s
+    NEWUOA eval 21: G = 3.332614e-01 (worst -4.80 dB), best worst -8.61 dB, 1736 s
+    NEWUOA eval 22: G = 1.769730e-01 (worst -7.77 dB), best worst -8.61 dB, 1818 s
+    NEWUOA eval 23: G = 1.748257e-01 (worst -7.86 dB), best worst -8.61 dB, 1901 s
+    NEWUOA eval 24: G = 1.686373e-01 (worst -8.19 dB), best worst -8.61 dB, 1984 s
+    NEWUOA eval 25: G = 1.644266e-01 (worst -8.44 dB), best worst -8.61 dB, 2066 s
+    NEWUOA eval 26: G = 1.657708e-01 (worst -8.46 dB), best worst -8.61 dB, 2149 s
+    NEWUOA eval 27: G = 1.636304e-01 (worst -8.81 dB), best worst -8.81 dB, 2232 s
+    NEWUOA eval 28: G = 1.646080e-01 (worst -8.65 dB), best worst -8.81 dB, 2314 s
+    NEWUOA eval 29: G = 1.640790e-01 (worst -8.51 dB), best worst -8.81 dB, 2397 s
+    NEWUOA eval 30: G = 1.625274e-01 (worst -8.85 dB), best worst -8.85 dB, 2480 s
+    NEWUOA eval 31: G = 1.614131e-01 (worst -8.90 dB), best worst -8.90 dB, 2562 s
+    NEWUOA eval 32: G = 1.595366e-01 (worst -8.88 dB), best worst -8.90 dB, 2645 s
+    NEWUOA eval 33: G = 1.569020e-01 (worst -8.80 dB), best worst -8.90 dB, 2728 s
+    NEWUOA eval 34: G = 1.550018e-01 (worst -8.67 dB), best worst -8.90 dB, 2811 s
+    NEWUOA eval 35: G = 1.546443e-01 (worst -8.66 dB), best worst -8.90 dB, 2894 s
+    NEWUOA eval 36: G = 1.547869e-01 (worst -8.55 dB), best worst -8.90 dB, 2976 s
+    NEWUOA eval 37: G = 1.512470e-01 (worst -9.15 dB), best worst -9.15 dB, 3056 s
+    NEWUOA eval 38: G = 1.499205e-01 (worst -9.12 dB), best worst -9.15 dB, 3135 s
+    NEWUOA eval 39: G = 1.472365e-01 (worst -9.33 dB), best worst -9.33 dB, 3215 s
+    NEWUOA eval 40: G = 1.445180e-01 (worst -9.20 dB), best worst -9.33 dB, 3294 s
+    NEWUOA eval 41: G = 1.405327e-01 (worst -9.59 dB), best worst -9.59 dB, 3374 s
+    NEWUOA eval 42: guard 0.246, best worst -9.59 dB, 3374 s
+    NEWUOA eval 43: G = 1.589163e-01 (worst -8.28 dB), best worst -9.59 dB, 3454 s
+    NEWUOA eval 44: G = 1.497086e-01 (worst -8.66 dB), best worst -9.59 dB, 3534 s
+    NEWUOA eval 45: G = 1.415745e-01 (worst -9.37 dB), best worst -9.59 dB, 3614 s
+    NEWUOA eval 46: G = 1.467183e-01 (worst -8.94 dB), best worst -9.59 dB, 3693 s
+    NEWUOA eval 47: G = 1.406018e-01 (worst -9.73 dB), best worst -9.73 dB, 3773 s
+    NEWUOA eval 48: G = 1.419213e-01 (worst -9.38 dB), best worst -9.73 dB, 3851 s
+    NEWUOA eval 49: G = 1.417740e-01 (worst -9.27 dB), best worst -9.73 dB, 3926 s
+    NEWUOA eval 50: G = 1.398984e-01 (worst -9.74 dB), best worst -9.74 dB, 4001 s
+    NEWUOA eval 51: G = 1.402028e-01 (worst -9.48 dB), best worst -9.74 dB, 4077 s
+    NEWUOA eval 52: G = 1.425551e-01 (worst -9.18 dB), best worst -9.74 dB, 4153 s
+    NEWUOA eval 53: G = 1.437978e-01 (worst -9.09 dB), best worst -9.74 dB, 4229 s
+    NEWUOA eval 54: G = 1.401207e-01 (worst -9.67 dB), best worst -9.74 dB, 4305 s
+    NEWUOA eval 55: G = 1.396073e-01 (worst -9.71 dB), best worst -9.74 dB, 4382 s
+    NEWUOA eval 56: G = 1.389621e-01 (worst -9.75 dB), best worst -9.75 dB, 4458 s
+    NEWUOA eval 57: G = 1.383729e-01 (worst -9.77 dB), best worst -9.77 dB, 4535 s
+    NEWUOA eval 58: G = 1.373326e-01 (worst -9.79 dB), best worst -9.79 dB, 4612 s
+    NEWUOA eval 59: guard 0.234, best worst -9.79 dB, 4612 s
+    NEWUOA eval 60: G = 1.376052e-01 (worst -9.66 dB), best worst -9.79 dB, 4688 s
+    NEWUOA eval 61: G = 1.394773e-01 (worst -9.34 dB), best worst -9.79 dB, 4764 s
+    NEWUOA eval 62: G = 1.373107e-01 (worst -9.81 dB), best worst -9.81 dB, 4841 s
+    NEWUOA eval 63: G = 1.417308e-01 (worst -9.13 dB), best worst -9.81 dB, 4916 s
+    NEWUOA eval 64: G = 1.374559e-01 (worst -9.76 dB), best worst -9.81 dB, 4992 s
+    NEWUOA eval 65: G = 1.379100e-01 (worst -9.63 dB), best worst -9.81 dB, 5068 s
+    NEWUOA eval 66: G = 1.372345e-01 (worst -9.83 dB), best worst -9.83 dB, 5144 s
+    NEWUOA eval 67: G = 1.372048e-01 (worst -9.87 dB), best worst -9.87 dB, 5220 s
+    NEWUOA eval 68: G = 1.371654e-01 (worst -9.88 dB), best worst -9.88 dB, 5296 s
+    NEWUOA eval 69: G = 1.372306e-01 (worst -9.85 dB), best worst -9.88 dB, 5372 s
+    NEWUOA eval 70: G = 1.372951e-01 (worst -9.77 dB), best worst -9.88 dB, 5448 s
+    NEWUOA eval 71: G = 1.371063e-01 (worst -9.90 dB), best worst -9.90 dB, 5524 s
+    NEWUOA eval 72: G = 1.370732e-01 (worst -9.86 dB), best worst -9.90 dB, 5600 s
+    NEWUOA eval 73: G = 1.371432e-01 (worst -9.78 dB), best worst -9.90 dB, 5676 s
+    NEWUOA eval 74: G = 1.371609e-01 (worst -9.82 dB), best worst -9.90 dB, 5751 s
+    NEWUOA eval 75: G = 1.369985e-01 (worst -9.89 dB), best worst -9.90 dB, 5827 s
+    NEWUOA eval 76: G = 1.368834e-01 (worst -9.89 dB), best worst -9.90 dB, 5903 s
+    NEWUOA eval 77: G = 1.367499e-01 (worst -9.91 dB), best worst -9.91 dB, 5978 s
+    NEWUOA eval 78: G = 1.365470e-01 (worst -9.91 dB), best worst -9.91 dB, 6053 s
+    NEWUOA eval 79: G = 1.360526e-01 (worst -9.94 dB), best worst -9.94 dB, 6129 s
+    NEWUOA eval 80: guard 0.217, best worst -9.94 dB, 6129 s
+    NEWUOA eval 81: G = 1.362702e-01 (worst -9.77 dB), best worst -9.94 dB, 6200 s
+    NEWUOA eval 82: G = 1.366997e-01 (worst -9.62 dB), best worst -9.94 dB, 6270 s
+    NEWUOA eval 83: G = 1.360629e-01 (worst -9.91 dB), best worst -9.94 dB, 6340 s
+    NEWUOA eval 84: G = 1.359887e-01 (worst -9.93 dB), best worst -9.94 dB, 6411 s
+    NEWUOA eval 85: G = 1.359403e-01 (worst -9.91 dB), best worst -9.94 dB, 6481 s
+    NEWUOA eval 86: G = 1.360544e-01 (worst -9.83 dB), best worst -9.94 dB, 6551 s
+    NEWUOA eval 87: G = 1.359196e-01 (worst -9.94 dB), best worst -9.94 dB, 6621 s
+    NEWUOA eval 88: G = 1.359607e-01 (worst -9.89 dB), best worst -9.94 dB, 6691 s
+    NEWUOA eval 89: G = 1.359330e-01 (worst -9.90 dB), best worst -9.94 dB, 6761 s
+    NEWUOA eval 90: G = 1.358731e-01 (worst -9.96 dB), best worst -9.96 dB, 6831 s
+    NEWUOA eval 91: G = 1.359225e-01 (worst -9.89 dB), best worst -9.96 dB, 6901 s
+    NEWUOA eval 92: guard 0.248, best worst -9.96 dB, 6901 s
+    NEWUOA eval 93: G = 1.358773e-01 (worst -9.93 dB), best worst -9.96 dB, 6971 s
+    NEWUOA eval 94: G = 1.359115e-01 (worst -9.92 dB), best worst -9.96 dB, 7041 s
+    NEWUOA eval 95: guard 0.250, best worst -9.96 dB, 7041 s
+    NEWUOA eval 96: G = 1.358944e-01 (worst -9.95 dB), best worst -9.96 dB, 7111 s
+    NEWUOA eval 97: G = 1.358908e-01 (worst -9.94 dB), best worst -9.96 dB, 7181 s
+    NEWUOA eval 98: guard 0.250, best worst -9.96 dB, 7181 s
+    NEWUOA eval 99: G = 1.358808e-01 (worst -9.96 dB), best worst -9.96 dB, 7251 s
+    NEWUOA eval 100: G = 1.358786e-01 (worst -9.96 dB), best worst -9.96 dB, 7321 s
+    NEWUOA eval 101: G = 1.358802e-01 (worst -9.96 dB), best worst -9.96 dB, 7391 s
+    NEWUOA eval 102: G = 1.358703e-01 (worst -9.97 dB), best worst -9.97 dB, 7461 s
+    NEWUOA eval 103: G = 1.358666e-01 (worst -9.96 dB), best worst -9.97 dB, 7531 s
+    NEWUOA eval 104: guard 0.250, best worst -9.97 dB, 7531 s
+    NEWUOA eval 105: guard 0.250, best worst -9.97 dB, 7531 s
+    NEWUOA eval 106: G = 1.358641e-01 (worst -9.96 dB), best worst -9.97 dB, 7601 s
+    NEWUOA eval 107: G = 1.358680e-01 (worst -9.97 dB), best worst -9.97 dB, 7671 s
+    NEWUOA eval 108: G = 1.358615e-01 (worst -9.96 dB), best worst -9.97 dB, 7741 s
+    NEWUOA eval 109: guard 0.250, best worst -9.97 dB, 7741 s
+    NEWUOA eval 110: G = 1.358677e-01 (worst -9.96 dB), best worst -9.97 dB, 7811 s
+    NEWUOA eval 111: G = 1.358663e-01 (worst -9.95 dB), best worst -9.97 dB, 7881 s
+    NEWUOA eval 112: G = 1.358600e-01 (worst -9.96 dB), best worst -9.97 dB, 7951 s
+    NEWUOA eval 113: G = 1.358658e-01 (worst -9.96 dB), best worst -9.97 dB, 8021 s
+    NEWUOA eval 114: G = 1.358596e-01 (worst -9.97 dB), best worst -9.97 dB, 8091 s
+    NEWUOA eval 115: G = 1.358593e-01 (worst -9.96 dB), best worst -9.97 dB, 8161 s
+    NEWUOA eval 116: G = 1.358580e-01 (worst -9.95 dB), best worst -9.97 dB, 8231 s
+    NEWUOA eval 117: G = 1.358552e-01 (worst -9.96 dB), best worst -9.97 dB, 8301 s
+    NEWUOA eval 118: G = 1.358583e-01 (worst -9.96 dB), best worst -9.97 dB, 8371 s
+    NEWUOA eval 119: guard 0.250, best worst -9.97 dB, 8371 s
+    NEWUOA eval 120: G = 1.358541e-01 (worst -9.95 dB), best worst -9.97 dB, 8441 s
+palace_loop_prima: <out>/L1_copper_rect4_newuoa120_npt9.toml
+	Command being timed: "bash -c python3 benchmarks/patch_antenna_conformal/scripts/palace_loop_prima.py --exe <target>/release/examples/patch_conformal_nested_dof --out $HOME/runs/L1_copper_rect4_newuoa120_npt9.toml --budget 120 --method NEWUOA --rhobeg 0.5 --rhoend 1e-3 --npt 9 --issue 1147 --label copper_rect4_newuoa120_npt9 --host "$HOSTDESC" --server-log $HOME/runs/logs/L1_copper_rect4_newuoa120_npt9_server.log -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --filter-radius 0 --copper --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --outline 8 --feed --rect4"
+	User time (seconds): 44903.79
+	System time (seconds): 1430.26
+	Percent of CPU this job got: 535%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 2:24:11
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 6195184
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 486230268
+	Voluntary context switches: 71376426
+	Involuntary context switches: 8691123
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 992
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

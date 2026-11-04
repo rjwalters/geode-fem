@@ -1,0 +1,143 @@
+Creating Rotor spaces and meshes...
+warning: Automatically generating the interface and boundary information with nrbmultipatch
+warning: called from
+    mp_geo_load at line 144 column 5
+    importSurface at line 155 column 14
+    icem_refine_run at line 75 column 3
+
+Creating Stator spaces and meshes...
+warning: Automatically generating the interface and boundary information with nrbmultipatch
+warning: called from
+    mp_geo_load at line 144 column 5
+    importSurface at line 200 column 14
+    icem_refine_run at line 75 column 3
+
+Calculating Parametric Plot Points...
+Calculating Patch Areas...
+Calculating Quiver Plot Points...
+Generating Stiffness Matrices...
+Generating Coupling Matrices...
+NewtonIter: 	1	Residual: 	228163.2953	Linesearch 1
+NewtonIter: 	2	Residual: 	188521.5197	Linesearch 1
+NewtonIter: 	3	Residual: 	1925.4427	Linesearch 1
+NewtonIter: 	4	Residual: 	245.5765	Linesearch 1
+NewtonIter: 	5	Residual: 	34.1048	Linesearch 1
+NewtonIter: 	6	Residual: 	3.7121	Linesearch 1
+NewtonIter: 	7	Residual: 	0.48324	Linesearch 1
+NewtonIter: 	8	Residual: 	0.10147	Linesearch 1
+NewtonIter: 	9	Residual: 	0.026874	Linesearch 1
+NewtonIter: 	10	Residual: 	0.0043975	Linesearch 1
+NewtonIter: 	11	Residual: 	0.00015338	Linesearch 1
+NewtonIter: 	12	Residual: 	3.2487e-07	Linesearch 1
+subdiv 24x24 current 9.67765737 angle 0
+NewtonIter: 	1	Residual: 	4.2555e-12	Linesearch 1
+  torque 1.554483559979286e+00  wall 100.43 s
+subdiv 24x24 current 9.67765737 angle 1
+NewtonIter: 	1	Residual: 	0.1635	Linesearch 1
+NewtonIter: 	2	Residual: 	3.4815e-06	Linesearch 1
+NewtonIter: 	3	Residual: 	1.8037e-12	Linesearch 1
+  torque 1.564899976795974e+00  wall 252.34 s
+subdiv 24x24 current 9.67765737 angle 2
+NewtonIter: 	1	Residual: 	0.2455	Linesearch 1
+NewtonIter: 	2	Residual: 	1.049e-05	Linesearch 1
+NewtonIter: 	3	Residual: 	5.9062e-12	Linesearch 1
+  torque 1.530238306385538e+00  wall 257.47 s
+subdiv 24x24 current 9.67765737 angle 3
+NewtonIter: 	1	Residual: 	0.28726	Linesearch 1
+NewtonIter: 	2	Residual: 	1.8909e-05	Linesearch 1
+NewtonIter: 	3	Residual: 	2.1417e-10	Linesearch 1
+  torque 1.469799051506689e+00  wall 249.23 s
+subdiv 24x24 current 9.67765737 angle 4
+NewtonIter: 	1	Residual: 	0.24067	Linesearch 1
+NewtonIter: 	2	Residual: 	1.5716e-05	Linesearch 1
+NewtonIter: 	3	Residual: 	5.0723e-12	Linesearch 1
+  torque 1.406093287938285e+00  wall 249.69 s
+subdiv 24x24 current 9.67765737 angle 5
+NewtonIter: 	1	Residual: 	0.36136	Linesearch 1
+NewtonIter: 	2	Residual: 	4.2486e-05	Linesearch 1
+NewtonIter: 	3	Residual: 	4.2811e-10	Linesearch 1
+  torque 1.356492771826662e+00  wall 249.20 s
+subdiv 24x24 current 9.67765737 angle 6
+NewtonIter: 	1	Residual: 	1.7665	Linesearch 1
+NewtonIter: 	2	Residual: 	0.0037583	Linesearch 1
+NewtonIter: 	3	Residual: 	7.4037e-05	Linesearch 1
+NewtonIter: 	4	Residual: 	4.265e-07	Linesearch 1
+  torque 1.335876816913433e+00  wall 329.22 s
+subdiv 24x24 current 9.67765737 angle 7
+NewtonIter: 	1	Residual: 	0.77161	Linesearch 1
+NewtonIter: 	2	Residual: 	0.0016873	Linesearch 1
+NewtonIter: 	3	Residual: 	6.9274e-07	Linesearch 1
+  torque 1.356803342233967e+00  wall 250.65 s
+subdiv 24x24 current 9.67765737 angle 8
+NewtonIter: 	1	Residual: 	0.76394	Linesearch 1
+NewtonIter: 	2	Residual: 	2.1571e-05	Linesearch 1
+NewtonIter: 	3	Residual: 	1.2152e-10	Linesearch 1
+  torque 1.416745285366158e+00  wall 248.48 s
+subdiv 24x24 current 9.67765737 angle 9
+NewtonIter: 	1	Residual: 	0.30739	Linesearch 1
+NewtonIter: 	2	Residual: 	1.0208e-05	Linesearch 1
+NewtonIter: 	3	Residual: 	4.5693e-12	Linesearch 1
+  torque 1.489746390141194e+00  wall 252.43 s
+subdiv 24x24 current 9.67765737 angle 10
+NewtonIter: 	1	Residual: 	0.18517	Linesearch 1
+NewtonIter: 	2	Residual: 	1.8561e-05	Linesearch 1
+NewtonIter: 	3	Residual: 	1.8663e-10	Linesearch 1
+  torque 1.540684069507991e+00  wall 263.73 s
+subdiv 24x24 current 9.67765737 angle 11
+NewtonIter: 	1	Residual: 	0.15648	Linesearch 1
+NewtonIter: 	2	Residual: 	2.7881e-06	Linesearch 1
+NewtonIter: 	3	Residual: 	3.0576e-12	Linesearch 1
+  torque 1.547151010406620e+00  wall 254.10 s
+subdiv 24x24 current 9.67765737 angle 12
+NewtonIter: 	1	Residual: 	0.2203	Linesearch 1
+NewtonIter: 	2	Residual: 	1.0787e-05	Linesearch 1
+NewtonIter: 	3	Residual: 	3.278e-12	Linesearch 1
+  torque 1.510815606111600e+00  wall 251.59 s
+subdiv 24x24 current 9.67765737 angle 13
+NewtonIter: 	1	Residual: 	0.22347	Linesearch 1
+NewtonIter: 	2	Residual: 	8.4508e-06	Linesearch 1
+NewtonIter: 	3	Residual: 	4.0609e-12	Linesearch 1
+  torque 1.451192919657683e+00  wall 249.03 s
+subdiv 24x24 current 9.67765737 angle 14
+NewtonIter: 	1	Residual: 	0.16945	Linesearch 1
+NewtonIter: 	2	Residual: 	1.4985e-05	Linesearch 1
+NewtonIter: 	3	Residual: 	1.7871e-10	Linesearch 1
+  torque 1.390198370802999e+00  wall 252.21 s
+subdiv 24x24 current 9.67765737 angle 15
+NewtonIter: 	1	Residual: 	0.80344	Linesearch 1
+NewtonIter: 	2	Residual: 	7.1914e-06	Linesearch 1
+NewtonIter: 	3	Residual: 	1.2735e-09	Linesearch 1
+  torque 1.344412779401832e+00  wall 288.40 s
+subdiv 24x24 current 9.67765737 angle 16
+NewtonIter: 	1	Residual: 	1.3163	Linesearch 1
+NewtonIter: 	2	Residual: 	0.010188	Linesearch 1
+NewtonIter: 	3	Residual: 	1.3331e-05	Linesearch 1
+NewtonIter: 	4	Residual: 	8.168e-09	Linesearch 1
+  torque 1.328285938386608e+00  wall 347.64 s
+subdiv 24x24 current 9.67765737 angle 17
+NewtonIter: 	1	Residual: 	1.5316	Linesearch 1
+NewtonIter: 	2	Residual: 	0.0043171	Linesearch 1
+NewtonIter: 	3	Residual: 	7.2427e-08	Linesearch 1
+  torque 1.354203968383542e+00  wall 263.30 s
+subdiv 24x24 current 9.67765737 angle 18
+NewtonIter: 	1	Residual: 	0.70211	Linesearch 1
+NewtonIter: 	2	Residual: 	0.00016334	Linesearch 1
+NewtonIter: 	3	Residual: 	5.3718e-10	Linesearch 1
+  torque 1.419602442639607e+00  wall 291.25 s
+subdiv 24x24 current 9.67765737 angle 19
+NewtonIter: 	1	Residual: 	0.4184	Linesearch 1
+NewtonIter: 	2	Residual: 	2.2195e-05	Linesearch 1
+NewtonIter: 	3	Residual: 	1.5446e-11	Linesearch 1
+  torque 1.498252484734565e+00  wall 251.74 s
+ndof rotor 31944 stator 127976 coupling 16
+mean 1.4432989
+std  0.080139869
+total wall 6186.2 s
+warning: error caught while executing handle class delete method:
+method delete: conflicting definitions in classes 'Mat_Magnetic' and 'Mat_Thermal'
+warning: error caught while executing handle class delete method:
+method delete: conflicting definitions in classes 'Mat_Magnetic' and 'Mat_Thermal'
+warning: error caught while executing handle class delete method:
+method delete: conflicting definitions in classes 'Mat_Magnetic' and 'Mat_Thermal'
+warning: error caught while executing handle class delete method:
+method delete: conflicting definitions in classes 'Mat_Magnetic' and 'Mat_Thermal'

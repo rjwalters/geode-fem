@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "kind": "quiet_rehearsal_fixture_provenance",
+  "report": "quiet-rehearsal-e6e7e3ae.json",
+  "report_sha256": "956f5530cbe7b0a03ac8ce8dd77ab5f48e7a78490630863136d28f4620aeed16",
+  "tool_commit": "e6e7e3aea93041d08cbc61f27d6b89aa53ff178f",
+  "producer_commit": "9486a9da58beeca91968d4d3608f06b998abff45",
+  "observed_date_utc": "2026-10-19",
+  "image_id": "ami-02a9cdd4e98bc3c78",
+  "instance_type": "c7a.4xlarge",
+  "root_volume_gib": 8,
+  "study_volume_attached": false,
+  "counts": {
+    "system_daemon": 3,
+    "quiet": 291,
+    "collector": 1,
+    "disappeared": 1
+  },
+  "verification": "Report digest matches the separately printed remote stdout receipt; source digests match the pinned Git commits. Read-only EC2 observation confirmed the disposable instance terminated and the original study instance stopped with its original volume binding.",
+  "scope": "Actual anonymized report from an operator-authorized disposable-instance rehearsal; not a B2 capture, study result, or capture approval.",
+  "limits": [
+    "Observed within approximately one minute of boot, after cloud-init returned and apt-daily was inactive; later timer-driven units were not exercised.",
+    "Anonymization removes process identities and most argument values. The report is not a replayable full process census.",
+    "The regression replays only the three fully preserved system-daemon command lines in a synthetic identity/process envelope; numeric UID 999 and PIDs are synthetic."
+  ],
+  "historical_evidence": "reboot-checks.json records the pre-execution preparation and tests at its original source revision; this fixture supplements that record."
+}

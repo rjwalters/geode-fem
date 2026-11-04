@@ -1,0 +1,59 @@
+  L1 initial current 0.5 CPR1 done
+  L1 initial current 0.5 CPR2 done
+  L1 initial current 0.5 CPR3 done
+  L1 initial current 0.5 CPR4 done
+  L1 initial current 0.5 CPR5 done
+  L1 initial current 0.5 CPR6 done
+  L1 initial current 0.5 CPR7 done
+  L1 initial current 0.5 CPS1 done
+  L1 initial current 0.5 CPS2 done
+  L1 initial current 0.5 CPS3 done
+  L1 initial current 1 CPR1 done
+  L1 initial current 1 CPR2 done
+  L1 initial current 1 CPR3 done
+  L1 initial current 1 CPR4 done
+  L1 initial current 1 CPR5 done
+  L1 initial current 1 CPR6 done
+  L1 initial current 1 CPR7 done
+  L1 initial current 1 CPS1 done
+  L1 initial current 1 CPS2 done
+  L1 initial current 1 CPS3 done
+# Control-point design gradients: L1 (9937 nodes), h45/coupling, design initial
+
+Moved mesh: min angle 13.20 deg, 0 inverted; shape map set-up 0.069 s
+
+## Current level 0.5 (I_peak = 4.838829 A): mean 0.662564365 N m, std 0.040501785 N m (gradient 4.097 s)
+
+### Step sweep, current rule jinit (central differences re-move the mesh)
+
+| component | d mean (adjoint) | mean: best FD rel. err (h) | mean: Taylor window, decades | d std (adjoint) | std: best FD rel. err (h) | std: Taylor window, decades | rejected h |
+|---|---|---|---|---|---|---|---|
+| CPR1 | +1.348661e1 | 1.5e-9 (3e-8) | 3e-4 .. 3e-9, 5.0 | -1.347867e1 | 5.4e-9 (3e-8) | 3e-4 .. 1e-9, 5.5 | [0.001] |
+| CPR2 | +7.874880e0 | 4.7e-9 (1e-7) | 3e-4 .. 3e-9, 5.0 | +2.176560e1 | 5.2e-9 (1e-7) | 3e-4 .. 1e-9, 5.5 | [0.001] |
+| CPR3 | -7.303524e1 | 8.0e-10 (1e-8) | 3e-4 .. 1e-9, 5.5 | +5.289251e0 | 2.5e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | [0.001] |
+| CPR4 | -2.108924e1 | 4.4e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | +5.024364e1 | 1.5e-9 (3e-8) | 3e-4 .. 1e-9, 5.5 | [0.001] |
+| CPR5 | +3.057713e1 | 1.7e-9 (1e-7) | 3e-4 .. 1e-9, 5.5 | -1.647447e1 | 1.4e-8 (3e-8) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPR6 | +5.667452e1 | 1.9e-9 (1e-7) | 3e-4 .. 1e-9, 5.5 | -1.819406e0 | 2.7e-8 (3e-8) | 3e-4 .. 1e-9, 5.5 | [0.001] |
+| CPR7 | +6.603277e1 | 6.6e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | -6.741560e0 | 3.2e-8 (3e-8) | 3e-4 .. 1e-9, 5.5 | [0.001] |
+| CPS1 | -1.036560e2 | 2.2e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | +8.420056e1 | 7.9e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | [0.001] |
+| CPS2 | -7.025638e1 | 1.5e-9 (3e-8) | 3e-4 .. 1e-9, 5.5 | -3.140579e1 | 2.7e-11 (1e-7) | 3e-4 .. 1e-9, 5.5 | [0.001] |
+| CPS3 | -6.175420e1 | 3.5e-10 (1e-9) | 3e-4 .. 1e-9, 5.5 | -9.011172e1 | 1.5e-9 (3e-8) | 3e-4 .. 1e-9, 5.5 | [0.001] |
+
+## Current level 1 (I_peak = 9.677657 A): mean 1.443792715 N m, std 0.082047542 N m (gradient 3.977 s)
+
+### Step sweep, current rule jinit (central differences re-move the mesh)
+
+| component | d mean (adjoint) | mean: best FD rel. err (h) | mean: Taylor window, decades | d std (adjoint) | std: best FD rel. err (h) | std: Taylor window, decades | rejected h |
+|---|---|---|---|---|---|---|---|
+| CPR1 | +5.398268e1 | 9.3e-10 (3e-9) | 3e-4 .. 1e-9, 5.5 | -6.076313e1 | 3.9e-9 (1e-7) | 3e-4 .. 1e-9, 5.5 | [0.001] |
+| CPR2 | +4.013865e1 | 2.6e-9 (3e-8) | 3e-4 .. 1e-9, 5.5 | +8.127589e1 | 3.5e-9 (3e-8) | 3e-4 .. 1e-9, 5.5 | [0.001] |
+| CPR3 | -9.917843e1 | 2.0e-9 (3e-8) | 3e-4 .. 1e-9, 5.5 | +2.225357e1 | 6.4e-9 (3e-8) | 3e-5 .. 1e-9, 4.5 | [0.001] |
+| CPR4 | -2.097282e1 | 9.7e-9 (3e-8) | 3e-4 .. 1e-9, 5.5 | +6.497992e1 | 3.0e-9 (3e-8) | 3e-4 .. 1e-9, 5.5 | [0.001] |
+| CPR5 | +7.846170e1 | 3.2e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | -7.207322e0 | 1.6e-8 (3e-8) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPR6 | +1.201779e2 | 1.1e-9 (1e-7) | 3e-4 .. 1e-9, 5.5 | -1.533547e1 | 2.6e-9 (3e-8) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPR7 | +1.312668e2 | 1.1e-10 (1e-9) | 3e-4 .. 1e-9, 5.5 | -4.953993e0 | 3.6e-8 (3e-8) | 3e-4 .. 1e-9, 5.5 | [0.001] |
+| CPS1 | -2.705666e2 | 9.6e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | +1.638689e2 | 4.2e-12 (3e-8) | 3e-4 .. 1e-9, 5.5 | [0.001] |
+| CPS2 | -1.832990e2 | 2.9e-10 (3e-8) | 3e-4 .. 1e-9, 5.5 | -6.318951e1 | 3.0e-10 (3e-8) | 3e-4 .. 3e-9, 5.0 | [0.001] |
+| CPS3 | -1.610576e2 | 1.6e-9 (1e-8) | 3e-4 .. 1e-9, 5.5 | -1.786599e2 | 3.3e-10 (1e-9) | 3e-4 .. 1e-9, 5.5 | [0.001] |
+
+wrote benchmarks/motor_reference/parametric_cp/runs/gradient_L1_initial.json

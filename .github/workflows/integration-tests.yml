@@ -150,8 +150,12 @@ jobs:
               --test london_surface_impedance \
               --test lp01_profile_selector_benchmark \
               --test lumped_port \
+              --test m27_law \
               --test magnetostatic_heterogeneous \
               --test magnetostatic_inductance \
+              --test magnetostatic_nonlinear \
+              --test magnetostatic_sector_harmonic \
+              --test magnetostatic_sector_sliding \
               --test magnetostatic_wire \
               --test matched_upml_burn \
               --test material_upload_precision
@@ -235,8 +239,12 @@ jobs:
               --test london_surface_impedance \
               --test lp01_profile_selector_benchmark \
               --test lumped_port \
+              --test m27_law \
               --test magnetostatic_heterogeneous \
               --test magnetostatic_inductance \
+              --test magnetostatic_nonlinear \
+              --test magnetostatic_sector_harmonic \
+              --test magnetostatic_sector_sliding \
               --test magnetostatic_wire \
               --test matched_upml_burn \
               --test material_upload_precision
@@ -274,10 +282,26 @@ jobs:
         id: build
         run: |
           cargo test -p geode-core --release --features spade-mesh --no-run \
+              --test mesh_numeric_compatibility \
               --test mesh_roundtrip \
               --test mie_driven_scattering \
               --test mixed_pencil_fiber_benchmark \
               --test mixed_precision_refinement \
+              --test motor_arkkio_band_guard \
+              --test motor_cp_design_gradient \
+              --test motor_design_gradient \
+              --test motor_design_remesh \
+              --test motor_experiment2 \
+              --test motor_experiment2_domain \
+              --test motor_experiment2_harness \
+              --test motor_icem_controlpoints \
+              --test motor_icem_forward \
+              --test motor_icem_harmonic \
+              --test motor_icem_parametric \
+              --test motor_reference_mesh \
+              --test motor_final_refinement \
+              --test motor_resource_accounting \
+              --test motor_shape_gradient \
               --test motor_torque_benchmark \
               --test nedelec \
               --test nedelec2_3d_element \
@@ -292,7 +316,15 @@ jobs:
               --test patch_antenna_benchmark \
               --test patch_capstone_diffopt \
               --test patch_conformal_2g4_fixture \
+              --test patch_conformal_convergence \
+              --test patch_conformal_copper \
+              --test patch_conformal_designc \
               --test patch_conformal_diffopt \
+              --test patch_conformal_nested_dof \
+              --test patch_conformal_palace_loop \
+              --test patch_conformal_recentre \
+              --test patch_conformal_tuned \
+              --test patch_conformal_v6 \
               --test patch_diffopt \
               --test patch_mesh \
               --test pec_cavity_unit_invariance \
@@ -318,6 +350,9 @@ jobs:
               --test surface_p2_trace \
               --test torque_loop_oracle \
               --test transient_sparams \
+              --test transmon_devicelayout_controls \
+              --test transmon_devicelayout_crosscheck \
+              --test transmon_devicelayout_optimize \
               --test transmon_diffopt \
               --test transmon_eigen_sensitivity \
               --test transmon_eigenmode \
@@ -345,10 +380,26 @@ jobs:
       - name: geode-core integration targets m-z (default tier)
         run: |
           cargo test -p geode-core --release --features spade-mesh \
+              --test mesh_numeric_compatibility \
               --test mesh_roundtrip \
               --test mie_driven_scattering \
               --test mixed_pencil_fiber_benchmark \
               --test mixed_precision_refinement \
+              --test motor_arkkio_band_guard \
+              --test motor_cp_design_gradient \
+              --test motor_design_gradient \
+              --test motor_design_remesh \
+              --test motor_experiment2 \
+              --test motor_experiment2_domain \
+              --test motor_experiment2_harness \
+              --test motor_icem_controlpoints \
+              --test motor_icem_forward \
+              --test motor_icem_harmonic \
+              --test motor_icem_parametric \
+              --test motor_reference_mesh \
+              --test motor_final_refinement \
+              --test motor_resource_accounting \
+              --test motor_shape_gradient \
               --test motor_torque_benchmark \
               --test nedelec \
               --test nedelec2_3d_element \
@@ -363,7 +414,15 @@ jobs:
               --test patch_antenna_benchmark \
               --test patch_capstone_diffopt \
               --test patch_conformal_2g4_fixture \
+              --test patch_conformal_convergence \
+              --test patch_conformal_copper \
+              --test patch_conformal_designc \
               --test patch_conformal_diffopt \
+              --test patch_conformal_nested_dof \
+              --test patch_conformal_palace_loop \
+              --test patch_conformal_recentre \
+              --test patch_conformal_tuned \
+              --test patch_conformal_v6 \
               --test patch_diffopt \
               --test patch_mesh \
               --test pec_cavity_unit_invariance \
@@ -389,6 +448,9 @@ jobs:
               --test surface_p2_trace \
               --test torque_loop_oracle \
               --test transient_sparams \
+              --test transmon_devicelayout_controls \
+              --test transmon_devicelayout_crosscheck \
+              --test transmon_devicelayout_optimize \
               --test transmon_diffopt \
               --test transmon_eigen_sensitivity \
               --test transmon_eigenmode \
@@ -568,6 +630,8 @@ jobs:
               --test sphere_matched_upml_eigenmode \
               --test step_index_fiber_benchmark \
               --test transient_sparams \
+              --test transmon_devicelayout_crosscheck \
+              --test transmon_devicelayout_optimize \
               --test transmon_diffopt \
               --test transmon_eigen_sensitivity \
               --test transmon_eigenmode \
@@ -656,6 +720,15 @@ jobs:
           cargo test -p geode-core --release --features spade-mesh \
               --test transmon_eigen_sensitivity -- --ignored --exact \
               real_eigen_sensitivity_release
+          # Issue #1092: one A2 solve of the committed DeviceLayout initial
+          # mesh reproduces its run record (about 20 s, 3.2 GB).
+          cargo test -p geode-core --release --features spade-mesh \
+              --test transmon_devicelayout_crosscheck -- --ignored
+          # Issue #1092 part 2: one A2 solve and Hellmann-Feynman gradient of
+          # the committed initial mesh reproduce the fd_initial record (about
+          # 25 s, 3.2 GB; the test runs the example).
+          cargo test -p geode-core --release --features spade-mesh \
+              --test transmon_devicelayout_optimize -- --ignored
 
   validation-tests:
     name: cargo test -p geode-validation --release (reference fixtures, linux)
@@ -811,3 +884,146 @@ jobs:
       - name: geode-optimize (all targets, debug)
         run: |
           cargo test -p geode-optimize
+
+  motor-fw-evaluator-mutations:
+    # Issue #1224: method F_w's per-request stencil start in the evaluator
+    # (tests/common/icem_harness.rs, icem_remesh.rs). Every [#1224] Rust
+    # mutation of benchmarks/motor_optimization/harness/mutation_checks.py
+    # must be killed by motor_experiment2_harness / motor_experiment2_domain,
+    # in particular a retained (base) solve that warm-starts from an earlier
+    # one, which would make F_w's base solves differ from F's. Each mutation
+    # rebuilds only the test binaries; the script restores every file.
+    name: motor F_w evaluator mutation checks (rust, linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore cargo registry + target
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-core-tests-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-core-tests-
+
+      - name: F_w evaluator mutations ([#1224])
+        run: python3 -I benchmarks/motor_optimization/harness/mutation_checks.py --tag '#1224'
+
+  motor-harness-driver:
+    # Issue #1195: the Python driver of the experiment-2 optimizer harness
+    # (benchmarks/motor_optimization/harness/): charging, the exact budget
+    # stop, the acceptance and mesh wiring, the three methods end to end on
+    # a fake evaluator, the ordering rule and the committed starts. The
+    # evaluator side is the Rust target motor_experiment2_harness
+    # (core-tests-b). The environment is exactly the hash-pinned lock
+    # (scipy 1.18.1, numpy 2.5.4) on CPython 3.12. Discover the complete
+    # harness suite, including setup, recovery and process-accounting checks.
+    name: motor harness driver tests (python, linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install the locked driver environment
+        run: |
+          python3 -m venv /tmp/harness-venv
+          /tmp/harness-venv/bin/python -m pip install --require-hashes --no-deps \
+              -r benchmarks/motor_optimization/harness/requirements.lock
+
+      - name: Fetch the pilot commit (issue #1201 replay of the pilot failures)
+        # recover_pilot_failures.py --check re-drives the pilot's own harness
+        # (git archive at the pilot commit of runs/pilot/manifest.json).
+        run: git fetch --no-tags --depth=1 origin 89e6c4e127a5fbef7e4b2e0f10b90e70bd1193b4
+
+      - name: Full motor harness suite (driver, safeguards, setup and recovery)
+        run: |
+          /tmp/harness-venv/bin/python -I -m unittest discover \
+              -s benchmarks/motor_optimization/harness -p 'test_*.py' -v
+
+  motor-final-refinement-meshes:
+    # Historical byte digests were produced by macOS arm64 Gmsh. Linux Gmsh
+    # makes a different triangulation, so regenerate on the source platform;
+    # Linux still runs the entire replay suite against hash-checked artifacts.
+    name: regenerate motor refinement meshes (macOS arm64)
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Regenerate exact historical mesh bytes
+        run: |
+          python -m pip install numpy==2.5.4 gmsh==4.15.2
+          python -I benchmarks/motor_optimization/final_refinement/smoke/regenerate_meshes.py \
+              --out /tmp/final-refinement-meshes
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-refinement-meshes
+          path: /tmp/final-refinement-meshes
+          if-no-files-found: error
+          retention-days: 1
+
+  motor-final-refinement:
+    # Selection, archived native records, regenerated meshes and controlled child
+    # processes. Historical Git objects are required for source/receipt replay;
+    # this job does not compile or execute an archived native binary.
+    name: motor final refinement tests (python, linux)
+    needs: motor-final-refinement-meshes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: final-refinement-meshes
+          path: /tmp/final-refinement-meshes
+
+      - name: Complete final-refinement regression suite
+        env:
+          GEODE_REFINEMENT_MESH_CACHE: /tmp/final-refinement-meshes
+        run: |
+          python -I -m unittest discover \
+              -s benchmarks/motor_optimization/final_refinement -p 'test_*.py' -v
+
+      - name: Selection mutation checks (main cohort pin and #1218 FD ablation)
+        # Issue #1218: selection.py also selects the post-hoc {A', F}
+        # FD-ablation cohort. The main cohort's selection stays byte-identical
+        # (pinned in test_selection.py); every targeted selection mutation,
+        # including the ablation's, must be killed.
+        run: |
+          python -I benchmarks/motor_optimization/final_refinement/mutation_checks.py \
+              > /tmp/selection-mutations.json
+
+      - name: FD-ablation adapter mutation checks (#1218 verified-copy selection)
+        # The {A', F} ablation has no closed capture (operator ruling
+        # 2026-10-20); ablation_selection.py selects from a verified copy
+        # checked against its SHA-256 inventory. Every targeted mutation of
+        # the adapter and of its main-cohort-preserving refactors must be killed.
+        run: |
+          python -I benchmarks/motor_optimization/final_refinement/ablation_mutations.py \
+              > /tmp/ablation-selection-mutations.json

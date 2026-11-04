@@ -148,13 +148,14 @@ The full roadmap, with epics, sequencing and non-goals, is in **[`docs/ROADMAP.m
 
 - **v0.4–v0.7 (released):** the `geode` CLI for EDA flows: `check` / `driven` / `eigen` / `extract`, Touchstone, `geode mesh`, C/L + SPICE, lossy eigen, sensitivities, and the adaptive sweep.
 - **v0.8.0 (released 2026-10-04):** physics breadth (Epic #756): dispersive, anisotropic and rough materials; mixed, filled and walled wave ports; and hybrid microstrip/stripline ports (Epic #778).
-- **v0.9.0 (in progress):**
-  - p=2 accuracy (#836);
-  - differentiable EDA and `geode optimize` (#841);
-  - adaptive meshing (#835);
-  - periodic/Floquet (#837).
+- **v0.9.0 (released 2026-10-26):** the library side of the four roadmap epics: p=2 driven, eigen and geometric wave ports; N-port ∂S, including designs that move hybrid port faces; CLI N-port sensitivities with shape parameters; the `geode-optimize` crate; the H(curl) error estimator and the adaptive loop; periodic, Bloch and Floquet unit cells.
+- **v0.10.0 (in progress):** the epics' CLI and remaining phases:
+  - p=2 accuracy in the CLI (#836);
+  - `geode optimize` and the remaining differentiable-EDA phases (#841);
+  - adaptive meshing in the CLI (#835);
+  - periodic/Floquet in the CLI (#837).
 
-  Landed on `main` so far: p=2 driven, eigen and geometric wave ports; N-port ∂S, including designs that move hybrid port faces; CLI N-port sensitivities with shape parameters; the H(curl) error estimator and the adaptive loop; periodic, Bloch and Floquet unit cells. Per-epic status is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+  Per-epic status is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 The early internal milestones (v0–v2: Nédélec elements, UPML, driven solves, wave ports, Krylov solvers, the benchmark tearsheets) are recorded in `CHANGELOG.md` and the closed epics.
 

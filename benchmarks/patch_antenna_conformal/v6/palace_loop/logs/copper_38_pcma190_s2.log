@@ -1,0 +1,216 @@
+patch_conformal_nested_dof [copper_38_pcma190_s2]: patch_conformal_L1 (150561 edges, 23246 nodes, 124353 tets), R = 100 mm, sigma_0 = 1 (fixture 1); DOFs: 0 radial + 32 outline + 4 corner + 2 feed = 38; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 0.3 s
+    cma gen 0 eval 1: G = 7.450881e-1 (worst -1.35 dB), sigma 5.000e-1, best worst -1.35 dB
+    cma gen 0 eval 2: G = 7.677431e-1 (worst -1.23 dB), sigma 5.000e-1, best worst -1.35 dB
+    cma gen 0 eval 3: G = 6.955502e-1 (worst -1.64 dB), sigma 5.000e-1, best worst -1.64 dB
+    cma gen 0 eval 4: G = 6.484229e-1 (worst -1.94 dB), sigma 5.000e-1, best worst -1.94 dB
+    cma gen 0 eval 5: G = 5.949678e-1 (worst -2.30 dB), sigma 5.000e-1, best worst -2.30 dB
+    cma gen 0 eval 6: guard 0.201, sigma 5.000e-1, best worst -2.30 dB
+    cma gen 0 eval 7: G = 7.176936e-1 (worst -1.52 dB), sigma 5.000e-1, best worst -2.30 dB
+    cma gen 0 eval 8: G = 7.821463e-1 (worst -1.17 dB), sigma 5.000e-1, best worst -2.30 dB
+    cma gen 0 eval 9: G = 7.124201e-1 (worst -1.53 dB), sigma 5.000e-1, best worst -2.30 dB
+    cma gen 0 eval 10: G = 6.914194e-1 (worst -1.66 dB), sigma 5.000e-1, best worst -2.30 dB
+    cma gen 0 eval 11: G = 7.769671e-1 (worst -1.19 dB), sigma 5.000e-1, best worst -2.30 dB
+    cma gen 0 eval 12: G = 7.528790e-1 (worst -1.31 dB), sigma 5.000e-1, best worst -2.30 dB
+    cma gen 0 eval 13: G = 7.258649e-1 (worst -1.46 dB), sigma 5.000e-1, best worst -2.30 dB
+    cma gen 0 eval 14: G = 7.814521e-1 (worst -1.17 dB), sigma 5.000e-1, best worst -2.30 dB
+    cma gen 1 eval 15: G = 7.021082e-1 (worst -1.60 dB), sigma 4.713e-1, best worst -2.30 dB
+    cma gen 1 eval 16: G = 8.159475e-1 (worst -0.99 dB), sigma 4.713e-1, best worst -2.30 dB
+    cma gen 1 eval 17: G = 6.525248e-1 (worst -1.90 dB), sigma 4.713e-1, best worst -2.30 dB
+    cma gen 1 eval 18: G = 6.658144e-1 (worst -1.83 dB), sigma 4.713e-1, best worst -2.30 dB
+    cma gen 1 eval 19: G = 6.579224e-1 (worst -1.87 dB), sigma 4.713e-1, best worst -2.30 dB
+    cma gen 1 eval 20: G = 6.963743e-1 (worst -1.63 dB), sigma 4.713e-1, best worst -2.30 dB
+    cma gen 1 eval 21: guard -0.012, sigma 4.713e-1, best worst -2.30 dB
+    cma gen 1 eval 22: G = 5.804287e-1 (worst -2.40 dB), sigma 4.713e-1, best worst -2.40 dB
+    cma gen 1 eval 23: guard 0.176, sigma 4.713e-1, best worst -2.40 dB
+    cma gen 1 eval 24: G = 6.378096e-1 (worst -2.01 dB), sigma 4.713e-1, best worst -2.40 dB
+    cma gen 1 eval 25: G = 6.743752e-1 (worst -1.78 dB), sigma 4.713e-1, best worst -2.40 dB
+    cma gen 1 eval 26: G = 6.749901e-1 (worst -1.76 dB), sigma 4.713e-1, best worst -2.40 dB
+    cma gen 1 eval 27: G = 7.492966e-1 (worst -1.34 dB), sigma 4.713e-1, best worst -2.40 dB
+    cma gen 1 eval 28: G = 6.957144e-1 (worst -1.64 dB), sigma 4.713e-1, best worst -2.40 dB
+    cma gen 2 eval 29: G = 5.490917e-1 (worst -2.64 dB), sigma 4.554e-1, best worst -2.64 dB
+    cma gen 2 eval 30: guard 0.085, sigma 4.554e-1, best worst -2.64 dB
+    cma gen 2 eval 31: G = 5.012012e-1 (worst -3.04 dB), sigma 4.554e-1, best worst -3.04 dB
+    cma gen 2 eval 32: guard -0.077, sigma 4.554e-1, best worst -3.04 dB
+    cma gen 2 eval 33: G = 6.055854e-1 (worst -2.22 dB), sigma 4.554e-1, best worst -3.04 dB
+    cma gen 2 eval 34: G = 5.415981e-1 (worst -2.71 dB), sigma 4.554e-1, best worst -3.04 dB
+    cma gen 2 eval 35: G = 6.094097e-1 (worst -2.20 dB), sigma 4.554e-1, best worst -3.04 dB
+    cma gen 2 eval 36: G = 6.308311e-1 (worst -2.05 dB), sigma 4.554e-1, best worst -3.04 dB
+    cma gen 2 eval 37: G = 5.552018e-1 (worst -2.60 dB), sigma 4.554e-1, best worst -3.04 dB
+    cma gen 2 eval 38: G = 4.962239e-1 (worst -3.07 dB), sigma 4.554e-1, best worst -3.07 dB
+    cma gen 2 eval 39: G = 6.614499e-1 (worst -1.85 dB), sigma 4.554e-1, best worst -3.07 dB
+    cma gen 2 eval 40: G = 6.744553e-1 (worst -1.76 dB), sigma 4.554e-1, best worst -3.07 dB
+    cma gen 2 eval 41: guard 0.020, sigma 4.554e-1, best worst -3.07 dB
+    cma gen 2 eval 42: G = 6.886157e-1 (worst -1.69 dB), sigma 4.554e-1, best worst -3.07 dB
+    cma gen 3 eval 43: G = 6.182023e-1 (worst -2.14 dB), sigma 4.456e-1, best worst -3.07 dB
+    cma gen 3 eval 44: G = 4.939955e-1 (worst -3.09 dB), sigma 4.456e-1, best worst -3.09 dB
+    cma gen 3 eval 45: G = 4.424717e-1 (worst -3.58 dB), sigma 4.456e-1, best worst -3.58 dB
+    cma gen 3 eval 46: guard 0.132, sigma 4.456e-1, best worst -3.58 dB
+    cma gen 3 eval 47: G = 5.895063e-1 (worst -2.33 dB), sigma 4.456e-1, best worst -3.58 dB
+    cma gen 3 eval 48: G = 5.151395e-1 (worst -2.92 dB), sigma 4.456e-1, best worst -3.58 dB
+    cma gen 3 eval 49: G = 4.484867e-1 (worst -3.51 dB), sigma 4.456e-1, best worst -3.58 dB
+    cma gen 3 eval 50: G = 5.118642e-1 (worst -2.94 dB), sigma 4.456e-1, best worst -3.58 dB
+    cma gen 3 eval 51: G = 5.050126e-1 (worst -3.00 dB), sigma 4.456e-1, best worst -3.58 dB
+    cma gen 3 eval 52: G = 6.303819e-1 (worst -2.06 dB), sigma 4.456e-1, best worst -3.58 dB
+    cma gen 3 eval 53: G = 4.427121e-1 (worst -3.57 dB), sigma 4.456e-1, best worst -3.58 dB
+    cma gen 3 eval 54: G = 5.004341e-1 (worst -3.04 dB), sigma 4.456e-1, best worst -3.58 dB
+    cma gen 3 eval 55: G = 5.970221e-1 (worst -2.28 dB), sigma 4.456e-1, best worst -3.58 dB
+    cma gen 3 eval 56: G = 5.049542e-1 (worst -3.01 dB), sigma 4.456e-1, best worst -3.58 dB
+    cma gen 4 eval 57: G = 4.224205e-1 (worst -3.77 dB), sigma 4.390e-1, best worst -3.77 dB
+    cma gen 4 eval 58: G = 3.753515e-1 (worst -4.29 dB), sigma 4.390e-1, best worst -4.29 dB
+    cma gen 4 eval 59: G = 4.262701e-1 (worst -3.74 dB), sigma 4.390e-1, best worst -4.29 dB
+    cma gen 4 eval 60: G = 3.734956e-1 (worst -4.30 dB), sigma 4.390e-1, best worst -4.30 dB
+    cma gen 4 eval 61: G = 6.336585e-1 (worst -2.03 dB), sigma 4.390e-1, best worst -4.30 dB
+    cma gen 4 eval 62: G = 4.023305e-1 (worst -3.98 dB), sigma 4.390e-1, best worst -4.30 dB
+    cma gen 4 eval 63: G = 6.146452e-1 (worst -2.16 dB), sigma 4.390e-1, best worst -4.30 dB
+    cma gen 4 eval 64: G = 3.744194e-1 (worst -4.31 dB), sigma 4.390e-1, best worst -4.31 dB
+    cma gen 4 eval 65: G = 5.333572e-1 (worst -2.77 dB), sigma 4.390e-1, best worst -4.31 dB
+    cma gen 4 eval 66: G = 5.517981e-1 (worst -2.62 dB), sigma 4.390e-1, best worst -4.31 dB
+    cma gen 4 eval 67: G = 2.385230e-1 (worst -6.28 dB), sigma 4.390e-1, best worst -6.28 dB
+    cma gen 4 eval 68: G = 4.589718e-1 (worst -3.42 dB), sigma 4.390e-1, best worst -6.28 dB
+    cma gen 4 eval 69: G = 4.124173e-1 (worst -3.87 dB), sigma 4.390e-1, best worst -6.28 dB
+    cma gen 4 eval 70: G = 1.929993e-1 (worst -7.27 dB), sigma 4.390e-1, best worst -7.27 dB
+    cma gen 5 eval 71: G = 4.114176e-1 (worst -3.89 dB), sigma 4.394e-1, best worst -7.27 dB
+    cma gen 5 eval 72: G = 1.900361e-1 (worst -7.33 dB), sigma 4.394e-1, best worst -7.33 dB
+    cma gen 5 eval 73: G = 2.937577e-1 (worst -5.36 dB), sigma 4.394e-1, best worst -7.33 dB
+    cma gen 5 eval 74: G = 3.802996e-1 (worst -4.23 dB), sigma 4.394e-1, best worst -7.33 dB
+    cma gen 5 eval 75: G = 4.087394e-1 (worst -3.92 dB), sigma 4.394e-1, best worst -7.33 dB
+    cma gen 5 eval 76: G = 2.087247e-1 (worst -6.89 dB), sigma 4.394e-1, best worst -7.33 dB
+    cma gen 5 eval 77: G = 3.038013e-1 (worst -5.21 dB), sigma 4.394e-1, best worst -7.33 dB
+    cma gen 5 eval 78: G = 5.444996e-1 (worst -2.67 dB), sigma 4.394e-1, best worst -7.33 dB
+    cma gen 5 eval 79: guard 0.113, sigma 4.394e-1, best worst -7.33 dB
+    cma gen 5 eval 80: G = 4.615768e-1 (worst -3.39 dB), sigma 4.394e-1, best worst -7.33 dB
+    cma gen 5 eval 81: guard 0.105, sigma 4.394e-1, best worst -7.33 dB
+    cma gen 5 eval 82: guard 0.038, sigma 4.394e-1, best worst -7.33 dB
+    cma gen 5 eval 83: guard 0.150, sigma 4.394e-1, best worst -7.33 dB
+    cma gen 5 eval 84: G = 1.983188e-1 (worst -7.13 dB), sigma 4.394e-1, best worst -7.33 dB
+    cma gen 6 eval 85: G = 1.888251e-1 (worst -7.37 dB), sigma 4.463e-1, best worst -7.37 dB
+    cma gen 6 eval 86: G = 2.641843e-1 (worst -5.83 dB), sigma 4.463e-1, best worst -7.37 dB
+    cma gen 6 eval 87: G = 2.422595e-1 (worst -6.21 dB), sigma 4.463e-1, best worst -7.37 dB
+    cma gen 6 eval 88: G = 1.410116e-1 (worst -9.50 dB), sigma 4.463e-1, best worst -9.50 dB
+    cma gen 6 eval 89: guard 0.184, sigma 4.463e-1, best worst -9.50 dB
+    cma gen 6 eval 90: G = 4.321746e-1 (worst -3.67 dB), sigma 4.463e-1, best worst -9.50 dB
+    cma gen 6 eval 91: G = 1.536783e-1 (worst -8.79 dB), sigma 4.463e-1, best worst -9.50 dB
+    cma gen 6 eval 92: G = 3.125823e-1 (worst -5.09 dB), sigma 4.463e-1, best worst -9.50 dB
+    cma gen 6 eval 93: guard 0.215, sigma 4.463e-1, best worst -9.50 dB
+    cma gen 6 eval 94: guard 0.140, sigma 4.463e-1, best worst -9.50 dB
+    cma gen 6 eval 95: G = 3.278734e-1 (worst -4.88 dB), sigma 4.463e-1, best worst -9.50 dB
+    cma gen 6 eval 96: G = 1.424832e-1 (worst -9.54 dB), sigma 4.463e-1, best worst -9.54 dB
+    cma gen 6 eval 97: G = 1.894086e-1 (worst -7.35 dB), sigma 4.463e-1, best worst -9.54 dB
+    cma gen 6 eval 98: G = 2.045646e-1 (worst -7.00 dB), sigma 4.463e-1, best worst -9.54 dB
+    cma gen 7 eval 99: guard -0.069, sigma 4.472e-1, best worst -9.54 dB
+    cma gen 7 eval 100: G = 2.558070e-1 (worst -5.97 dB), sigma 4.472e-1, best worst -9.54 dB
+    cma gen 7 eval 101: G = 1.709680e-1 (worst -7.96 dB), sigma 4.472e-1, best worst -9.54 dB
+    cma gen 7 eval 102: guard 0.247, sigma 4.472e-1, best worst -9.54 dB
+    cma gen 7 eval 103: G = 1.424538e-1 (worst -9.62 dB), sigma 4.472e-1, best worst -9.62 dB
+    cma gen 7 eval 104: G = 1.741714e-1 (worst -7.79 dB), sigma 4.472e-1, best worst -9.62 dB
+    cma gen 7 eval 105: G = 1.592031e-1 (worst -8.31 dB), sigma 4.472e-1, best worst -9.62 dB
+    cma gen 7 eval 106: G = 1.800604e-1 (worst -7.61 dB), sigma 4.472e-1, best worst -9.62 dB
+    cma gen 7 eval 107: G = 1.468874e-1 (worst -8.83 dB), sigma 4.472e-1, best worst -9.62 dB
+    cma gen 7 eval 108: G = 1.729962e-1 (worst -7.80 dB), sigma 4.472e-1, best worst -9.62 dB
+    cma gen 7 eval 109: G = 1.529306e-1 (worst -8.58 dB), sigma 4.472e-1, best worst -9.62 dB
+    cma gen 7 eval 110: G = 2.427754e-1 (worst -6.20 dB), sigma 4.472e-1, best worst -9.62 dB
+    cma gen 7 eval 111: G = 1.586097e-1 (worst -8.28 dB), sigma 4.472e-1, best worst -9.62 dB
+    cma gen 7 eval 112: G = 1.645659e-1 (worst -8.10 dB), sigma 4.472e-1, best worst -9.62 dB
+    cma gen 8 eval 113: G = 1.604821e-1 (worst -8.33 dB), sigma 4.519e-1, best worst -9.62 dB
+    cma gen 8 eval 114: G = 1.585822e-1 (worst -8.36 dB), sigma 4.519e-1, best worst -9.62 dB
+    cma gen 8 eval 115: G = 1.774601e-1 (worst -7.67 dB), sigma 4.519e-1, best worst -9.62 dB
+    cma gen 8 eval 116: G = 1.833054e-1 (worst -7.52 dB), sigma 4.519e-1, best worst -9.62 dB
+    cma gen 8 eval 117: guard 0.007, sigma 4.519e-1, best worst -9.62 dB
+    cma gen 8 eval 118: guard 0.208, sigma 4.519e-1, best worst -9.62 dB
+    cma gen 8 eval 119: G = 1.501173e-1 (worst -8.74 dB), sigma 4.519e-1, best worst -9.62 dB
+    cma gen 8 eval 120: guard 0.005, sigma 4.519e-1, best worst -9.62 dB
+    cma gen 8 eval 121: G = 1.885846e-1 (worst -7.37 dB), sigma 4.519e-1, best worst -9.62 dB
+    cma gen 8 eval 122: G = 1.825692e-1 (worst -7.52 dB), sigma 4.519e-1, best worst -9.62 dB
+    cma gen 8 eval 123: G = 1.649416e-1 (worst -8.09 dB), sigma 4.519e-1, best worst -9.62 dB
+    cma gen 8 eval 124: guard 0.138, sigma 4.519e-1, best worst -9.62 dB
+    cma gen 8 eval 125: G = 2.631545e-1 (worst -5.84 dB), sigma 4.519e-1, best worst -9.62 dB
+    cma gen 8 eval 126: G = 2.026578e-1 (worst -7.02 dB), sigma 4.519e-1, best worst -9.62 dB
+    cma gen 9 eval 127: G = 1.647543e-1 (worst -8.13 dB), sigma 4.517e-1, best worst -9.62 dB
+    cma gen 9 eval 128: guard 0.088, sigma 4.517e-1, best worst -9.62 dB
+    cma gen 9 eval 129: G = 1.452439e-1 (worst -9.47 dB), sigma 4.517e-1, best worst -9.62 dB
+    cma gen 9 eval 130: G = 2.207066e-1 (worst -6.63 dB), sigma 4.517e-1, best worst -9.62 dB
+    cma gen 9 eval 131: G = 2.653897e-1 (worst -5.80 dB), sigma 4.517e-1, best worst -9.62 dB
+    cma gen 9 eval 132: guard 0.060, sigma 4.517e-1, best worst -9.62 dB
+    cma gen 9 eval 133: G = 1.640899e-1 (worst -8.20 dB), sigma 4.517e-1, best worst -9.62 dB
+    cma gen 9 eval 134: G = 2.443943e-1 (worst -6.18 dB), sigma 4.517e-1, best worst -9.62 dB
+    cma gen 9 eval 135: guard 0.128, sigma 4.517e-1, best worst -9.62 dB
+    cma gen 9 eval 136: G = 1.905494e-1 (worst -7.32 dB), sigma 4.517e-1, best worst -9.62 dB
+    cma gen 9 eval 137: G = 3.538285e-1 (worst -4.54 dB), sigma 4.517e-1, best worst -9.62 dB
+    cma gen 9 eval 138: guard 0.148, sigma 4.517e-1, best worst -9.62 dB
+    cma gen 9 eval 139: G = 1.407580e-1 (worst -9.37 dB), sigma 4.517e-1, best worst -9.62 dB
+    cma gen 9 eval 140: G = 1.863918e-1 (worst -7.44 dB), sigma 4.517e-1, best worst -9.62 dB
+    cma gen 10 eval 141: G = 1.450855e-1 (worst -9.14 dB), sigma 4.473e-1, best worst -9.62 dB
+    cma gen 10 eval 142: G = 1.559508e-1 (worst -8.78 dB), sigma 4.473e-1, best worst -9.62 dB
+    cma gen 10 eval 143: G = 3.370428e-1 (worst -4.75 dB), sigma 4.473e-1, best worst -9.62 dB
+    cma gen 10 eval 144: G = 2.850255e-1 (worst -5.49 dB), sigma 4.473e-1, best worst -9.62 dB
+    cma gen 10 eval 145: G = 1.472520e-1 (worst -9.07 dB), sigma 4.473e-1, best worst -9.62 dB
+    cma gen 10 eval 146: G = 4.074244e-1 (worst -3.93 dB), sigma 4.473e-1, best worst -9.62 dB
+    cma gen 10 eval 147: G = 1.404892e-1 (worst -9.35 dB), sigma 4.473e-1, best worst -9.62 dB
+    cma gen 10 eval 148: G = 2.848860e-1 (worst -5.48 dB), sigma 4.473e-1, best worst -9.62 dB
+    cma gen 10 eval 149: G = 1.479359e-1 (worst -8.86 dB), sigma 4.473e-1, best worst -9.62 dB
+    cma gen 10 eval 150: G = 1.540392e-1 (worst -8.69 dB), sigma 4.473e-1, best worst -9.62 dB
+    cma gen 10 eval 151: G = 3.092733e-1 (worst -5.13 dB), sigma 4.473e-1, best worst -9.62 dB
+    cma gen 10 eval 152: G = 2.553776e-1 (worst -5.97 dB), sigma 4.473e-1, best worst -9.62 dB
+    cma gen 10 eval 153: G = 1.449763e-1 (worst -9.00 dB), sigma 4.473e-1, best worst -9.62 dB
+    cma gen 10 eval 154: G = 1.818006e-1 (worst -7.56 dB), sigma 4.473e-1, best worst -9.62 dB
+    cma gen 11 eval 155: G = 2.236933e-1 (worst -6.57 dB), sigma 4.406e-1, best worst -9.62 dB
+    cma gen 11 eval 156: G = 1.539259e-1 (worst -8.47 dB), sigma 4.406e-1, best worst -9.62 dB
+    cma gen 11 eval 157: G = 1.967629e-1 (worst -7.17 dB), sigma 4.406e-1, best worst -9.62 dB
+    cma gen 11 eval 158: guard 0.246, sigma 4.406e-1, best worst -9.62 dB
+    cma gen 11 eval 159: G = 1.447296e-1 (worst -8.94 dB), sigma 4.406e-1, best worst -9.62 dB
+    cma gen 11 eval 160: G = 2.168286e-1 (worst -6.71 dB), sigma 4.406e-1, best worst -9.62 dB
+    cma gen 11 eval 161: G = 1.593918e-1 (worst -8.59 dB), sigma 4.406e-1, best worst -9.62 dB
+    cma gen 11 eval 162: G = 2.621213e-1 (worst -5.86 dB), sigma 4.406e-1, best worst -9.62 dB
+    cma gen 11 eval 163: G = 1.403666e-1 (worst -9.37 dB), sigma 4.406e-1, best worst -9.62 dB
+    cma gen 11 eval 164: G = 1.415938e-1 (worst -9.20 dB), sigma 4.406e-1, best worst -9.62 dB
+    cma gen 11 eval 165: G = 1.374711e-1 (worst -9.89 dB), sigma 4.406e-1, best worst -9.89 dB
+    cma gen 11 eval 166: guard 0.217, sigma 4.406e-1, best worst -9.89 dB
+    cma gen 11 eval 167: guard 0.243, sigma 4.406e-1, best worst -9.89 dB
+    cma gen 11 eval 168: G = 2.007429e-1 (worst -7.07 dB), sigma 4.406e-1, best worst -9.89 dB
+    cma gen 12 eval 169: G = 1.507048e-1 (worst -8.63 dB), sigma 4.342e-1, best worst -9.89 dB
+    cma gen 12 eval 170: guard 0.032, sigma 4.342e-1, best worst -9.89 dB
+    cma gen 12 eval 171: G = 1.751903e-1 (worst -7.84 dB), sigma 4.342e-1, best worst -9.89 dB
+    cma gen 12 eval 172: G = 1.392906e-1 (worst -9.49 dB), sigma 4.342e-1, best worst -9.89 dB
+    cma gen 12 eval 173: guard 0.157, sigma 4.342e-1, best worst -9.89 dB
+    cma gen 12 eval 174: G = 1.389898e-1 (worst -9.47 dB), sigma 4.342e-1, best worst -9.89 dB
+    cma gen 12 eval 175: G = 1.575465e-1 (worst -8.34 dB), sigma 4.342e-1, best worst -9.89 dB
+    cma gen 12 eval 176: guard 0.220, sigma 4.342e-1, best worst -9.89 dB
+    cma gen 12 eval 177: guard 0.195, sigma 4.342e-1, best worst -9.89 dB
+    cma gen 12 eval 178: G = 4.158321e-1 (worst -3.85 dB), sigma 4.342e-1, best worst -9.89 dB
+    cma gen 12 eval 179: G = 2.703820e-1 (worst -5.73 dB), sigma 4.342e-1, best worst -9.89 dB
+    cma gen 12 eval 180: G = 1.952186e-1 (worst -7.20 dB), sigma 4.342e-1, best worst -9.89 dB
+    cma gen 12 eval 181: G = 1.375935e-1 (worst -9.63 dB), sigma 4.342e-1, best worst -9.89 dB
+    cma gen 12 eval 182: guard 0.180, sigma 4.342e-1, best worst -9.89 dB
+    cma gen 13 eval 183: G = 2.946865e-1 (worst -5.35 dB), sigma 4.299e-1, best worst -9.89 dB
+    cma gen 13 eval 184: G = 1.481932e-1 (worst -9.02 dB), sigma 4.299e-1, best worst -9.89 dB
+    cma gen 13 eval 185: G = 1.607574e-1 (worst -8.21 dB), sigma 4.299e-1, best worst -9.89 dB
+    cma gen 13 eval 186: guard 0.212, sigma 4.299e-1, best worst -9.89 dB
+    cma gen 13 eval 187: G = 1.759385e-1 (worst -7.74 dB), sigma 4.299e-1, best worst -9.89 dB
+    cma gen 13 eval 188: guard 0.013, sigma 4.299e-1, best worst -9.89 dB
+    cma gen 13 eval 189: G = 1.460759e-1 (worst -8.87 dB), sigma 4.299e-1, best worst -9.89 dB
+    cma gen 13 eval 190: G = 1.465449e-1 (worst -8.85 dB), sigma 4.299e-1, best worst -9.89 dB
+  gradient-free: 190 evals (156 feasible), worst-of-band -1.47 -> -9.89 dB (band points), verification worst -9.89 dB; 799 solves
+patch_conformal_nested_dof [gradient-free copper_38_pcma190_s2]: ~/runs/L1_copper_38_pcma190_s2.toml
+	Command being timed: "<target>/release/examples/patch_conformal_nested_dof --fixture ~/fix/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --gradient-free 190 --cma-sigma0 0.5 --cma-seed 2 --label copper_38_pcma190_s2 --palace-eval <repo>/benchmarks/patch_antenna_conformal/scripts/palace_band_eval.py --palace-workdir ~/pw/copper_38_pcma190_s2 --out ~/runs/L1_copper_38_pcma190_s2.toml"
+	User time (seconds): 19.50
+	System time (seconds): 8.05
+	Percent of CPU this job got: 0%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 2:54:45
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 258224
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 920282
+	Voluntary context switches: 458621
+	Involuntary context switches: 2933
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 2197760
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

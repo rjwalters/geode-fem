@@ -1,0 +1,15 @@
+{"name": "cobyqa_a_lhs2_r1", "mode": "replay", "train_matches": 29, "val_matches": 6, "divergence": null, "error": "replay: request beyond the recorded trace"}
+{"name": "cobyqa_a_lhs2_r2", "mode": "replay", "train_matches": 29, "val_matches": 6, "divergence": null, "error": "replay: request beyond the recorded trace"}
+{"name": "slsqp_a_lhs1_r1", "mode": "real", "train_matches": 24, "val_matches": 13, "divergence": null, "error": "evaluation: mesh: no geometry at this design: construction: slot flank degenerates: fillet centre y = -3.1636e-4 m, flank from x = 4.679928e-2 to 4.664671e-2 m"}
+{"name": "slsqp_a_lhs1_r2", "mode": "real", "train_matches": 24, "val_matches": 13, "divergence": null, "error": "evaluation: mesh: no geometry at this design: construction: slot flank degenerates: fillet centre y = -3.1636e-4 m, flank from x = 4.679928e-2 to 4.664671e-2 m"}
+{"name": "slsqp_a_lhs2_r1", "mode": "real", "train_matches": 15, "val_matches": 13, "divergence": null, "error": "evaluation: mesh: no geometry at this design: construction: slot flank degenerates: fillet centre y = 3.4504e-4 m, flank from x = 4.696747e-2 to 4.670383e-2 m"}
+{"name": "slsqp_a_lhs2_r2", "mode": "real", "train_matches": 15, "val_matches": 13, "divergence": null, "error": "evaluation: mesh: no geometry at this design: construction: slot flank degenerates: fillet centre y = 3.4504e-4 m, flank from x = 4.696747e-2 to 4.670383e-2 m"}
+{"name": "slsqp_a_theta0_r1", "mode": "real", "train_matches": 44, "val_matches": 20, "divergence": null, "error": "evaluation: mesh: fresh mesh fails the policy: MinAngle { min_angle_deg: 4.884855196827794, threshold_deg: 5.0 } (moved mesh: MinAngle { min_angle_deg: 4.771855824264527, threshold_deg: 5.0 })"}
+{"name": "slsqp_a_theta0_r2", "mode": "real", "train_matches": 44, "val_matches": 20, "divergence": null, "error": "evaluation: mesh: fresh mesh fails the policy: MinAngle { min_angle_deg: 4.884855196827794, threshold_deg: 5.0 } (moved mesh: MinAngle { min_angle_deg: 4.771855824264527, threshold_deg: 5.0 })"}
+{"name": "surrogate_a_lhs1_r1", "mode": "replay", "train_matches": 11, "val_matches": 3, "divergence": null, "error": "replay: request beyond the recorded trace"}
+{"name": "surrogate_a_lhs1_r2", "mode": "replay", "train_matches": 11, "val_matches": 3, "divergence": null, "error": "replay: request beyond the recorded trace"}
+{"name": "surrogate_a_lhs2_r1", "mode": "replay", "train_matches": 88, "val_matches": 39, "divergence": null, "error": "replay: request beyond the recorded trace"}
+{"name": "surrogate_b_lhs1_r1", "mode": "replay", "train_matches": 23, "val_matches": 4, "divergence": null, "error": "replay: request beyond the recorded trace"}
+{"name": "surrogate_b_lhs1_r2", "mode": "replay", "train_matches": 23, "val_matches": 4, "divergence": null, "error": "replay: request beyond the recorded trace"}
+13 failed runs, 7 distinct designs -> /Volumes/Stripe/geode-fem/issue-1201/benchmarks/motor_optimization/harness/pilot_failures.json
+exit 0

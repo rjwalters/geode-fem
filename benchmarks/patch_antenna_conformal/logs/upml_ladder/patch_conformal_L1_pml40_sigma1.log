@@ -1,0 +1,31 @@
+== 2026-10-13T00:56:35Z patch_conformal_L1_pml40 sigma_0=1; 17:56  up 3 days,  6:46, 11 users, load averages: 282.28 269.80 226.46
+patch_conformal_2g4_baseline: patch_conformal_L1_pml40: 182626 edges, 28102 nodes, 150120 tets; R = 100 mm, UPML 40 mm / sigma_0 = 1; 12 frequencies
+flat sweep:
+  f = 2.2400 GHz: Z =    19.64   +39.53i ohm, |S11| = 0.6225 ( -4.12 dB), eta = 0.521, res = 2.2e-13, 136.5 s, 5.14 GiB
+  f = 2.2600 GHz: Z =    30.60   +40.26i ohm, |S11| = 0.4961 ( -6.09 dB), eta = 0.523, res = 2.4e-13, 85.9 s, 5.86 GiB
+  f = 2.2700 GHz: Z =    37.75   +38.10i ohm, |S11| = 0.4183 ( -7.57 dB), eta = 0.524, res = 2.5e-13, 76.7 s, 4.77 GiB
+  f = 2.2800 GHz: Z =    45.08   +32.94i ohm, |S11| = 0.3310 ( -9.60 dB), eta = 0.525, res = 2.6e-13, 73.4 s, 5.91 GiB
+  f = 2.2900 GHz: Z =    50.72   +24.36i ohm, |S11| = 0.2352 (-12.57 dB), eta = 0.525, res = 2.6e-13, 141.9 s, 5.42 GiB
+  f = 2.3000 GHz: Z =    52.52   +13.54i ohm, |S11| = 0.1332 (-17.51 dB), eta = 0.526, res = 2.7e-13, 95.9 s, 5.75 GiB
+  f = 2.3100 GHz: Z =    49.74    +3.15i ohm, |S11| = 0.0317 (-29.98 dB), eta = 0.526, res = 2.8e-13, 89.6 s, 5.00 GiB
+  f = 2.3200 GHz: Z =    43.77    -4.52i ohm, |S11| = 0.0820 (-21.72 dB), eta = 0.527, res = 2.7e-13, 87.5 s, 3.80 GiB
+  f = 2.3300 GHz: Z =    36.73    -8.89i ohm, |S11| = 0.1833 (-14.74 dB), eta = 0.527, res = 2.8e-13, 105.7 s, 4.07 GiB
+  f = 2.3600 GHz: Z =    20.15    -9.95i ohm, |S11| = 0.4440 ( -7.05 dB), eta = 0.527, res = 2.3e-13, 86.2 s, 5.11 GiB
+  f = 2.4000 GHz: Z =    10.11    -4.58i ohm, |S11| = 0.6662 ( -3.53 dB), eta = 0.526, res = 1.8e-13, 103.0 s, 4.76 GiB
+  f = 2.4835 GHz: Z =     3.88    +3.55i ohm, |S11| = 0.8568 ( -1.34 dB), eta = 0.519, res = 1.2e-13, 86.0 s, 4.85 GiB
+bent sweep:
+  f = 2.2400 GHz: Z =    20.60   +37.31i ohm, |S11| = 0.5949 ( -4.51 dB), eta = 0.567, res = 2.1e-13, 97.9 s, 5.07 GiB
+  f = 2.2600 GHz: Z =    30.47   +36.64i ohm, |S11| = 0.4696 ( -6.57 dB), eta = 0.568, res = 2.2e-13, 90.9 s, 6.22 GiB
+  f = 2.2700 GHz: Z =    36.35   +33.97i ohm, |S11| = 0.3945 ( -8.08 dB), eta = 0.568, res = 2.6e-13, 156.7 s, 6.16 GiB
+  f = 2.2800 GHz: Z =    41.91   +28.95i ohm, |S11| = 0.3120 (-10.12 dB), eta = 0.569, res = 2.5e-13, 152.3 s, 6.30 GiB
+  f = 2.2900 GHz: Z =    45.81   +21.61i ohm, |S11| = 0.2242 (-12.99 dB), eta = 0.569, res = 2.4e-13, 146.6 s, 6.16 GiB
+  f = 2.3000 GHz: Z =    46.80   +12.97i ohm, |S11| = 0.1368 (-17.28 dB), eta = 0.569, res = 2.5e-13, 131.9 s, 6.26 GiB
+  f = 2.3100 GHz: Z =    44.57    +4.77i ohm, |S11| = 0.0763 (-22.35 dB), eta = 0.569, res = 2.7e-13, 158.7 s, 6.08 GiB
+  f = 2.3200 GHz: Z =    40.01    -1.55i ohm, |S11| = 0.1123 (-18.99 dB), eta = 0.569, res = 2.7e-13, 154.9 s, 5.58 GiB
+  f = 2.3300 GHz: Z =    34.49    -5.52i ohm, |S11| = 0.1944 (-14.22 dB), eta = 0.569, res = 2.5e-13, 148.3 s, 5.97 GiB
+  f = 2.3600 GHz: Z =    20.32    -7.71i ohm, |S11| = 0.4335 ( -7.26 dB), eta = 0.568, res = 2.3e-13, 159.9 s, 6.25 GiB
+  f = 2.4000 GHz: Z =    10.68    -3.62i ohm, |S11| = 0.6495 ( -3.75 dB), eta = 0.566, res = 1.8e-13, 138.0 s, 6.42 GiB
+  f = 2.4835 GHz: Z =     4.21    +3.78i ohm, |S11| = 0.8454 ( -1.46 dB), eta = 0.556, res = 1.2e-13, 60.0 s, 6.68 GiB
+flat: dip -30.09 dB at 2.3110 GHz, ISM worst -1.34 dB | bent: dip -22.39 dB at 2.3110 GHz, ISM worst -1.46 dB | detune +0.00 MHz
+wrote <out>/patch_conformal_L1_pml40_sigma1.toml
+== rc=0 2026-10-13T01:42:49Z

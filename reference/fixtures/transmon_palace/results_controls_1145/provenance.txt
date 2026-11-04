@@ -1,0 +1,45 @@
+issue:          #1145 T7: Palace adaptive mesh refinement on DeviceLayout's
+                published final design, with the settings of #1123's
+                adaptive run on the initial geometry (amr_initial_p2 of
+                results_controls_1123), so that the final design also gets a
+                check with no extrapolation.
+results:        benchmarks/transmon_devicelayout_controls/results.toml
+                ([amr.final]), assembled by
+                benchmarks/transmon_devicelayout_controls/assemble.py from
+                amr_final_p2/{,iterationNN/}eig.csv, port-EPR.csv,
+                error-indicators.csv, palace_run.log and time.txt.
+
+cells:
+  amr_final_p2             the final design's DeviceLayout order-1 h mesh
+                           (final_o1_v22.msh, sha256 2a7158b0..., the #1092
+                           ladder's h mesh, converted on the Mac with gmsh
+                           4.15.2; logs/final_mesh_sha256.txt), solver order
+                           2, PEC box, sapphire tensor. The config is
+                           results_crosscheck_1092/final_h_p2's with exactly
+                           the deltas #1123 applied to initial_h_p2:
+                           Model.Refinement = {MaxIts 12, MaxSize 1e7,
+                           Tol 1e-6, UpdateFraction 0.7, Nonconformal true,
+                           SaveAdaptIterations true}, Eigenmode N = 2 and
+                           Linear MaxIts 1000. So it differs from
+                           amr_initial_p2's config only in Model.Mesh,
+                           Problem.Output and Eigenmode Target (2.0 GHz, as
+                           final_h_p2; 3.0 for the initial geometry), which
+                           tests/transmon_devicelayout_controls.rs checks.
+                           iterationNN/ holds every solve but the last; the
+                           top level is the last.
+
+logs/:          orchestrate_amr1145.log (cell start/end), mem_amr1145.log
+                (host used memory every 60 s; /usr/bin/time records only the
+                largest rank), final_mesh_sha256.txt.
+
+palace:         fba6a5b9d17ef09db2907e9c4c6f92d123d131c0 (v0.17.0-99), image
+                palace:cpu-1043 (image id sha256:6e1d572a4453...), the #1123
+                build, loaded with docker load from #1123's saved image
+                tarball (sha256 9d0c29c2...), not rebuilt.
+host:           AWS geode-fem-bench, us-east-2, Ubuntu 24.04 arm64, tagged
+                project=geode-fem, 2026-10-15 UTC: w1145 r8g.8xlarge (32 vCPU,
+                247 GiB). 24 MPI ranks (OMP_NUM_THREADS=1, run.sh of
+                results_crosscheck_1092 via worker_amr.sh); #1123 used 32. The
+                other 8 vCPU ran the #1145 T6 geode solves and the builder
+                gates while this cell ran, so its wall time is not a clean
+                timing.

@@ -1,0 +1,52 @@
+   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core)
+    Finished `release` profile [optimized] target(s) in 7.75s
+     Running tests/motor_cp_design_gradient.rs (/Volumes/Stripe/cargo-target-1179/release/deps/motor_cp_design_gradient-3c8e5d7836c1bd8b)
+
+running 2 tests
+mean 1.447506128e0, std 8.267038319e-2
+mean 1.502966078e0, std 5.908097378e-4
+CPR1 mean: adjoint +5.362893170e1, FD rel err 9.45e-10, Taylor ratio 0.994
+CPR1 std: adjoint -6.097423352e1, FD rel err 3.61e-9, Taylor ratio 0.999
+CPR1 mean: adjoint -2.354054952e0, FD rel err 4.75e-8, Taylor ratio 0.996
+CPR1 std: adjoint +9.666410729e-1, FD rel err 5.86e-7, Taylor ratio 1.005
+CPR2 mean: adjoint -1.140793891e1, FD rel err 8.49e-8, Taylor ratio 1.010
+CPR2 std: adjoint -4.436345825e0, FD rel err 5.06e-9, Taylor ratio 0.930
+CPR2 mean: adjoint +3.959886467e1, FD rel err 4.54e-9, Taylor ratio 0.997
+CPR2 std: adjoint +8.144654190e1, FD rel err 1.98e-9, Taylor ratio 0.995
+CPR3 mean: adjoint -1.010416521e2, FD rel err 1.88e-9, Taylor ratio 0.997
+CPR3 std: adjoint +1.853368900e1, FD rel err 4.30e-9, Taylor ratio 0.982
+CPR3 mean: adjoint -1.548702910e2, FD rel err 3.79e-9, Taylor ratio 1.000
+CPR3 std: adjoint -1.082664668e0, FD rel err 1.76e-7, Taylor ratio 0.982
+CPR4 mean: adjoint -1.882252765e1, FD rel err 3.78e-9, Taylor ratio 0.998
+CPR4 std: adjoint +6.980455208e1, FD rel err 5.35e-9, Taylor ratio 0.994
+CPR4 mean: adjoint -3.419513215e1, FD rel err 1.16e-8, Taylor ratio 1.016
+CPR4 std: adjoint -2.634502312e0, FD rel err 6.73e-7, Taylor ratio 1.004
+CPR5 mean: adjoint +7.897841300e1, FD rel err 6.18e-11, Taylor ratio 0.998
+CPR5 std: adjoint -9.855238966e0, FD rel err 5.72e-8, Taylor ratio 0.969
+CPR5 mean: adjoint +5.363787363e1, FD rel err 3.12e-9, Taylor ratio 1.000
+CPR5 std: adjoint +1.418355453e1, FD rel err 1.87e-7, Taylor ratio 1.289
+CPR6 mean: adjoint +1.203831861e2, FD rel err 1.40e-9, Taylor ratio 0.996
+CPR6 std: adjoint -1.308306403e1, FD rel err 1.02e-9, Taylor ratio 0.977
+CPR6 mean: adjoint +1.395291910e2, FD rel err 1.11e-10, Taylor ratio 0.999
+CPR6 std: adjoint -2.514422093e1, FD rel err 3.85e-7, Taylor ratio 0.822
+CPR7 mean: adjoint +1.315776668e2, FD rel err 4.91e-10, Taylor ratio 0.994
+CPR7 std: adjoint -5.940461472e0, FD rel err 1.46e-8, Taylor ratio 0.988
+CPR7 mean: adjoint +2.133039469e2, FD rel err 1.03e-9, Taylor ratio 0.996
+CPR7 std: adjoint +2.272444884e1, FD rel err 1.88e-7, Taylor ratio 1.337
+CPS1 mean: adjoint -2.662532296e2, FD rel err 7.47e-10, Taylor ratio 1.007
+CPS1 std: adjoint +1.532381004e2, FD rel err 9.81e-10, Taylor ratio 1.005
+CPS1 mean: adjoint -1.678126831e2, FD rel err 1.22e-9, Taylor ratio 1.004
+CPS1 std: adjoint -4.823249489e1, FD rel err 1.34e-7, Taylor ratio 0.413
+CPS2 mean: adjoint -1.833948647e2, FD rel err 2.21e-9, Taylor ratio 1.004
+CPS2 std: adjoint -5.873474799e1, FD rel err 9.45e-10, Taylor ratio 1.002
+CPS2 mean: adjoint -1.400484451e2, FD rel err 5.04e-9, Taylor ratio 1.003
+CPS2 std: adjoint +3.868348367e0, FD rel err 8.31e-9, Taylor ratio 1.068
+CPS3 mean: adjoint -1.631621867e2, FD rel err 8.43e-10, Taylor ratio 1.007
+CPS3 std: adjoint -1.743875566e2, FD rel err 5.89e-10, Taylor ratio 1.006
+test offsets_match_central_differences_at_theta0 ... ok
+CPS3 mean: adjoint -1.365505624e2, FD rel err 7.18e-9, Taylor ratio 1.006
+CPS3 std: adjoint +3.921440401e1, FD rel err 1.18e-7, Taylor ratio 1.628
+test offsets_match_central_differences_at_opt120 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.17s
+

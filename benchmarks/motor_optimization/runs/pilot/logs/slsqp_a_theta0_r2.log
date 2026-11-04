@@ -1,0 +1,1 @@
+slsqp_a_theta0_r2.json: failed total 38.138 FE attained {'T50': True, 'T90': True, 'T99': False} train: evaluation: mesh: fresh mesh fails the policy: MinAngle { min_angle_deg: 4.884855196827794, threshold_deg: 5.0 } (moved mesh: MinAngle { min_angle_deg: 4.771855824264527, threshold_deg: 5.0 })

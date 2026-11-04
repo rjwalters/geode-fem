@@ -1,0 +1,1 @@
+{"critic": "paper-audit", "scorecard_kind": "human-verdict", "started": "2026-10-20T06:48:23Z", "finished": "2026-10-20T06:48:23Z", "model": "claude-opus-5-5[1m]", "schema_version": 1, "audited_head": "1813ec9c", "verdict": "PASS", "notes": "Built on a scratch copy via papers/build.sh; version dir untouched. Reused v8 auditor script x8.py as auditor-scripts/x9.py."}

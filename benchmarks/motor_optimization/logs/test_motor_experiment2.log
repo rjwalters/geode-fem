@@ -1,0 +1,42 @@
+   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1193/crates/geode-core)
+    Finished `release` profile [optimized] target(s) in 10.48s
+     Running tests/motor_experiment2.rs (/Volumes/Stripe/cargo-target-1193/release/deps/motor_experiment2-dc2b85beb845ade0)
+
+running 21 tests
+test absolute_margin_edge_with_a_small_anchor ... ok
+test acceptance_requires_the_primary_model_at_the_anchor_level ... ok
+test anchor_and_accept_use_the_full_current_mean_on_the_anchor_mesh ... ok
+test committed_anchor_is_consistent_with_the_rule ... ok
+test conforming_check_is_fresh_only_and_needs_zero_stator_offsets ... theta0 L0 conforming-outer vs h93 full-current mean: rel 3.90e-4
+ok
+test each_target_flips_exactly_at_its_edge ... ok
+test frozen_parameters_cannot_change_space_a ... ok
+test frozen_parameters_cannot_change_space_b ... ok
+test half_degree_angles_are_solved_and_off_grid_angles_refused ... ok
+test ledger_charges_a_remesh_and_a_validation ... ok
+test ledger_charges_every_category_and_tracks_the_budget ... ok
+test ledger_refuses_a_negative_charge - should panic ... 
+thread 'ledger_refuses_a_negative_charge' (837304961) panicked at crates/geode-core/tests/common/icem_experiment2.rs:1284:9:
+invalid charge -1 s, 0 FE to forward
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+ok
+test mean_floor_flips_exactly_at_its_edge ... ok
+test nan_values_attain_nothing_and_every_value_is_reported ... ok
+test space_a_gradient_matches_central_differences ... space A theta0 h 1e-3: dF/dt adjoint -1.769283320e-2 FD -1.769279686e-2 rel 2.05e-6; dmean(1)/dt adjoint 8.172519758e-1 FD 8.172515372e-1 rel 5.37e-7
+space A theta0 h 1e-4: dF/dt adjoint -1.769283320e-2 FD -1.769283283e-2 rel 2.04e-8; dmean(1)/dt adjoint 8.172519758e-1 FD 8.172519714e-1 rel 5.38e-9
+space A interior h 1e-3: dF/dt adjoint -1.772903592e-2 FD -1.772898665e-2 rel 2.78e-6; dmean(1)/dt adjoint 7.698551978e-1 FD 7.698548447e-1 rel 4.59e-7
+space A interior h 1e-4: dF/dt adjoint -1.772903592e-2 FD -1.772903550e-2 rel 2.36e-8; dmean(1)/dt adjoint 7.698551978e-1 FD 7.698551937e-1 rel 5.30e-9
+ok
+test space_b_gradient_matches_central_differences ... space B theta0 h 1e-3: dF/dt adjoint -2.652663455e-2 FD -2.652689092e-2 rel 9.66e-6; dmean(1)/dt adjoint 5.305342353e-1 FD 5.305334325e-1 rel 1.51e-6
+space B theta0 h 1e-4: dF/dt adjoint -2.652663455e-2 FD -2.652663686e-2 rel 8.71e-8; dmean(1)/dt adjoint 5.305342353e-1 FD 5.305342262e-1 rel 1.72e-8
+space B interior h 1e-3: dF/dt adjoint -1.182343232e-2 FD -1.182352156e-2 rel 7.55e-6; dmean(1)/dt adjoint 4.432561247e-1 FD 4.432552324e-1 rel 2.01e-6
+space B interior h 1e-4: dF/dt adjoint -1.182343232e-2 FD -1.182343342e-2 rel 9.30e-8; dmean(1)/dt adjoint 4.432561247e-1 FD 4.432561176e-1 rel 1.61e-8
+ok
+test spaces_have_the_registered_components_boxes_and_theta0 ... ok
+test targets_floor_and_margin_follow_amendment_2 ... ok
+test triggering_candidate_is_validated_on_a_fresh_mesh ... ok
+test validation_config_is_h93_coupling_g20_cold ... ok
+test validator_is_the_evaluator_validation_mode_bit_for_bit ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 46.81s
+

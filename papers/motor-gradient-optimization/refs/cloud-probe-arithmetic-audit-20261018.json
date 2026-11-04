@@ -1,0 +1,63 @@
+{
+  "scope": "Independent arithmetic audit of retained cloud probe records; no remote host inspection, launch approval, price verification or optimizer results",
+  "status": "PASS",
+  "probe_commit": "5c998bda2e3ce85b78fd4f3dc4d9d90156131c1e",
+  "anchor_comparisons": [
+    {
+      "space": "a",
+      "F_relative_error": 2.404269268506538e-13,
+      "mean_relative_error": 7.39717676228833e-15,
+      "max_absolute_torque_difference_Nm": 1.092459456231154e-13,
+      "newton_iteration_counts_match": true,
+      "added_config_fields": {
+        "mesh_repair": false
+      }
+    },
+    {
+      "space": "b",
+      "F_relative_error": 2.404269268506538e-13,
+      "mean_relative_error": 7.39717676228833e-15,
+      "max_absolute_torque_difference_Nm": 1.092459456231154e-13,
+      "newton_iteration_counts_match": true,
+      "added_config_fields": {
+        "mesh_repair": false
+      }
+    }
+  ],
+  "units": [
+    {
+      "phase": "a_single",
+      "N": 1,
+      "timings": 3,
+      "median_seconds": 49.493711436,
+      "anchor_agrees_bitwise": false,
+      "anchor_agrees_4ulp": false
+    },
+    {
+      "phase": "b_concurrent15",
+      "N": 15,
+      "timings": 45,
+      "median_seconds": 69.402516083,
+      "anchor_agrees_bitwise": false,
+      "anchor_agrees_4ulp": false
+    },
+    {
+      "phase": "c_concurrent12",
+      "N": 12,
+      "timings": 36,
+      "median_seconds": 64.6915291465,
+      "anchor_agrees_bitwise": false,
+      "anchor_agrees_4ulp": false
+    }
+  ],
+  "files_sha256": {
+    "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_optimization/anchor.json": "715ed8334a48dbed701acfd56f1c738a4574033309240bdea825316ccf4b1f3f",
+    "/Volumes/Stripe/scratch-codex-review/exp2-cloud-probe/remote/anchor_probe.json": "bd6ffe5cfa4bbcacb81617c22611c8cec70528f806320552c071c371bd3c0316",
+    "/Volumes/Stripe/scratch-codex-review/exp2-cloud-probe/probe_record.json": "fce47740166679af4f651e712b1ccdd242530b8f124cc9d2a4226433b220a9bf",
+    "/Volumes/Stripe/scratch-codex-review/exp2-cloud-probe/remote/calib/calibration_a_single.json": "6cf123273941818cd3655995af6eb91a763382271290bed025915f9f51476976",
+    "/Volumes/Stripe/scratch-codex-review/exp2-cloud-probe/remote/calib/calibration_b_concurrent15.json": "e2c98807e1625e6a316b19fa953fec8e74fd5e93d21ed7e813f2737175d2b1ad",
+    "/Volumes/Stripe/scratch-codex-review/exp2-cloud-probe/remote/calib/calibration_c_concurrent12.json": "a320011a1c1b3a9a211c156007a462089a8442f344be75426d601ea5079ff131"
+  },
+  "main_calibration_gate": "current bc1527e8 rejects false anchor_agrees_4ulp; rule awaiting review31",
+  "audit_note": "Initial full config equality check found the added mesh_repair:false field absent from historical anchor. Shared fields match; added field explicitly retained above."
+}

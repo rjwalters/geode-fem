@@ -173,7 +173,7 @@ Sometimes you need full output for debugging:
 - Understanding test coverage gaps
 
 In these cases, run full output but don't include it all in your response. Instead:
-1. Run the full test suite
+1. Run the targeted tests for what you touched (CI runs the full suite, #11690)
 2. Analyze the output
 3. Report only relevant failures in your response
 4. Include actionable summary, not raw dumps
@@ -281,10 +281,10 @@ Root cause verification (for process/behavior issues):
 - [ ] If documentation-only: justified why docs will change behavior this time
 
 Local verification:
-- [ ] The project's check command passes (see `buildGate.command` in `.loom/config.json`, or the repo's documented CI command, e.g. `pnpm check:ci`)
+- [ ] Fast-tier pre-flight passes (`loom-daemon preflight --issue N`); CI runs the suite
 - [ ] Formatter + linter run on changed files (see "Format and Lint Changed Files" below) — a format-only CI failure is a guaranteed Judge rejection
-- [ ] Commits are signed off if required (`commit.signoff: true` or a DCO requirement — `git commit --signoff`; see "DCO sign-off" above)
-- [ ] Relevant tests pass. Production shell changed and CI runs `shell-budget --check`? After the final commit, `loom-daemon shell-budget --check --base <PR base, default origin/main>`: nonzero = this branch's own growth (never pre-existing); no review until counted shell is cut or moved to the daemon and a rerun exits 0. Comments, follow-up issues or arbitrary trailers are not permission
+- [ ] No `Signed-off-by:` trailer on any commit; if a `dco`/`sign-off` check is required, PR is labelled `loom:operator` with the replacement-needed comment (see "DCO sign-off" above)
+- [ ] Relevant tests pass
 - [ ] Diff adds/moves a direct forge caller? Rebase onto the landing base; no `defaults/forge/manifest.toml` there = no inventory command. Else declare it under its `[[operation.callers]]` (`defaults/forge/README.md`; a move must drop the old path, which no command flags), then run `loom-daemon forge-inventory validate --manifest-dir defaults/forge` and `gate --manifest-dir defaults/forge --baseline defaults/forge/call-bypass-baseline.toml` (bare forms read the binary's embedded copy). Nonzero blocks review, even if pre-existing: fix, rerun; never add baseline debt or weaken the gate.
 - [ ] Each criterion has explicit verification
 - [ ] Ran the "defaults/ Version-Bearing-Files Gate" block below (not just read it) — exited 0 (version-bearing files bump at merge, #7743).
@@ -395,7 +395,18 @@ Local verification:
 - [ ] Linter run on changed files (0 errors)
 ```
 
-**Pre-PR gate (pre-flight, #10476).** With `buildGate` set, run `loom-daemon preflight --issue N` before `create-pr.sh`. Exit 1 = failed: fix the tail, commit, re-run (max `preflightMaxAttempts`). Exit 4 (`preflight_unresolved`) = stop, NO PR (claim released). Exit 5 = timeout, exit 6 = deferred for host load (both keep the claim): re-run later; at the timeout cap, NO PR. Name any `PASS (flaky…)` test in the PR. `create-pr.sh` refuses (exit 7) an ungated HEAD.
+**Stack on a conflicting PR (conflict stacking, #12759).** After your last commit and **before** the pre-PR gate below (replaying commits makes a new `HEAD`, and `create-pr.sh` refuses an ungated one), ask which open PR, if any, your finished work conflicts with:
+
+```bash
+# BASE = the `--base` you gave `worktree.sh` (the `--depends-on` / `--auto-stack` parent branch, e.g. feature/issue-<parent>); empty after a plain `worktree.sh N`.
+BASE="<that --base value, or empty>"
+out=$(loom-daemon stack-parent --issue N --base "${BASE:-}") || out="STACK-PARENT none reason=error"
+echo "$out"
+```
+
+`none` (or any non-zero exit) means open flat, as always. On `pr=<P> branch=<B> head=<H> fork=<F> depth=<D>`: `git fetch origin <B>` then `git rebase --onto <H> <F>`. **Never** a bare `git rebase origin/<B>`: that would also replay default-branch commits P's branch lacks. Resolve conflicts (these are your own unpushed commits) and re-run the issue's tests, then open with `create-pr.sh --base <B>` and put `Stacked on #<P> (conflict stacking, depth <D>)` in the PR body. If you cannot resolve the replay: `git rebase --abort` and open flat. The verb answers `none` when stacking is off, when you were given a non-default base (`--depends-on` / `--auto-stack` win), and when `origin/feature/issue-N` already exists.
+
+**Pre-PR gate (pre-flight, #10476, #11690).** With `buildGate` set, run `loom-daemon preflight --issue N` before `create-pr.sh`. It runs the **fast tier** (compile + smoke, never the suite) and never defers on load. Exit 1 = failed: fix the tail, commit, re-run (max `preflightMaxAttempts`). Exit 4 (`preflight_unresolved`) = stop, NO PR (claim released). Exit 5 = a hung compile timed out (claim kept): re-run; at the timeout cap, NO PR. `create-pr.sh` refuses (exit 7) an ungated HEAD. Then open the PR without waiting for CI.
 
 ### Language-Specific Verification
 
@@ -419,7 +430,7 @@ cargo fmt --all -- --check
 
 **Why check before commit?** Pre-commit hooks can fail silently in worktrees, and a Doctor cycle costs far more than a local check.
 
-**When modifying Rust**, tick off before the PR: the project check command (`buildGate.command` in `.loom/config.json`), `cargo check`, `cargo clippy`, and `cargo fmt --all -- --check` all return 0.
+**When modifying Rust**, tick off before the PR: pre-flight, `cargo check`, `cargo clippy`, and `cargo fmt --all -- --check` all return 0.
 
 ### Red Flags: Don't Create PR Yet
 
@@ -615,19 +626,21 @@ These patterns are **WRONG** — sweep phase validation will reject PRs with tit
 
 ### DCO sign-off
 
-If `commit.signoff` is `true` in `.loom/config.json`, pass `--signoff` on **every**
-commit you author (including `git commit --amend`) so each carries a
-`Signed-off-by:` trailer — DCO-requiring repos gate PRs on it:
+**No role attests a DCO sign-off (operator ruling 2026-10-25, #13089).** Do not pass
+`--signoff` / `-s` and do not write a `Signed-off-by:` trailer; a human certifies
+origin, an agent cannot.
+
+If a required status check name matches `dco` or `sign-?off` (check
+`gh api repos/{owner}/{repo}/branches/<base>/protection/required_status_checks`
+or the ruleset; `CONTRIBUTING.md` / a `DCO` file is a hint to look), then after
+`create-pr.sh` opens the PR, **before any Judge or Doctor pass**:
 
 ```bash
-git commit --signoff -m "fix: validate PR title format in sweep phase validation"
+gh pr edit <PR> --add-label "loom:operator"
+./.loom/scripts/post-comment.sh <PR> --body "DCO required: agent-authored commits carry no sign-off (operator ruling 2026-10-25, #13089). An operator-signed replacement PR is needed."
 ```
 
-If the knob is unset, do a one-time check before your first commit: if
-`CONTRIBUTING.md`/a `DCO` file mentions `Signed-off-by`/DCO **or** a required status
-check name matches `dco`/`sign-?off`, use `--signoff` too and note it in the PR
-body. `--signoff` is harmless when not required. See
-`defaults/docs/commit-signoff.md`.
+See `defaults/docs/commit-signoff.md`.
 
 ---
 
@@ -755,6 +768,7 @@ Loom-Issue: rjwalters/loom#123
   `owner/repo` slug is **required** (a bare `Loom-Issue: #123` does not parse). **Required on
   every PR whose body does not close its issue**; optional on a `Closes #N` PR, whose closing
   reference already carries the link. Only the **final** PR uses `Closes #N`.
+  This trailer is a coordination link Loom reads back; keep writing it.
 
 **Write both as PLAIN TEXT — never in backticks (#8796).** A trailer inside an inline code span
 (or a fenced block) is **silently ignored** — merge-pr.sh blanks code spans before matching,
@@ -768,7 +782,7 @@ Part of #123              <- declaration: parsed, the label reset fires on merge
 
 **Both the PR body and the commit messages must carry the same reference.** GitHub harvests closing keywords from the PR body and the merge commit's subject (this repo merges with merge commits, #9105). Prefer `Part of #N`.
 
-If a `Part of #N` remainder needs a human, add `<!-- loom:remainder-hold reason="..." -->` to the issue body before merge (parks it `loom:operator`; see label-state-machine.md).
+If a `Part of #N` remainder needs a human's hands or a ruling (not merely a cross-repo or time-gated wait), add `<!-- loom:remainder-hold reason="..." -->` to the issue body before merge (parks it `loom:operator`; see label-state-machine.md). A cross-repo or time-gated remainder gets a park record instead: see the "Cross-repo or time-gated leftover" row in label-state-machine.md "Routing to a human".
 
 #### A stray closing keyword ANYWHERE in the body defeats `Part of #N` (#4569)
 
@@ -808,10 +822,10 @@ When creating a PR, verify:
 3. PR description references the issue: `Closes #X` for a full implementation, or `Part of #X` for a declared partial increment (not "Issue #X" or "Addresses #X") — same reference in the commit message
 4. Issue number is correct
 5. PR has `loom:review-requested` label
-6. All CI checks pass locally (the project's check command — `buildGate.command` in `.loom/config.json`, e.g. `pnpm check:ci`) — **including the formatter/linter on changed files** (see "Format and Lint Changed Files" above); a format-only failure is a guaranteed Judge rejection, not a warning
+6. It compiles (pre-flight) and targeted tests pass — **including the formatter/linter on changed files** (see "Format and Lint Changed Files" above); a format-only failure is a guaranteed Judge rejection. CI runs the rest
 7. PR description includes verification table for each criterion
 8. Tests added/updated as needed
-9. Commits carry a `Signed-off-by:` trailer if required (`commit.signoff: true` in `.loom/config.json`, or a DCO/`sign-off` check — see "DCO sign-off")
+9. If a `dco`/`sign-off` check is required, the PR is labelled `loom:operator` with a replacement-needed comment; no commit carries an agent `Signed-off-by:` (see "DCO sign-off")
 10. `## Test Plan` includes a `TDD:` line for any diff touching executing code (see "Test-First Discipline" above) — omit only for docs/config/ADR-only changes
 11. `## Rollout check` section present if the PR is a host-move PR (see "Rollout check" above)
 12. **Synced with latest `origin/main` immediately before push** — "Pre-Push Rebase: Sync with `origin/main`" below
@@ -840,7 +854,7 @@ round-trip this step absorbs up front.
 1. Resolve each conflicted file, `git add` it, then `git commit --no-edit`
    (merge) or `git rebase --continue` (rebase; repeat until it completes).
    A branch already pushed is pushed plain in merge mode — never forced.
-2. Re-run the project's check command (`buildGate.command`, e.g. `pnpm check:ci`)
+2. Re-run pre-flight (a new commit voids its receipt) and the targeted tests
    — a rebase can silently change behavior even when it resolves cleanly.
 3. **Version-bearing-file sync gate (#7168; moot after #7743)**: a clean rebase
    lands `origin/main`'s exact version values, so it never fires unless your

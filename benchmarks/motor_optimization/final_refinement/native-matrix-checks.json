@@ -1,0 +1,659 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "scope": "Remaining native refinement settings and moved-point wiring only; no optimizer/main cohort/speedup result. Costs from a local optimized dev binary are not performance claims.",
+  "source_commit": "63b3e3d8bbc30504f845eebb5b78e8be6a2ee12f",
+  "binary_sha256": "d7ef1210d29c78cac7949bd3f07472090861fc0ca108c0e2e93089d5b28318fe",
+  "matrix_probe": {
+    "scope": "Remaining native refinement settings and moved-point wiring only; no optimizer/main cohort/speedup result. Costs from a local optimized dev binary are not performance claims.",
+    "source_commit": "63b3e3d8bbc30504f845eebb5b78e8be6a2ee12f",
+    "binary_sha256": "d7ef1210d29c78cac7949bd3f07472090861fc0ca108c0e2e93089d5b28318fe",
+    "registered_L3_mesh_reproduced_bitwise": true,
+    "L3_mesh_sha256": "614bf98c36e105adca2b6f811f09ebe4aa1c4d1c0a456eb8c3041bf81bdd584a",
+    "cases": [
+      {
+        "name": "a-theta0-g40",
+        "command": [
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/icem_final_refinement",
+          "--request",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-matrix/a-theta0-g40.request.json",
+          "--mesh",
+          "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+          "--out",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-matrix/a-theta0-g40"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 112.96521024999674,
+        "status": "complete",
+        "result_sha256": "3ba869b495042861f6aae682d209c2fe2404c6751b58f4998014b8e32f15f7f5",
+        "waveform_samples": 120,
+        "mesh_kind": "own",
+        "objective": 0.009603427845425783
+      },
+      {
+        "name": "a-theta0-tight",
+        "command": [
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/icem_final_refinement",
+          "--request",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-matrix/a-theta0-tight.request.json",
+          "--mesh",
+          "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+          "--out",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-matrix/a-theta0-tight"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 89.15811724995729,
+        "status": "complete",
+        "result_sha256": "f2ba3fc6ef915aad5371bb5021e46965a481d085ea6094e20f937becc79cd979",
+        "waveform_samples": 60,
+        "mesh_kind": "own",
+        "objective": 0.009603404950551975
+      },
+      {
+        "name": "a-theta0-withheld",
+        "command": [
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/icem_final_refinement",
+          "--request",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-matrix/a-theta0-withheld.request.json",
+          "--mesh",
+          "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+          "--out",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-matrix/a-theta0-withheld"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 46.883027000003494,
+        "status": "complete",
+        "result_sha256": "c9d3bd9529a6bcf8511054e861e9160013ca71585e40911c0fd2e12a79f603d1",
+        "waveform_samples": 40,
+        "mesh_kind": "own",
+        "objective": 0.004681217217304342
+      },
+      {
+        "name": "a-lhs1-primary",
+        "command": [
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/icem_final_refinement",
+          "--request",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-matrix/a-lhs1-primary.request.json",
+          "--mesh",
+          "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+          "--out",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-matrix/a-lhs1-primary"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 61.59976208303124,
+        "status": "complete",
+        "result_sha256": "bef94ccbcffc8ef28562f32394bd4353ecd17fc0631c5ae92f1e53c34627b15d",
+        "waveform_samples": 60,
+        "mesh_kind": "moved",
+        "objective": 0.0004615884292613191
+      },
+      {
+        "name": "b-lhs1-primary",
+        "command": [
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/icem_final_refinement",
+          "--request",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-matrix/b-lhs1-primary.request.json",
+          "--mesh",
+          "/Volumes/Stripe/geode-fem/codex-issue-1202/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+          "--out",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-matrix/b-lhs1-primary"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 59.776242166990414,
+        "status": "complete",
+        "result_sha256": "d9db24bc58c27147fcc09749f2a0be8c9de98468fae2cfc62bab2442d6ae9f8e",
+        "waveform_samples": 60,
+        "mesh_kind": "fresh",
+        "objective": 0.0007268185516150734
+      },
+      {
+        "name": "a-theta0-L3",
+        "command": [
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-refinement/icem_final_refinement",
+          "--request",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-matrix/a-theta0-L3.request.json",
+          "--mesh",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-matrix/l3-mesh/icem_initial_sector_L3.msh",
+          "--out",
+          "/Volumes/Stripe/scratch-codex-review/issue1203-native-matrix/a-theta0-L3"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 330.4669639579952,
+        "status": "complete",
+        "result_sha256": "c996ffda0f2be9891fb916fe4444d3b00bd47d22a72f27be7ac65cf2e2d08c98",
+        "waveform_samples": 60,
+        "mesh_kind": "own",
+        "objective": 0.009481074532683879
+      }
+    ],
+    "status": "PASS",
+    "waveform_samples": 400,
+    "limitations": [
+      "Wiring coverage only; complete capture authentication and frozen main-cohort driver remain pending.",
+      "Selected main candidates and their own matched references have not been refined."
+    ]
+  },
+  "theta0_stability": {
+    "scope": "Theta0 numerical sensitivity of the new native wiring. No selected main candidate, main target credit or speedup evidence. Withheld-current sums are kept separate from the registered objective.",
+    "input_sha256": {
+      "primary": "f5c50b4e3d578fe3a801dc4005fac837aad026ada01f0b8d9e5b2f84865b0a00",
+      "shifted": "b692ea1ed6306b9247851f492086406c10779fca8500131fe3b439e08ccbc422",
+      "g40": "3ba869b495042861f6aae682d209c2fe2404c6751b58f4998014b8e32f15f7f5",
+      "tight": "f2ba3fc6ef915aad5371bb5021e46965a481d085ea6094e20f937becc79cd979",
+      "withheld": "c9d3bd9529a6bcf8511054e861e9160013ca71585e40911c0fd2e12a79f603d1",
+      "L3": "c996ffda0f2be9891fb916fe4444d3b00bd47d22a72f27be7ac65cf2e2d08c98"
+    },
+    "reference_comparisons": {
+      "g40": {
+        "reference_file": "theta0_nurbs_L2_g40.json",
+        "reference_sha256": "ff69f1c740d57ea3317ddcfa0c8b9231077364b1e07a7a468843395d69c19783",
+        "max_abs_torque_difference": 0.0,
+        "waveforms_bitwise_equal": true,
+        "F_difference": 0.0
+      },
+      "L3": {
+        "reference_file": "theta0_nurbs_L3_L3_space_a.json",
+        "reference_sha256": "bae62db48d3c8dc3b1eec11ba2b8c339cbf13223962597f3f37da268b7fe9bef",
+        "max_abs_torque_difference": 0.0,
+        "waveforms_bitwise_equal": true,
+        "F_difference": 0.0
+      },
+      "primary_a": {
+        "reference_file": "anchor.json",
+        "reference_sha256": "715ed8334a48dbed701acfd56f1c738a4574033309240bdea825316ccf4b1f3f",
+        "native_raw_sha256": "f5c50b4e3d578fe3a801dc4005fac837aad026ada01f0b8d9e5b2f84865b0a00",
+        "waveforms_bitwise_equal": true
+      },
+      "primary_b": {
+        "reference_file": "anchor.json",
+        "reference_sha256": "715ed8334a48dbed701acfd56f1c738a4574033309240bdea825316ccf4b1f3f",
+        "native_raw_sha256": "6262b5ae1cc630af936f1171d105c370735071a31c3c2384875f5c083af168bd",
+        "waveforms_bitwise_equal": true
+      }
+    },
+    "checks": {
+      "primary": {
+        "config": {
+          "angles_deg": [
+            0.0,
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+            6.0,
+            7.0,
+            8.0,
+            9.0,
+            10.0,
+            11.0,
+            12.0,
+            13.0,
+            14.0,
+            15.0,
+            16.0,
+            17.0,
+            18.0,
+            19.0
+          ],
+          "fractions": [
+            0.0,
+            0.5,
+            1.0
+          ],
+          "i_peak0_A": 9.677657374172274,
+          "level": 2,
+          "mesh_repair": true,
+          "mode": "h93",
+          "name": "primary",
+          "newton_max_iterations": 60,
+          "newton_rel_tol": 1e-08,
+          "policy_min_angle_deg": 5.0,
+          "start": "cold",
+          "torque": "h93/coupling"
+        },
+        "sum_variances": 0.009603404147653403,
+        "currents": [
+          {
+            "fraction": 0.0,
+            "mean": -5.329786954416183e-06,
+            "std": 0.00760612113876732,
+            "samples": 20,
+            "mean_difference": 0.0,
+            "std_difference": 0.0,
+            "same_angle_max_abs_torque_difference": 0.0
+          },
+          {
+            "fraction": 0.5,
+            "mean": 0.6613644103999053,
+            "std": 0.04264911239203962,
+            "samples": 20,
+            "mean_difference": 0.0,
+            "std_difference": 0.0,
+            "same_angle_max_abs_torque_difference": 0.0
+          },
+          {
+            "fraction": 1.0,
+            "mean": 1.4408390361492982,
+            "std": 0.08790110511846237,
+            "samples": 20,
+            "mean_difference": 0.0,
+            "std_difference": 0.0,
+            "same_angle_max_abs_torque_difference": 0.0
+          }
+        ],
+        "F_relative_change": 0.0,
+        "full_mean_relative_change": 0.0
+      },
+      "shifted": {
+        "config": {
+          "angles_deg": [
+            0.5,
+            1.5,
+            2.5,
+            3.5,
+            4.5,
+            5.5,
+            6.5,
+            7.5,
+            8.5,
+            9.5,
+            10.5,
+            11.5,
+            12.5,
+            13.5,
+            14.5,
+            15.5,
+            16.5,
+            17.5,
+            18.5,
+            19.5
+          ],
+          "fractions": [
+            0.0,
+            0.5,
+            1.0
+          ],
+          "i_peak0_A": 9.677657374172274,
+          "level": 2,
+          "mesh_repair": true,
+          "mode": "h93",
+          "name": "shifted",
+          "newton_max_iterations": 60,
+          "newton_rel_tol": 1e-08,
+          "policy_min_angle_deg": 5.0,
+          "start": "cold",
+          "torque": "h93/coupling"
+        },
+        "sum_variances": 0.009603454643528431,
+        "currents": [
+          {
+            "fraction": 0.0,
+            "mean": -5.366770177499865e-06,
+            "std": 0.0076070789586445255,
+            "samples": 20,
+            "mean_difference": -3.6983223083682245e-08,
+            "std_difference": 9.578198772054042e-07,
+            "same_angle_max_abs_torque_difference": null
+          },
+          {
+            "fraction": 0.5,
+            "mean": 0.6613626759884996,
+            "std": 0.04264725254305416,
+            "samples": 20,
+            "mean_difference": -1.7344114057182836e-06,
+            "std_difference": -1.8598489854582123e-06,
+            "same_angle_max_abs_torque_difference": null
+          },
+          {
+            "fraction": 1.0,
+            "mean": 1.44083986080054,
+            "std": 0.0879022118252683,
+            "samples": 20,
+            "mean_difference": 8.24651241737584e-07,
+            "std_difference": 1.1067068059339435e-06,
+            "same_angle_max_abs_torque_difference": null
+          }
+        ],
+        "F_relative_change": 5.25812245864719e-06,
+        "full_mean_relative_change": 5.723409909419851e-07
+      },
+      "g40": {
+        "config": {
+          "angles_deg": [
+            0.0,
+            0.5,
+            1.0,
+            1.5,
+            2.0,
+            2.5,
+            3.0,
+            3.5,
+            4.0,
+            4.5,
+            5.0,
+            5.5,
+            6.0,
+            6.5,
+            7.0,
+            7.5,
+            8.0,
+            8.5,
+            9.0,
+            9.5,
+            10.0,
+            10.5,
+            11.0,
+            11.5,
+            12.0,
+            12.5,
+            13.0,
+            13.5,
+            14.0,
+            14.5,
+            15.0,
+            15.5,
+            16.0,
+            16.5,
+            17.0,
+            17.5,
+            18.0,
+            18.5,
+            19.0,
+            19.5
+          ],
+          "fractions": [
+            0.0,
+            0.5,
+            1.0
+          ],
+          "i_peak0_A": 9.677657374172274,
+          "level": 2,
+          "mesh_repair": true,
+          "mode": "h93",
+          "name": "g40",
+          "newton_max_iterations": 60,
+          "newton_rel_tol": 1e-08,
+          "policy_min_angle_deg": 5.0,
+          "start": "cold",
+          "torque": "h93/coupling"
+        },
+        "sum_variances": 0.009603427845425783,
+        "currents": [
+          {
+            "fraction": 0.0,
+            "mean": -5.354059703905094e-06,
+            "std": 0.007606593781100259,
+            "samples": 40,
+            "mean_difference": -2.427274948891087e-08,
+            "std_difference": 4.726423329390675e-07,
+            "same_angle_max_abs_torque_difference": 2.521896202024171e-08
+          },
+          {
+            "fraction": 0.5,
+            "mean": 0.6613635078050459,
+            "std": 0.04264816034725979,
+            "samples": 40,
+            "mean_difference": -9.025948594088007e-07,
+            "std_difference": -9.520447798311293e-07,
+            "same_angle_max_abs_torque_difference": 1.9868896283803394e-07
+          },
+          {
+            "fraction": 1.0,
+            "mean": 1.440839443538311,
+            "std": 0.08790166093692159,
+            "samples": 40,
+            "mean_difference": 4.073890127465063e-07,
+            "std_difference": 5.558184592163729e-07,
+            "same_angle_max_abs_torque_difference": 7.287151149171223e-08
+          }
+        ],
+        "F_relative_change": 2.467642933223245e-06,
+        "full_mean_relative_change": 2.827442917116337e-07
+      },
+      "tight": {
+        "config": {
+          "angles_deg": [
+            0.0,
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+            6.0,
+            7.0,
+            8.0,
+            9.0,
+            10.0,
+            11.0,
+            12.0,
+            13.0,
+            14.0,
+            15.0,
+            16.0,
+            17.0,
+            18.0,
+            19.0
+          ],
+          "fractions": [
+            0.0,
+            0.5,
+            1.0
+          ],
+          "i_peak0_A": 9.677657374172274,
+          "level": 2,
+          "mesh_repair": true,
+          "mode": "h93",
+          "name": "tight",
+          "newton_max_iterations": 60,
+          "newton_rel_tol": 1e-12,
+          "policy_min_angle_deg": 5.0,
+          "start": "cold",
+          "torque": "h93/coupling"
+        },
+        "sum_variances": 0.009603404950551975,
+        "currents": [
+          {
+            "fraction": 0.0,
+            "mean": -5.337151448887812e-06,
+            "std": 0.007606117526768747,
+            "samples": 20,
+            "mean_difference": -7.3644944716290875e-09,
+            "std_difference": -3.611998573502251e-09,
+            "same_angle_max_abs_torque_difference": 2.6204066301376006e-08
+          },
+          {
+            "fraction": 0.5,
+            "mean": 0.6613644177211262,
+            "std": 0.042649120375304564,
+            "samples": 20,
+            "mean_difference": 7.321220851785881e-09,
+            "std_difference": 7.983264944944057e-09,
+            "same_angle_max_abs_torque_difference": 7.231395604545554e-08
+          },
+          {
+            "fraction": 1.0,
+            "mean": 1.4408390354702858,
+            "std": 0.08790110612463155,
+            "samples": 20,
+            "mean_difference": -6.790124018607457e-10,
+            "std_difference": 1.0061691757545788e-09,
+            "same_angle_max_abs_torque_difference": 9.760897423660708e-09
+          }
+        ],
+        "F_relative_change": 8.360562149999782e-08,
+        "full_mean_relative_change": -4.712618028974523e-10
+      },
+      "withheld": {
+        "config": {
+          "angles_deg": [
+            0.0,
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+            6.0,
+            7.0,
+            8.0,
+            9.0,
+            10.0,
+            11.0,
+            12.0,
+            13.0,
+            14.0,
+            15.0,
+            16.0,
+            17.0,
+            18.0,
+            19.0
+          ],
+          "fractions": [
+            0.25,
+            0.75
+          ],
+          "i_peak0_A": 9.677657374172274,
+          "level": 2,
+          "mesh_repair": true,
+          "mode": "h93",
+          "name": "withheld",
+          "newton_max_iterations": 60,
+          "newton_rel_tol": 1e-08,
+          "policy_min_angle_deg": 5.0,
+          "start": "cold",
+          "torque": "h93/coupling"
+        },
+        "sum_variances": 0.004681217217304342,
+        "currents": [
+          {
+            "fraction": 0.25,
+            "mean": 0.31669819585463216,
+            "std": 0.021298927914886658,
+            "samples": 20
+          },
+          {
+            "fraction": 0.75,
+            "mean": 1.035658599505221,
+            "std": 0.06501978842614611,
+            "samples": 20
+          }
+        ],
+        "registered_objective": false
+      },
+      "L3": {
+        "config": {
+          "angles_deg": [
+            0.0,
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+            6.0,
+            7.0,
+            8.0,
+            9.0,
+            10.0,
+            11.0,
+            12.0,
+            13.0,
+            14.0,
+            15.0,
+            16.0,
+            17.0,
+            18.0,
+            19.0
+          ],
+          "fractions": [
+            0.0,
+            0.5,
+            1.0
+          ],
+          "i_peak0_A": 9.677657374172274,
+          "level": 3,
+          "mesh_repair": true,
+          "mode": "h93",
+          "name": "L3",
+          "newton_max_iterations": 60,
+          "newton_rel_tol": 1e-08,
+          "policy_min_angle_deg": 5.0,
+          "start": "cold",
+          "torque": "h93/coupling"
+        },
+        "sum_variances": 0.009481074532683879,
+        "currents": [
+          {
+            "fraction": 0.0,
+            "mean": -9.940321872441843e-07,
+            "std": 0.007652845093100559,
+            "samples": 20,
+            "mean_difference": 4.3357547671719985e-06,
+            "std_difference": 4.672395433323855e-05,
+            "same_angle_max_abs_torque_difference": 0.0002232518715960287
+          },
+          {
+            "fraction": 0.5,
+            "mean": 0.6613260083829784,
+            "std": 0.042350957378521556,
+            "samples": 20,
+            "mean_difference": -3.8402016926952776e-05,
+            "std_difference": -0.000298155013518063,
+            "same_angle_max_abs_torque_difference": 0.0005218676541197675
+          },
+          {
+            "fraction": 1.0,
+            "mean": 1.440862632951042,
+            "std": 0.08734360253497411,
+            "samples": 20,
+            "mean_difference": 2.3596801743908102e-05,
+            "std_difference": -0.0005575025834882591,
+            "same_angle_max_abs_torque_difference": 0.0009325551285426226
+          }
+        ],
+        "F_relative_change": -0.012738151293925854,
+        "full_mean_relative_change": 1.63771255163738e-05
+      }
+    },
+    "moved_start_checks": {
+      "a": {
+        "raw_sha256": "bef94ccbcffc8ef28562f32394bd4353ecd17fc0631c5ae92f1e53c34627b15d",
+        "F": 0.0004615884292613191,
+        "mean_full": 0.6656512784649913,
+        "mesh_kind": "moved",
+        "reference_mean_floor": 1.4444411337396714,
+        "mean_floor_pass": false,
+        "scope": "Post-run wiring check at a registered starting point; original run credit/budget not evaluated."
+      },
+      "b": {
+        "raw_sha256": "d9db24bc58c27147fcc09749f2a0be8c9de98468fae2cfc62bab2442d6ae9f8e",
+        "F": 0.0007268185516150734,
+        "mean_full": 0.5374110264148635,
+        "mesh_kind": "fresh",
+        "reference_mean_floor": 1.4444411337396714,
+        "mean_floor_pass": false,
+        "scope": "Post-run wiring check at a registered starting point; original run credit/budget not evaluated."
+      }
+    }
+  },
+  "input_source_sha256": {
+    "benchmarks/motor_reference/geometry/build_sector_mesh.py": "d7546f3e68be354486fcb7d538317f3673dfd62db6377a8fc95bd57ea2cc4883",
+    "benchmarks/motor_reference/geometry/geopdes_nurbs.py": "1f05ac88458c839ecbe888ac9b434891dae591a2a0dc846240a6f42df34d994e",
+    "benchmarks/motor_reference/sources.json": "f39d8214126c9ebd39c5fdb8a1c874d0813105631b65b97a6c017f54d951b250",
+    "benchmarks/motor_reference/conventions.json": "5cb2f1ac426f8faa32c039b970f9ec994759a70a5f82910cef8c140b84fef844",
+    "benchmarks/motor_reference/reference_data.json": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3",
+    "benchmarks/motor_optimization/harness/starts.json": "d4840d876b35e8dffe775c109e3d195a2fa3d980224738213b9d22c01128f759"
+  },
+  "archive": {
+    "file": "smoke/native_matrix_63b3e3d8.tar.gz",
+    "sha256": "1c4242794fd7056a17fd4a62e063661875a779451dfe41c240f73b8ead03f337",
+    "bytes": 6617862,
+    "files": 53,
+    "each_payload_member_verified": true
+  },
+  "scope_limits": [
+    "These are theta0 and registered-start wiring runs, not the selected main-study cohort.",
+    "No timing, optimizer advantage or target-credit conclusion follows from local smoke costs.",
+    "Full closed-study capture/authentication/selection/native-result driver and independent review remain pending.",
+    "Conforming new-mesh execution is covered by native-execution-checks.json; this increment changes no runner source."
+  ]
+}

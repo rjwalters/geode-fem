@@ -23,7 +23,8 @@ seedable, unit-tested). Rollout status is tracked on #11103.
 candidates by repeated draws (`work_finder/workspace_draw.rs`): each draw
 picks a workspace as below and places that workspace's next issue; the
 shared concurrency budget is filled in that order. The RNG is seeded once
-per tick, and the seed plus every draw are exported as
+per tick from the minute and the host id (#11683), and the seed, its inputs
+and every draw are exported as
 `pick.decision.workspace_draw` (and the published plan's `position` is the
 draw order). The single-workspace tick uses the in-workspace order alone.
 Since #11508 the level comes only from the two labels: there is no legacy
@@ -33,29 +34,41 @@ migrated (table below).
 **Priority changes order, never eligibility or admission** (operator ruling,
 #11508). A priority issue is dispatched only once it is `loom:issue` (there is
 no priority side listing), and no priority exempts a candidate from any gate
-(caps, build back-off, file overlap, repo-sharding slice).
+(caps, build back-off, file overlap).
 
 ## Selection: workspace first, then issue
 
-1. **Pick a workspace** among those with dispatchable work, at random,
-   weighted by workspace priority.
-   - The pool is three-tier (#11547). A workspace whose next candidate is a
-     verified red-main fix wins the draw (`pool: "red-main-fix"`); else a
-     workspace holding any open, dispatchable `loom:very-important` work wins
-     (`"very-important"`); if several qualify at a tier, the draw is among
-     just those. Otherwise it is over every workspace with dispatchable work
-     (`"all"`).
-   - **Weight mapping.** A workspace's `fleet_priority` (the `priority`
-     integer in `workspaces.json`; lower = higher priority, default `100`) is
-     reinterpreted as a weight: `weight = max(1, 1000 / (1 + priority))`,
-     integer division. Priority `0` weighs 1000, `10` weighs 90, the default
-     `100` weighs 9. A tool repo pinned to `0` is therefore drawn about 110
-     times as often as a default-priority repo, but no workspace is ever
-     starved. `priority_pick::weight_for_priority` is the one implementation.
+> **Step dispatch (#11894, live since #11909; one pool since #12185).** The step tick no longer picks a workspace first. It draws one *item* from a single pool of every actionable item across the workspaces, seeded and weighted `w_repo × priority × age × S_r^(α−1) × (1 + in_flight_repo)^(−β)` (`loom-draw/v3`), over items at every stage, not only `loom:issue`. `w_repo` is the workspace base weight described below; the repo-level bonuses below are retired. The knobs, the formula and what each does are in [`hyperparameters.md`](hyperparameters.md#the-item-draw-12185); the design is [`docs/design/work-finder-step-dispatch.md`](https://github.com/rjwalters/loom/blob/main/docs/design/work-finder-step-dispatch.md) §1 ruling 1 and §4.2. The numbered steps below describe the legacy pass-1 queue order (`workspace_draw::order`), which the step tick does not use.
+
+1. **Pick a workspace** among those with dispatchable work, at random, with
+   probability **P = w / Σw** (#11742; operator ruling 2026-10-13). There are **no tiers**:
+   nothing wins the draw outright.
+   - **Base weight.** A workspace's `weight` (the integer in `workspaces.json`,
+     set from the fleet store's required `repos[].weight`; higher = more draws,
+     `0` = never drawn) is its share of draws. N repos at weight 1 and loom at
+     weight N give loom about half the draws while every repo has work.
+   - **Bonuses (retired for the step tick, #12185).** While a workspace's remaining candidates include a verified
+     red-main fix, `loom:very-important` work or `loom:important` work, the
+     matching bonus is added to its weight; bonuses stack:
+     `w = weight + redMainFix? + veryImportant? + important?`. The points are
+     formerly hyperparameters `dispatch.weightBonusRedMainFix` (default `400`),
+     `dispatch.weightBonusVeryImportant` (`100`) and
+     `dispatch.weightBonusImportant` (`20`); the keys are now accepted and
+     ignored (see [`hyperparameters.md`](hyperparameters.md)), and this legacy
+     order uses the defaults. A workspace of weight `0`
+     earns no bonus: it stays off. `priority_pick::draw_workspace` is the one
+     implementation.
    - **Reproducibility.** The draw uses a seedable RNG (`PickRng`, SplitMix64).
-     A fixed seed reproduces the exact pick sequence. The draw (pool,
-     candidates with weights, total weight, roll, pick) is `WorkspaceDraw`,
-     the record `pick.decision` carries.
+     A fixed seed reproduces the exact pick sequence. The draw (candidates
+     with base weight, bonus and effective weight, total weight, roll, pick)
+     is `WorkspaceDraw`, the record `pick.decision` carries. The dispatch
+     tick's seed is derived
+     from the wall-clock minute and the host id (scheme `loom-draw/v1`, #11683:
+     first 8 bytes, big-endian, of
+     `sha256("loom-draw/v1:" + floor(unix_utc_secs/60) + ":" + host)`), and
+     the record carries both inputs, so a logged `(minute, host)` replays the
+     order. See [`daemon-reference.md`](daemon-reference.md) §"Dispatch order
+     and the red-main-fix lane".
 2. **Pick the issue within that workspace** by, in order: verified
    red-main fix first; level (`loom:very-important`, then `loom:important`,
    then none); oldest `createdAt` first; issue number ascending. The
@@ -64,15 +77,20 @@ no priority side listing), and no priority exempts a candidate from any gate
 **The red-main-fix lane** (#11547, operator ruling on #11278). A verified
 red-main fix is an issue carrying `<!-- loom:main-red-fix -->` whose repo's
 `main` is verified red this tick. While `main` is red nothing in that repo can
-merge, so the fix leads: first in its workspace and its workspace first in the
-draw. It is not a level and changes no gate: it keeps only its existing bypass
-of the build back-off, the file-overlap gate and the repo-sharding slice,
+merge, so the fix leads its workspace and adds the red-main bonus to the
+workspace's weight in the draw. It is not a level and changes no gate: it keeps only its existing bypass
+of the build back-off and the file-overlap gate,
 which a red `main` would otherwise deadlock. On a green `main` the marker
-grants nothing.
+grants nothing. With `autonomous.workFinder.redMainAutofile.enabled` on (off
+by default), the daemon files that issue itself when `main` turns red, and
+closes it when `main` is green again (#11766; daemon-reference.md,
+"Auto-filed red-main fix issue").
 
 **Removed ordering keys** (gone from dispatch since #11508): the star, the
 starred-at time and its restart store, the inherited-level key, and the
-cross-workspace tier and round-robin interleave.
+cross-workspace tier and round-robin interleave; and (#11742) the draw's
+red-main-fix and very-important pool tiers, the `fleet_priority` softmax and
+`dispatch.drawTemperature`.
 
 ## The very-important cap (#11509)
 
@@ -109,7 +127,7 @@ operator ruling on #11278).
 |---|---|
 | `loom:operator-priority` | `loom:important` |
 | `loom:operator-high-priority` | `loom:very-important` |
-| `priority:high` (undeclared) | `loom:important` |
+| `priority:high` | `loom:important` |
 | `loom:high-priority-inherited` | retired, no mapping (it was daemon-derived) |
 | `tier:goal-advancing` / `tier:goal-supporting` / `tier:maintenance` | retired, **no automatic mapping**; Guide applies `loom:important` where warranted |
 
@@ -118,9 +136,10 @@ This table is data: the top-level `retired` array of `defaults/labels.json`
 (`replaced_by: null` = remove, no replacement). It also lists the #11105
 retirements (`loom:urgent`, `loom:heavy`, `loom:operator-objective`). It is
 never rendered into `labels.yml`, so the additive `sync-labels.sh` cannot
-re-create a retired label. `owned: false` (`priority:high`, never declared by
-Loom) means the migration adds the replacement but never removes or deletes
-the old label. The registry change itself mutates no forge.
+re-create a retired label. `owned: false` (a label Loom never declared)
+means the migration adds the replacement but never removes or deletes the old
+label; `priority:high` is `owned: true` (#11675). The registry change itself
+mutates no forge.
 
 ### Running the forge-side migration (#11511)
 

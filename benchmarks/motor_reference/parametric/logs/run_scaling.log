@@ -1,0 +1,6 @@
+   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1173/crates/geode-core)
+   Compiling geode-util v0.8.0 (/Volumes/Stripe/geode-fem/issue-1173/crates/geode-util)
+    Finished `release` profile [optimized] target(s) in 1m 00s
+== opt120moved_L0_h45_scaled: --level 0 --mesh benchmarks/motor_reference/parametric/meshes/icem_opt120moved_sector_L0.msh --coupling harmonic:3:6:45 --i-peak 11.57569753783308 --phi0-deg -11.646272734037339 --scale-mesh 1.0477172207986847
+  total solve wall time 2.60 s
+  wrote benchmarks/motor_reference/parametric/runs/opt120moved_L0_h45_scaled.json

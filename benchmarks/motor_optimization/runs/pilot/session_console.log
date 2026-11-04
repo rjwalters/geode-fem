@@ -1,0 +1,41 @@
+start_utc 2026-10-18T04:05:14Z
+uptime_before 21:05  up 8 days,  9:54, 11 users, load averages: 11.77 12.98 13.22
+slsqp_a_theta0_r1: exit 0 failed 35.40197006065027 FE {'T50': True, 'T90': True, 'T99': False}
+cobyqa_a_theta0_r1: exit 0 budget 60.00000000000001 FE {'T50': True, 'T90': True, 'T99': False}
+surrogate_a_theta0_r1: exit 0 budget 60.00000000000001 FE {'T50': True, 'T90': True, 'T99': False}
+slsqp_a_lhs1_r1: exit 0 failed 21.58053372050102 FE {'T50': True, 'T90': True, 'T99': False}
+cobyqa_a_lhs1_r1: exit 0 budget 60.00000000000001 FE {'T50': True, 'T90': True, 'T99': False}
+surrogate_a_lhs1_r1: exit 0 failed 6.043326701371511 FE {'T50': False, 'T90': False, 'T99': False}
+slsqp_a_lhs2_r1: exit 0 failed 17.919927864364254 FE {'T50': True, 'T90': True, 'T99': False}
+cobyqa_a_lhs2_r1: exit 0 failed 14.248258164897514 FE {'T50': True, 'T90': False, 'T99': False}
+surrogate_a_lhs2_r1: exit 0 failed 56.89417608984129 FE {'T50': True, 'T90': True, 'T99': False}
+slsqp_b_theta0_r1: exit 0 T99 5.9624203734592545 FE {'T50': True, 'T90': True, 'T99': True}
+cobyqa_b_theta0_r1: exit 0 budget 60.00000000000001 FE {'T50': True, 'T90': True, 'T99': False}
+surrogate_b_theta0_r1: exit 0 budget 60.00000000000001 FE {'T50': True, 'T90': True, 'T99': False}
+slsqp_b_lhs1_r1: exit 0 T99 7.032995990212862 FE {'T50': True, 'T90': True, 'T99': True}
+cobyqa_b_lhs1_r1: exit 0 T99 39.39619241599561 FE {'T50': True, 'T90': True, 'T99': True}
+surrogate_b_lhs1_r1: exit 0 failed 10.032555315952715 FE {'T50': True, 'T90': True, 'T99': False}
+slsqp_b_lhs2_r1: exit 0 T99 10.778279474149834 FE {'T50': True, 'T90': True, 'T99': True}
+cobyqa_b_lhs2_r1: exit 0 T99 59.6641754112855 FE {'T50': True, 'T90': True, 'T99': True}
+surrogate_b_lhs2_r1: exit 0 budget 60.00000000000001 FE {'T50': True, 'T90': True, 'T99': False}
+surrogate_a_theta0_r2: exit 0 budget 60.00000000000001 FE {'T50': True, 'T90': True, 'T99': False}
+cobyqa_a_theta0_r2: exit 0 budget 60.00000000000001 FE {'T50': True, 'T90': True, 'T99': False}
+slsqp_a_theta0_r2: exit 0 failed 38.13806021777834 FE {'T50': True, 'T90': True, 'T99': False}
+surrogate_a_lhs1_r2: exit 0 failed 6.6648064389476795 FE {'T50': False, 'T90': False, 'T99': False}
+cobyqa_a_lhs1_r2: exit 0 budget 60.00000000000001 FE {'T50': True, 'T90': True, 'T99': False}
+slsqp_a_lhs1_r2: exit 0 failed 23.38718552094495 FE {'T50': True, 'T90': True, 'T99': False}
+surrogate_a_lhs2_r2: exit 0 budget 60.00000000000001 FE {'T50': True, 'T90': True, 'T99': False}
+cobyqa_a_lhs2_r2: exit 0 failed 14.779680108382276 FE {'T50': True, 'T90': False, 'T99': False}
+slsqp_a_lhs2_r2: exit 0 failed 18.649246746094487 FE {'T50': True, 'T90': True, 'T99': False}
+surrogate_b_theta0_r2: exit 0 budget 60.00000000000001 FE {'T50': True, 'T90': True, 'T99': False}
+cobyqa_b_theta0_r2: exit 0 budget 60.00000000000001 FE {'T50': True, 'T90': True, 'T99': False}
+slsqp_b_theta0_r2: exit 0 T99 6.448950166367305 FE {'T50': True, 'T90': True, 'T99': True}
+surrogate_b_lhs1_r2: exit 0 failed 11.442312056401198 FE {'T50': True, 'T90': True, 'T99': False}
+cobyqa_b_lhs1_r2: exit 0 T99 43.16063396527467 FE {'T50': True, 'T90': True, 'T99': True}
+slsqp_b_lhs1_r2: exit 0 T99 7.973965560274767 FE {'T50': True, 'T90': True, 'T99': True}
+surrogate_b_lhs2_r2: exit 0 budget 60.00000000000001 FE {'T50': True, 'T90': True, 'T99': False}
+cobyqa_b_lhs2_r2: exit 0 T99 59.56469868627411 FE {'T50': True, 'T90': True, 'T99': True}
+slsqp_b_lhs2_r2: exit 0 T99 11.140951993229514 FE {'T50': True, 'T90': True, 'T99': True}
+session_exit 0
+end_utc 2026-10-18T06:40:46Z
+uptime_after 23:40  up 8 days, 12:30, 9 users, load averages: 11.89 13.58 25.61

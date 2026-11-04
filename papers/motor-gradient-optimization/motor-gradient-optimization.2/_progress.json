@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "thread": "motor-gradient-optimization",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-17T15:58:00Z",
+      "completed": "2026-10-17T16:05:22.805090+00:00"
+    },
+    "figures": {
+      "state": "done",
+      "completed": "2026-10-17T16:05:22.805090+00:00"
+    }
+  },
+  "metadata": {
+    "iteration": 2,
+    "max_iterations": 4,
+    "revised_from": 1,
+    "status": "REVISED; independent review and audit pending",
+    "evidence_snapshot": {
+      "brief_mtime": 1792253069.690596,
+      "refs_mtime": 1792212372.0749316
+    }
+  }
+}

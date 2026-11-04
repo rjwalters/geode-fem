@@ -1,0 +1,16 @@
+Meshes the Palace runs read (MSH 2.2 ASCII, not committed; issue #1148).
+Each was written by `patch_conformal_nested_dof --verify-only --write-mesh` for an
+earlier issue and is reused unchanged here (sha256 checked on the worker before
+the runs). Physical tags: 1 substrate, 2 air, 3 upml, 11 port, 12 patch,
+13 ground, 14 outer boundary.
+
+98232da017cd0dd5a91b6294295c294990bbfd95b1c16e84a0d0de83abbd0f2b  initial_L1.msh
+  the initial patch (x = 0) on patch_conformal_L1; #1126 X1 (../v6/x1/palace/meshes.txt).
+  C1 eig_init_p2_*.
+9330eee0e0bad605803b810895879d47e6dde1de414eee9364be8d2244e244fb  sm57_rbG_L1.msh
+  design C on patch_conformal_rbG_L1, default air morph; #1134 (../recentre/palace/meshes.txt).
+  C1 eig_sm57_p2_*.
+e28d31840628cebbd853e556ce442e6f57d0703c34ab87f4e7bd9b478f048a2c  sm57_rbGrim020_L1_cyl.msh
+  design C on patch_conformal_rbGrim020_L1 (0.2 mm rim), on-cylinder air morph; written by
+  the run of ../recentre/rbG_L1_copper_38_sm57_w16_on_rbGrim020_L1_cyl_dense.toml (its
+  [moved_mesh].sha256). C3 c3_sm57_rim020_p2.

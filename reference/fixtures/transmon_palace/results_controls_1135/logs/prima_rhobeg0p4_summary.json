@@ -1,0 +1,16 @@
+{
+  "L_um": "7291.401395888664",
+  "c_um": "1245.9002221696464",
+  "fx": 3.69893621546893e-5,
+  "nf": 12,
+  "prefix": "pb",
+  "prima_version": "0.2.4",
+  "reason": "The target function value is reached",
+  "replay": false,
+  "rhobeg": 0.39999999999999997,
+  "status": "FTARGET_ACHIEVED",
+  "x": [
+    "0.7054304678623942",
+    "0.6857392329023752"
+  ]
+}

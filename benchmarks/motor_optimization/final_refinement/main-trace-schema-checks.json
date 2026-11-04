@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "scope": "One parent-finalized trace from a still-running main study; schema/arithmetic evidence only, no closed capture or final cohort selection.",
+  "producer_commit": "9486a9da58beeca91968d4d3608f06b998abff45",
+  "reader_base_commit": "9bba4c49aa0ae6617a99413761ab9e72d35e0eab",
+  "finding": {
+    "symptom": "Reader required session.registered=true for approved L0/L2 baselines.",
+    "source": "crates/geode-core/tests/common/icem_harness.rs:163",
+    "semantics": "is_registered() compares the configuration with the original training L1 / validation L2 default.",
+    "correction": "Require registered == (training_level == 1), while separately checking full h45 training and h93 L2 validation settings.",
+    "protocol_changed": false,
+    "study_source_changed": false
+  },
+  "source_sha256": {
+    "study_selection.py": "e0dcf8ba48d36e3c19b0486b089e98f2670d869952d51285df7bbb38954b5f46",
+    "test_study_selection.py": "239cca76ec1ee8a1bb5119c2d6207cfe66c37d43092b3ab6f2ff284d00383b13",
+    "test_main_trace_schema.py": "ba871539d2b020a2a79935a192d3169f3e973cabad19a73de43390ba0624985a"
+  },
+  "schema_replay": {
+    "status": "PASS",
+    "scope": "First parent-finalized trace from a still-running main study. Partial schema evidence only; no closure or selection.",
+    "observed_utc": "2026-10-18T18:56:16.904741+00:00",
+    "job": "cobyqa_l0_a_theta0_r1",
+    "trace_sha256": "2a327ecebd2eb247d9e54f627d17237f647c0992241d2e3128e49cdcd1b85e38",
+    "stop_reason": "converged",
+    "validations": 6,
+    "ledger_entries": 1377,
+    "mesh_kinds": {
+      "moved": 6
+    },
+    "generated_meshes_requiring_bytes": [],
+    "can_select": false,
+    "can_launch": false
+  },
+  "tests": {
+    "command": "python3 -I -m unittest discover -s benchmarks/motor_optimization/final_refinement -p 'test_*.py'",
+    "passed": 188,
+    "new_tests": 3,
+    "exit_code": 0
+  },
+  "archive": {
+    "file": "smoke/main_first_terminal_schema.tar.gz",
+    "sha256": "6acb09661166cfd849f661fe71ec26b38f3d60da0d1c944c0dceb4ee02bbf126",
+    "files": 11
+  },
+  "outcome_reporting": "Interim objective values, attained targets, FE-to-target and method comparisons are not reported while the main session is live.",
+  "remaining": [
+    "Independent review of corrected reader and complete pipeline.",
+    "Complete main study, closed capture and final selection.",
+    "Selected-cohort execution, full performance analysis, final figures/manuscript and publication audit."
+  ]
+}

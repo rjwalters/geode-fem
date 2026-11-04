@@ -1,0 +1,8 @@
+L3 conforming initial current 1 gradient
+# Design gradients: L3 (139268 nodes), conforming/Arkkio, design initial 
+
+Moved mesh: min angle 13.20 deg, 0 inverted; shape map set-up 1.466 s
+
+## Current level 1 (I_peak = 9.677657 A): mean 1.440313892 N m, std 0.087827644 N m (gradient 200.353 s)
+
+wrote benchmarks/motor_shape_gradient/design/runs/gradient_L3_conforming_initial.json

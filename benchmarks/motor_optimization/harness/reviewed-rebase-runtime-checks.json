@@ -1,0 +1,182 @@
+{
+  "source_commit": "bc1527e83b4e0e04f792892f45f77d58dabb3c3a",
+  "scope": "Post-reviewed-rebase verification before the later cross-platform anchor gate; retained initial failures and source-scoped probes included",
+  "status": "PASS",
+  "python_tests": 222,
+  "rust_baseline_passed": 51,
+  "gmsh_explicit_passed": 1,
+  "full_safeguard_mutants_detected": 98,
+  "private_python_mutants_detected": 93,
+  "private_scope_note": "See private-mutation-evidence-audit.json for test/probe source differences and the legacy missing source inventory; no claim of identical whole-source snapshots",
+  "frozen_input_audit": {
+    "scope": "Immutable committed input comparison and working mesh hashes; no numerical equivalence claim",
+    "base_commit": "5c998bda2e3ce85b78fd4f3dc4d9d90156131c1e",
+    "candidate_commit": "bc1527e83b4e0e04f792892f45f77d58dabb3c3a",
+    "status": "PASS",
+    "inputs": [
+      {
+        "path": "benchmarks/motor_optimization/anchor.json",
+        "sha256": "715ed8334a48dbed701acfd56f1c738a4574033309240bdea825316ccf4b1f3f",
+        "same_as_reviewed_merge": true,
+        "working_copy_matches": true
+      },
+      {
+        "path": "benchmarks/motor_optimization/harness/starts.json",
+        "sha256": "d4840d876b35e8dffe775c109e3d195a2fa3d980224738213b9d22c01128f759",
+        "same_as_reviewed_merge": true,
+        "working_copy_matches": true
+      },
+      {
+        "path": "benchmarks/motor_optimization/harness/domain_inventory.json",
+        "sha256": "e75c1849e1338fa46d0ad82c87e2b7db84fc6a845190ecebad5d4542246e7ede",
+        "same_as_reviewed_merge": true,
+        "working_copy_matches": true
+      },
+      {
+        "path": "benchmarks/motor_optimization/harness/pilot_failures.json",
+        "sha256": "3dd39a779954660d348ae2480f17d0a28a1e4850784ebb98ff93af416fa699dc",
+        "same_as_reviewed_merge": true,
+        "working_copy_matches": true
+      }
+    ],
+    "meshes": [
+      {
+        "path": "benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L1.msh",
+        "sha256": "c4526a26904c73f68ba0987f0ca8995bcc0095f0e7936399d5920e167f35d7f5",
+        "matches_frozen_hash": true
+      },
+      {
+        "path": "benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+        "sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5",
+        "matches_frozen_hash": true
+      }
+    ]
+  },
+  "native_evidence": {
+    "status": "PASS",
+    "source_commit": "bc1527e83b4e0e04f792892f45f77d58dabb3c3a",
+    "binary_sha256": "c62c2e4e5249c399b4c073142123b7a23c70bb5e827ca423fd69ee55a4dfd272",
+    "scope": "Retained native numerical/setup evidence and source/resource bindings; no optimizer or speedup claim",
+    "starts_exact_except_wall_seconds": true,
+    "preflight_checks": 20,
+    "preflight_fem_solves": 0,
+    "gradient_checks": [
+      {
+        "file": "gradient-a-default.json",
+        "point": "theta0",
+        "boundary": false,
+        "h": 0.0001,
+        "rel_dF": 2.4506598300514372e-08,
+        "rel_dmean_full": 8.330622549161484e-09
+      },
+      {
+        "file": "gradient-a-default.json",
+        "point": "interior",
+        "boundary": false,
+        "h": 0.0001,
+        "rel_dF": 7.743588804348116e-08,
+        "rel_dmean_full": 1.1439531860851547e-08
+      },
+      {
+        "file": "gradient-a-tight.json",
+        "point": "theta0",
+        "boundary": false,
+        "h": 0.0001,
+        "rel_dF": 1.6672262934990254e-08,
+        "rel_dmean_full": 4.767077804502705e-09
+      },
+      {
+        "file": "gradient-a-tight.json",
+        "point": "interior",
+        "boundary": false,
+        "h": 0.0001,
+        "rel_dF": 1.9839095326012966e-08,
+        "rel_dmean_full": 5.464837822910948e-09
+      },
+      {
+        "file": "gradient-b-default-boundary.json",
+        "point": "theta0",
+        "boundary": true,
+        "h": 0.0001,
+        "rel_dF": 1.8408899529022966e-07,
+        "rel_dmean_full": 2.694902585737076e-09
+      },
+      {
+        "file": "gradient-b-default.json",
+        "point": "interior",
+        "boundary": false,
+        "h": 0.0001,
+        "rel_dF": 1.7708521567580562e-07,
+        "rel_dmean_full": 2.22040259820496e-08
+      },
+      {
+        "file": "gradient-b-tight-boundary.json",
+        "point": "theta0",
+        "boundary": true,
+        "h": 0.0001,
+        "rel_dF": 1.6611059142458066e-07,
+        "rel_dmean_full": 1.6242622484787638e-08
+      },
+      {
+        "file": "gradient-b-tight.json",
+        "point": "interior",
+        "boundary": false,
+        "h": 0.0001,
+        "rel_dF": 2.090480470522526e-07,
+        "rel_dmean_full": 1.4176462524497858e-08
+      }
+    ],
+    "expected_bound_rejections": [
+      {
+        "file": "gradient-b-default.json",
+        "error": "CPR1 = 0.0000001869176962500001 outside [-0.0015, 0]",
+        "fem_solves": 0
+      },
+      {
+        "file": "gradient-b-tight.json",
+        "error": "CPR1 = 0.0000001869176962500001 outside [-0.0015, 0]",
+        "fem_solves": 0
+      }
+    ],
+    "mixed_model_checks": [
+      {
+        "space": "a",
+        "status": "PASS",
+        "diagnostic": "ok"
+      },
+      {
+        "space": "b",
+        "status": "PASS",
+        "diagnostic": "ok"
+      }
+    ],
+    "resource_wiring": "PASS",
+    "audit_script_sha256": "d442415b5c598411e1c7c3e07d04dde9afdf286f6641dd51636015d6b0b984e2",
+    "artifact_sha256": {
+      "gradient-a-default.json": "08ec3a36460ce9bf3388f5a40b4860ee271180bd8589150154a00df940d8c8ed",
+      "gradient-a-tight.json": "16c88d7565ca2fef5371a27dfb4b2cd340028d37185e47ae149983e4403dcdc4",
+      "gradient-b-default-boundary.json": "dc87a66834c08761b909e791414ebe2c928d07805f4421336e53ccde16162320",
+      "gradient-b-default.json": "91272d99ec35b91e9b9743fb4fc44a79bf319e63bbf8f5cc272bde0bbc4dcd71",
+      "gradient-b-tight-boundary.json": "32fbfcef11e316bf9c2580f0c02b4047482a291ebfb91c5347b1021cb82bbb7a",
+      "gradient-b-tight.json": "4b401024af557b716526f5e9d40ebf05709718f2e586d9a33c2f26577b2a30b3",
+      "mixed-model-a.json": "971f619ffd48870ddbeffce93a8faae51a548b5df8aed300f8598860eed20119",
+      "mixed-model-b.json": "0867ac669f78ccd1e0e31e54f3ecece92bf3c54673d5df2e10c01b9468230278",
+      "resource-wiring.json": "2a97177bd41af5c6c2ef909eed9e5f5dff302b8528480721785c536776727483",
+      "start-preflight.json": "e9e5ac76ed5b52264976358951bb89355982a1fe698f0b1561bc973ec3fa7cdc",
+      "starts-recheck.json": "0fa7ba753cf7f0c70d51152a46e4c6a5a66a75d7795fe47a9fb54f58cbea9945",
+      "verification.json": "939c16903601ef00b5e31da37b2ab39e9281b2aee103f46f45f0eb1616b40fff"
+    }
+  },
+  "raw_archive": {
+    "file": "benchmarks/motor_optimization/smoke/reviewed_rebase_bc1527e8.tar.gz",
+    "sha256": "a4c9956a31f0cfdd866d39077bc8332885951ba71ffbcb7f16d925ad812216c5",
+    "bytes": 988139,
+    "files": 247,
+    "manifest_sha256": "c13208156b2c005223cd21d7df390fd074a5b9a351ebfcb0e88ec0d39faa7944"
+  },
+  "limitations": [
+    "No optimizer/main-study performance evidence",
+    "The cloud anchor gate introduced after this snapshot needs separate verification",
+    "Native executable excluded; source, build log, input hashes and receipt retained"
+  ]
+}

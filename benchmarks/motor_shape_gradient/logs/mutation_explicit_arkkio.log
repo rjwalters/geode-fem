@@ -1,0 +1,54 @@
+# Mutation check (PR #1175 review): the explicit-term accumulation
+#   for (g, e) in grad.iter_mut().zip(&explicit) { g[0] += e[0]; g[1] += e[1]; }
+# deleted from torque_gradient in magnetostatic_shape.rs; expected: only the band-motion test fails.
+    Finished `release` profile [optimized] target(s) in 8.95s
+     Running tests/motor_shape_gradient.rs (/Volumes/Stripe/cargo-target-1174/release/deps/motor_shape_gradient-d47cbfc9e10c95d1)
+
+running 6 tests
+test air_gap_rule_and_admissibility ... ok
+test coupling_torque_rows_reproduce_the_band_torque ... ok
+test forward_reproduces_icem_model ... Conforming 0 deg: Arkkio 1.5665229967063699 vs icem_forward 1.5665229967063696
+Conforming 3 deg: Arkkio 1.4714278281097315 vs icem_forward 1.4714278281097313
+Harmonic([3, 9, 15, 21, 27, 33, 39, 45]) 0 deg: Arkkio 1.5634418298535058 vs icem_forward 1.563441829853506
+  coupling torque 1.5627767707549254 vs 1.5627767707549256
+Harmonic([3, 9, 15, 21, 27, 33, 39, 45]) 3 deg: Arkkio 1.4724889947001456 vs icem_forward 1.4724889947001456
+  coupling torque 1.4726512561068228 vs 1.4726512561068228
+ok
+test taylor_conforming_arkkio_band_motion_full_current ... 0 deg: explicit +8.084061e1 of total -1.282486e2
+mean h 1e-4: delta -8.014936514e-3 linear -2.460457069e-2 remainder 1.659e-2 remainder/h^2 1.6590e6
+
+thread 'taylor_conforming_arkkio_band_motion_full_current' (799325847) panicked at crates/geode-core/tests/motor_shape_gradient.rs:121:13:
+mean: remainder/h^2 1.658963417269309e6 at h 1e-4 vs 1.6615021504419724e7 at 1e-5
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+test taylor_conforming_arkkio_full_current ... mean h 1e-4: delta -2.887285897e-3 linear -2.877628098e-3 remainder 9.658e-6 remainder/h^2 9.6578e2
+mean h 1e-5: delta -2.878597609e-4 linear -2.877628098e-4 remainder 9.695e-8 remainder/h^2 9.6951e2
+mean h 1e-6: delta -2.877725066e-5 linear -2.877628098e-5 remainder 9.697e-10 remainder/h^2 9.6968e2
+mean h 1e-7: delta -2.877637800e-6 linear -2.877628098e-6 remainder 9.702e-12 remainder/h^2 9.7022e2
+mean: adjoint -2.877628098246e1, central FD -2.877628095643e1, rel 9.04e-10
+std h 1e-4: delta -7.492392680e-4 linear -7.497729506e-4 remainder 5.337e-7 remainder/h^2 5.3368e1
+std h 1e-5: delta -7.497197295e-5 linear -7.497729506e-5 remainder 5.322e-9 remainder/h^2 5.3221e1
+std h 1e-6: delta -7.497676916e-6 linear -7.497729506e-6 remainder 5.259e-11 remainder/h^2 5.2590e1
+std h 1e-7: delta -7.497724220e-7 linear -7.497729506e-7 remainder 5.286e-13 remainder/h^2 5.2857e1
+std: adjoint -7.497729505837e0, central FD -7.497729460099e0, rel 6.10e-9
+ok
+test taylor_harmonic_coupling_torque_half_current ... mean h 1e-4: delta -1.439825200e-3 linear -1.436090375e-3 remainder 3.735e-6 remainder/h^2 3.7348e2
+mean h 1e-5: delta -1.436462802e-4 linear -1.436090375e-4 remainder 3.724e-8 remainder/h^2 3.7243e2
+mean h 1e-6: delta -1.436127606e-5 linear -1.436090375e-5 remainder 3.723e-10 remainder/h^2 3.7231e2
+mean h 1e-7: delta -1.436094096e-6 linear -1.436090375e-6 remainder 3.721e-12 remainder/h^2 3.7213e2
+mean: adjoint -1.436090374835e1, central FD -1.436090375140e1, rel 2.12e-10
+std h 1e-4: delta -3.240090981e-4 linear -3.248184551e-4 remainder 8.094e-7 remainder/h^2 8.0936e1
+std h 1e-5: delta -3.247355239e-5 linear -3.248184551e-5 remainder 8.293e-9 remainder/h^2 8.2931e1
+std h 1e-6: delta -3.248101421e-6 linear -3.248184551e-6 remainder 8.313e-11 remainder/h^2 8.3131e1
+std h 1e-7: delta -3.248176265e-7 linear -3.248184551e-7 remainder 8.286e-13 remainder/h^2 8.2860e1
+std: adjoint -3.248184551068e0, central FD -3.248184581903e0, rel 9.49e-9
+ok
+
+failures:
+
+failures:
+    taylor_conforming_arkkio_band_motion_full_current
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.73s
+
+error: test failed, to rerun pass `-p geode-core --test motor_shape_gradient`

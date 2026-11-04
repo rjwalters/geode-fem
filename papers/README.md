@@ -7,8 +7,9 @@ versions are:
 
 | Thread | Current version |
 |---|---|
-| `conformal-antenna-diffopt` | `conformal-antenna-diffopt.4/` |
-| `transmon-benchmark` | `transmon-benchmark.9/` (draft, not reviewed: v8 re-anchored to the published 4.14 GHz (93.9537 fF; the 89.9 fF runs are superseded), with certified two-sided C_Σ brackets, the anchor chain from the measured coupling and loop inductance as estimates, the opt-in rank-1 port shunt and re-baselined mode labels; v8 was the figure revision of v7; v6 is the last audited version) |
+| [`conformal-antenna-diffopt`](conformal-antenna-diffopt/BRIEF.md) | [`conformal-antenna-diffopt.13/`](conformal-antenna-diffopt/conformal-antenna-diffopt.13/main.pdf) (v12 plus a corresponding-author footnote (robb@2amlogic.com); v12: reading-flow revision of v11, PR #1244: the body follows the Introduction's order, the primer table and figures sit together, Related Work follows Results, terms defined at first use, and a cost table built from v11's numbers; the set of numbers equals v11's; 23 pages; Zenodo v1, DOI 10.5281/zenodo.21480892) |
+| [`transmon-benchmark`](transmon-benchmark/BRIEF.md) | [`transmon-benchmark.24/`](transmon-benchmark/transmon-benchmark.24/main.pdf) (v23 plus a corresponding-author footnote (robb@2amlogic.com); v23: reading-flow revision of v22, PR #1245: geode-fem introduced before the main result, the abstract labels each design and baseline, bound/cap/estimate/band mapped to the evidence tiers ("Measured" renamed "Computed"), one name per family and design, author contributions after Reproducibility; the numbers are unchanged from v22; 21 pages; Zenodo v1, DOI 10.5281/zenodo.23580545) |
+| [`motor-gradient-optimization`](motor-gradient-optimization/BRIEF.md) | [`motor-gradient-optimization.23/`](motor-gradient-optimization/motor-gradient-optimization.23/main.pdf) (v22 plus a corresponding-author footnote (robb@2amlogic.com); v22: reading-flow revision of v21, PR #1243: gradient verification before the optimization study, the four-start and five-start headline factors bridged, cost medians moved to Appendix D, one positive statement of what is fitted; no number new relative to v21; 43 pages, main text pp. 1–19; Zenodo v1, DOI 10.5281/zenodo.23580548; raw traces DOI 10.5281/zenodo.23580550) |
 
 ## Building a paper
 

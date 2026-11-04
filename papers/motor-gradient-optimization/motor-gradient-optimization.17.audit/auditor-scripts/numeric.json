@@ -1,0 +1,20 @@
+{
+  "check": "numeric_consistency",
+  "version_dir": "motor-gradient-optimization.17",
+  "body_path": "main.tex",
+  "numbers_extracted": 888,
+  "claims_checked": 6,
+  "findings": [
+    {
+      "code": "percent_mismatch",
+      "severity": "info",
+      "line": 1064,
+      "claim": "0.27\\% higher",
+      "claimed": 0.27,
+      "computed": 12.21311475409836,
+      "message": "claim '0.27\\\\% higher' asserts 0.27% but the window pair 'from 0.01071 to 0.01220' (0.01071 vs 0.0122) computes a 12.2% change (base 0.0122), not 0.27%. [suppressed via anvil-lint-disable: numeric_consistency]",
+      "suppressed": true
+    }
+  ],
+  "pass": true
+}

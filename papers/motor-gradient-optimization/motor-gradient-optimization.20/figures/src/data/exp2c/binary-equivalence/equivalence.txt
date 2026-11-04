@@ -1,0 +1,13 @@
+085e9af8aa8f primary    329 fields IDENTICAL
+085e9af8aa8f L3         329 fields IDENTICAL
+085e9af8aa8f g40        429 fields IDENTICAL
+085e9af8aa8f tight      329 fields IDENTICAL
+085e9af8aa8f shifted    329 fields IDENTICAL
+085e9af8aa8f withheld   301 fields IDENTICAL
+085e9af8aa8f conforming 319 fields IDENTICAL
+0b75789b1180 primary    449 fields IDENTICAL
+0b75789b1180 tight      449 fields IDENTICAL
+2ededdafd3ca primary    304 fields IDENTICAL
+2ededdafd3ca tight      304 fields IDENTICAL
+3aa14765ca9a primary    304 fields IDENTICAL
+old binary 679a40c8 (deleted) vs rebuilt c75fe847 at source 63b3e3d8: 4175 non-timing fields compared, 0 differ

@@ -1,7 +1,9 @@
 //! Air-gap field benchmark for a **slotless surface-PM annulus**
 //! (Epic #448, Phase 2b — the field-accuracy half of the epic headline).
 //!
-//! Four-part test plan (matching the issue):
+//! Four-part test plan (matching the issue), plus a fifth part added for
+//! #1166 (a half-clockwise mesh matches its CCW twin through the P1 and P2
+//! PM assemblers):
 //!
 //! 1. **Oracle self-validation** — the thin-magnet limit of the
 //!    [`SlotlessPm`] scalar-potential multipole matches the independent
@@ -36,8 +38,9 @@ use geode_core::analytic::waveguide::{
 use geode_core::assembly::magnetostatic::{
     assemble_magnetostatic_pm, assemble_magnetostatic_pm_p2, build_nu_r,
     radial_magnetization_source, radial_magnetization_source_from_remanence, recover_b_field,
-    sample_b_field_p2,
+    recover_b_field_p2, sample_b_field_p2,
 };
+use geode_core::assembly::torque::arkkio_torque;
 
 // Band indices for the four-band machine cross-section
 // radii = [0, R1, R2, R3, Rout]:
@@ -560,4 +563,139 @@ fn coarse_gap_tripwire_fires() {
         "coarse-gap error {:.2}% did not exceed the 5% floor",
         err * 100.0
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 5. Clockwise triangles (#1166): linear P1 and P2 PM + current paths
+// ─────────────────────────────────────────────────────────────────────
+
+/// `mesh` with every other triangle relabelled clockwise (vertices 1 ↔ 2).
+fn half_clockwise(mesh: &TriMesh) -> TriMesh {
+    let mut cw = mesh.clone();
+    for (t, tri) in cw.tris.iter_mut().enumerate() {
+        if t % 2 == 0 {
+            tri.swap(1, 2);
+        }
+    }
+    cw
+}
+
+/// Fixture for the clockwise tests: the nominal machine with a μ_rec = 1.05
+/// magnet and a phase-shifted p-pole current in the outer band (so the rotor
+/// torque is non-zero), plus its half-clockwise twin.
+struct CwFixture {
+    g: Geom,
+    mesh: TriMesh,
+    cw: TriMesh,
+    tags: Vec<i32>,
+    nu: Vec<f64>,
+    m: Vec<[f64; 2]>,
+    j_z: Vec<f64>,
+}
+
+impl CwFixture {
+    fn new() -> Self {
+        let g = Geom::nominal();
+        let (mesh, tags) = build_mesh(&g, 96, [6, 8, 4, 12]);
+        let cw = half_clockwise(&mesh);
+        let n_cw = cw
+            .tris
+            .iter()
+            .filter(|tri| {
+                let [a, b, c] = tri.map(|i| cw.nodes[i as usize]);
+                (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) < 0.0
+            })
+            .count();
+        assert_eq!(n_cw, cw.n_tris() / 2, "fixture must be half clockwise");
+        let nu = build_nu_r(&tags, &[1.0, 1.05, 1.0, 1.0]);
+        let m = radial_magnetization_source(&mesh, &tags, TAG_MAGNET, g.m0, g.p);
+        let j_z: Vec<f64> = (0..mesh.n_tris())
+            .map(|t| {
+                let tri = mesh.tris[t];
+                let c = |k: usize| {
+                    (mesh.nodes[tri[0] as usize][k]
+                        + mesh.nodes[tri[1] as usize][k]
+                        + mesh.nodes[tri[2] as usize][k])
+                        / 3.0
+                };
+                let (x, y) = (c(0), c(1));
+                if tags[t] == 3 && x.hypot(y) < 0.06 {
+                    MU_0 * 2.0e7 * (g.p as f64 * y.atan2(x) + 0.4).cos()
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        CwFixture {
+            g,
+            mesh,
+            cw,
+            tags,
+            nu,
+            m,
+            j_z,
+        }
+    }
+
+    fn torque(&self, mesh: &TriMesh, b: &[[f64; 2]]) -> f64 {
+        arkkio_torque(mesh, &self.tags, b, TAG_GAP, self.g.r2, self.g.r3, 1.0)
+    }
+}
+
+fn max_rel_diff(a: &[f64], b: &[f64]) -> f64 {
+    let s = a.iter().fold(0.0_f64, |m, x| m.max(x.abs()));
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0, f64::max)
+        / s
+}
+
+/// The linear **P1** PM solve (magnetization **and** current loads, so both
+/// loads and the stiffness are exercised) on a mesh with half of its
+/// triangles clockwise matches the CCW twin to ≤1e-12 in `A` and in Arkkio
+/// torque. Before #1166 the P1 magnetization load used the signed area
+/// (~100 % wrong `A` in release) and the stiffness `debug_assert`ed CCW.
+#[test]
+fn clockwise_triangles_match_ccw_p1() {
+    let f = CwFixture::new();
+    let bc = disk_boundary_nodes(&f.mesh, f.g.rout);
+    let a1 = assemble_magnetostatic_pm(&f.mesh, &f.nu, &f.j_z, &f.m, &bc)
+        .unwrap()
+        .solve()
+        .unwrap();
+    let a2 = assemble_magnetostatic_pm(&f.cw, &f.nu, &f.j_z, &f.m, &bc)
+        .unwrap()
+        .solve()
+        .unwrap();
+    let t1 = f.torque(&f.mesh, &recover_b_field(&f.mesh, &a1));
+    let t2 = f.torque(&f.cw, &recover_b_field(&f.cw, &a2));
+    let (d, dt) = (max_rel_diff(&a1, &a2), (t1 - t2).abs() / t1.abs());
+    println!("half-CW P1 linear: max|dA|/max|A| = {d:.3e}, T = {t1:.9e} N, |dT|/|T| = {dt:.3e}");
+    assert!(t1.abs() > 1e-3, "torque must be non-trivial: {t1}");
+    assert!(d <= 1e-12 && dt <= 1e-12, "P1 half-CW: dA {d:e}, dT {dt:e}");
+}
+
+/// The **P2** sibling of [`clockwise_triangles_match_ccw_p1`]. The P2 DOF
+/// numbering is orientation-independent (edges are sorted node pairs), so
+/// the two potentials compare entry by entry. Before #1166 the P2 stiffness
+/// `debug_assert`ed CCW.
+#[test]
+fn clockwise_triangles_match_ccw_p2() {
+    let f = CwFixture::new();
+    let bc = disk_p2_boundary_dofs(&f.mesh, f.g.rout);
+    let u1 = assemble_magnetostatic_pm_p2(&f.mesh, &f.nu, &f.j_z, &f.m, &bc)
+        .unwrap()
+        .solve()
+        .unwrap();
+    let u2 = assemble_magnetostatic_pm_p2(&f.cw, &f.nu, &f.j_z, &f.m, &bc)
+        .unwrap()
+        .solve()
+        .unwrap();
+    let t1 = f.torque(&f.mesh, &recover_b_field_p2(&f.mesh, &u1));
+    let t2 = f.torque(&f.cw, &recover_b_field_p2(&f.cw, &u2));
+    let (d, dt) = (max_rel_diff(&u1, &u2), (t1 - t2).abs() / t1.abs());
+    println!("half-CW P2 linear: max|dA|/max|A| = {d:.3e}, T = {t1:.9e} N, |dT|/|T| = {dt:.3e}");
+    assert!(t1.abs() > 1e-3, "torque must be non-trivial: {t1}");
+    assert!(d <= 1e-12 && dt <= 1e-12, "P2 half-CW: dA {d:e}, dT {dt:e}");
 }

@@ -1,0 +1,38 @@
+ 4:00  up 7 days, 16:50, 10 users, load averages: 14.20 37.36 78.24
+L0 h45 rel_tol 1e-8: forward 0.487 s, full gradient 0.577 s (1.19 forwards), 2x12 FD forwards 4.304 s (8.84 forwards); gradient / FD 0.134
+gradient parts [forward, adjoint, velocities, contractions] per repeat: [[0.48591149899999997, 0.0905125, 0.000457084, 0.000117292], [0.493084042, 0.094146834, 0.000464166, 0.000118125], [0.48347233300000003, 0.090127958, 0.00044225, 0.000113875]]
+wrote benchmarks/motor_shape_gradient/design/runs/cost_L0_h45_tol1e-8.json
+L0 h45 rel_tol 1e-14: forward 0.664 s, full gradient 0.748 s (1.13 forwards), 2x12 FD forwards 6.333 s (9.53 forwards); gradient / FD 0.118
+gradient parts [forward, adjoint, velocities, contractions] per repeat: [[0.653129917, 0.093759042, 0.000504041, 0.000116208], [0.6652082500000001, 0.092583333, 0.000446417, 0.000112042], [0.64786621, 0.089961125, 0.00045325, 0.000114208]]
+wrote benchmarks/motor_shape_gradient/design/runs/cost_L0_h45_tol1e-14.json
+L0 conforming rel_tol 1e-8: forward 0.531 s, full gradient 0.614 s (1.15 forwards), 2x12 FD forwards 4.280 s (8.06 forwards); gradient / FD 0.143
+gradient parts [forward, adjoint, velocities, contractions] per repeat: [[0.5290274589999999, 0.083712583, 0.000411208, 0.0001095], [0.530591917, 0.084561292, 0.000531458, 0.000119917], [0.524329334, 0.080960959, 0.000632084, 0.000107916]]
+wrote benchmarks/motor_shape_gradient/design/runs/cost_L0_conforming_tol1e-8.json
+L0 conforming rel_tol 1e-14: forward 0.648 s, full gradient 0.731 s (1.13 forwards), 2x12 FD forwards 6.123 s (9.44 forwards); gradient / FD 0.119
+gradient parts [forward, adjoint, velocities, contractions] per repeat: [[0.6485630019999999, 0.08134775, 0.000415417, 0.000105958], [0.6434022490000001, 0.086333417, 0.000486083, 0.000120292], [0.634236247, 0.083208916, 0.000464333, 0.000109709]]
+wrote benchmarks/motor_shape_gradient/design/runs/cost_L0_conforming_tol1e-14.json
+L1 h45 rel_tol 1e-8: forward 2.402 s, full gradient 2.866 s (1.19 forwards), 2x12 FD forwards 20.591 s (8.57 forwards); gradient / FD 0.139
+gradient parts [forward, adjoint, velocities, contractions] per repeat: [[2.4161821260000003, 0.4471665, 0.0016845, 0.000346], [2.4428906240000003, 0.453521125, 0.001663083, 0.000353083], [2.407932874, 0.441214667, 0.001667625, 0.000343209]]
+wrote benchmarks/motor_shape_gradient/design/runs/cost_L1_h45_tol1e-8.json
+L1 h45 rel_tol 1e-14: forward 3.174 s, full gradient 3.658 s (1.15 forwards), 2x12 FD forwards 29.637 s (9.34 forwards); gradient / FD 0.123
+gradient parts [forward, adjoint, velocities, contractions] per repeat: [[3.1935896269999997, 0.463841584, 0.001757458, 0.000360375], [3.1969384169999997, 0.447074959, 0.001654625, 0.0003445], [3.2143060819999993, 0.44140375, 0.0015915, 0.000363584]]
+wrote benchmarks/motor_shape_gradient/design/runs/cost_L1_h45_tol1e-14.json
+L1 conforming rel_tol 1e-8: forward 2.588 s, full gradient 2.981 s (1.15 forwards), 2x12 FD forwards 21.104 s (8.15 forwards); gradient / FD 0.141
+gradient parts [forward, adjoint, velocities, contractions] per repeat: [[2.5577631650000003, 0.405399458, 0.001550041, 0.00033], [2.562239542, 0.416210708, 0.001548166, 0.000340917], [2.701665958, 0.463456708, 0.001579833, 0.000324875]]
+wrote benchmarks/motor_shape_gradient/design/runs/cost_L1_conforming_tol1e-8.json
+L1 conforming rel_tol 1e-14: forward 3.450 s, full gradient 3.915 s (1.13 forwards), 2x12 FD forwards 30.366 s (8.80 forwards); gradient / FD 0.129
+gradient parts [forward, adjoint, velocities, contractions] per repeat: [[3.3615934569999997, 0.4887245, 0.001591917, 0.000348084], [3.47966596, 0.432795333, 0.001558958, 0.000343], [3.50541229, 0.440867834, 0.00165875, 0.000327542]]
+wrote benchmarks/motor_shape_gradient/design/runs/cost_L1_conforming_tol1e-14.json
+L2 h45 rel_tol 1e-8: forward 9.648 s, full gradient 11.568 s (1.20 forwards), 2x12 FD forwards 76.138 s (7.89 forwards); gradient / FD 0.152
+gradient parts [forward, adjoint, velocities, contractions] per repeat: [[9.749630375999999, 1.805208583, 0.00921925, 0.001217083]]
+wrote benchmarks/motor_shape_gradient/design/runs/cost_L2_h45_tol1e-8.json
+L2 h45 rel_tol 1e-14: forward 12.702 s, full gradient 14.644 s (1.15 forwards), 2x12 FD forwards 116.687 s (9.19 forwards); gradient / FD 0.125
+gradient parts [forward, adjoint, velocities, contractions] per repeat: [[12.910354334, 1.720995792, 0.008932917, 0.001314]]
+wrote benchmarks/motor_shape_gradient/design/runs/cost_L2_h45_tol1e-14.json
+L2 conforming rel_tol 1e-8: forward 13.787 s, full gradient 16.204 s (1.18 forwards), 2x12 FD forwards 99.854 s (7.24 forwards); gradient / FD 0.162
+gradient parts [forward, adjoint, velocities, contractions] per repeat: [[14.039359040999997, 2.15086775, 0.009183333, 0.00121625]]
+wrote benchmarks/motor_shape_gradient/design/runs/cost_L2_conforming_tol1e-8.json
+L2 conforming rel_tol 1e-14: forward 16.717 s, full gradient 18.874 s (1.13 forwards), 2x12 FD forwards 145.051 s (8.68 forwards); gradient / FD 0.130
+gradient parts [forward, adjoint, velocities, contractions] per repeat: [[16.681958081, 2.178523958, 0.008949084, 0.001217542]]
+wrote benchmarks/motor_shape_gradient/design/runs/cost_L2_conforming_tol1e-14.json
+ 4:17  up 7 days, 17:06, 10 users, load averages: 23.81 23.69 38.68

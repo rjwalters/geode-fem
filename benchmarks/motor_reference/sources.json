@@ -1,0 +1,144 @@
+{
+  "repository": "https://github.com/MichaelWiesheu/ICEMsnapshot",
+  "commit": "b145aaf4ab1a6424828bc941eaf172f48fa0d458",
+  "files": [
+    {
+      "path": "readme.md",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/readme.md",
+      "bytes": 2147,
+      "sha256": "f474bbe2c07a3f83af47349b33145fd683d935f204613642aeec689d0824ddb3"
+    },
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/LICENSE",
+      "bytes": 35149,
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    },
+    {
+      "path": "material/softmagnetic/M_27.m",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/material/softmagnetic/M_27.m",
+      "bytes": 1368,
+      "sha256": "6e012723e98f2e9724ec017230060aaf697da029156bbeecb6c001247f46ed85"
+    },
+    {
+      "path": "material/Mat_Magnetic.m",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/material/Mat_Magnetic.m",
+      "bytes": 5713,
+      "sha256": "79619c2451085d9461ca213defcf3af4a036d738a5291f5eaaea7ddd5250118f"
+    },
+    {
+      "path": "material/magnet/NdFeB_Br14.m",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/material/magnet/NdFeB_Br14.m",
+      "bytes": 465,
+      "sha256": "09633e145c0aa8b5f55c4fa18e0a673eaa217d295bcf47b6352440598f5c6f61"
+    },
+    {
+      "path": "material/basic/Mat_Iron.m",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/material/basic/Mat_Iron.m",
+      "bytes": 405,
+      "sha256": "95d1d7aee7237429ddd04385e5a1a2f4631b80babea33461b34c586d477abf33"
+    },
+    {
+      "path": "geometries/PSMS/PMSM_rotor1.m",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/geometries/PSMS/PMSM_rotor1.m",
+      "bytes": 7546,
+      "sha256": "f5f9ebb91862bd180cb43bb0f7e6108775791d71751d7f173893fc5d88dfe3e7"
+    },
+    {
+      "path": "geometries/PSMS/PMSM_stator1.m",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/geometries/PSMS/PMSM_stator1.m",
+      "bytes": 9192,
+      "sha256": "214ecbc1163a52204a3385fdb8433ea03f065b96dbcd0862889090da26ed516b"
+    },
+    {
+      "path": "geometries/PSMS/PMSM_constraints1.m",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/geometries/PSMS/PMSM_constraints1.m",
+      "bytes": 4327,
+      "sha256": "3baab2a0e0f03fe8b35f641eea080c6ec47eed3516b346d510f54ebcc205c435"
+    },
+    {
+      "path": "results/PMSM_eval_init.m",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/results/PMSM_eval_init.m",
+      "bytes": 7672,
+      "sha256": "a6b6da66cdf42cf8f57254e108b984ea8b453b45fbbde3932f0287a61e2a2aea"
+    },
+    {
+      "path": "results/PMSM_eval_opt.m",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/results/PMSM_eval_opt.m",
+      "bytes": 7414,
+      "sha256": "eabb602f6bc645829633c22f700e565e91dc22c5934192152477bfcbbb71fc6e"
+    },
+    {
+      "path": "results/PMSM_optimization_nonlin.m",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/results/PMSM_optimization_nonlin.m",
+      "bytes": 4870,
+      "sha256": "e5af86dd3e6d71f85eeeb1b798ae803efc77a8b2691d9ad86d5bf84f1787f5f0"
+    },
+    {
+      "path": "results/PMSM_torque_profiles.m",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/results/PMSM_torque_profiles.m",
+      "bytes": 1093,
+      "sha256": "36746126876577f988ebfa0115ed3c28ef31983259e5b4c6cbeb784803362c9d"
+    },
+    {
+      "path": "results/TorqueData.csv",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/results/TorqueData.csv",
+      "bytes": 1115,
+      "sha256": "589e5f2bb86030fe453714919ec765b5e8edef6cc253678f3f079dc2a9fcef23"
+    },
+    {
+      "path": "classes/MotorSimulation.m",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/classes/MotorSimulation.m",
+      "bytes": 117998,
+      "sha256": "0db5c3d67feefa1fbd6e7b6856b82d6317f152734fb71982a3a7b50bb8e3e16f"
+    },
+    {
+      "path": "classes/MotorOptimizationFull.m",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/classes/MotorOptimizationFull.m",
+      "bytes": 107593,
+      "sha256": "de54968b42911dab0f6a95d18b56dd53ec1e1508a1827c96415faadf961551e4"
+    },
+    {
+      "path": "results/InitTorques.mat",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/results/InitTorques.mat",
+      "bytes": 827,
+      "sha256": "e121e0b24276339e4c3d7418fee2c8527c94e1d507bdc8521fff942c8133f487"
+    },
+    {
+      "path": "results/OptTorques.mat",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/results/OptTorques.mat",
+      "bytes": 800,
+      "sha256": "581e1bc57f4ae999390522920793fa0813613aa7a6989d2a0233e456c8d2ba70"
+    },
+    {
+      "path": "results/plots/final/OptimizationHistory.mat",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/results/plots/final/OptimizationHistory.mat",
+      "bytes": 53657973,
+      "sha256": "ef0f1c3d21399daeda0da75f77fd1d587b34f64f676a0bcab2b94fe0c32c1a56"
+    },
+    {
+      "path": "results/plots/final/RotorOpt0.txt",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/results/plots/final/RotorOpt0.txt",
+      "bytes": 17293,
+      "sha256": "94a138061df5bc05a388a1361bc07f871af135bedb04dc1190262bbf1668a15b"
+    },
+    {
+      "path": "results/plots/final/StatorOpt0.txt",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/results/plots/final/StatorOpt0.txt",
+      "bytes": 115279,
+      "sha256": "9a082d9015640fc150bad70430e3d2b1b2ee31ee6a43547674c4a4e5055a85d3"
+    },
+    {
+      "path": "results/plots/final/RotorOpt120.txt",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/results/plots/final/RotorOpt120.txt",
+      "bytes": 17293,
+      "sha256": "508172e87e08328b35448af06d94f29ce4bc65f33a7c5fe5457f609a67c1e697"
+    },
+    {
+      "path": "results/plots/final/StatorOpt120.txt",
+      "url": "https://raw.githubusercontent.com/MichaelWiesheu/ICEMsnapshot/b145aaf4ab1a6424828bc941eaf172f48fa0d458/results/plots/final/StatorOpt120.txt",
+      "bytes": 115279,
+      "sha256": "8cee68a7e9df906c6823db4513a42cf412f7eb4fab9e785644e0582909c43b5b"
+    }
+  ]
+}

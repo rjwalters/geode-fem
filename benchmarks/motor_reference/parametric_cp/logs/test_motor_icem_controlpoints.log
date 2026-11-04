@@ -1,0 +1,73 @@
+   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core)
+   Compiling geode-util v0.8.0 (/Volumes/Stripe/geode-fem/issue-1179/crates/geode-util)
+    Finished `release` profile [optimized] target(s) in 1m 00s
+     Running tests/motor_icem_controlpoints.rs (/Volumes/Stripe/cargo-target-1179/release/deps/motor_icem_controlpoints-3c4e4db1350d1ac4)
+
+running 7 tests
+55 control points vs iteration-0 export: max deviation 6.502e-16 m
+test control_points_match_the_initial_export ... ok
+CPR1 : offset -1.383650541953e-3 m in [-1.5e-3, 0.0e0], residual 4.822e-16 m
+CPR2 : offset -1.499825554409e-3 m in [-1.5e-3, 0.0e0], residual 6.346e-16 m
+CPR3 : offset -9.999722849086e-4 m in [-1.0e-3, 0.0e0], residual 4.644e-16 m
+CPR4 : offset -7.771495844952e-4 m in [-1.5e-3, 0.0e0], residual 2.346e-16 m
+CPR5 : offset -3.996591966339e-4 m in [-1.5e-3, 0.0e0], residual 2.506e-16 m
+CPR6 : offset -1.911315412650e-4 m in [-1.5e-3, 0.0e0], residual 2.103e-16 m
+CPR7 : offset -1.048389871364e-8 m in [-1.5e-3, 0.0e0], residual 3.860e-16 m
+CPS1 : offset +1.323135568378e-8 m in [0.0e0, 5.0e-4], residual 5.791e-16 m
+CPS2 : offset +5.893668755087e-8 m in [0.0e0, 5.0e-4], residual 6.877e-16 m
+CPS3 : offset +1.495664803291e-7 m in [0.0e0, 5.0e-4], residual 4.457e-16 m
+iteration-0 export: largest fitted offset 3.799e-16 m
+test opt120_offsets_fit_to_round_off_within_bounds ... ok
+initial   export -> control-point construction: max 6.748e-16 m over 35 region pairs (rotor surface 3.350e-16 m)
+optimized export -> control-point construction: max 6.145e-16 m over 35 region pairs (rotor surface 1.241e-16 m)
+test construction_reproduces_both_exports_to_round_off ... ok
+L0: 947 boundary nodes (77 at curve ends), 2206 free, 16 sliding edge pairs, max attach distance 7.557e-16 m, 122 curves
+test attaches_l0_and_reproduces_it_at_theta0 ... ok
+full iteration-120 design on L0: MotionQuality { min_angle_deg: 12.428580811867798, max_angle_deg: 138.34405866734502, min_area_ratio: 0.21757166077070864, max_area_ratio: 3.803270177876552, inverted: 0 }
+edge pair 111/112 after motion: max |R(60) x_lo - x_hi| = 4.725e-16 m
+edge pair 113/114 after motion: max |R(60) x_lo - x_hi| = 7.152e-16 m
+initial MAG  : max |dX/dtheta| 1.0000e0, max |FD - dual| / max 5.61e-12
+initial MH   : max |dX/dtheta| 1.0000e0, max |FD - dual| / max 5.10e-12
+initial MW   : max |dX/dtheta| 5.0000e-1, max |FD - dual| / max 1.83e-12
+initial SW1  : max |dX/dtheta| 8.0744e-1, max |FD - dual| / max 2.42e-9
+initial SW2  : max |dX/dtheta| 5.0016e-1, max |FD - dual| / max 2.26e-9
+initial SW3  : max |dX/dtheta| 1.0814e0, max |FD - dual| / max 7.11e-11
+initial SW4  : max |dX/dtheta| 1.0038e0, max |FD - dual| / max 1.17e-11
+initial SD1  : max |dX/dtheta| 5.0191e-1, max |FD - dual| / max 9.97e-13
+initial Sr1  : max |dX/dtheta| 1.0913e0, max |FD - dual| / max 6.15e-11
+242 coupling, 366 tag-4 and 388 tag-5 nodes checked over 19 Jacobian columns at 2 designs and 12 position sets
+initial CPR1 : max |dX/dtheta| 1.0000e0, max |FD - dual| / max 4.77e-12
+test coupling_never_moves_and_gap_bands_move_only_with_their_side ... ok
+initial CPR2 : max |dX/dtheta| 4.9759e-1, max |FD - dual| / max 9.61e-12
+initial CPR3 : max |dX/dtheta| 1.0000e0, max |FD - dual| / max 5.90e-12
+test opt120_moves_l0_validly_and_round_trips ... ok
+initial CPR4 : max |dX/dtheta| 6.6784e-1, max |FD - dual| / max 8.10e-12
+initial CPR5 : max |dX/dtheta| 7.4822e-1, max |FD - dual| / max 7.19e-12
+initial CPR6 : max |dX/dtheta| 7.4947e-1, max |FD - dual| / max 7.76e-12
+initial CPR7 : max |dX/dtheta| 9.9891e-1, max |FD - dual| / max 4.47e-12
+initial CPS1 : max |dX/dtheta| 1.0000e0, max |FD - dual| / max 6.97e-12
+initial CPS2 : max |dX/dtheta| 4.9988e-1, max |FD - dual| / max 1.35e-11
+initial CPS3 : max |dX/dtheta| 1.0000e0, max |FD - dual| / max 6.93e-12
+opt120  MAG  : max |dX/dtheta| 1.0000e0, max |FD - dual| / max 6.06e-12
+opt120  MH   : max |dX/dtheta| 1.0000e0, max |FD - dual| / max 1.25e-11
+opt120  MW   : max |dX/dtheta| 5.0000e-1, max |FD - dual| / max 1.40e-12
+opt120  SW1  : max |dX/dtheta| 7.3992e-1, max |FD - dual| / max 4.08e-10
+opt120  SW2  : max |dX/dtheta| 5.0003e-1, max |FD - dual| / max 6.37e-10
+opt120  SW3  : max |dX/dtheta| 1.0671e0, max |FD - dual| / max 8.05e-10
+opt120  SW4  : max |dX/dtheta| 1.0038e0, max |FD - dual| / max 1.03e-11
+opt120  SD1  : max |dX/dtheta| 5.0191e-1, max |FD - dual| / max 8.99e-13
+opt120  Sr1  : max |dX/dtheta| 1.0913e0, max |FD - dual| / max 2.90e-11
+opt120  CPR1 : max |dX/dtheta| 1.0000e0, max |FD - dual| / max 7.47e-12
+opt120  CPR2 : max |dX/dtheta| 4.9759e-1, max |FD - dual| / max 9.28e-12
+opt120  CPR3 : max |dX/dtheta| 1.0000e0, max |FD - dual| / max 6.31e-12
+opt120  CPR4 : max |dX/dtheta| 6.6784e-1, max |FD - dual| / max 6.77e-12
+opt120  CPR5 : max |dX/dtheta| 7.4822e-1, max |FD - dual| / max 1.01e-11
+opt120  CPR6 : max |dX/dtheta| 7.4947e-1, max |FD - dual| / max 6.49e-12
+opt120  CPR7 : max |dX/dtheta| 9.9891e-1, max |FD - dual| / max 5.55e-12
+opt120  CPS1 : max |dX/dtheta| 1.0000e0, max |FD - dual| / max 9.28e-12
+opt120  CPS2 : max |dX/dtheta| 4.9982e-1, max |FD - dual| / max 1.39e-11
+opt120  CPS3 : max |dX/dtheta| 1.0000e0, max |FD - dual| / max 7.21e-12
+test jacobian_matches_central_differences ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+

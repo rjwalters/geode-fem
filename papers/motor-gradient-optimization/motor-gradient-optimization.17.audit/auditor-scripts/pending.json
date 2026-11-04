@@ -1,0 +1,20 @@
+{
+  "check": "pending_marker",
+  "version_dir": "motor-gradient-optimization.17",
+  "body_path": "main.tex",
+  "markers": [
+    {
+      "source": "zenodo-doi",
+      "raw": "[PENDING zenodo-doi]",
+      "line": 508,
+      "suppressed": false
+    }
+  ],
+  "outstanding_sources": [
+    "zenodo-doi"
+  ],
+  "suppressed_count": 0,
+  "expected_sources": [],
+  "resolved_sources": [],
+  "pass": false
+}

@@ -1,0 +1,91 @@
+{
+  "evidence_commit": "581ee7ad40c9646f43e0d6df3de7b5a87d06f798",
+  "upstream_commit": "b145aaf4ab1a6424828bc941eaf172f48fa0d458",
+  "files": [
+    {
+      "source": "benchmarks/motor_reference/reference_data.json",
+      "snapshot": "figures/src/data/reference_data.json",
+      "sha256": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/summary.json",
+      "snapshot": "figures/src/data/summary.json",
+      "sha256": "774fc9ce84ea238ae550a8a5e16d4a5fbe315b62b0cc0b66af91f69291448b84"
+    },
+    {
+      "source": "benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L0.msh",
+      "snapshot": "figures/src/data/icem_initial_sector_L0.msh",
+      "sha256": "4d0124a292ffb657fb6caaf3d86d2cd7ef7b88c87033971d9c2807cc8a205e41"
+    },
+    {
+      "source": "benchmarks/motor_nonlinear_m1/README.md",
+      "snapshot": "figures/src/data/README.md",
+      "sha256": "34b4d626d08117b49e80394201914589b9b83ff11b3ea5d4061fd8b0fe8cf247"
+    },
+    {
+      "source": "benchmarks/motor_nonlinear_m1/m1_tables.log",
+      "snapshot": "figures/src/data/m1_tables.log",
+      "sha256": "ccc86e29142f0a809c8fecc022ec15772d6047d86c48dc9da3f41953ee0d07a3"
+    },
+    {
+      "source": "benchmarks/motor_nonlinear_m1/pchip_compare.json",
+      "snapshot": "figures/src/data/pchip_compare.json",
+      "sha256": "e6b37555d930635d9dddb48119db26368963f6683115201e6b4d1cc7451e6e4e"
+    },
+    {
+      "source": "benchmarks/motor_optimization_screen/slotless_screen.json",
+      "snapshot": "figures/src/data/slotless_screen.json",
+      "sha256": "6f417be6e7ab1e259ff8f6360b4697dd44d3444cc6515ceeceac8c9ceadf0a30"
+    },
+    {
+      "source": "benchmarks/motor_reference/UPSTREAM_LICENSE.txt",
+      "snapshot": "figures/src/data/UPSTREAM_LICENSE.txt",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L2_table_default_exact.json",
+      "snapshot": "figures/src/data/L2_table_default_exact.json",
+      "sha256": "9bb4763c54fb98e70b6dd041c1a0bd609d9364982fbc0b9dbba545eec7d3c9dc"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L3_table_default_mesh.json",
+      "snapshot": "figures/src/data/L3_table_default_mesh.json",
+      "sha256": "badbdd84493a4b6551594b6e12eab8d3074bc722f79a55f0a3924944e62ec25f"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L2_clamp426_default_mesh.json",
+      "snapshot": "figures/src/data/L2_clamp426_default_mesh.json",
+      "sha256": "d9da0b05954e61ef17c76c29791ac5d08168e0083e7ece798431e60e1fc8af07"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L2_table_tight_mesh.json",
+      "snapshot": "figures/src/data/L2_table_tight_mesh.json",
+      "sha256": "f385f71720b6d6888d7983b970a7e66b4fdcdd3f8bb57047b65388fcb1fadbd4"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L0_table_default_mesh.json",
+      "snapshot": "figures/src/data/L0_table_default_mesh.json",
+      "sha256": "e5bd1aa84c5f21726f810209d4e948810ae06c08b121f020d3dce3ee26a1e2db"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L3_clamp426_default_mesh.json",
+      "snapshot": "figures/src/data/L3_clamp426_default_mesh.json",
+      "sha256": "32a92d87a767699a64f77436a7a454356607d820d02bc4a316b64a643f1bfd6a"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L2_table_default_mesh.json",
+      "snapshot": "figures/src/data/L2_table_default_mesh.json",
+      "sha256": "ef172728055e2474be27bd86a21f6d717b3e8546ce842f88c68423013ec1300b"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L3_table_tight_mesh.json",
+      "snapshot": "figures/src/data/L3_table_tight_mesh.json",
+      "sha256": "0982893ccb9e5ab3e56811931fa1555f99476917371b8ba54b2a1499be8eac8b"
+    },
+    {
+      "source": "benchmarks/motor_reference/forward/runs/L1_table_default_mesh.json",
+      "snapshot": "figures/src/data/L1_table_default_mesh.json",
+      "sha256": "77b9939baf4f9e6dab91d6b9be2f45481cd47f6b2a852ee983a8bc62e2c832ac"
+    }
+  ]
+}

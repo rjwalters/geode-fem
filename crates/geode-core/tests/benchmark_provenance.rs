@@ -133,6 +133,14 @@ const fn e(path: &'static str, required: &'static [&'static str], how: &'static 
 const D_TRACKING: &str = "issue #692 allowlist — regenerate on an f64 backend via \
      geode_util::fixture::BackendInfo, then promote this entry to bucket A";
 
+/// Regeneration of one #1085 UPML-ladder run (`<shell>_sigma<s>.toml`): the
+/// shell mesh from its YAML, then the dense sweep with σ₀ overridden.
+const LADDER_REGEN: &str = "python3 reference/gmsh/generate_patch_fixture.py --max-edges 200000 \
+     reference/gmsh/<shell>.yaml <dir>/<shell>.msh && PATCH_CONFORMAL_SIGMA_0=<s> \
+     PATCH_CONFORMAL_SWEEP_GHZ=list:2.24,2.26,2.27,2.28,2.29,2.30,2.31,2.32,2.33,2.36,2.40,2.4835 \
+     PATCH_CONFORMAL_OUT=benchmarks/patch_antenna_conformal/upml_ladder/<shell>_sigma<s>.toml \
+     cargo run -p geode-core --release --example patch_conformal_2g4_baseline -- <dir>/<shell>.msh";
+
 /// Classification of every committed `benchmarks/**/*.toml` (issue #692).
 const MANIFEST: &[Entry] = &[
     // ---- Bucket A: Burn-backed, f64 provenance trio required ------------
@@ -155,6 +163,121 @@ const MANIFEST: &[Entry] = &[
         "benchmarks/transmon_coupling/results.toml",
         "cargo run -p geode-core --release --example transmon_coupling_g (issue #1078; reads the \
          committed Palace cells of reference/fixtures/transmon_palace/results_coupling_1078/)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_crosscheck/results.toml",
+        "cargo run -p geode-core --release --example transmon_devicelayout_crosscheck (issue \
+         #1092, assemble mode; reads the geode_runs/ records and the committed Palace cells of \
+         reference/fixtures/transmon_palace/results_crosscheck_1092/)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_crosscheck/geode_runs/initial_h.toml",
+        "GEODE_SOLVE_MESH=<initial_o1.msh> GEODE_SOLVE_LABEL=initial_h GEODE_SIGMA_GHZ=5.0 cargo \
+         run -p geode-core --release --example transmon_devicelayout_crosscheck (issue #1092; \
+         mesh from reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_crosscheck/geode_runs/initial_h2.toml",
+        "GEODE_SOLVE_MESH=<initial_r1.msh> GEODE_SOLVE_LABEL=initial_h2 GEODE_SIGMA_GHZ=5.0 \
+         cargo run -p geode-core --release --example transmon_devicelayout_crosscheck (issue \
+         #1092; 94 GB peak, run on an AWS r8g.8xlarge)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_crosscheck/geode_runs/final_h.toml",
+        "GEODE_SOLVE_MESH=<final_o1.msh> GEODE_SOLVE_LABEL=final_h GEODE_SIGMA_GHZ=4.0 cargo run \
+         -p geode-core --release --example transmon_devicelayout_crosscheck (issue #1092)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_crosscheck/geode_runs/final_h2.toml",
+        "GEODE_SOLVE_MESH=<final_r1.msh> GEODE_SOLVE_LABEL=final_h2 GEODE_SIGMA_GHZ=4.0 cargo run \
+         -p geode-core --release --example transmon_devicelayout_crosscheck (issue #1092; 136 GB \
+         peak, run on an AWS r8g.8xlarge)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/results.toml",
+        "cargo run -p geode-core --release --example transmon_devicelayout_optimize (issue #1092 \
+         part 2, assemble mode; reads runs/, ladder_<tag>/geode_runs/ and the Palace cells of \
+         reference/fixtures/transmon_palace/results_optimize_1092/)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/calibC_650.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/calibL_5000.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/calibL_5250.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/cv1_at.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/cv2_at.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/dl0.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/dl1.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/dl2.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/dl3.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/runs/fd_initial.toml",
+        "python3 -I benchmarks/transmon_devicelayout_optimize/driver.py (issue #1092 part 2; \
+         examples/transmon_devicelayout_optimize.rs solve mode on the AWS worker, mesh from \
+         reference/julia/generate_transmon_param.jl)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/ladder_cv1/geode_runs/cv1_h.toml",
+        "benchmarks/transmon_devicelayout_optimize/ladder.sh cv1 (issue #1092 part 2; \
+         examples/transmon_devicelayout_crosscheck.rs solve mode on the AWS worker)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/ladder_cv1/geode_runs/cv1_h2.toml",
+        "benchmarks/transmon_devicelayout_optimize/ladder.sh cv1 (issue #1092 part 2; \
+         examples/transmon_devicelayout_crosscheck.rs solve mode on the AWS worker)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/ladder_cv2/geode_runs/cv2_h.toml",
+        "benchmarks/transmon_devicelayout_optimize/ladder.sh cv2 (issue #1092 part 2; \
+         examples/transmon_devicelayout_crosscheck.rs solve mode on the AWS worker)",
+    ),
+    a(
+        "benchmarks/transmon_devicelayout_optimize/ladder_cv2/geode_runs/cv2_h2.toml",
+        "benchmarks/transmon_devicelayout_optimize/ladder.sh cv2 (issue #1092 part 2; \
+         examples/transmon_devicelayout_crosscheck.rs solve mode on the AWS worker)",
     ),
     a(
         "benchmarks/transmon_loop_inductance/results.toml",
@@ -244,10 +367,369 @@ const MANIFEST: &[Entry] = &[
          geode-core --release --example patch_conformal_2g4_baseline -- \
          <dir>/patch_conformal_L1.msh",
     ),
+    // #1085 (conformal v5 E2): per-level dip / FD artifacts of the mesh-refinement study.
+    // L2 / L3 are regenerated from YAML (sha256 pinned in tests/patch_conformal_convergence.rs);
+    // L3 and p = 2 on L1 were run one geometry at a time (PATCH_CONFORMAL_GEOMS) and merged.
+    // L0 is regenerated too (gmsh 4.15; reproduces the committed L0 sha256): the loader needs the
+    // `<stem>.flat.msh` companion, which is not committed (.gitignore, #1084).
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/dip_L0.toml",
+        "python3 reference/gmsh/generate_patch_fixture.py reference/gmsh/patch_conformal_L0.yaml \
+         <dir>/patch_conformal_L0.msh && cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L0.msh",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/dip_L1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_convergence -- dip \
+         <dir>/patch_conformal_L1.msh",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/dip_L2.toml",
+        "python3 reference/gmsh/generate_patch_fixture.py --max-edges 500000 \
+         reference/gmsh/patch_conformal_L2.yaml <dir>/patch_conformal_L2.msh && cargo run -p \
+         geode-core --release --example patch_conformal_convergence -- dip \
+         <dir>/patch_conformal_L2.msh",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/dip_L3.toml",
+        "python3 reference/gmsh/generate_patch_fixture.py --max-edges 1000000 \
+         reference/gmsh/patch_conformal_L3.yaml <dir>/patch_conformal_L3.msh && for g in flat \
+         bent; do PATCH_CONFORMAL_GEOMS=$g PATCH_CONFORMAL_DIP_SCAN=2.26,2.36,6 \
+         PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p \
+         geode-core --release --example patch_conformal_convergence -- dip \
+         <dir>/patch_conformal_L3.msh --out <dir>/dip_L3_$g.toml; done && cargo run -p geode-core \
+         --release --example patch_conformal_convergence -- merge <dir>/dip_L3_flat.toml \
+         <dir>/dip_L3_bent.toml (about 68 GiB per solve)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/dip_L0_p2.toml",
+        "python3 reference/gmsh/generate_patch_fixture.py reference/gmsh/patch_conformal_L0.yaml \
+         <dir>/patch_conformal_L0.msh && cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L0.msh --p2",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/dip_L1_p2.toml",
+        "for g in flat bent; do PATCH_CONFORMAL_GEOMS=$g PATCH_CONFORMAL_DIP_SCAN=2.34,2.38,5 \
+         PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p \
+         geode-core --release --example patch_conformal_convergence -- dip \
+         <dir>/patch_conformal_L1.msh --p2 --out <dir>/dip_L1_p2_$g.toml; done && cargo run -p \
+         geode-core --release --example patch_conformal_convergence -- merge \
+         <dir>/dip_L1_p2_flat.toml <dir>/dip_L1_p2_bent.toml (about 132 GiB per solve)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/split/dip_L3_flat.toml",
+        "PATCH_CONFORMAL_GEOMS=flat PATCH_CONFORMAL_DIP_SCAN=2.26,2.36,6 PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 \
+         PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L3.msh (one-geometry \
+         input of convergence/dip_L3.toml; about 68 GiB per solve)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/split/dip_L3_bent.toml",
+        "PATCH_CONFORMAL_GEOMS=bent PATCH_CONFORMAL_DIP_SCAN=2.26,2.36,6 PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 \
+         PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L3.msh (one-geometry \
+         input of convergence/dip_L3.toml; about 68 GiB per solve)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/split/dip_L1_p2_flat.toml",
+        "PATCH_CONFORMAL_GEOMS=flat PATCH_CONFORMAL_DIP_SCAN=2.34,2.38,5 PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 \
+         PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L1.msh --p2 (one-geometry \
+         input of convergence/dip_L1_p2.toml; about 132 GiB per solve)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/split/dip_L1_p2_bent.toml",
+        "PATCH_CONFORMAL_GEOMS=bent PATCH_CONFORMAL_DIP_SCAN=2.34,2.38,5 PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 \
+         PATCH_CONFORMAL_FIXED_GHZ=2.40,2.4835 cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- dip <dir>/patch_conformal_L1.msh --p2 (one-geometry \
+         input of convergence/dip_L1_p2.toml; about 132 GiB per solve)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/fd_L0.toml",
+        "python3 reference/gmsh/generate_patch_fixture.py reference/gmsh/patch_conformal_L0.yaml \
+         <dir>/patch_conformal_L0.msh && cargo run -p geode-core --release --example \
+         patch_conformal_convergence -- fd <dir>/patch_conformal_L0.msh",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/fd_L1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_convergence -- fd \
+         <dir>/patch_conformal_L1.msh",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/convergence/fd_L2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_convergence -- fd \
+         <dir>/patch_conformal_L2.msh",
+    ),
+    // #1085: the UPML sigma_0 x shell ladder on L1 — one dense flat / bent sweep of
+    // patch_conformal_2g4_baseline per (shell, sigma_0) on the 12-point list grid.
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_sigma0.5.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_sigma1.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_sigma2.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_sigma4.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_sigma8.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_sigma25.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml5_sigma0.5.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml5_sigma1.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml5_sigma2.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml5_sigma4.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml5_sigma8.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml5_sigma25.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml40_sigma0.5.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml40_sigma1.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml40_sigma2.toml",
+        LADDER_REGEN,
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/upml_ladder/patch_conformal_L1_pml40_sigma4.toml",
+        LADDER_REGEN,
+    ),
+    // Nested-DOF ladder of the curved conformal 2.4 GHz patch (#1087).
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L0_gap_1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         crates/geode-core/tests/fixtures/patch_conformal_L0.msh --radial 1x1 --outline 0 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label gap_1 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L0_gap_4.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         crates/geode-core/tests/fixtures/patch_conformal_L0.msh --radial 2x2 --outline 0 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label gap_4 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L0_gap_16.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         crates/geode-core/tests/fixtures/patch_conformal_L0.msh --radial 4x4 --outline 0 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label gap_16 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L0_gap_48.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         crates/geode-core/tests/fixtures/patch_conformal_L0.msh --radial 8x6 --outline 0 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label gap_48 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L0_outline_16.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         crates/geode-core/tests/fixtures/patch_conformal_L0.msh --radial 0 --outline 4 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label outline_16 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L0_combined_64.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         crates/geode-core/tests/fixtures/patch_conformal_L0.msh --radial 8x6 --outline 4 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label combined_64 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L1_gap_1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 1x1 --outline 0 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label gap_1 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L1_gap_4.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 2x2 --outline 0 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label gap_4 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L1_gap_16.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 4x4 --outline 0 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label gap_16 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L1_gap_48.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 8x6 --outline 0 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label gap_48 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L1_outline_16.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 0 --outline 4 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label outline_16 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L1_combined_64.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 8x6 --outline 4 --n-band 5 --verify-n 9 \
+         --max-steps 60 --label combined_64 (issue #1087 nested-DOF ladder)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L2_combined_64_cold.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L2.msh --radial 8x6 --outline 4 --label combined_64_cold (issue #1103 L2 re-optimization)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L2_combined_64_warm.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L2.msh --radial 8x6 --outline 4 --label combined_64_warm --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L1_combined_64.toml (issue #1103 L2 re-optimization)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/L2_gap_48_warm.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L2.msh --radial 8x6 --outline 0 --label gap_48_warm --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L1_gap_48.toml (issue #1103 L2 re-optimization)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/initial_on_L1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 1x1 --outline 0 --wide-step 0 --verify-only \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/initial_on_L2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L2.msh --radial 1x1 --outline 0 --wide-step 0 --verify-only \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/initial_on_L3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L3.msh --radial 1x1 --outline 0 --wide-step 0 --verify-only \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/initial_on_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 1x1 --outline 0 --p2 --wide-step 0 --verify-only \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_combined_64_on_L0.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L0.msh --radial 8x6 --outline 4 --wide-step 0 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L1_combined_64.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_combined_64_on_L1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 8x6 --outline 4 --wide-step 0 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L1_combined_64.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_combined_64_on_L2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L2.msh --radial 8x6 --outline 4 --wide-step 0 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L1_combined_64.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_combined_64_on_L3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L3.msh --radial 8x6 --outline 4 --wide-step 0 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L1_combined_64.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_combined_64_on_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 8x6 --outline 4 --p2 --wide-step 0 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L1_combined_64.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L1_gap_48_on_L1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 8x6 --outline 0 --wide-step 0 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L1_gap_48.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L2_combined_64_cold_on_L3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L3.msh --radial 8x6 --outline 4 --wide-step 0.05 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L2_combined_64_cold.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L2_combined_64_cold_on_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 8x6 --outline 4 --p2 --wide-step 0.05 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L2_combined_64_cold.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L2_combined_64_warm_on_L3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L3.msh --radial 8x6 --outline 4 --wide-step 0.05 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L2_combined_64_warm.toml \
+         (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/nested_dof/verify/L2_combined_64_warm_on_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture \
+         <dir>/patch_conformal_L1.msh --radial 8x6 --outline 4 --p2 --wide-step 0 --verify-only --design \
+         benchmarks/patch_antenna_conformal/nested_dof/L2_combined_64_warm.toml \
+         (issue #1103 gate G2 verification)",
+    ),
     // ---- Bucket B: exempt, no Burn backend in the numeric path ----------
     b(
         "benchmarks/soi_waveguide/results.toml",
         "examples/soi_waveguide has no burn dependency (#687 audit)",
+    ),
+    b(
+        "benchmarks/transmon_eigen/palace_crack/fixture_crack_edges.toml",
+        "stdlib Python mesh analysis, no burn dependency: \
+         python3 benchmarks/transmon_eigen/palace_crack/palace_crack_edges.py \
+         crates/geode-core/tests/fixtures/transmon_smoke.msh 5",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/upml_ladder_L1.toml",
+        "patch_conformal_convergence ladder: post-processing of the bucket-A upml_ladder/*.toml \
+         runs (no solve; carries generated_at_commit)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/convergence.toml",
+        "patch_conformal_convergence aggregate: post-processing of the bucket-A convergence/*.toml \
+         and baseline artifacts (no solve; carries generated_at_commit)",
     ),
     b(
         "benchmarks/step_index_fiber/results.toml",
@@ -319,6 +801,12 @@ const MANIFEST: &[Entry] = &[
          sapphire-tensor f64 P1 and P2 electrostatic assembly + AMG-PCG on host CSR, f64 \
          Raviart-Thomas patch equilibration (faer dense) and a Crouzeix-Raviart solve \
          (assembly::electrostatic_dual), no Backend generic",
+    ),
+    b(
+        "benchmarks/transmon_diffopt/c_sigma_bracket_grounded_box.toml",
+        "examples/transmon_c_sigma_bracket.rs (BRACKET_PART=grounded_box, issue #1145): scalar and \
+         sapphire-tensor f64 P1 and P2 electrostatic assembly + AMG-PCG on host CSR, natural and \
+         grounded outer box, no lower-bound solve, no Backend generic",
     ),
     b(
         "benchmarks/transmon_diffopt/refined_optimization/p2_cycles10/summary.toml",
@@ -560,6 +1048,505 @@ const MANIFEST: &[Entry] = &[
         "hand-transcribed from summarize.py over runs/2026-10-07_lambda_a100/raw \
          (Palace-GPU vs Palace-CPU vs geode CPU f64, Lambda A100); \
          record meta.measured_date and software.palace_commit",
+    ),
+    e(
+        "benchmarks/transmon_devicelayout_controls/results.toml",
+        &["meta.measured_date", "meta.palace_commit"],
+        "python3 -I benchmarks/transmon_devicelayout_controls/assemble.py (issues #1123, #1129, #1135, #1145; reads the \
+         Palace cells of reference/fixtures/transmon_palace/results_controls_1123/, \
+         results_controls_1129/, results_controls_1135/ and results_controls_1145/ written by driver.py, prima_driver.jl, ladder_palace.sh and \
+         worker_amr.sh on AWS, plus the committed #1079/#1092 artifacts). Palace runs only, no Burn backend and no new geode solve (the one \
+         geode-derived input is #1111's transmission-line delta), so it carries \
+         meta.measured_date and meta.palace_commit instead of the mechanical trio",
+    ),
+    // Issue #1120: copper-only design on the fixed 1.6 mm board.
+    a(
+        "benchmarks/patch_antenna_conformal/copper/L0_copper_38.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L0.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38 (issue #1120 copper optimization)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/L0_copper_38_fd.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L0.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.05 --label copper_38_fd --fd-only (issue #1120 FD gate)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/L1_copper_38.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38 (issue #1120 copper optimization)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/L1_copper_38_fd.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.05 --label copper_38_fd --fd-only (issue #1120 FD gate)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/L2_copper_38.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L2.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38 (issue #1120 copper optimization)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/L2_copper_38_s30.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L2.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --band-shift 0.03 --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38_s30 (issue #1120 copper optimization)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/rbA_L0_copper_38_warm.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbA_L0.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38_warm --design benchmarks/patch_antenna_conformal/copper/L0_copper_38.toml (issue #1120 copper optimization)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/rbB_L1_copper_38_sm48.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbB_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --band-shift 0.04785 --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38_sm48 --design benchmarks/patch_antenna_conformal/copper/rbB_L1_copper_38_warm.toml (issue #1120 copper optimization)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/rbB_L1_copper_38_warm.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbB_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38_warm --design benchmarks/patch_antenna_conformal/copper/L1_copper_38.toml (issue #1120 copper optimization)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/rbC_L2_copper_38_sm29.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbC_L2.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --band-shift 0.02933 --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38_sm29 --design benchmarks/patch_antenna_conformal/copper/L2_copper_38_s30.toml (issue #1120 copper optimization)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbD_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --band-shift 0.04494 --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38_sm45 --design benchmarks/patch_antenna_conformal/copper/rbB_L1_copper_38_sm48.toml (issue #1120 copper optimization)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/L0_copper_38_on_rbA_L0.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbA_L0.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --verify-only --verify-n 9 --wide-step 0.025 --design benchmarks/patch_antenna_conformal/copper/L0_copper_38.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/L1_copper_38_on_L1_dense0of1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --verify-only --verify-n 0 --wide-step 0 --dense 2.3:2.6:61 --design benchmarks/patch_antenna_conformal/copper/L1_copper_38.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/L1_copper_38_on_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --verify-only --p2 --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/copper/L1_copper_38.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/L2_copper_38_s30_on_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --verify-only --p2 --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/copper/L2_copper_38_s30.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/L2_copper_38_s30_on_L2_dense0of1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L2.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --verify-only --verify-n 0 --wide-step 0 --dense 2.3:2.6:31 --design benchmarks/patch_antenna_conformal/copper/L2_copper_38_s30.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/L2_copper_38_s30_on_L3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L3.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --verify-only --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/copper/L2_copper_38_s30.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/L2_copper_38_s30_on_rbC_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbC_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --verify-only --p2 --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/copper/L2_copper_38_s30.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/rbB_L1_copper_38_sm48_on_rbB_L1_dense0of1.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbB_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --verify-only --verify-n 0 --wide-step 0 --dense 2.3:2.6:61 --design benchmarks/patch_antenna_conformal/copper/rbB_L1_copper_38_sm48.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/rbB_L1_copper_38_sm48_on_rbB_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbB_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --verify-only --p2 --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/copper/rbB_L1_copper_38_sm48.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/rbC_L2_copper_38_sm29_on_rbE_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbE_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --verify-only --p2 --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/copper/rbC_L2_copper_38_sm29.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/rbC_L2_copper_38_sm29_on_rbE_L1_p2_dense0of2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbE_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --verify-only --p2 --verify-n 0 --wide-step 0 --dense 2.35:2.55:21 --shard 0/2 --design benchmarks/patch_antenna_conformal/copper/rbC_L2_copper_38_sm29.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/rbC_L2_copper_38_sm29_on_rbE_L1_p2_dense1of2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbE_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --verify-only --p2 --verify-n 0 --wide-step 0 --dense 2.35:2.55:21 --shard 1/2 --design benchmarks/patch_antenna_conformal/copper/rbC_L2_copper_38_sm29.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/rbC_L2_copper_38_sm29_on_rbE_L3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbE_L3.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --verify-only --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/copper/rbC_L2_copper_38_sm29.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/rbD_L1_copper_38_sm45_on_rbD_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbD_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --verify-only --p2 --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/rbD_L1_copper_38_sm45_on_rbD_L1_p2_dense0of3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbD_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --verify-only --p2 --verify-n 0 --wide-step 0 --dense 2.3:2.6:41 --shard 0/3 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/rbD_L1_copper_38_sm45_on_rbD_L1_p2_dense1of3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbD_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --verify-only --p2 --verify-n 0 --wide-step 0 --dense 2.3:2.6:41 --shard 1/3 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/rbD_L1_copper_38_sm45_on_rbD_L1_p2_dense2of3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbD_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --verify-only --p2 --verify-n 0 --wide-step 0 --dense 2.3:2.6:41 --shard 2/3 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/rbD_L1_copper_38_sm45_on_rbD_L3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbD_L3.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --verify-only --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/rbD_L1_copper_38_sm45_on_rbD_L3_cyl.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbD_L3.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --air-on-cylinder --verify-only --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/rbD_L1_copper_38_sm45_on_rbD_L3_cyl_dense0of3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbD_L3.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --air-on-cylinder --verify-only --verify-n 0 --wide-step 0 --dense 2.3:2.6:41 --shard 0/3 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/rbD_L1_copper_38_sm45_on_rbD_L3_cyl_dense1of3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbD_L3.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --air-on-cylinder --verify-only --verify-n 0 --wide-step 0 --dense 2.3:2.6:41 --shard 1/3 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/rbD_L1_copper_38_sm45_on_rbD_L3_cyl_dense2of3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbD_L3.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --air-on-cylinder --verify-only --verify-n 0 --wide-step 0 --dense 2.3:2.6:41 --shard 2/3 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1120 verification)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/copper/verify/rbD_L1_copper_38_sm45_on_rbF_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbF_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --feed-support-legacy --rebase-feed --verify-only --p2 --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1120 verification)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/copper/g2_summary.toml",
+        "copper_g2.py: post-processing of the bucket-A copper/verify/*.toml (dense-sweep \
+         bandwidth / ISM coverage of issue #1120); no Burn backend",
+    ),
+    // Issue #1126: antenna v6 experiments (X1-X5).
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x1/dip_L1.toml",
+        "PATCH_CONFORMAL_GEOMS=bent PATCH_CONFORMAL_FIXED_GHZ=2.4,2.4835 PATCH_CONFORMAL_DIP_SCAN=2.2,2.38,7 PATCH_CONFORMAL_DIP_TOL_MHZ=0.2 cargo run -p geode-core --release --example patch_conformal_convergence -- dip <dir>/patch_conformal_L1.msh (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x1/dip_x1comb_L1.toml",
+        "PATCH_CONFORMAL_GEOMS=bent PATCH_CONFORMAL_FIXED_GHZ=2.4 PATCH_CONFORMAL_DIP_SCAN=2.33,2.43,6 PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 cargo run -p geode-core --release --example patch_conformal_convergence -- dip <dir>/patch_conformal_x1comb_L1.msh (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x1/dip_x1rim020_L1.toml",
+        "PATCH_CONFORMAL_GEOMS=bent PATCH_CONFORMAL_FIXED_GHZ=2.4 PATCH_CONFORMAL_DIP_SCAN=2.31,2.41,6 PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 cargo run -p geode-core --release --example patch_conformal_convergence -- dip <dir>/patch_conformal_x1rim020_L1.msh (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x1/dip_x1rim040_L1.toml",
+        "PATCH_CONFORMAL_GEOMS=bent PATCH_CONFORMAL_FIXED_GHZ=2.4,2.4835 PATCH_CONFORMAL_DIP_SCAN=2.2,2.38,7 PATCH_CONFORMAL_DIP_TOL_MHZ=0.2 cargo run -p geode-core --release --example patch_conformal_convergence -- dip <dir>/patch_conformal_x1rim040_L1.msh (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x1/dip_x1sub030_L1.toml",
+        "PATCH_CONFORMAL_GEOMS=bent PATCH_CONFORMAL_FIXED_GHZ=2.4 PATCH_CONFORMAL_DIP_SCAN=2.31,2.41,6 PATCH_CONFORMAL_DIP_TOL_MHZ=0.5 cargo run -p geode-core --release --example patch_conformal_convergence -- dip <dir>/patch_conformal_x1sub030_L1.msh (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x1/dip_x1sub040_L1.toml",
+        "PATCH_CONFORMAL_GEOMS=bent PATCH_CONFORMAL_FIXED_GHZ=2.4,2.4835 PATCH_CONFORMAL_DIP_SCAN=2.2,2.38,7 PATCH_CONFORMAL_DIP_TOL_MHZ=0.2 cargo run -p geode-core --release --example patch_conformal_convergence -- dip <dir>/patch_conformal_x1sub040_L1.msh (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x1/dip_x1sub053_L1.toml",
+        "PATCH_CONFORMAL_GEOMS=bent PATCH_CONFORMAL_FIXED_GHZ=2.4,2.4835 PATCH_CONFORMAL_DIP_SCAN=2.2,2.38,7 PATCH_CONFORMAL_DIP_TOL_MHZ=0.2 cargo run -p geode-core --release --example patch_conformal_convergence -- dip <dir>/patch_conformal_x1sub053_L1.msh (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x1/palace/initial_on_L1_mesh.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --verify-only --verify-n 0 --wide-step 0 --write-mesh <out>.msh (issue #1126)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/v6/x1/palace_summary.toml",
+        "palace_ingest.py: Palace (MFEM, no Burn backend) driven sweeps of the conformal patch, \
+         issue #1126 X1",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x2/rbD_L1_copper_38_sm45_on_rbD_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbD_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --verify-only --verify-n 9 --wide-step 0 --dense 2.3:2.6:41 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x2/rbD_L1_copper_38_sm45_on_rbDflat_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbDflat_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --verify-only --verify-n 9 --wide-step 0 --dense 2.3:2.6:41 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x2/rbD_L1_copper_38_sm45_on_rbDflat_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbDflat_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --verify-only --p2 --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x3/initial_on_L1_radiation.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --verify-only --verify-n 0 --wide-step 0 --radiation 2.29,2.3,2.31,2.32,2.33 (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x3/rbD_L1_copper_38_sm45_on_rbD_L1_radiation.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbD_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --verify-only --verify-n 0 --wide-step 0 --radiation 2.38,2.4,2.42,2.44,2.46,2.4835,2.5 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x3/rbD_L1_copper_38_sm45_on_rbD_L3_radiation.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbD_L3.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --air-on-cylinder --verify-only --verify-n 0 --wide-step 0 --radiation 2.4,2.44,2.4835 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x3/rbD_L1_copper_38_sm45_on_rbDair60_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbDair60_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --verify-only --verify-n 9 --wide-step 0 --radiation 2.4,2.44,2.4835 --dense 2.3:2.6:41 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x3/rbD_L1_copper_38_sm45_on_rbDair80_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbDair80_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --verify-only --verify-n 9 --wide-step 0 --radiation 2.4,2.44,2.4835 --dense 2.3:2.6:41 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x4/L1_copper_38_cma114.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --gradient-free 114 --cma-sigma0 0.5 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_38_cma114 (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x4/L1_copper_38_cma190_s2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --gradient-free 190 --cma-sigma0 0.5 --cma-seed 2 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_38_cma190_s2 (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x4/L1_copper_38_cma190_s3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --gradient-free 190 --cma-sigma0 0.5 --cma-seed 3 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_38_cma190_s3 (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x4/L1_copper_rect4_sm45.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --feed --rect4 --band-shift 0.04494 --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_rect4_sm45 (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x4/rbR_L1_copper_rect4_sm45_rb.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbR_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --feed --rebase-feed --rect4 --band-shift 0.04494 --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_rect4_sm45_rb --design benchmarks/patch_antenna_conformal/v6/x4/L1_copper_rect4_sm45.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x4/rbR_L1_copper_rect4_sm45_rb_on_rbR_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbR_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --feed --rebase-feed --rect4 --verify-only --verify-n 9 --wide-step 0 --dense 2.3:2.6:41 --design benchmarks/patch_antenna_conformal/v6/x4/rbR_L1_copper_rect4_sm45_rb.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x4/rbR_L1_copper_rect4_sm45_rb_on_rbR_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbR_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --feed --rebase-feed --rect4 --verify-only --p2 --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/v6/x4/rbR_L1_copper_rect4_sm45_rb.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x5/rbD_L1_copper_38_sm45_on_rbG_L1_frozen.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.3:2.6:41 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x5/rbD_L1_copper_38_sm45_on_rbH_L1_frozen.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbH_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.3:2.6:41 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x5/rbG_L1_copper_38_sm45_w16.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --band-shift 0.04494 --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38_sm45_w16 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x5/rbG_L1_copper_38_sm45_w16_on_rbG_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --radiation 2.4,2.44,2.4835 --dense 2.3:2.6:41 --design benchmarks/patch_antenna_conformal/v6/x5/rbG_L1_copper_38_sm45_w16.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x5/rbG_L1_copper_38_sm45_w16_on_rbG_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --p2 --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/v6/x5/rbG_L1_copper_38_sm45_w16.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x5/rbH_L1_copper_38_sm45_w127.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbH_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --band-shift 0.04494 --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38_sm45_w127 --design benchmarks/patch_antenna_conformal/copper/rbD_L1_copper_38_sm45.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/x5/rbH_L1_copper_38_sm45_w127_on_rbH_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbH_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --p2 --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/v6/x5/rbH_L1_copper_38_sm45_w127.toml (issue #1126)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/palace_loop/L1_copper_38_pcma190_sd.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --gradient-free 190 --cma-sigma0 0.5 --cma-seed 18858188808230 --label copper_38_pcma190_sd --palace-eval benchmarks/patch_antenna_conformal/scripts/palace_band_eval.py --palace-workdir <dir> (issue #1130; needs the palace:cpu image of reference/palace/docker/)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/palace_loop/L1_copper_38_pcma190_s2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --gradient-free 190 --cma-sigma0 0.5 --cma-seed 2 --label copper_38_pcma190_s2 --palace-eval benchmarks/patch_antenna_conformal/scripts/palace_band_eval.py --palace-workdir <dir> (issue #1130; needs the palace:cpu image of reference/palace/docker/)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/palace_loop/L1_copper_38_pcma190_s3.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --gradient-free 190 --cma-sigma0 0.5 --cma-seed 3 --label copper_38_pcma190_s3 --palace-eval benchmarks/patch_antenna_conformal/scripts/palace_band_eval.py --palace-workdir <dir> (issue #1130; needs the palace:cpu image of reference/palace/docker/)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/v6/palace_loop/L1_copper_38_pnewuoa190.toml",
+        "palace_loop_prima.py: PRIMA NEWUOA (Fortran, no Burn backend) driving Palace (MFEM, \
+         no Burn backend) through patch_conformal_nested_dof --eval-server --palace-eval, which \
+         supplies only the mesh morph and the volume guard; issue #1130",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/palace_loop/costs_geode_r6i.toml",
+        "python3 benchmarks/patch_antenna_conformal/scripts/palace_loop_xeval.py --exe <target>/release/examples/patch_conformal_nested_dof --out <out> --solver geode --repeat-x0 3 --grad --design NAME=TOML ... -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --band-shift 0 --n-band 5 --beta 25 --verify-n 9 (issue #1130)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/v6/palace_loop/costs_palace_r6i.toml",
+        "palace_loop_xeval.py --solver palace: Palace (MFEM, no Burn backend) band evaluations \
+         and their wall time; geode supplies only the mesh morph; issue #1130",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/v6/palace_loop/cross_geode_on_palace_designs.toml",
+        "python3 benchmarks/patch_antenna_conformal/scripts/palace_loop_xeval.py --exe <target>/release/examples/patch_conformal_nested_dof --out <out> --solver geode --design NAME=v6/palace_loop/L1_*.toml ... -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --band-shift 0 --n-band 5 --beta 25 --verify-n 9 (issue #1130)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/v6/palace_loop/palace_loop_summary.toml",
+        "palace_loop_summary.py: post-processing of v6/palace_loop/*.toml, v6/x4/*.toml and \
+         copper/L1_copper_38.toml (issue #1130); no Burn backend",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/v6/v6_summary.toml",
+        "v6_summary.py: post-processing of the bucket-A v6/**/*.toml and copper/verify/*.toml \
+         (issue #1126); no Burn backend",
+    ),
+    // Issue #1134: the copper design re-centred on the refined forward model.
+    b(
+        "benchmarks/patch_antenna_conformal/recentre/palace_summary.toml",
+        "palace_ingest.py: Palace (MFEM, no Burn backend) driven sweeps of the re-centred \
+         design, issue #1134",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm54_w16.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --band-shift 0.0536 --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38_sm54_w16 --design benchmarks/patch_antenna_conformal/v6/x5/rbG_L1_copper_38_sm45_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm54_w16_on_rbG_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.3:2.6:41 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm54_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm54_w16_on_rbGrim020_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbGrim020_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.37:2.52:31 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm54_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --band-shift 0.057 --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38_sm57_w16 --design benchmarks/patch_antenna_conformal/v6/x5/rbG_L1_copper_38_sm45_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16_on_rbG_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.3:2.6:41 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16_on_rbG_L1_p2.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --p2 --verify-n 9 --wide-step 0 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16_on_rbGcomb_L1_cyl_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbGcomb_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --air-on-cylinder --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.39:2.395:2 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16_on_rbGcomb_L1_cyl_edge_hi.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbGcomb_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --air-on-cylinder --freeze-feed-width --verify-only --verify-n 0 --wide-step 0 --dense 2.4885:2.4935:2 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16_on_rbGcomb_L1_default_morph_inverted.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbGcomb_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.39:2.395:2 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16_on_rbGrim020_L1_cyl_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbGrim020_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --air-on-cylinder --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.37:2.52:31 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1134)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16_on_rbGrim020_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbGrim020_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.37:2.52:31 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1134)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/recentre/recentre_summary.toml",
+        "recentre_summary.py: post-processing of the bucket-A recentre/*.toml (issue #1134); \
+         no Burn backend",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_14_cma190_sig15_s11.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 2 --filter-radius 0 --copper --corners 6 --feed --gradient-free 190 --cma-sigma0 1.5 --cma-seed 11 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_14_cma190_sig15_s11 (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_14_cma190_sig15_s12.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 2 --filter-radius 0 --copper --corners 6 --feed --gradient-free 190 --cma-sigma0 1.5 --cma-seed 12 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_14_cma190_sig15_s12 (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_14_cma190_sig15_s13.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 2 --filter-radius 0 --copper --corners 6 --feed --gradient-free 190 --cma-sigma0 1.5 --cma-seed 13 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_14_cma190_sig15_s13 (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_14_cold.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 2 --filter-radius 0 --copper --corners 6 --feed --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_14_cold (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_14_newuoa190_npt16.toml",
+        "python3 benchmarks/patch_antenna_conformal/scripts/palace_loop_prima.py --exe <target>/release/examples/patch_conformal_nested_dof --budget 190 --method NEWUOA --rhobeg 0.5 --rhoend 0.001 --npt 16 --issue 1147 --label copper_14_newuoa190_npt16 --out <out> -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --filter-radius 0 --copper --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --outline 2 --corners 6 --feed (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_14_newuoa190_npt29.toml",
+        "python3 benchmarks/patch_antenna_conformal/scripts/palace_loop_prima.py --exe <target>/release/examples/patch_conformal_nested_dof --budget 190 --method NEWUOA --rhobeg 0.5 --rhoend 0.001 --npt 29 --issue 1147 --label copper_14_newuoa190_npt29 --out <out> -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --filter-radius 0 --copper --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --outline 2 --corners 6 --feed (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_38_cma1000_sig15_s11.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --gradient-free 1000 --cma-sigma0 1.5 --cma-seed 11 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_38_cma1000_sig15_s11 (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_38_cma190_sig10_s11.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --gradient-free 190 --cma-sigma0 1 --cma-seed 11 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_38_cma190_sig10_s11 (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_38_cma190_sig15_s11.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --gradient-free 190 --cma-sigma0 1.5 --cma-seed 11 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_38_cma190_sig15_s11 (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_38_cma190_sig15_s12.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --gradient-free 190 --cma-sigma0 1.5 --cma-seed 12 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_38_cma190_sig15_s12 (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_38_cma190_sig15_s13.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --gradient-free 190 --cma-sigma0 1.5 --cma-seed 13 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_38_cma190_sig15_s13 (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_38_fcma190_sig05_s11.toml",
+        "python3 benchmarks/patch_antenna_conformal/scripts/cma_loop.py --exe <target>/release/examples/patch_conformal_nested_dof --budget 190 --sigma0 0.5 --seed 11 --label copper_38_fcma190_sig05_s11 --out <out> -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --filter-radius 0 --copper --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --outline 8 --corners 6 --feed (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_38_fcma190_sig15_s11.toml",
+        "python3 benchmarks/patch_antenna_conformal/scripts/cma_loop.py --exe <target>/release/examples/patch_conformal_nested_dof --budget 190 --sigma0 1.5 --seed 11 --label copper_38_fcma190_sig15_s11 --out <out> -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --filter-radius 0 --copper --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --outline 8 --corners 6 --feed (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_38_newuoa190_npt40.toml",
+        "python3 benchmarks/patch_antenna_conformal/scripts/palace_loop_prima.py --exe <target>/release/examples/patch_conformal_nested_dof --budget 190 --method NEWUOA --rhobeg 0.5 --rhoend 0.001 --npt 40 --issue 1147 --label copper_38_newuoa190_npt40 --out <out> -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --filter-radius 0 --copper --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --outline 8 --corners 6 --feed (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_rect4_cma120_sig15_s11.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --feed --rect4 --gradient-free 120 --cma-sigma0 1.5 --cma-seed 11 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_rect4_cma120_sig15_s11 (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_rect4_cma120_sig15_s12.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --feed --rect4 --gradient-free 120 --cma-sigma0 1.5 --cma-seed 12 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_rect4_cma120_sig15_s12 (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_rect4_cma120_sig15_s13.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --feed --rect4 --gradient-free 120 --cma-sigma0 1.5 --cma-seed 13 --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --label copper_rect4_cma120_sig15_s13 (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_rect4_cold.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --feed --rect4 --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_rect4_cold (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_rect4_newuoa120_npt6.toml",
+        "python3 benchmarks/patch_antenna_conformal/scripts/palace_loop_prima.py --exe <target>/release/examples/patch_conformal_nested_dof --budget 120 --method NEWUOA --rhobeg 0.5 --rhoend 0.001 --npt 6 --issue 1147 --label copper_rect4_newuoa120_npt6 --out <out> -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --filter-radius 0 --copper --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --outline 8 --feed --rect4 (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/L1_copper_rect4_newuoa120_npt9.toml",
+        "python3 benchmarks/patch_antenna_conformal/scripts/palace_loop_prima.py --exe <target>/release/examples/patch_conformal_nested_dof --budget 120 --method NEWUOA --rhobeg 0.5 --rhoend 0.001 --npt 9 --issue 1147 --label copper_rect4_newuoa120_npt9 --out <out> -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --filter-radius 0 --copper --band-shift 0 --n-band 5 --beta 25 --verify-n 9 --outline 8 --feed --rect4 (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/b5/rbG_L1_copper_38_sm57_w16_on_rbG_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.3:2.6:41 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/b5/rbG_L1_copper_38_sm57_w16_on_rbGair60_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbGair60_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.3:2.6:41 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1147)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/tuned/b5/rbG_L1_copper_38_sm57_w16_on_rbGair80_L1_dense.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbGair80_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 9 --wide-step 0 --dense 2.3:2.6:41 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1147)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/tuned/tuned_summary.toml",
+        "tuned_summary.py: post-processing of the bucket-A tuned/*.toml and the 38-DOF \
+         references (issue #1147); no Burn backend",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/recentre/rim_edges.toml",
+        "rim_edge_stats.py: mesh geometry of the moved meshes (issue #1134); no solve",
+    ),
+    // Issue #1148: design C characterization and the FD-gradient control.
+    a(
+        "benchmarks/patch_antenna_conformal/designc/c2/rbG_L1_copper_38_sm57_w16_on_rbG_L1_radiation.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbG_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --freeze-feed-width --verify-only --verify-n 0 --wide-step 0 --radiation 2.343,2.363875,2.38475,2.405625,2.4265,2.38,2.4,2.42,2.44,2.46,2.4835,2.5 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1148)",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/designc/c2/rbG_L1_copper_38_sm57_w16_on_rbGrim020_L1_cyl_radiation.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_rbGrim020_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --air-on-cylinder --freeze-feed-width --verify-only --verify-n 0 --wide-step 0 --radiation 2.4,2.42,2.44,2.46,2.4835 --design benchmarks/patch_antenna_conformal/recentre/rbG_L1_copper_38_sm57_w16.toml (issue #1148)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/designc/c3/palace_summary.toml",
+        "palace_ingest.py: Palace (MFEM, no Burn backend) p = 2 driven sweep of design C on its \
+         0.2 mm-rim mesh, issue #1148",
+    ),
+    a(
+        "benchmarks/patch_antenna_conformal/designc/c4/L1_copper_38_fdgrad.toml",
+        "cargo run -p geode-core --release --example patch_conformal_nested_dof -- --fixture <dir>/patch_conformal_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --n-band 5 --beta 25 --max-steps 60 --verify-n 9 --wide-step 0.025 --label copper_38_fdgrad --fd-gradient --fd-jobs 8 --max-solves 2500 (issue #1148)",
+    ),
+    b(
+        "benchmarks/patch_antenna_conformal/designc/designc_summary.toml",
+        "designc_summary.py: post-processing of the bucket-A designc/**/*.toml, the Palace \
+         eigenmode CSVs under designc/c1/ and the v6 / recentre / copper references (issue \
+         #1148); no Burn backend",
     ),
 ];
 

@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "source_commit": "b145aaf4ab1a6424828bc941eaf172f48fa0d458",
+  "scope": "Facts and implementation readings from the pinned ICEM source and stored data. No forward solve, GEODE mesh, shape derivative or independent convergence study has been completed.",
+  "geometry": {
+    "sources": ["geometries/PSMS/PMSM_rotor1.m", "geometries/PSMS/PMSM_stator1.m", "results/PMSM_optimization_nonlin.m", "results/plots/final/OptimizationHistory.mat"],
+    "poles": 6,
+    "pole_pairs": 3,
+    "full_machine_slots": 36,
+    "modeled_sector_degrees": 60,
+    "modeled_slots": 6,
+    "sector_orientation_at_zero_degrees": [60, 120],
+    "initial_rotor_outer_radius_m": 0.044,
+    "initial_rotor_inner_radius_m": 0.016,
+    "initial_stator_inner_radius_m": 0.045,
+    "initial_stator_outer_radius_m": 0.0675,
+    "initial_air_gap_m": 0.001,
+    "initial_circular_coupling_radius_m": 0.0445,
+    "initial_axial_length_m": 0.1,
+    "parameter_units": "Lengths in meters, OPERATING_ANGLE in degrees, ScaleR dimensionless. Theta1 and Theta2 in the rotor generator are radians.",
+    "default_conflicts": "Stator generator has SW3=0.00064 and Sr1=0.0012 m, but the optimization registration and history iteration 0 use both as 0.001 m. Reconstruct from saved geometry exports and history, not generator defaults alone.",
+    "geometry_export_interpretation": "GeoPDEs multipatch NURBS data. Evaluation scripts multiply exported x/y control coefficients by ScaleR; the exports are unscaled. Optimized geometry includes shape-control motion not represented by the 12 scalar parameters.",
+    "readiness": "Initial/final NURBS export files are hash-pinned and retrievable; no independent GEODE geometry conversion is implemented."
+  },
+  "materials": {
+    "iron": "M27 H(B) points in reference_data.json, 47 pairs in tesla and A/m; 2000 is the source linear initialization relative permeability, not its nonlinear law.",
+    "magnet_Br_T": 1.4,
+    "magnet_relative_recoil_permeability": 1.05,
+    "magnet_patch_one_based": 8,
+    "magnet_orientation_in_rotor_frame_radians": 1.5707963267948966,
+    "magnet_source": "addRemanenceRotor computes Hc=Br/(mu0*mu_r), with direction (cos(angle),sin(angle)); angle pi/2 points along +y in the zero-angle geometry. This is a remanence/coercive-field convention, not Br/mu0 physical magnetization.",
+    "air_and_copper_relative_permeability": 1.0,
+    "iron_interpolation": "Mat_Magnetic.fitHBspline uses MATLAB pchip(B,H). The tangent must differentiate the interpolation actually used in the residual.",
+    "positive_tangent_condition": "For H_vec=nu(s)*B_vec, s=|B|^2, the tangent eigenvalues are nu(s) and nu(s)+2*s*nu'(s)=dH/d|B|. Both must be positive; nu'(s) need not be nonnegative.",
+    "origin_and_tail_caveat": "Source getMu clamps B<=1e-5 T, whereas getNuPrime clamps only B<=0. The >2.3 T tail has vacuum slope 1/mu0, which need not match the last PCHIP derivative. A globally smooth GEODE law must explicitly document any difference and quantify its effect; do not silently copy an inconsistent clamp into a claimed exact tangent.",
+    "sources": ["material/softmagnetic/M_27.m", "material/Mat_Magnetic.m", "material/magnet/NdFeB_Br14.m", "classes/MotorSimulation.m"]
+  },
+  "excitation": {
+    "winding_turns": 12,
+    "phase_offsets_radians": {"U": 0.0, "V": -2.0943951023931953, "W": 2.0943951023931953},
+    "current_convention": "Instantaneous phase current I_q=I_peak*sin(phi0+3*beta+phase_offset_q), beta mechanical radians; source API takes beta and phi0 in degrees. Amplitudes are peak, not RMS.",
+    "current_density_rule": "Each group's signed current density is I_q*12*sign/area_group. Patch membership and signs are recorded in reference_data.json. Area must be computed from the matching geometry.",
+    "initial_reference_peak_current_A": 9.677657374172274,
+    "optimized_reference_peak_current_A": 11.57569753783308,
+    "levels": [0.0, 0.5, 1.0],
+    "initial_load_angle_degrees": 0.0,
+    "optimized_load_angle_degrees": -11.646272734037339,
+    "setup_vs_optimization": "Iapp=10 A in the setup script is not the saved initial full-current case. Optimization sets Jinit=3.2e6 A/m^2 in the first winding group and derives current from its area. Saved evaluation scales history currents by ScaleR; all three arrays are pinned.",
+    "sources": ["classes/MotorSimulation.m::setCurrent", "classes/MotorOptimizationFull.m::optimizationGeneratePhases", "results/PMSM_eval_init.m", "results/PMSM_eval_opt.m"]
+  },
+  "boundaries": {
+    "index_convention": "One-based upstream multipatch boundary identifiers, not GEODE physical tags; mapping still needs reconstruction.",
+    "rotor_dirichlet": [4],
+    "stator_dirichlet": [8, 12, 16, 20, 24, 32],
+    "rotor_coupling": [7, 8, 9, 10, 12],
+    "stator_coupling": [2, 3, 4, 9, 10, 11, 13, 14, 15, 17, 18, 19, 21, 22, 23, 25, 26, 28],
+    "rotor_antiperiodic_pair": [[5, 2, 11], [3, 1, 6]],
+    "stator_antiperiodic_pair": [[27, 29, 30, 31], [1, 5, 6, 7]],
+    "coupling_sine_and_cosine_harmonics": [3, 9, 15, 21, 27, 33, 39, 45],
+    "source": "results/PMSM_optimization_nonlin.m"
+  },
+  "torque": {
+    "source_function": "classes/MotorSimulation.m::calcTorqueCoupling",
+    "formula": "T=-u_stator^T*G_stator*R_beta_derivative*lambda*L; derivative is with respect to mechanical radians.",
+    "rotation_matrix_block": "[[cos(n*beta), sin(n*beta)],[-sin(n*beta),cos(n*beta)]] in the source harmonic coupling; preserve this convention when reproducing torque sign.",
+    "reported_units": "N m for the modeled sector, including axial length. Eval scripts use SymMult=1; no factor of six is applied. Compare the stored sector values directly. A full-machine conversion would require a separate justified factor of six.",
+    "label_caveat": "PMSM_eval_init.m contains a Nm/m plot label, but the function includes L and PMSM_torque_profiles.m labels Nm. Treat the formula and stored normalization as authoritative and record the mismatch.",
+    "saved_profile_grid_mechanical_degrees": "0,1,...,19; TorqueData.csv appends 20 degrees by repeating the first row.",
+    "optimization_grid_mechanical_degrees": "0,2,...,18; a 20-degree waveform period, not a full 120-degree electrical period.",
+    "ripple_definition": "Population standard deviation (normalization N), not sample standard deviation or peak-to-peak percentage. Reference objective sums this over three current levels; our proposed squared-ripple objective is a deliberate later change.",
+    "validation_limits": "Saved output is a reproduction target, not a converged reference or an independently validated GEODE result. Establish spatial and angular error before setting optimization targets."
+  },
+  "geode_law_vs_reference": {
+    "issue": 1160,
+    "solver_commit": "59e5f5c826a0646e4f086ed9ece3d22b529acff4",
+    "law": "geode_core::assembly::magnetostatic_nonlinear::TabulatedBhLaw::from_hb(H, B) on the 47 M27 points.",
+    "law_source_git_blob": "f1fcba27ffeebc1eabe270a2aab0acbc9b5e37fd",
+    "method": "Computed, not inferred: benchmarks/motor_nonlinear_m1/pchip_compare.py implements MATLAB pchip (weighted-harmonic interior slopes, one-sided three-point endpoint slopes with shape-preserving clamps) plus the Mat_Magnetic.m 1e-5 T clamp and 1/mu0 tail, and compares it with GEODE's dense dump (examples/m27_law_dump.rs, 100 samples per table segment, log-spaced 1e-8..1e-3 T, 0.0025 T on the tail). H_ref = nu_ref(B)*B. Maxima are over the dump samples.",
+    "record": "benchmarks/motor_nonlinear_m1/pchip_compare.json",
+    "matlab_pchip_vs_scipy_max_rel_slope": 6.9550628570791235e-15,
+    "interior_0p05_to_2p25_T": {
+      "max_rel_dH": 4.18100136183871e-16,
+      "max_rel_dnu": 4.172583123411395e-16,
+      "note": "Same Fritsch-Butland interior slopes; identical to round-off."
+    },
+    "first_segment_1e-5_to_0p05_T": {
+      "max_rel_dH": 0.0665876894133444,
+      "max_rel_dnu": 0.06658768941334445,
+      "max_at_B_T": 1.2115276586285901e-05,
+      "note": "GEODE odd cubic H=c1 B+c3 B^3 vs pchip endpoint slope 426.04 m/H; GEODE nu(0)=397.6613 m/H, reference nu(B<=1e-5)=426.0321 m/H."
+    },
+    "origin_clamp_0_to_1e-5_T": {
+      "max_rel_dH": 0.06659294950090636,
+      "max_rel_dnu": 0.0665929495009064,
+      "reference_self_tangent_mismatch_max_rel": 2.6653111216258635e-05
+    },
+    "last_segment_2p25_to_2p30_T": {
+      "max_rel_dH": 0.00021705942928338463,
+      "max_rel_dnu": 0.0002170594292833828,
+      "max_rel_d_dHdB": 0.0075284545110698145,
+      "slope_at_2p30_geode": 795774.7154594767,
+      "slope_at_2p30_pchip": 789828.5273200028,
+      "note": "GEODE joins the 1/mu0 tail C1; the reference has a 0.747% dH/dB jump at 2.30 T."
+    },
+    "tail_2p30_to_3p0_T": {
+      "max_rel_dH": 2.4304842891179617e-16,
+      "max_rel_dnu": 3.1960868401901194e-16,
+      "note": "Both H_end + (B - B_end)/mu0 with mu0 = 4 pi 1e-7."
+    },
+    "effect_on_solutions": "Not yet quantified in a motor solve; the differences are confined to B < 0.05 T and 2.25..2.30 T."
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "source_commit": "7cb33708832051099171a135cdc84774662c169e",
+  "scope": "Recorded validation arithmetic/mesh-policy adapter and selector wiring. Not whole-study eligibility or native refinement.",
+  "unit_tests": 20,
+  "mutations_detected": 12,
+  "mutations": [
+    "post_budget_target_credited",
+    "exact_budget_boundary_rejected",
+    "unit_stamp_ignored",
+    "mean_floor_weakened",
+    "guard_normalization_ignored",
+    "guard_exact_instead_of_credit",
+    "mesh_policy_ignored",
+    "fresh_attempt_hash_ignored",
+    "four_attempts_not_required",
+    "current_set_ignored",
+    "objective_aggregate_ignored",
+    "margin_rule_ignored"
+  ],
+  "source_sha256": {
+    "validation_evidence.py": "9433ac3cdaaeb6003ed2fbedd1e52d9eb2b5c2e98d8a634dbd5dd6a1d1f5e982",
+    "geometry_evidence.py": "4366b0e0716a3f8129cd1dbeb609b8c96e0e623d36f04124a3f19ab13dcd5d56",
+    "selection.py": "9a158afc1f5b5e07d6715cfea1eb3968b9d3db452b46bc89428b2d35adc12e2b",
+    "test_validation_evidence.py": "13cbe37e285401cb245f1ea4a7aa8cfc283be4d2cf9537b1aa78ba9d3c0f0edf",
+    "validation_mutations.py": "f22f8e171f152da248630627df09dfa04e7e2eac15eb051eae0655cdbbf6336a"
+  },
+  "native_schema_replay": {
+    "status": "PASS",
+    "retained_smoke_commit": "6f01b4a5617b5b601839fd21e37af264f91fe947",
+    "retained_smoke_sha256": "100c59d45c0a7b5db421ed4136770529409f6312d8407e9ffe683a3c09cd9624",
+    "binary_sha256": "c62c2e4e5249c399b4c073142123b7a23c70bb5e827ca423fd69ee55a4dfd272",
+    "guard_definitions": 11,
+    "result": "theta0 excluded by mean_floor_not_met",
+    "scope": "Replay retained native values with final adapter; charged time, reconciled context and design binding are synthetic. No main optimization/refinement evidence.",
+    "new_FEM_solves": 0
+  },
+  "archive": {
+    "file": "validation_evidence_7cb33708.tar.gz",
+    "sha256": "139c1351b95eff9a38178ebdebfa6ce9c2137a5358f706790e6ffeabeb4428b4",
+    "files": 15,
+    "each_member_verified": true
+  },
+  "limitations": [
+    "Reconciled run context and complete bound design are caller obligations.",
+    "Raw source/runtime/anchor/mesh-file provenance and recovery-chain closure remain pending integration.",
+    "Geometry margin arithmetic is verified; actual geometry is not reconstructed from coordinates by this module.",
+    "Native replay uses retained values; its charged stamp and context/design binding are synthetic.",
+    "Native refinement and independent review remain pending."
+  ]
+}

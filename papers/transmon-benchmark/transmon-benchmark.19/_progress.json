@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-22T09:00:00+00:00",
+      "completed": "2026-10-22T18:00:00+00:00"
+    },
+    "figures": {
+      "state": "done",
+      "completed": "2026-10-22T18:00:00+00:00",
+      "note": "Figures 1-5 redrawn for reader clarity (lens items 4, 6, 8, 13-16); no new data beyond runs/fd_initial.toml's velocity bands"
+    }
+  },
+  "metadata": {
+    "iteration": 19,
+    "max_iterations": 19,
+    "revised_from": 18,
+    "status": "DRAFT",
+    "authorization": "Reader-clarity revision against a pre-read lens of v18 for the new coauthor (a tensor-compiler/ML-systems engineer, not a qubit or EM-FEM specialist), and the operator's coauthor ruling of 2026-10-22. No review score or audit is claimed or carried forward.",
+    "source_paper_commit": "56224d6b (main, transmon-benchmark.18 as merged)",
+    "scope": "v19 = v18 with one terminology pass (element order p, convergence rate r, passes, Palace runs; bound/cap/band); a mesh-inventory table; Figure 1 with c, L, box, strip and the two-node circuit; Figures 2-5 annotated; no derivative credit in abstract, intro or conclusion; the rule disclosure at the first 'consistent'; one denominator for the published gap; Crutcher Dunnavant second author with an author-contributions statement; 20 pages",
+    "pending_dependencies": [
+      "Zenodo DOI at deposit (TODO(operator) in source)",
+      "Crutcher Dunnavant's affiliation ([PENDING coauthor-affiliation] in the author block)",
+      "operator decision on the title (see changelog 'For the operator')",
+      "independent v19 paper reviews (release gate: both >= 40/44)"
+    ],
+    "evidence_snapshot": {
+      "brief_mtime": null,
+      "refs_mtime": null
+    }
+  }
+}

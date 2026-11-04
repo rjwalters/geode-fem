@@ -1,0 +1,374 @@
+\begin{thebibliography}{41}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Arkkio(1987)]{arkkio1987}
+Antero Arkkio.
+\newblock \emph{Analysis of Induction Motors Based on the Numerical Solution of
+  the Magnetic Field and Circuit Equations}.
+\newblock PhD thesis, Helsinki University of Technology, 1987.
+\newblock URL \url{https://aaltodoc.aalto.fi/handle/123456789/2158}.
+
+\bibitem[Arkkio and Hannukainen(2012)]{arkkio2012proper}
+Antero Arkkio and Antti Hannukainen.
+\newblock Proper finite-element discretization for torque computation of cage
+  induction motors.
+\newblock In \emph{2012 International Symposium on Power Electronics,
+  Electrical Drives, Automation and Motion (SPEEDAM)}, pages 1456--1461, 2012.
+\newblock \doi{10.1109/speedam.2012.6264430}.
+\newblock URL \url{https://doi.org/10.1109/speedam.2012.6264430}.
+
+\bibitem[Bontinck et~al.(2018)Bontinck, Corno, Schöps, and
+  De~Gersem]{bontinck2018isogeometric}
+Zeger Bontinck, Jacopo Corno, Sebastian Schöps, and Herbert De~Gersem.
+\newblock Isogeometric analysis and harmonic stator–rotor coupling for
+  simulating electric machines.
+\newblock \emph{Computer Methods in Applied Mechanics and Engineering},
+  334:\penalty0 40--55, 2018.
+\newblock \doi{10.1016/j.cma.2018.01.047}.
+\newblock URL \url{https://doi.org/10.1016/j.cma.2018.01.047}.
+
+\bibitem[Bramerdorfer et~al.(2018)Bramerdorfer, Tapia, Pyrh{\"o}nen, and
+  Cavagnino]{bramerdorfer2018modern}
+Gerd Bramerdorfer, Juan~A. Tapia, Juha~J. Pyrh{\"o}nen, and Andrea Cavagnino.
+\newblock Modern electrical machine design optimization: techniques, trends,
+  and best practices.
+\newblock \emph{IEEE Transactions on Industrial Electronics}, 65\penalty0
+  (10):\penalty0 7672--7684, 2018.
+\newblock \doi{10.1109/TIE.2018.2801805}.
+\newblock URL \url{https://doi.org/10.1109/TIE.2018.2801805}.
+
+\bibitem[de~Falco et~al.(2011)de~Falco, Reali, and
+  V{\'a}zquez]{defalco2011geopdes}
+Carlo de~Falco, Alessandro Reali, and Rafael V{\'a}zquez.
+\newblock {GeoPDEs}: a research tool for isogeometric analysis of {PDEs}.
+\newblock \emph{Advances in Engineering Software}, 42\penalty0 (12):\penalty0
+  1020--1034, 2011.
+\newblock \doi{10.1016/j.advengsoft.2011.06.010}.
+\newblock URL \url{https://doi.org/10.1016/j.advengsoft.2011.06.010}.
+
+\bibitem[De~Gersem and Weiland(2004)]{degersem2004harmonic}
+H.~De~Gersem and T.~Weiland.
+\newblock Harmonic weighting functions at the sliding interface of a
+  finite-element machine model incorporating angular displacement.
+\newblock \emph{IEEE Transactions on Magnetics}, 40\penalty0 (2):\penalty0
+  545--548, 2004.
+\newblock \doi{10.1109/tmag.2004.824616}.
+\newblock URL \url{https://doi.org/10.1109/tmag.2004.824616}.
+
+\bibitem[Dolan and Mor{\'e}(2002)]{dolan2002benchmarking}
+Elizabeth~D. Dolan and Jorge~J. Mor{\'e}.
+\newblock Benchmarking optimization software with performance profiles.
+\newblock \emph{Mathematical Programming}, 91\penalty0 (2):\penalty0 201--213,
+  2002.
+\newblock \doi{10.1007/s101070100263}.
+\newblock URL \url{https://doi.org/10.1007/s101070100263}.
+
+\bibitem[Duan and Ionel(2013)]{duan2013review}
+Yao Duan and Dan~M. Ionel.
+\newblock A review of recent developments in electrical machine design
+  optimization methods with a permanent-magnet synchronous motor benchmark
+  study.
+\newblock \emph{IEEE Transactions on Industry Applications}, 49\penalty0
+  (3):\penalty0 1268--1275, 2013.
+\newblock \doi{10.1109/TIA.2013.2252597}.
+\newblock URL \url{https://doi.org/10.1109/TIA.2013.2252597}.
+
+\bibitem[Eaton et~al.(2026)Eaton, Bateman, Hauberg, and
+  Wehbring]{eaton2026octave}
+John~W. Eaton, David Bateman, S{\o}ren Hauberg, and Rik Wehbring.
+\newblock \emph{{GNU Octave} version 11.3.0 manual: a high-level interactive
+  language for numerical computations}, 2026.
+\newblock URL \url{https://www.gnu.org/software/octave/doc/v11.3.0/}.
+
+\bibitem[Egger et~al.(2022)Egger, Harutyunyan, Löscher, Merkel, and
+  Schöps]{egger2022torque}
+Herbert Egger, Mané Harutyunyan, Richard Löscher, Melina Merkel, and
+  Sebastian Schöps.
+\newblock On torque computation in electric machine simulation by harmonic
+  mortar methods.
+\newblock \emph{Journal of Mathematics in Industry}, 12\penalty0 (1):\penalty0
+  6, 2022.
+\newblock \doi{10.1186/s13362-022-00121-2}.
+\newblock URL \url{https://doi.org/10.1186/s13362-022-00121-2}.
+
+\bibitem[Farshbaf~Roomi et~al.(2022)Farshbaf~Roomi, Vahedi, and
+  Nobahari]{roomi2022}
+Farnam Farshbaf~Roomi, Abolfazl Vahedi, and Amin Nobahari.
+\newblock {Electrical machines surrogate-based design optimization based on
+  novel waveform targeting strategy with improvement of the computational
+  efficiency}.
+\newblock \emph{IET Electric Power Applications}, 16\penalty0 (11):\penalty0
+  1286--1299, 2022.
+\newblock \doi{10.1049/elp2.12226}.
+\newblock URL \url{https://doi.org/10.1049/elp2.12226}.
+
+\bibitem[Gangl et~al.(2015)Gangl, Langer, Laurain, Meftahi, and
+  Sturm]{gangl2015shape}
+Peter Gangl, Ulrich Langer, Antoine Laurain, Houcine Meftahi, and Kevin Sturm.
+\newblock Shape optimization of an electric motor subject to nonlinear
+  magnetostatics.
+\newblock \emph{SIAM Journal on Scientific Computing}, 37\penalty0
+  (6):\penalty0 B1002--B1025, 2015.
+\newblock \doi{10.1137/15100477X}.
+\newblock URL \url{https://doi.org/10.1137/15100477X}.
+
+\bibitem[Geuzaine and Remacle(2009)]{geuzaine2009gmsh}
+Christophe Geuzaine and Jean-Fran{\c{c}}ois Remacle.
+\newblock Gmsh: a 3-{D} finite element mesh generator with built-in pre- and
+  post-processing facilities.
+\newblock \emph{International Journal for Numerical Methods in Engineering},
+  79\penalty0 (11):\penalty0 1309--1331, 2009.
+\newblock \doi{10.1002/nme.2579}.
+\newblock URL \url{https://doi.org/10.1002/nme.2579}.
+
+\bibitem[Giles and Pierce(2000)]{giles2000introduction}
+Michael~B. Giles and Niles~A. Pierce.
+\newblock An introduction to the adjoint approach to design.
+\newblock \emph{Flow, Turbulence and Combustion}, 65\penalty0 (3--4):\penalty0
+  393--415, 2000.
+\newblock \doi{10.1023/A:1011430410075}.
+\newblock URL \url{https://doi.org/10.1023/A:1011430410075}.
+
+\bibitem[Harris et~al.(2020)Harris, Millman, van~der Walt, Gommers, Virtanen,
+  Cournapeau, Wieser, Taylor, Berg, Smith, et~al.]{harris2020array}
+Charles~R. Harris, K.~Jarrod Millman, St{\'e}fan~J. van~der Walt, Ralf Gommers,
+  Pauli Virtanen, David Cournapeau, Eric Wieser, Julian Taylor, Sebastian Berg,
+  Nathaniel~J. Smith, et~al.
+\newblock Array programming with {NumPy}.
+\newblock \emph{Nature}, 585\penalty0 (7825):\penalty0 357--362, 2020.
+\newblock \doi{10.1038/s41586-020-2649-2}.
+\newblock URL \url{https://doi.org/10.1038/s41586-020-2649-2}.
+
+\bibitem[Howe and Zhu(1992)]{howe1992cogging}
+D.~Howe and Z.Q. Zhu.
+\newblock The influence of finite element discretisation on the prediction of
+  cogging torque in permanent magnet excited motors.
+\newblock \emph{IEEE Transactions on Magnetics}, 28\penalty0 (2):\penalty0
+  1080--1083, 1992.
+\newblock \doi{10.1109/20.123869}.
+\newblock URL \url{https://doi.org/10.1109/20.123869}.
+
+\bibitem[Ion et~al.(2018)Ion, Bontinck, Loukrezis, Römer, Lass, Ulbrich,
+  Schöps, and De~Gersem]{ion2018robust}
+Ion~Gabriel Ion, Zeger Bontinck, Dimitrios Loukrezis, Ulrich Römer, Oliver
+  Lass, Stefan Ulbrich, Sebastian Schöps, and Herbert De~Gersem.
+\newblock Robust shape optimization of electric devices based on deterministic
+  optimization methods and finite-element analysis with affine parametrization
+  and design elements.
+\newblock \emph{Electrical Engineering}, 100\penalty0 (4):\penalty0 2635--2647,
+  2018.
+\newblock \doi{10.1007/s00202-018-0716-6}.
+\newblock URL \url{https://doi.org/10.1007/s00202-018-0716-6}.
+
+\bibitem[Kemmetm{\"u}ller et~al.(2015)Kemmetm{\"u}ller, Faustner, and
+  Kugi]{kemmetmueller2015}
+Wolfgang Kemmetm{\"u}ller, David Faustner, and Andreas Kugi.
+\newblock {Optimal torque control of permanent magnet synchronous machines
+  using magnetic equivalent circuits}.
+\newblock \emph{Mechatronics}, 32:\penalty0 22--33, 2015.
+\newblock \doi{10.1016/j.mechatronics.2015.10.007}.
+\newblock URL \url{https://doi.org/10.1016/j.mechatronics.2015.10.007}.
+
+\bibitem[Kenway et~al.(2019)Kenway, Mader, He, and
+  Martins]{kenway2019effective}
+Gaetan K.~W. Kenway, Charles~A. Mader, Ping He, and Joaquim R. R.~A. Martins.
+\newblock Effective adjoint approaches for computational fluid dynamics.
+\newblock \emph{Progress in Aerospace Sciences}, 110:\penalty0 100542, 2019.
+\newblock \doi{10.1016/j.paerosci.2019.05.002}.
+\newblock URL \url{https://doi.org/10.1016/j.paerosci.2019.05.002}.
+
+\bibitem[Kraft(1988)]{kraft1988}
+Dieter Kraft.
+\newblock A software package for sequential quadratic programming.
+\newblock Technical Report DFVLR-FB 88-28, DFVLR, Institut f{\"u}r Dynamik der
+  Flugsysteme, 1988.
+
+\bibitem[Kuci et~al.(2016)Kuci, Henrotte, Duysinx, and Geuzaine]{kuci2016shape}
+Erin Kuci, Fran{\c{c}}ois Henrotte, Pierre Duysinx, and Christophe Geuzaine.
+\newblock Shape and topology optimization of electrical machines using {Lie}
+  derivative-based analytical sensitivity analysis.
+\newblock In \emph{2016 IEEE Conference on Electromagnetic Field Computation
+  (CEFC)}, page~1, 2016.
+\newblock \doi{10.1109/CEFC.2016.7815990}.
+\newblock URL \url{https://doi.org/10.1109/CEFC.2016.7815990}.
+
+\bibitem[Kuci et~al.(2017)Kuci, Henrotte, Duysinx, and
+  Geuzaine]{kuci2017design}
+Erin Kuci, Fran{\c{c}}ois Henrotte, Pierre Duysinx, and Christophe Geuzaine.
+\newblock Design sensitivity analysis for shape optimization based on the {Lie}
+  derivative.
+\newblock \emph{Computer Methods in Applied Mechanics and Engineering},
+  317:\penalty0 702--722, 2017.
+\newblock \doi{10.1016/j.cma.2016.12.036}.
+\newblock URL \url{https://doi.org/10.1016/j.cma.2016.12.036}.
+
+\bibitem[Lei et~al.(2017)Lei, Zhu, Guo, Liu, and Ma]{lei2017review}
+Gang Lei, Jianguo Zhu, Youguang Guo, Chengcheng Liu, and Bo~Ma.
+\newblock A review of design optimization methods for electrical machines.
+\newblock \emph{Energies}, 10\penalty0 (12):\penalty0 1962, 2017.
+\newblock \doi{10.3390/en10121962}.
+\newblock URL \url{https://doi.org/10.3390/en10121962}.
+
+\bibitem[Martins and Hwang(2013)]{martins2013review}
+Joaquim R. R.~A. Martins and John~T. Hwang.
+\newblock Review and unification of methods for computing derivatives of
+  multidisciplinary computational models.
+\newblock \emph{AIAA Journal}, 51\penalty0 (11):\penalty0 2582--2599, 2013.
+\newblock \doi{10.2514/1.J052184}.
+\newblock URL \url{https://doi.org/10.2514/1.J052184}.
+
+\bibitem[McKay et~al.(1979)McKay, Beckman, and Conover]{mckay1979comparison}
+M.~D. McKay, R.~J. Beckman, and W.~J. Conover.
+\newblock A comparison of three methods for selecting values of input variables
+  in the analysis of output from a computer code.
+\newblock \emph{Technometrics}, 21\penalty0 (2):\penalty0 239--245, 1979.
+\newblock \doi{10.1080/00401706.1979.10489755}.
+\newblock URL \url{https://doi.org/10.1080/00401706.1979.10489755}.
+
+\bibitem[Merkel et~al.(2021)Merkel, Gangl, and Schöps]{merkel2021shape}
+Melina Merkel, Peter Gangl, and Sebastian Schöps.
+\newblock Shape optimization of rotating electric machines using isogeometric
+  analysis.
+\newblock \emph{IEEE Transactions on Energy Conversion}, 36\penalty0
+  (4):\penalty0 2683--2690, 2021.
+\newblock \doi{10.1109/tec.2021.3061271}.
+\newblock URL \url{https://doi.org/10.1109/tec.2021.3061271}.
+
+\bibitem[Mor{\'e} and Wild(2009)]{more2009benchmarking}
+Jorge~J. Mor{\'e} and Stefan~M. Wild.
+\newblock Benchmarking derivative-free optimization algorithms.
+\newblock \emph{SIAM Journal on Optimization}, 20\penalty0 (1):\penalty0
+  172--191, 2009.
+\newblock \doi{10.1137/080724083}.
+\newblock URL \url{https://doi.org/10.1137/080724083}.
+
+\bibitem[Mor{\'e} and Wild(2011)]{more2011estimating}
+Jorge~J. Mor{\'e} and Stefan~M. Wild.
+\newblock Estimating computational noise.
+\newblock \emph{SIAM Journal on Scientific Computing}, 33\penalty0
+  (3):\penalty0 1292--1314, 2011.
+\newblock \doi{10.1137/100786125}.
+\newblock URL \url{https://doi.org/10.1137/100786125}.
+
+\bibitem[Mor{\'e} and Wild(2012)]{more2012estimating}
+Jorge~J. Mor{\'e} and Stefan~M. Wild.
+\newblock Estimating derivatives of noisy simulations.
+\newblock \emph{ACM Transactions on Mathematical Software}, 38\penalty0
+  (3):\penalty0 1--21, 2012.
+\newblock \doi{10.1145/2168773.2168777}.
+\newblock URL \url{https://doi.org/10.1145/2168773.2168777}.
+
+\bibitem[Nikolova et~al.(2004)Nikolova, Bandler, and Bakr]{nikolova2004adjoint}
+Natalia~K. Nikolova, John~W. Bandler, and Mohamed~H. Bakr.
+\newblock Adjoint techniques for sensitivity analysis in high-frequency
+  structure {CAD}.
+\newblock \emph{IEEE Transactions on Microwave Theory and Techniques},
+  52\penalty0 (1):\penalty0 403--419, 2004.
+\newblock \doi{10.1109/TMTT.2003.820905}.
+\newblock URL \url{https://doi.org/10.1109/TMTT.2003.820905}.
+
+\bibitem[Park et~al.(1992)Park, Lee, and Hahn]{park1992design}
+Il-Han Park, Beom-Taek Lee, and Song-Yop Hahn.
+\newblock Design sensitivity analysis for nonlinear magnetostatic problems
+  using finite element method.
+\newblock \emph{IEEE Transactions on Magnetics}, 28\penalty0 (2):\penalty0
+  1533--1536, 1992.
+\newblock \doi{10.1109/20.123989}.
+\newblock URL \url{https://doi.org/10.1109/20.123989}.
+
+\bibitem[Peter and Dwight(2010)]{peter2010numerical}
+Jacques E.~V. Peter and Richard~P. Dwight.
+\newblock Numerical sensitivity analysis for aerodynamic optimization: a survey
+  of approaches.
+\newblock \emph{Computers \& Fluids}, 39\penalty0 (3):\penalty0 373--391, 2010.
+\newblock \doi{10.1016/j.compfluid.2009.09.013}.
+\newblock URL \url{https://doi.org/10.1016/j.compfluid.2009.09.013}.
+
+\bibitem[Ragonneau(2022)]{ragonneau2022}
+Tom~M. Ragonneau.
+\newblock \emph{Model-Based Derivative-Free Optimization Methods and Software}.
+\newblock PhD thesis, Department of Applied Mathematics, The Hong Kong
+  Polytechnic University, 2022.
+\newblock URL \url{https://arxiv.org/abs/2210.12018}.
+
+\bibitem[Scotzniovsky et~al.(2025)Scotzniovsky, Xiang, Cheng, Rodriguez,
+  Kamensky, Mi, and Hwang]{scotzniovsky2025}
+Luca Scotzniovsky, Ru~Xiang, Zeyu Cheng, Gabriel Rodriguez, David Kamensky,
+  Chris Mi, and John~T. Hwang.
+\newblock {Geometric design of electric motors using adjoint-based shape
+  optimization}.
+\newblock \emph{Optimization and Engineering}, 26\penalty0 (1):\penalty0
+  121--158, 2025.
+\newblock \doi{10.1007/s11081-024-09892-6}.
+\newblock URL \url{https://doi.org/10.1007/s11081-024-09892-6}.
+
+\bibitem[V{\'a}zquez(2016)]{vazquez2016geopdes}
+Rafael V{\'a}zquez.
+\newblock A new design for the implementation of isogeometric analysis in
+  {Octave} and {Matlab}: {GeoPDEs} 3.0.
+\newblock \emph{Computers \& Mathematics with Applications}, 72\penalty0
+  (3):\penalty0 523--554, 2016.
+\newblock \doi{10.1016/j.camwa.2016.05.010}.
+\newblock URL \url{https://doi.org/10.1016/j.camwa.2016.05.010}.
+
+\bibitem[Virtanen et~al.(2020)Virtanen, Gommers, Oliphant,
+  et~al.]{virtanen2020scipy}
+Pauli Virtanen, Ralf Gommers, Travis~E. Oliphant, et~al.
+\newblock {SciPy} 1.0: fundamental algorithms for scientific computing in
+  {Python}.
+\newblock \emph{Nature Methods}, 17\penalty0 (3):\penalty0 261--272, 2020.
+\newblock \doi{10.1038/s41592-019-0686-2}.
+\newblock URL \url{https://doi.org/10.1038/s41592-019-0686-2}.
+
+\bibitem[Wen and Zahr(2023)]{wen2023}
+Tianshu Wen and Matthew~J. Zahr.
+\newblock {A globally convergent method to accelerate large-scale optimization
+  using on-the-fly model hyperreduction: Application to shape optimization}.
+\newblock \emph{Journal of Computational Physics}, 484:\penalty0 112082, 2023.
+\newblock \doi{10.1016/j.jcp.2023.112082}.
+\newblock URL \url{https://doi.org/10.1016/j.jcp.2023.112082}.
+
+\bibitem[Wiesheu et~al.(2024)Wiesheu, Komann, Merkel, Sch{\"o}ps, Ulbrich, and
+  Cortes~Garcia]{wiesheu2024spline}
+Michael Wiesheu, Theodor Komann, Melina Merkel, Sebastian Sch{\"o}ps, Stefan
+  Ulbrich, and Idoia Cortes~Garcia.
+\newblock Spline-based rotor and stator optimization of a permanent magnet
+  synchronous motor.
+\newblock In \emph{2024 International Conference on Electrical Machines
+  (ICEM)}, pages 1--6, 2024.
+\newblock \doi{10.1109/icem60801.2024.10700065}.
+\newblock URL \url{https://doi.org/10.1109/icem60801.2024.10700065}.
+
+\bibitem[Wiesheu et~al.(2025)Wiesheu, Komann, Merkel, Schöps, Ulbrich, and
+  Cortes~Garcia]{wiesheu2025combined}
+Michael Wiesheu, Theodor Komann, Melina Merkel, Sebastian Schöps, Stefan
+  Ulbrich, and Idoia Cortes~Garcia.
+\newblock Combined parameter and shape optimization of electric machines with
+  isogeometric analysis.
+\newblock \emph{Optimization and Engineering}, 26\penalty0 (2):\penalty0
+  1011--1038, 2025.
+\newblock \doi{10.1007/s11081-024-09925-0}.
+\newblock URL \url{https://doi.org/10.1007/s11081-024-09925-0}.
+
+\bibitem[Yu et~al.(2018)Yu, Lyu, Xu, and Martins]{yu2018influence}
+Yin Yu, Zhoujie Lyu, Zelu Xu, and Joaquim R. R.~A. Martins.
+\newblock On the influence of optimization algorithm and initial design on wing
+  aerodynamic shape optimization.
+\newblock \emph{Aerospace Science and Technology}, 75:\penalty0 183--199, 2018.
+\newblock \doi{10.1016/j.ast.2018.01.016}.
+\newblock URL \url{https://doi.org/10.1016/j.ast.2018.01.016}.
+
+\bibitem[Zingg et~al.(2008)Zingg, Nemec, and Pulliam]{zingg2008comparative}
+David~W. Zingg, Marian Nemec, and Thomas~H. Pulliam.
+\newblock A comparative evaluation of genetic and gradient-based algorithms
+  applied to aerodynamic optimization.
+\newblock \emph{European Journal of Computational Mechanics}, 17\penalty0
+  (1--2):\penalty0 103--126, 2008.
+\newblock \doi{10.3166/remn.17.103-126}.
+\newblock URL \url{https://doi.org/10.3166/remn.17.103-126}.
+
+\end{thebibliography}

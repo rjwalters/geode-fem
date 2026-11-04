@@ -1,0 +1,19 @@
+Using MPI version 4.1, 2 processes
+-----------
+Initializing structure...
+Splitting into 2 chunks by voxels
+time for choose_chunkdivision = 0.000159738 s
+Working in 3D dimensions.
+Computational cell is 2 x 2 x 2 with resolution 2.5
+time for set_epsilon = 7.3669e-05 s
+time for set_conductivity = 8.867e-06 s
+time for set_conductivity = 7.806e-06 s
+time for set_conductivity = 7.835e-06 s
+lorentzian susceptibility: frequency=0.157442, gamma=0.157442
+-----------
+Meep: using complex fields.
+run 0 finished at t = 3833.4 (19167 timesteps)
+run 1 finished at t = 4833.400000000001 (24167 timesteps)
+V2_RESULT /results/material_R2.5.json mode material_oracle wall 1.1704747129997486 drift 0.0 rc None
+
+Elapsed run time = 1.1756 s

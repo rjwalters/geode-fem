@@ -1,0 +1,28 @@
+patch_conformal_nested_dof [combined_48_16]: patch_conformal_L3 (844238 edges, 123372 nodes, 712863 tets), R = 100 mm, sigma_0 = 1 (fixture 1); DOFs: 48 radial + 16 outline = 64; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 2.7 s
+  verify-only: design L2_combined_64_cold on L3 at p1
+    worst tet: tet 604823 ratio 0.266 in air at (s, y) = (+21.40, +0.93) mm, dr +0.08 mm from the substrate top, 22.39 mm from the feed, 13.78 mm from a corner, 2.40 mm outside the patch
+  crater: feed-node lift +0.000 mm (0.00 mm from the feed), mean lift +2.130 mm (thickness 3.730 mm, max 4.699), steepest |grad lift| 0.704 at 2.52 mm from the feed
+  in-band verification sweep:
+    sweep 2.4000 GHz: |S11| = 0.2379 (-12.47 dB), Z = 75.3 +16.3i ohm
+    sweep 2.4104 GHz: |S11| = 0.2046 (-13.78 dB), Z = 73.3 +9.8i ohm
+    sweep 2.4209 GHz: |S11| = 0.1725 (-15.27 dB), Z = 70.4 +4.1i ohm
+    sweep 2.4313 GHz: |S11| = 0.1429 (-16.90 dB), Z = 66.7 -0.7i ohm
+    sweep 2.4417 GHz: |S11| = 0.1180 (-18.56 dB), Z = 62.5 -4.4i ohm
+    sweep 2.4522 GHz: |S11| = 0.1014 (-19.88 dB), Z = 58.2 -7.3i ohm
+    sweep 2.4626 GHz: |S11| = 0.0972 (-20.25 dB), Z = 53.9 -9.4i ohm
+    sweep 2.4731 GHz: |S11| = 0.1064 (-19.46 dB), Z = 49.8 -10.7i ohm
+    sweep 2.4835 GHz: |S11| = 0.1255 (-18.03 dB), Z = 45.9 -11.4i ohm
+  wide sweep:
+    sweep 2.2000 GHz: |S11| = 0.7352 ( -2.67 dB), Z = 15.5 +49.6i ohm
+    sweep 2.2500 GHz: |S11| = 0.6500 ( -3.74 dB), Z = 25.4 +55.8i ohm
+    sweep 2.3000 GHz: |S11| = 0.5379 ( -5.39 dB), Z = 42.9 +58.7i ohm
+    sweep 2.3500 GHz: |S11| = 0.3977 ( -8.01 dB), Z = 66.6 +47.2i ohm
+    sweep 2.4000 GHz: |S11| = 0.2379 (-12.47 dB), Z = 75.3 +16.3i ohm
+    sweep 2.4500 GHz: |S11| = 0.1040 (-19.66 dB), Z = 59.1 -6.8i ohm
+    sweep 2.5000 GHz: |S11| = 0.1660 (-15.60 dB), Z = 40.4 -11.7i ohm
+    sweep 2.5500 GHz: |S11| = 0.3011 (-10.43 dB), Z = 28.1 -8.8i ohm
+    sweep 2.6000 GHz: |S11| = 0.4181 ( -7.57 dB), Z = 20.7 -4.2i ohm
+    sweep 2.6500 GHz: |S11| = 0.5095 ( -5.86 dB), Z = 16.3 +0.6i ohm
+    sweep 2.7000 GHz: |S11| = 0.5773 ( -4.77 dB), Z = 13.5 +5.0i ohm
+  verify L2_combined_64_cold on L3 (p1): worst -12.47 dB, best -20.25 dB over 9 points; reached -10 dB = true; min vol ratio 0.266; wide-sweep dip 2.450 GHz (-19.7 dB); 6235 s, peak RSS 70.2 GiB
+patch_conformal_nested_dof [verify L2_combined_64_cold on L3 p1]: <out>/verify/L2_combined_64_cold_on_L3.toml

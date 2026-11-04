@@ -1,0 +1,25 @@
+  rebase-feed: design fixture inset 5.123104893 / width 4.185270329 mm -> this fixture 5.123104893 / 4.185270329 mm; feed coefficients [-0.054858, 0.082272]
+patch_conformal_nested_dof [copper_38]: patch_conformal_rbD_L1 (164377 edges, 25145 nodes, 136270 tets), R = 100 mm, sigma_0 = 1 (fixture 1); DOFs: 0 radial + 32 outline + 4 corner + 2 feed = 38; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 0.2 s
+  verify-only: design L1_copper_38_sm45 on L1 at p2
+    worst tet: tet 92940 ratio 0.250 in air at (s, y) = (-24.57, -0.14) mm, dr -1.89 mm from the substrate top, 26.35 mm from the feed, 15.40 mm from a corner, 5.57 mm outside the patch
+  crater: feed-node lift +0.000 mm (0.30 mm from the feed), mean lift -0.000 mm (thickness 1.600 mm, max 1.600), steepest |grad lift| 0.000 at 4.04 mm from the feed
+  copper: max slab radius change 1.4e-14 mm; probe at (+0.000, +9.432) mm, width 4.268 mm, inset 5.073 mm; patch 28.803 x 49.752 mm (L x W), area 1309.1 mm^2 (base 1110.8)
+  in-band verification sweep:
+  dense sweep (14 points):
+    P2 space: 879760 DOFs (766302 interior)
+    sweep(P2) 2.3075 GHz: |S11| = 0.6890 ( -3.24 dB), Z = 15.7 +40.9i ohm, res 2.2e-12, 337 s
+    sweep(P2) 2.3300 GHz: |S11| = 0.6174 ( -4.19 dB), Z = 22.2 +44.3i ohm, res 2.5e-12, 333 s
+    sweep(P2) 2.3525 GHz: |S11| = 0.5283 ( -5.54 dB), Z = 32.0 +46.4i ohm, res 2.4e-12, 329 s
+    sweep(P2) 2.3750 GHz: |S11| = 0.4204 ( -7.53 dB), Z = 45.8 +44.2i ohm, res 2.5e-12, 326 s
+    sweep(P2) 2.3975 GHz: |S11| = 0.2960 (-10.57 dB), Z = 60.5 +32.4i ohm, res 2.8e-12, 325 s
+    sweep(P2) 2.4200 GHz: |S11| = 0.1667 (-15.56 dB), Z = 65.9 +11.1i ohm, res 2.6e-12, 323 s
+    sweep(P2) 2.4425 GHz: |S11| = 0.0981 (-20.16 dB), Z = 57.1 -7.8i ohm, res 3.1e-12, 322 s
+    sweep(P2) 2.4650 GHz: |S11| = 0.1881 (-14.51 dB), Z = 42.9 -16.3i ohm, res 2.7e-12, 322 s
+    sweep(P2) 2.4875 GHz: |S11| = 0.3103 (-10.16 dB), Z = 31.0 -17.3i ohm, res 2.7e-12, 322 s
+    sweep(P2) 2.5100 GHz: |S11| = 0.4216 ( -7.50 dB), Z = 22.6 -15.2i ohm, res 2.6e-12, 322 s
+    sweep(P2) 2.5325 GHz: |S11| = 0.5156 ( -5.75 dB), Z = 17.1 -12.2i ohm, res 2.6e-12, 322 s
+    sweep(P2) 2.5550 GHz: |S11| = 0.5923 ( -4.55 dB), Z = 13.3 -9.3i ohm, res 2.4e-12, 322 s
+    sweep(P2) 2.5775 GHz: |S11| = 0.6538 ( -3.69 dB), Z = 10.7 -6.5i ohm, res 2.2e-12, 321 s
+    sweep(P2) 2.6000 GHz: |S11| = 0.7028 ( -3.06 dB), Z = 8.8 -4.0i ohm, res 2.1e-12, 323 s
+  verify L1_copper_38_sm45 on L1 (p2): no in-band points; 14 dense points; min vol ratio 0.250; no wide sweep; 4551 s, peak RSS 150.9 GiB
+patch_conformal_nested_dof [verify L1_copper_38_sm45 on L1 p2]: <out>/verify/rbD_L1_copper_38_sm45_on_rbD_L1_p2_dense1of3.toml

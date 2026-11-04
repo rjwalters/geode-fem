@@ -133,6 +133,14 @@ This is **OPERATOR-ONLY**: `pymeep` ships only via conda-forge and does **not**
 support Python 3.14 (this Mac's default) — it needs a separate conda env not
 present here.
 
+Matched-geometry records for #1088 (physical 2.4 GHz bent patch): R1/R2 in
+`../../reference/meep/docker/MATCHED.md` and `AWS_PILOT.md`; the R4 run, the
+R1/R2/R4 trend (no spatial convergence shown) and the R8 requirement in
+`../../reference/meep/docker/AWS_R4.md`, verified by `meep_r4_verify.py`. The
+diagnosis of the Meep/GEODE disagreement on that fixture (a voxelization artifact of
+the harness's metal shells on the curved board) is in
+`../../reference/meep/docker/DIAGNOSIS.md`, verified by `meep_diag_verify.py`.
+
 ### Runbook (operator)
 
 ```bash

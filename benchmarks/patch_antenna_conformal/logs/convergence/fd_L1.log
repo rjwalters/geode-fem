@@ -1,0 +1,10 @@
+patch_conformal_convergence fd: patch_conformal_L1: 150561 edges, 23246 nodes; band [2.4, 2.44175, 2.4835] GHz; 3 directions, step 1e-4, seed 4229
+  morph: 2119 radial DOFs over 23246 nodes (11510 pinned), 26.3 s
+forward at X = 0
+  G = 5.771213e-1, |S11| = [0.6475235117225799, 0.7740404561150165, 0.8443569656794109], 142.0 s (47.3 s / solve), 6.50 GiB
+gradient at X = 0
+  G = 5.771213e-1, |grad| = 6.284396e-2, 66.7 s (22.2 s / frequency), 8.23 GiB
+  direction 0: analytic -1.232426e-3, central FD -1.232426e-3, rel 1.181e-8, min vol ratio 0.999990, 113.8 s
+  direction 1: analytic +2.862366e-4, central FD +2.862365e-4, rel 2.513e-7, min vol ratio 0.999988, 115.1 s
+  direction 2: analytic -2.661497e-3, central FD -2.661497e-3, rel 5.432e-8, min vol ratio 0.999987, 244.9 s
+wrote <out>/fd_L1.toml

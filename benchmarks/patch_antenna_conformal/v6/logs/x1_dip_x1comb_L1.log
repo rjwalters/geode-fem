@@ -1,0 +1,48 @@
+patch_conformal_convergence dip: patch_conformal_x1comb_L1 (p1): 1738557 edges, 245651 nodes, 1489944 tets; UPML 25 mm / sigma_0 = 1; scan [2.33, 2.35, 2.37, 2.39, 2.41, 2.43], tol 0.5 MHz, fixed [2.4], geometries ["bent"]
+bent (p1): 1738557 DOFs, 1581601 interior
+bent: dip search
+  f = 2.33000 GHz: Z =    42.95   +31.92i ohm, |S11| = 0.33265 ( -9.560 dB), res = 2.5e-12, 607.2 s, 206.89 GiB
+  f = 2.35000 GHz: Z =    49.50   +16.11i ohm, |S11| = 0.15989 (-15.924 dB), res = 2.6e-12, 591.5 s, 207.64 GiB
+  f = 2.37000 GHz: Z =    43.98    +0.02i ohm, |S11| = 0.06411 (-23.861 dB), res = 2.6e-12, 586.6 s, 207.73 GiB
+  f = 2.39000 GHz: Z =    32.69    -7.57i ohm, |S11| = 0.22759 (-12.857 dB), res = 2.5e-12, 583.6 s, 207.79 GiB
+  f = 2.41000 GHz: Z =    23.01    -8.55i ohm, |S11| = 0.38508 ( -8.289 dB), res = 2.3e-12, 580.6 s, 207.88 GiB
+  f = 2.43000 GHz: Z =    16.40    -6.90i ohm, |S11| = 0.51383 ( -5.784 dB), res = 2.1e-12, 578.9 s, 207.89 GiB
+  f = 2.36528 GHz: Z =    46.19    +3.18i ohm, |S11| = 0.05158 (-25.751 dB), res = 2.6e-12, 578.9 s, 207.96 GiB
+  f = 2.37472 GHz: Z =    41.45    -2.59i ohm, |S11| = 0.09768 (-20.204 dB), res = 2.5e-12, 576.0 s, 208.01 GiB
+  f = 2.35944 GHz: Z =    48.27    +7.75i ohm, |S11| = 0.08052 (-21.882 dB), res = 2.6e-12, 576.1 s, 208.08 GiB
+  f = 2.36889 GHz: Z =    44.53    +0.72i ohm, |S11| = 0.05835 (-24.680 dB), res = 2.6e-12, 577.8 s, 208.02 GiB
+  f = 2.36305 GHz: Z =    47.08    +4.85i ohm, |S11| = 0.05819 (-24.702 dB), res = 2.6e-12, 574.9 s, 208.08 GiB
+  f = 2.36666 GHz: Z =    45.58    +2.21i ohm, |S11| = 0.05163 (-25.742 dB), res = 2.6e-12, 575.9 s, 208.09 GiB
+  f = 2.36443 GHz: Z =    46.54    +3.80i ohm, |S11| = 0.05320 (-25.481 dB), res = 2.6e-12, 572.7 s, 208.09 GiB
+  f = 2.36580 GHz: Z =    45.96    +2.80i ohm, |S11| = 0.05120 (-25.815 dB), res = 2.6e-12, 573.4 s, 208.09 GiB
+  f = 2.36613 GHz: Z =    45.82    +2.57i ohm, |S11| = 0.05121 (-25.813 dB), res = 2.6e-12, 576.3 s, 208.10 GiB
+  f = 2.36560 GHz: Z =    46.05    +2.95i ohm, |S11| = 0.05129 (-25.800 dB), res = 2.6e-12, 575.9 s, 208.10 GiB
+  f = 2.36593 GHz: Z =    45.91    +2.72i ohm, |S11| = 0.05118 (-25.818 dB), res = 2.6e-12, 579.2 s, 208.10 GiB
+  f = 2.36601 GHz: Z =    45.87    +2.66i ohm, |S11| = 0.05119 (-25.817 dB), res = 2.6e-12, 574.2 s, 208.10 GiB
+bent: dip -25.818 dB at 2.36595 GHz (sampled -25.818 dB at 2.36593 GHz, 18 solves)
+bent: fixed frequencies
+  f = 2.40000 GHz: Z =    27.46    -8.60i ohm, |S11| = 0.30955 (-10.185 dB), res = 2.4e-12, 575.0 s, 208.10 GiB
+wrote ~/runs/out/dip_x1comb_L1.toml
+	Command being timed: "~/tgt1126/release/examples/patch_conformal_convergence dip ~/fix/patch_conformal_x1comb_L1.msh --out ~/runs/out/dip_x1comb_L1.toml"
+	User time (seconds): 242468.64
+	System time (seconds): 4200.17
+	Percent of CPU this job got: 2236%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 3:03:47
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 218210440
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 8
+	Minor (reclaiming a frame) page faults: 768945676
+	Voluntary context switches: 139062078
+	Involuntary context switches: 32503169
+	Swaps: 0
+	File system inputs: 392
+	File system outputs: 176
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

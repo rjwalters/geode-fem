@@ -1,0 +1,234 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "issue": 1202,
+  "review_pr": 1206,
+  "source_commit": "6f01b4a5617b5b601839fd21e37af264f91fe947",
+  "scope": "Doctor delta only: observed training-mesh binding, mean-relative normalization coverage, completed-contaminated recovery coverage. No main optimization result.",
+  "python_checks": [
+    {
+      "name": "test_harness.py",
+      "tests": 31,
+      "status": "PASS",
+      "log": "test_harness.py.stderr"
+    },
+    {
+      "name": "test_run_interruption.py",
+      "tests": 7,
+      "status": "PASS",
+      "log": "test_run_interruption.py.stderr"
+    },
+    {
+      "name": "test_physical_diagnostic.py",
+      "tests": 10,
+      "status": "PASS",
+      "log": "test_physical_diagnostic.py.stderr"
+    },
+    {
+      "name": "test_safeguards.py",
+      "tests": 45,
+      "status": "PASS",
+      "log": "test_safeguards.py.final.stderr"
+    },
+    {
+      "name": "test_recovery_execution.py",
+      "tests": 9,
+      "status": "PASS",
+      "log": "test_recovery_execution.py.final.stderr"
+    },
+    {
+      "name": "test_diagnostic_repair.py",
+      "tests": 7,
+      "status": "PASS",
+      "log": "test_diagnostic_repair.py.final.stderr"
+    },
+    {
+      "name": "test_evaluator_resources.py",
+      "tests": 8,
+      "status": "PASS",
+      "log": "test_evaluator_resources.py.final.stderr"
+    },
+    {
+      "name": "test_anchor_preflight.py",
+      "tests": 9,
+      "status": "PASS",
+      "log": "test_anchor_preflight.py.final.stderr"
+    },
+    {
+      "name": "test_recovery_policy.py",
+      "tests": 11,
+      "status": "PASS",
+      "log": "test_recovery_policy.py.final.stderr"
+    },
+    {
+      "name": "test_baseline_wiring.py",
+      "tests": 10,
+      "status": "PASS",
+      "log": "baseline_wiring_mutations.py.final.stdout#baseline"
+    }
+  ],
+  "python_tests": 147,
+  "mutations": [
+    {
+      "suite": "baseline_wiring",
+      "status": "PASS",
+      "baseline_checks": 1,
+      "faults_detected": 9,
+      "log": "baseline_wiring_mutations.py.final.stdout",
+      "mutants": [
+        "loaded_training_mesh_unchecked",
+        "run_training_mesh_gate_omitted",
+        "surrogate_diagnostic_training_gate_omitted",
+        "physical_diagnostic_training_gate_omitted",
+        "D_uses_primary_model",
+        "E_uses_wrong_optimizer",
+        "L0_gets_different_unit",
+        "L0_changes_validator",
+        "E_loses_restoration_record"
+      ]
+    },
+    {
+      "suite": "anchor_preflight",
+      "status": "PASS",
+      "baseline_checks": 1,
+      "faults_detected": 9,
+      "log": "anchor_preflight_mutations.py.final.stdout",
+      "mutants": [
+        "mean_normalized_by_objective",
+        "objective_limit_ignored",
+        "mean_limit_ignored",
+        "torque_limit_ignored",
+        "tolerance_widened",
+        "same_host_values_ignored",
+        "missing_preflight_accepted",
+        "failed_preflight_reaches_calibration",
+        "cross_platform_reverts_to_four_ulp"
+      ]
+    },
+    {
+      "suite": "recovery_policy",
+      "status": "PASS",
+      "baseline_checks": 3,
+      "faults_detected": 10,
+      "log": "recovery_policy_mutations.py.final.stdout",
+      "mutants": [
+        "completed_attempt_external_replacement",
+        "later_completion_selected",
+        "external_allowance_reset",
+        "contamination_allowance_reset",
+        "recovery_before_remaining_queue",
+        "external_evidence_not_verified",
+        "unfinalized_completed_optimizer_repeated",
+        "later_diagnostic_selected",
+        "registry_lock_ignored",
+        "reserved_plan_hash_ignored"
+      ]
+    }
+  ],
+  "faults_detected": 28,
+  "source_sha256": {
+    "test_baseline_wiring.py": "b89fc1b640c5bcdc98175a96086a84da162ce0d2572de4e88dea74012bc5c08b",
+    "test_run_interruption.py": "ec77ac7199a269e4908891033efb18acae37990960010aca637c03dd660b581a",
+    "test_session_journal.py": "af8fb3e0e2d561bb96387257375fce968d7c6a48cd0840f97f165ac3f5ed1c78",
+    "physical_diagnostic.py": "bc3ad1fd113fc8f9661856e795cfe18db516fa495eac30a4c80d2a189a4761f2",
+    "test_recovery_registry.py": "1ee006f652875f8a99d350e1b127a8869ed35fd6dce4c458b0a8bb631c6222a4",
+    "run.py": "8bb3610ed859975077df4c566a6c91c018fb7886fe71f067ee38637ba2913bc2",
+    "recovery_execution_mutations.py": "f4e7147e28321a801a91fe061ae80223329901036eb80cc7caa6068cf2bc7c83",
+    "diagnostic_repair_mutations.py": "dd1fda4fc1e01d0761d6a0c2f4bb18515037b2f0dc8e5cb4a4379c300226c679",
+    "linalg_info.py": "2f47982c62609442e43d3772394101ac54309b2761b9e426d2ef90ff5b71e50d",
+    "resource_usage.py": "38d7c3ef6522766d15a08defe9668d5b6298b2ac52c86f82578a54d0fa6cb368",
+    "build_provenance.py": "993c64a9c3a9fa8a7bd223d9de4764345eb7dce7c68232f7c6783dde929e1320",
+    "recovery.py": "010acc3d38523c8b8134b6e2ad6c9617f47473877058ac93fc77d5277e118c12",
+    "process_verification.py": "fce9667df3fb454a85f1d353e00f4322809ed4f227694c9df03be3149a445ea5",
+    "test_anchor_preflight.py": "2e33eef3635822bf8825b3731f552ae4aa902aeb8a27b93096b9507f1d52ac8e",
+    "runtime_fingerprint.py": "390170905863824641efb70822732422c103bb58c7baa2fb988194e4dd46cef2",
+    "test_harness.py": "a940b252ebd78db29f6e52adddf923a0394f5198f926757d12a0c7a646bf697c",
+    "session_cancellation_mutations.py": "22c6464bba4a9d54f70ff4390b2cbb17e0a14d82b5b9d5e4bccc7b94341290d7",
+    "run_interruption_mutations.py": "e6ade09c532bdd305e0e603e324180dc902128716e4d2b603d487cbfb2babb11",
+    "mixed_model_smoke.py": "d30eb3b82b3d7e0efeb6fab563915fe36a077bebeecee8f0cde8e35a1e29fbeb",
+    "acceptance.py": "846f7f9817606de2d3542fb73774f6d0464deb268927d4d9124bc5d28236434e",
+    "build_provenance_mutations.py": "066e8db92d3696c74d81dc856a90222a9a8b06654c186b3574315252df8e5024",
+    "test_physical_diagnostic.py": "de5dac148c9c28641060e2b5e749d82ffd1a1ff0f7054cf68f74a9252521dae6",
+    "session_durability_mutations.py": "9008b630f21637d7f82f3756d64300d872b70f15cfe18402c363882d9aef477f",
+    "summarize_pilot.py": "35103a2b70f19cfbc39c82a97ed39e4b0ff5b31f97a01b6d820aa6d3d41794b0",
+    "summarize_session.py": "5eb96346eed517f0db1fb96f7cdb5632dbd6775d9ef6778477e93fdb99bfc20e",
+    "recovery_inventory.py": "f432e326868ccf52196275b1526025a236f27939335540df2e2068d3db7ec32d",
+    "test_start_preflight.py": "def07e7d89c068298b0cb652f4ccc8d344725e213daeb81f9087ecf5a80b1a53",
+    "test_recovery_execution.py": "1131c782220b29c6b205caa9828fd32a861807191013a2775a8f4837f92f986c",
+    "ledger.py": "f9e30323b718944c7519b33aff8aa5b30bf7531008656130dc5adfb5b6dd3ea0",
+    "session.py": "9311ff7630da913f3ad12ec215681ee1089af145babd41297b9d0f2b95df6760",
+    "recovery_bindings_mutations.py": "2b854c73d5a6606b347eec6958cd8735b4fdef94a062bde97221bfef9bdaaf9f",
+    "test_session_cancellation.py": "d6a5969d69ca06707350aec5d2be4f7aea366f49c33e51a5c5a5dab6f3e14218",
+    "recovery_bindings.py": "dab7e40c6eb23ba739283922828a9dc559b968b840cd2d473f0fb3b92cef48dc",
+    "recovery_policy.py": "78688b65fc4221501eb7a676183ce949be31270abb75daada3b6b4d8b5b8b7db",
+    "test_solver_termination.py": "90f27ff5242e14b3df63513ab75a39573255f546d309759a6c02b144feb06bdb",
+    "l0_gradient_check.py": "d0c496480eae43018f6fa9efb71280622378acd3d3f9764c13bb51100ddbec9c",
+    "test_diagnostic_repair.py": "b8f8d06a495d8fec163a3b724b5087c5b57f664aeab8f242bcc9833a86246aae",
+    "test_recovery_inventory.py": "11598e7d4509ca94655cdd3cbe732159cc2eb0a69333fc6359d4f08ffcf0d35b",
+    "export_queue.py": "c8c1fdb9534bd0cac175238eab70ada45b14145845bb7e1f896171231d2ffee3",
+    "test_safeguards.py": "0c64670654847a83fcc2510fb16ab77683f9deee13c5be55105b81bf4aafd941",
+    "resource_lifecycle_mutations.py": "696fcdba69c22a261b4d3c202b688f71d6c0c3edec3116181db5b9b2a3c0fe89",
+    "test_process_verification.py": "798109b8c9b287190c13f35314c94319feceda24ecddbe622238e3ee64aa4b13",
+    "fd_check.py": "995ba489aa00916c13121f718665cef9ae9f461ee89c978215915be416c627b0",
+    "process_tracking.py": "50fcddcc894607a7a560e474ed9cd95408ee35bc7438625de2ab27b1bff4ac36",
+    "anchor_preflight_mutations.py": "2ad5e2c364f6edca052f7ae9c40c6e1c0ff68d0009d874436923029cf9562c3d",
+    "recovery_history.py": "05e6d7a8f1986d70b44d86ee062709b8888a05f4c9ff84be44568406681918be",
+    "lhs.py": "3a3e85b34dfbec5742fbb9a9c0e7ed106e3a929f75c098a7ba3d1b155707badc",
+    "test_blas_bindings.py": "46e667dcb4fb3bcf3c2e1f309ba0662ab31af664f3c31c4d0fda3c9bdf485535",
+    "recovery_registry.py": "da3c3ef58a3cc08d36c066883e74a91d3161bb6e2a523cd4d8c4917a82295752",
+    "blas_binding_mutations.py": "24540404327e41b262c321f61541b369b663fc59a7a5bc614531188ccec5a02e",
+    "main_preparation_mutations.py": "b2e5056473a556aa27fe385e8e00e83b64d0a3f0545c27fecacccb85a71f5f33",
+    "session_journal.py": "dd2fa15a7b9bd764e61e2a6d55d68e83e814ae47a77f359d9796b11bbfa630f7",
+    "process_identity.py": "189f2add1591fbdbf979dec251b78e71c8ac6e1d8ca22ca72c2fc0c30098f729",
+    "surrogate.py": "b893ce4665be2a96bd9341b67cd5b10edb9402d7f93d7a502ac581489af895c8",
+    "test_recovery_policy.py": "7afae9f413f2a9852dca02ad56c7056ac2a1dca07fac3320d140a3529e135908",
+    "setup_validation_mutations.py": "01c7ac1707c6df3276da3a27d1484905e3fe10f4f887a5fabc4f87f03b5acbe2",
+    "process_verification_mutations.py": "3dd45352d817289ccd1d75136ec7664dc1c2083e36a35ccdedb6b79a256e2c7c",
+    "recovery_policy_mutations.py": "69bc265ddb16af5436f4734eacbb5df3698b8bebeef5527867ce22e222281075",
+    "resource_wiring_smoke.py": "e5009b861ab65b11b560e9efbd86ac21764d107b1e948a2bfd354f53076c9a7c",
+    "main_schedule.py": "68d3e421bd1405bc6238134f6de24bf3fbef39961b024232f2f5785ce9cd5443",
+    "driver.py": "fc1487ecd3f1c8d67256fadb7356a625d014336d4ba50bb2c3c5af731ec1f773",
+    "mutation_checks.py": "5f610e29a0fb49100904c2672632a98a99e3bc11cd40cc3654307a3c94ebbde9",
+    "test_main_preparation.py": "6e758aee4f2c4f5fbafe3c4a96e4d672959077b76e275301e3d50fdb87d439a8",
+    "test_recovery_bindings.py": "ad0ffea413a1bfb5cf0ecd4c4c65dc5a3d1ba31df92506116fad9753fec27619",
+    "interruption.py": "f699769cf67e2f9f5cbddb223ad3cd0dcd87e6a5110cbc1bc6da912c68fe6cee",
+    "baseline_wiring_mutations.py": "f0cf4bcdf4f7e497e15f065f8d5eb1a6bb7ef4c5588fef6e189eb4c4a373a21d",
+    "recover_pilot_failures.py": "22c550523e66dce1eb3557348586f6262a79ec80479708f2bf8edcc3f3281a5c",
+    "make_starts.py": "930f903c2d43f5d540d0f30c0be77e566fe08b498501881472553cbccd00540a",
+    "test_build_provenance.py": "9bb10a3c1a13423d7f0ea31f780995a97586783ae453a3b05b12bc45b8d6adf0",
+    "evaluator.py": "8b8da2194c53760be27917a4832ab518bd533c4f2284a41a096026cefa764687",
+    "solver_termination_mutations.py": "53610d66d36cded63388d5f15d0a82ccf284597545c01d0e08fa85b7a85aae40",
+    "test_queue_export.py": "e5f35c50421dd684f46d1981b1a7b2e75d3f7a5e3ccbd22f9747c0a316cadbc8",
+    "owned_child.py": "873b7910ad0038e2d7df1eb9e19415d4505cc62b0fd41ad3a0fb7d09c3d63f82",
+    "physical_diagnostic_mutations.py": "ab8d6e872e5dcdb283a7b4f1f2345034fe33fe6bdb98c1ef3e7711cb09e81eca",
+    "anchor_preflight.py": "11697536e6811044d336ed97c0aa203bbf9ef2d95880bfea85384d694eaf9c31",
+    "diagnostic_repair.py": "25cfb29445054e0209c41149e4eb7348a3ae009ded5aa0341329b01144ada329",
+    "test_l0_gradient_check.py": "2e4346f03717437a1a172fe933ad2c6c9f21988030b4c205bbc02f5b89a0c5eb",
+    "start_preflight.py": "a15b291118599e5438222693782bd2c4252ae794ffd54d0440addd5efcbbd8f3",
+    "test_evaluator_resources.py": "59c3ed2f9301e562c3f5d8ce2eccf725cf3810958c60a5bc6df000c779d873c6"
+  },
+  "native_smoke": {
+    "space": "a",
+    "status": "PASS",
+    "source_commit": "6f01b4a5617b5b601839fd21e37af264f91fe947",
+    "tree_clean": true,
+    "wall_seconds": 67.48275141604245,
+    "binary_sha256": "c62c2e4e5249c399b4c073142123b7a23c70bb5e827ca423fd69ee55a4dfd272",
+    "build_source_commit": "848fa480a3c7c54773afca036b47af9ceced3eab",
+    "build_receipt_sha256": "42a30f7632829b358dc14a6abfd8b17ff9ad8c6e223726e5d935569df34b1bfb",
+    "native_build_files_verified_unchanged": 623,
+    "scope": "Reused witnessed 848fa480 binary; current Python driver/diagnostic path at 6f01b4a5. Not a final-source build receipt for launching the main study."
+  },
+  "limitations": [
+    "Targeted local verification; the complete Python/native suite is delegated to remote CI on the pushed head.",
+    "The native smoke exercises matching L0/L2 inputs in space a; refusal paths and all five methods use controlled evaluator tests.",
+    "Initial fixture failures and successful reruns are retained; test_physical_diagnostic.py initial failure log was overwritten by its successful rerun.",
+    "Older evidence records have distinct source/binary provenance and are retained as historical records."
+  ],
+  "archive": {
+    "path": "benchmarks/motor_optimization/smoke/doctor_training_mesh_6f01b4a5.tar.gz",
+    "sha256": "6c9be2b651f190818cc3d35e6e7548eac2e7414bdaa98d814c5dd48da52f3b5e",
+    "files": 39,
+    "each_member_verified": true
+  }
+}

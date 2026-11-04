@@ -1,0 +1,40 @@
+  rebase-feed: design fixture inset 7 / width 1.6 mm -> this fixture 5.682475854 / 2.831870743 mm; feed coefficients [0.000000, 0.000000]
+patch_conformal_nested_dof [copper_38]: patch_conformal_rbA_L0 (39069 edges, 6184 nodes, 31574 tets), R = 100 mm, sigma_0 = 1 (fixture 1); DOFs: 0 radial + 32 outline + 4 corner + 2 feed = 38; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 0.0 s
+  verify-only: design L0_copper_38 on L0 at p1
+    worst tet: tet 16731 ratio 0.561 in air at (s, y) = (-24.69, -6.24) mm, dr -3.57 mm from the substrate top, 28.91 mm from the feed, 10.03 mm from a corner, 5.69 mm outside the patch
+  crater: feed-node lift +0.000 mm (0.47 mm from the feed), mean lift -0.000 mm (thickness 1.600 mm, max 1.600), steepest |grad lift| 0.000 at 2.58 mm from the feed
+  copper: max slab radius change 1.4e-14 mm; probe at (+0.000, +8.818) mm, width 2.832 mm, inset 4.936 mm; patch 27.241 x 44.921 mm (L x W), area 1164.5 mm^2 (base 1110.8)
+  in-band verification sweep:
+    sweep 2.4000 GHz: |S11| = 0.3273 ( -9.70 dB), Z = 56.8 +36.3i ohm
+    sweep 2.4104 GHz: |S11| = 0.2558 (-11.84 dB), Z = 62.7 +26.8i ohm
+    sweep 2.4209 GHz: |S11| = 0.1834 (-14.73 dB), Z = 64.9 +15.1i ohm
+    sweep 2.4313 GHz: |S11| = 0.1173 (-18.61 dB), Z = 62.7 +3.6i ohm
+    sweep 2.4417 GHz: |S11| = 0.0843 (-21.48 dB), Z = 57.1 -5.7i ohm
+    sweep 2.4522 GHz: |S11| = 0.1177 (-18.58 dB), Z = 49.7 -11.8i ohm
+    sweep 2.4626 GHz: |S11| = 0.1820 (-14.80 dB), Z = 42.2 -15.1i ohm
+    sweep 2.4731 GHz: |S11| = 0.2512 (-12.00 dB), Z = 35.4 -16.3i ohm
+    sweep 2.4835 GHz: |S11| = 0.3186 ( -9.94 dB), Z = 29.7 -16.1i ohm
+  wide sweep:
+    sweep 2.2000 GHz: |S11| = 0.9002 ( -0.91 dB), Z = 3.4 +26.5i ohm
+    sweep 2.2250 GHz: |S11| = 0.8790 ( -1.12 dB), Z = 4.3 +28.5i ohm
+    sweep 2.2500 GHz: |S11| = 0.8511 ( -1.40 dB), Z = 5.6 +30.9i ohm
+    sweep 2.2750 GHz: |S11| = 0.8139 ( -1.79 dB), Z = 7.5 +33.8i ohm
+    sweep 2.3000 GHz: |S11| = 0.7638 ( -2.34 dB), Z = 10.5 +37.3i ohm
+    sweep 2.3250 GHz: |S11| = 0.6957 ( -3.15 dB), Z = 15.5 +41.4i ohm
+    sweep 2.3500 GHz: |S11| = 0.6035 ( -4.39 dB), Z = 23.9 +45.4i ohm
+    sweep 2.3750 GHz: |S11| = 0.4812 ( -6.35 dB), Z = 38.1 +46.4i ohm
+    sweep 2.4000 GHz: |S11| = 0.3273 ( -9.70 dB), Z = 56.8 +36.3i ohm
+    sweep 2.4250 GHz: |S11| = 0.1558 (-16.15 dB), Z = 64.6 +10.4i ohm
+    sweep 2.4500 GHz: |S11| = 0.1066 (-19.45 dB), Z = 51.3 -10.8i ohm
+    sweep 2.4750 GHz: |S11| = 0.2639 (-11.57 dB), Z = 34.3 -16.3i ohm
+    sweep 2.5000 GHz: |S11| = 0.4162 ( -7.61 dB), Z = 22.7 -14.4i ohm
+    sweep 2.5250 GHz: |S11| = 0.5388 ( -5.37 dB), Z = 15.8 -10.8i ohm
+    sweep 2.5500 GHz: |S11| = 0.6325 ( -3.98 dB), Z = 11.5 -7.3i ohm
+    sweep 2.5750 GHz: |S11| = 0.7026 ( -3.07 dB), Z = 8.8 -4.2i ohm
+    sweep 2.6000 GHz: |S11| = 0.7548 ( -2.44 dB), Z = 7.0 -1.5i ohm
+    sweep 2.6250 GHz: |S11| = 0.7940 ( -2.00 dB), Z = 5.7 +0.8i ohm
+    sweep 2.6500 GHz: |S11| = 0.8236 ( -1.69 dB), Z = 4.9 +2.8i ohm
+    sweep 2.6750 GHz: |S11| = 0.8461 ( -1.45 dB), Z = 4.2 +4.6i ohm
+    sweep 2.7000 GHz: |S11| = 0.8634 ( -1.28 dB), Z = 3.7 +6.2i ohm
+  verify L0_copper_38 on L0 (p1): worst -9.70 dB, best -21.48 dB over 9 points; reached -10 dB = false; min vol ratio 0.561; wide-sweep dip 2.450 GHz (-19.4 dB); 64 s, peak RSS 0.9 GiB
+patch_conformal_nested_dof [verify L0_copper_38 on L0 p1]: <out>/verify/L0_copper_38_on_rbA_L0.toml

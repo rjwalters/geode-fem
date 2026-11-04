@@ -1,0 +1,62 @@
+{
+  "comparisons": [
+    {
+      "F": 0.00851489362042318,
+      "bit_identical": true,
+      "point": 0,
+      "quality": {
+        "inverted": 0,
+        "max_angle_deg": 139.44731814935767,
+        "max_area_ratio": 1.0,
+        "min_angle_deg": 13.19805792813239,
+        "min_area_ratio": 1.0
+      },
+      "values": 198,
+      "warm": "Cold"
+    },
+    {
+      "F": 0.0018518783982121373,
+      "bit_identical": true,
+      "point": 1,
+      "quality": {
+        "inverted": 0,
+        "max_angle_deg": 142.46606727406638,
+        "max_area_ratio": 1.8392548760750982,
+        "min_angle_deg": 12.912657989535695,
+        "min_area_ratio": 0.6564098158726223
+      },
+      "values": 198,
+      "warm": "Cold"
+    },
+    {
+      "F": 0.00851489362042318,
+      "bit_identical": true,
+      "point": 0,
+      "quality": {
+        "inverted": 0,
+        "max_angle_deg": 139.44731814935767,
+        "max_area_ratio": 1.0,
+        "min_angle_deg": 13.19805792813239,
+        "min_area_ratio": 1.0
+      },
+      "values": 198,
+      "warm": "Previous"
+    },
+    {
+      "F": 0.001851875863049738,
+      "bit_identical": true,
+      "point": 1,
+      "quality": {
+        "inverted": 0,
+        "max_angle_deg": 142.46606727406638,
+        "max_area_ratio": 1.8392548760750982,
+        "min_angle_deg": 12.912657989535695,
+        "min_area_ratio": 0.6564098158726223
+      },
+      "values": 198,
+      "warm": "Previous"
+    }
+  ],
+  "issue": 1184,
+  "level": 1
+}

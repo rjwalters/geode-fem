@@ -1,0 +1,5 @@
+Using MPI version 4.1, 1 processes
+PASS: curved finite patch/substrate/ground, fixed inner radii, physical port, box
+
+Elapsed run time = 0.0156 s
+geometry_exit=0
