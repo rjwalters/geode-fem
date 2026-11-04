@@ -8,4 +8,5 @@
 !LICENSE
 !crates/
 !examples/
+!vendor/
 **/target

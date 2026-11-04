@@ -466,11 +466,165 @@ def findings(result):
     check(result['grids']['c_flat_R2.5']['diag_gap_model_factor'] == 1.0, 'Flat grid E/H consistent')
 
 
+INDEX = HERE / 'meep_s11_vs_resolution.json'
+# Optimized-geometry dumps the #1088 Meep run would load (#1087 / #1104, #1120). Pinned by hash.
+DUMPS = ['benchmarks/patch_antenna_conformal/geometry/L0_combined_64.json',
+         'benchmarks/patch_antenna_conformal/geometry/L1_combined_64.json',
+         'benchmarks/patch_antenna_conformal/geometry/rbD_L1_copper_38_sm45.json']
+# id, record, geometry label (None: read it from the record), environment record
+V1_RECORDS = [
+    ('v1_initial_R1', 'meep_runs/initial_R1.json', None, 'meep_runs/environment.json'),
+    ('v1_initial_R2', 'meep_runs/aws_pilot/initial_R2.json', None, 'meep_runs/aws_pilot/environment.json'),
+    ('v1_initial_R4', 'meep_runs/aws_r4/initial_R4.json', None, 'meep_runs/aws_r4/environment.json'),
+    ('v1_diag_flat_R2', 'meep_runs/diag/flat_R2.json', 'flat', 'meep_runs/diag/environment.json'),
+    ('v1_diag_bent_R2', 'meep_runs/diag/bent_R2.json', 'bent', 'meep_runs/diag/environment.json'),
+]
+TOLERANCES_MHZ = [1.0, 5.0, 10.0]
+
+
+def final_dip(run):
+    freqs, snap = run['frequency_ghz'], run['snapshots'][-1]
+    db = [20 * math.log10(abs(complex(*g))) for g in snap['s11']]
+    i = min(range(len(db)), key=db.__getitem__)
+    if not 0 < i < len(db) - 1:  # v1 is known-biased: report the sampled minimum, flagged
+        return freqs[i], db[i], False
+    return (*parabola_vertex(freqs[i - 1:i + 2], db[i - 1:i + 2]), True)
+
+
+def host_of(rel):
+    e = load(HERE / rel)
+    if 'instance_type' in e:
+        return {'kind': 'aws', 'instance_type': e['instance_type'], 'region': e['region'],
+                'launch_utc': e['instance_launch_utc'], 'record': rel}
+    return {'kind': 'local', 'cpu': e['host_cpu'], 'os': e['host_os'], 'record': rel}
+
+
+def build_index(result):
+    """One index over every Meep S11 curve (v1 and v2). References the records; copies no spectra."""
+    entries = []
+    for name, rel, geom, env in V1_RECORDS:
+        run = load(HERE / rel)
+        dip_f, dip_db, interior = final_dip(run)
+        entries.append({
+            'id': name, 'harness': 'v1 (matched_antenna.py / diag_antenna.py)', 'status': 'known-biased, diagnosis only',
+            'geometry': geom or 'v1 matched model', 'design': 'initial (patch_conformal_L0)',
+            'resolution_cells_per_mm': run['resolution_cells_per_mm'], 'mpi_ranks': run['mpi_ranks'],
+            'wall_seconds': run['wall_seconds'], 'sum_rank_peak_rss_gib': run['sum_rank_peak_rss_bytes'] / 2 ** 30,
+            'estimated_cells': run['estimated_cells'], 'dip_ghz': dip_f, 'dip_db': dip_db, 'dip_is_interior': interior,
+            'window_ghz': [run['frequency_ghz'][0], run['frequency_ghz'][-1]],
+            'temporal_tolerance_met': run['temporal_tolerance_met'], 'host': host_of(env),
+            'spectrum': {'record': f'meep_runs/{rel[len("meep_runs/"):]}', 'path': 'snapshots[-1].s11 / frequency_ghz'}})
+    v2env = host_of('meep_runs/v2/environment.json')
+    for name, r in result['runs'].items():
+        geom, res, _ = RUNS[name]
+        entries.append({
+            'id': 'v2_' + name[2:], 'harness': 'v2 (matched_antenna_v2.py, 19/19 mutations caught)', 'status': 'production',
+            'geometry': geom, 'design': 'initial (patch_conformal_L0)', 'resolution_cells_per_mm': res,
+            'mpi_ranks': r['mpi_ranks'], 'wall_seconds': r['wall_seconds'],
+            'sum_rank_peak_rss_gib': r['sum_rank_peak_rss_gib'],
+            'cgroup_peak_gib': r['cgroup_peak_gib'], 'estimated_cells': r['grid_cells_estimated'],
+            'dip_ghz': r['dip_parabolic_ghz'], 'dip_db': r['dip_parabolic_db'],
+            'dip_is_interior': r['min_is_interior'], 'window_ghz': r['window_ghz'],
+            'temporal_tolerance_met': r['temporal_tolerance_met'], 'host': v2env,
+            'spectrum': {'record': f'meep_runs/v2/{name}.json', 'path': 'snapshots[-1].s11 / frequency_ghz'}})
+    g = result['geode']
+    palace = g['palace_initial_L1']['p3']['dip_f_ghz']
+    ext = sorted([g['geode_rim_richardson_order1_ghz'], g['geode_rim_fit_f_inf_ghz']])
+    gc = g['geode_x1comb_L1_cost']
+    rows = []
+    for e in [x for x in entries if x['id'] in ('v2_bent_R2.5', 'v2_bent_R5')]:
+        rows.append({'solver': 'Meep v2 ' + e['id'][3:], 'dip_ghz': e['dip_ghz'], 'wall_seconds': e['wall_seconds'],
+                     'peak_rss_gib': e['cgroup_peak_gib'], 'output': 'full 1.6-3.0 GHz spectrum'})
+    rows.append({'solver': 'GEODE P1 X1 combined rung (n_dofs %d, %d solves)' % (gc['n_dofs'], gc['n_solves']),
+                 'dip_ghz': g['geode_p1_x1comb_L1_dip_ghz'], 'wall_seconds': gc['total_s'],
+                 'peak_rss_gib': gc['peak_rss_gib'], 'output': 'one dip plus the shape gradient'})
+    for row in rows:
+        d = row['dip_ghz']
+        row['error_vs_palace_p3_mhz'] = (d - palace) * 1e3
+        row['distance_to_extrapolated_band_mhz'] = {'best_case': max(0.0, ext[0] - d, d - ext[1]) * 1e3,
+                                                    'worst_case': max(abs(d - ext[0]), abs(d - ext[1])) * 1e3}
+        row['meets_tolerance_vs_palace_p3_mhz'] = [t for t in TOLERANCES_MHZ if abs(row['error_vs_palace_p3_mhz']) <= t]
+        row['meets_tolerance_vs_extrapolated_band_mhz'] = [
+            t for t in TOLERANCES_MHZ if row['distance_to_extrapolated_band_mhz']['worst_case'] <= t]
+    scaling = load(HERE / 'meep_runtime_scaling.json')['projection']
+    cells = 250 ** 3 * 64 * 60 * 42
+    wall = 14 ** 3 * 64 * 60 * 42
+    return {
+        'schema': 'geode-meep-s11-vs-resolution/1',
+        'issue': '#1088 (Part of; not closed by this increment)',
+        'note': ('Index of every committed Meep S11 curve. It points into meep_runs/ and copies no spectrum. '
+                 'R3, R6 and R8 are not run (out of scope, operator hold 2026-10-15). Regenerate with '
+                 'meep_v2_verify.py --write-index.'),
+        'curves': entries,
+        'optimized_geometry': {
+            'status': 'not run',
+            'dumps_committed': {rel: digest(ROOT / rel) for rel in DUMPS},
+            'headline_dump': DUMPS[2],
+            'blocker': ('Harness v2 builds a Yee-aligned rectangular patch from patch_w/patch_l/probe_inset. The dumps '
+                        'hold free-form outlines (32 outline + 4 corner + 2 feed DOFs), so loading one needs a '
+                        'polygon-to-Yee-sheet loader and a re-verified harness. Both are out of scope for #1088 as '
+                        'curated, and the R5 run would take about 18 h (52,858 s at the initial geometry).'),
+            'no_new_aws_spend': True},
+        'cost_to_accuracy': {
+            'reference': {'palace_p3_ghz': palace, 'geode_rim_extrapolated_band_ghz': ext,
+                          'note': ('Palace p3 is the same model on a finite mesh, not a converged value: the GEODE '
+                                   'extrapolations put the converged dip 6-14 MHz above it. A tolerance below that '
+                                   'spread cannot be established against the extrapolated band.')},
+            'tolerances_mhz': TOLERANCES_MHZ, 'host_type': 'AWS r8g.8xlarge (32 vCPU Graviton4, 256 GiB)',
+            'rows': rows,
+            'ratios_meep_R2.5_over_geode': {'wall': rows[0]['wall_seconds'] / rows[2]['wall_seconds'],
+                                            'rss': rows[0]['peak_rss_gib'] / rows[2]['peak_rss_gib']},
+            'convergence_established': False,
+            'note': 'Two Meep resolutions cannot establish an order; Meep R5 is farther from Palace p3 than R2.5.'},
+        'runtime_scaling_arithmetic': {
+            'cells_at_R250': cells, 'cells_at_R14': wall, 'ratio': cells / wall,
+            'file_states_2.52e12': '2.52e12' in scaling['cells_at_curve_faithful_resolution'],
+            'file_states_5700x': '5,700' in scaling['R250_ram_note'],
+            'file_cells_at_R250': scaling['cells_at_R250'], 'file_ratio': scaling['cell_ratio_R250_over_R14']},
+        'aws_spend': {'this_increment_usd': 0.0, 'cumulative_conservative_estimate_usd': 55.7, 'cap_usd': 250,
+                      'note': 'Estimate at the table rate from #1153, not an AWS bill. No instance was launched here.'},
+        'verdict': {
+            'forward_solve_only': True, 'optimizer_comparison': '#1090',
+            'text': ('The committed data do not show GEODE cheaper than Meep for this forward solve. At the one rung with '
+                     'a GEODE cost, Meep R2.5 reaches the same error against Palace p3 in 0.63x the time and 0.09x the '
+                     'memory, and returns the whole spectrum. Against the extrapolated reference neither solver is '
+                     'within the reference uncertainty. The title hypothesis (FEM cheaper by a moderate factor) is '
+                     'therefore not supported on this evidence, but it is not decided: GEODE has one cost rung, Meep has '
+                     'two non-monotone resolutions, and the optimized-geometry pair and the optimizer comparison are '
+                     'open.')}}
+
+
+def index_findings(index):
+    rows = {r['solver'].split(' (')[0]: r for r in index['cost_to_accuracy']['rows']}
+    m25, m5, ge = rows['Meep v2 bent_R2.5'], rows['Meep v2 bent_R5'], rows['GEODE P1 X1 combined rung']
+    r = index['cost_to_accuracy']['ratios_meep_R2.5_over_geode']
+    check(0.5 < r['wall'] < 0.75 and 0.05 < r['rss'] < 0.15, f'Verdict ratios drifted: {r}')
+    check(1.0 in m25['meets_tolerance_vs_palace_p3_mhz'] and 1.0 in ge['meets_tolerance_vs_palace_p3_mhz'],
+          'Meep R2.5 and GEODE X1 must both be within 1 MHz of Palace p3')
+    check(m5['meets_tolerance_vs_palace_p3_mhz'] == [5.0, 10.0], 'Meep R5 is 4.9 MHz from Palace p3: within 5, not within 1')
+    check(not any(row['meets_tolerance_vs_extrapolated_band_mhz'] for row in rows.values()),
+          'No solver is within 10 MHz of every point of the extrapolated band')
+    check(not index['cost_to_accuracy']['convergence_established'], 'Convergence must not be claimed')
+    check(not any(c['resolution_cells_per_mm'] in (3, 6, 8) for c in index['curves']), 'R3/R6/R8 are out of scope')
+    a = index['runtime_scaling_arithmetic']
+    check(abs(a['cells_at_R250'] / 2.52e12 - 1) < 5e-3 and abs(a['ratio'] - 5700) < 20, 'Scaling arithmetic')
+    check(a['file_cells_at_R250'] == a['cells_at_R250'] and abs(a['file_ratio'] - a['ratio']) < 1e-6 and
+          a['file_states_2.52e12'] and a['file_states_5700x'], 'meep_runtime_scaling.json lost the corrected arithmetic')
+    check(index['aws_spend']['cumulative_conservative_estimate_usd'] + index['aws_spend']['this_increment_usd']
+          <= index['aws_spend']['cap_usd'], 'Over the AWS cap')
+    check(index['verdict']['forward_solve_only'] and index['verdict']['optimizer_comparison'] == '#1090', 'Verdict scope')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--write', action='store_true', help='regenerate ladder.json')
+    ap.add_argument('--write-index', action='store_true', help='regenerate meep_s11_vs_resolution.json')
     args = ap.parse_args()
     result = build()
+    if args.write_index:
+        INDEX.write_text(json.dumps(build_index(result), indent=2, allow_nan=False) + '\n')
+        print(f'wrote {INDEX}')
+        return
     out = V2 / 'ladder.json'
     if args.write:
         out.write_text(json.dumps(result, indent=2, allow_nan=False) + '\n')
@@ -487,6 +641,11 @@ def main():
     present = {p.relative_to(V2).as_posix() for p in V2.rglob('*') if p.is_file() and p.name != 'SHA256SUMS'}
     check(present == listed, f'SHA256SUMS does not cover v2/ exactly: {sorted(present ^ listed)[:5]}')
     findings(result)
+    index = build_index(result)
+    close(index, load(INDEX), 'index')
+    index_findings(index)
+    for rel, want in index['optimized_geometry']['dumps_committed'].items():
+        check(digest(ROOT / rel) == want, f'{rel} changed')
     print('PASS: v2 environment, v1 intact, probes, oracles, grid audits, spectra, GEODE/Palace comparison')
 
 
