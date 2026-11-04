@@ -1,11 +1,11 @@
 ---
-title: "Cross-validating an open-source Rust FEM solver against Palace on a superconducting transmon geometry"
+title: "An Independent Finite-Element Cross-Check of the DeviceLayout.jl Transmon"
 slug: transmon-benchmark
 skill: pub
 venue_target: "arXiv preprint (physics.comp-ph, cross-list quant-ph); possible later submission to a computational-physics journal"
 audience: "Computational electromagnetics practitioners and superconducting-qubit design engineers; secondary: open-source scientific-software community"
 length_target: "8-12 pages two-column (or ~15 single-column), 4-6 figures"
-authors: "Robb Walters and Crutcher Dunnavant (in that order), equal contributors — standard equal-contribution footnote on both names; affiliations still TODO(operator); + AI-orchestrated development acknowledgment"
+authors: "Robb Walters, 2AM Logic; Crutcher Dunnavant, ZSpaceLabs.ai (second author) — operator ruling 2026-10-22, superseding the 2026-10-13 solo-author ruling; author contributions and the AI-orchestrated development in Section 11 (the last section since v23)"
 status_of_inputs: "Agreement + CPU cell + GPU correctness FINAL; GPU performance = declared future work"
 web_search: true
 claim_area: "cross-solver validation of open-source finite-element electromagnetics solvers on superconducting-qubit geometries"
@@ -13,6 +13,293 @@ closest_prior_work: "Palace (unpublished software); DeviceLayout.jl transmon wor
 ---
 
 # Brief: the transmon cross-validation benchmark paper
+
+## v23 — reading-flow revision, 2026-10-23 — CURRENT
+
+**Current state: `transmon-benchmark.23/` (draft, not reviewed), 21 pages.**
+v23 = v22 revised for reading flow (geode-fem#1231): the flow review's S and M
+proposals for an interested non-specialist reader, and the two deferred #1231
+Judge nits. No number, result, claim scope, title, author, DOI or reference
+changed and no computation was run; v1–v22 stay immutable. Where this section
+conflicts with the sections below, it wins.
+
+- **Order:** the GEODE-FEM paragraph precedes the main-result paragraph in
+  Section 1 ("Two solvers appear ..."); Section 3 is 3.1 device and meshes, 3.2
+  junction and circuit, 3.3 geode-fem (so Eq. port precedes the eigenvalue
+  derivative that cites it) and is titled "Device, Models and Solvers"; Figure 3
+  sits (`[t]`) after "A second refinement family"; "Why the qubit is approached
+  from below" follows "Where the shift comes from" in the Discussion; the
+  contributions section is the last section, Section 11, "Author Contributions
+  and How geode-fem Was Built", after Reproducibility and the Acknowledgments
+  (whose approved wording is unchanged and points forward to it).
+- **Terms at first use:** "final" design (Section 1, where the targets are
+  given; "the 3.0/4.0 GHz design" is gone); "Palace run" as the cost unit
+  (Section 1 parenthetical); "static route" (Section 1); "ladder" (Section 3.1);
+  "unmodified device" (Section 6); family a / family b only (no "first/second
+  family"); bound, cap, estimate with its band, and computed value mapped to
+  the Table 6 tiers in a Section 1 paragraph.
+- **Tier rename:** "Measured" is now **Computed** (Tables 6 and 7, captions and
+  text); "measurement" keeps its laboratory sense; "measured" survives only as
+  a verb.
+- **Abstract (199 words):** labels for 7.0/8.0 % (initial, final) and the
+  baseline for 7.3–9.6 % and 2.7–3.3 % ("above their published values");
+  "within 0.7 % at the example's own discretization"; "Palace's adaptive
+  refinement" (not "adaptive Palace runs").
+- **Caveat discipline:** "rule fixed after the static route; consistency check,
+  not a blind prediction" is in full once (Section 1) and in Table 6; Section 5
+  and 6 keep short forms; the Conclusion's repeat is dropped.
+- **#1231 Judge nits applied:** the precision argument is scoped "on the levels
+  both codes ran, the two coarsest family-a levels with linear elements" ($h$,
+  $h/2$ at $p = 1$ on family a; geode-fem ran no $p = 2$, family-b or
+  scaling-law ladder); the Figure 1 caption's colour rule exempts the $k$, Vacuum, Sapphire
+  and Metal-sheets labels.
+- **Skipped (with reasons in the changelog):** moving the bound's verification
+  sentences to Reproducibility (they scope "holds by theorem" and stay beside
+  the bound); the FDTD clause is motivated, not cut.
+- **Verifier:** `check_v23()` pins the multiset of numerals in the body against
+  v22 (a whole-file diff cannot survive a reorder), plus title, authors, DOI,
+  citation set, `refs.bib`, the section and block order and each applied
+  wording; v22 `main.tex` pinned by SHA-256.
+- `papers/README.md` is not updated in this revision (parallel PRs; operator).
+
+## v22 — short title, 2026-10-22
+
+
+**Current state: `transmon-benchmark.22/` (draft, not reviewed), 21 pages.**
+v22 = v21 with the operator's short title (geode-fem#1231). No other wording
+or number changed and no computation was run; v1–v21 stay immutable. Where
+this section conflicts with the sections below, it wins.
+
+- **Title:** "An Independent Finite-Element Cross-Check of the DeviceLayout.jl
+  Transmon" (operator's choice and capitalisation). It supersedes the v13
+  ruled title, "Uniform mesh refinement underestimates the frequencies of the
+  DeviceLayout.jl transmon: an independent finite-element cross-check and
+  re-optimization", and closes the open title decision from v19's "For the
+  operator". The abstract states the convergence finding. The `title:` front
+  matter, which still held an early working title, now holds the new title.
+- **Kept:** the DOI 10.5281/zenodo.23580545 and the author block. There is no
+  pending marker. The #1231 Judge nits stay deferred.
+
+## v21 — v1 Zenodo release, 2026-10-22
+
+**State at v21: `transmon-benchmark.21/` (draft, not reviewed), 21 pages.**
+v21 = v20 with release metadata only (operator, geode-fem#1231). No other
+wording or number changed and no computation was run; v1–v20 stay
+immutable. Where this section conflicts with the sections below, it wins.
+
+- **Affiliations:** Robb Walters, "2AM Logic"; Crutcher Dunnavant,
+  "ZSpaceLabs.ai". Each author has their own `\normalsize` affiliation line.
+  This supersedes the v20 string "Independent Researcher / ZSpaceLabs.ai".
+- **DOI:** the paper's reserved Zenodo DOI, 10.5281/zenodo.23580545, is
+  under the date on the title page.
+- **Reproducibility footnote:** "Archival DOI to be added at deposit." and its
+  `TODO(operator)` comment are replaced by "This paper's PDF and \LaTeX{}
+  source are archived at doi:10.5281/zenodo.23580545". No TODO remains.
+- **Deferred:** the issue #1231 Judge nits (the precision-argument qualifier
+  and the Figure 1 caption exemption).
+
+## v20 — coauthor clarity revision, 2026-10-22
+
+**State at v20: `transmon-benchmark.20/` (draft, not reviewed), 21 pages.**
+v20 = v19 revised for coauthor Crutcher Dunnavant's review of v19. No number
+changed and no new computation; v1–v19 stay immutable. Where this section
+conflicts with the sections below, it wins; v19's section stands otherwise.
+
+- **Affiliation:** Crutcher Dunnavant, "Independent Researcher /
+  ZSpaceLabs.ai" (exact string, in the class's `\normalsize` affiliation
+  line). The `[PENDING coauthor-affiliation]` marker is gone.
+- **Qubit frequency:** Section 1's first paragraph defines it as the linear
+  eigenfrequency of the junction's (plasma) mode, with the $f_{01}$ footnote
+  kept. Every "x % above" sentence names the frequency ("qubit frequencies",
+  not "qubits"), at most once per sentence.
+- **Figures:** one colour scheme. Each label has the colour of the object it
+  names; the junction has its own colour (purple) in Figure 1(a, b) and
+  for $L_J$ in (d); the rest of the island stays blue; the design-parameter annotations
+  are green, and the caption says so. Figure 2's pair-extrapolation key shows
+  both markers. Figure 5 keeps one colour per method and draws the mapped
+  band in the estimate-band grey. Figures 3 and 4 are unchanged.
+- **Where the shift comes from:** a Discussion paragraph, pointed to from
+  Section 1. geode-fem runs in f64, and Palace is built from
+  `reference/palace/docker/Dockerfile`, which sets no single-precision
+  option. The codes agree to $2\times10^{-4}\%$ on the qubit frequency on
+  shared meshes. Palace is a frequency-domain FE eigensolver, not FDTD. The
+  error lies in the discretization (the input mesh), and refinement moves
+  both codes up together. "Bounded", never "certified" or "proven".
+
+## v19 — reader-clarity revision and coauthor, 2026-10-22
+
+**State at v19: `transmon-benchmark.19/` (draft, not reviewed), 20 pages.**
+v19 = v18 revised against a pre-read lens of v18 for Crutcher Dunnavant, who is
+now a coauthor (a tensor-compiler/ML-systems engineer, not a qubit or EM-FEM
+specialist). No new results; no solver or `cargo` run. v1–v18 stay immutable.
+Where this section conflicts with the sections below, it wins; the v13 rulings
+stand except the authorship ruling.
+
+- **Coauthor (operator ruling 2026-10-22):** authors Robb Walters, then
+  Crutcher Dunnavant, plain order, no equal-contribution footnote, no email
+  for him; his affiliation is the literal marker `[PENDING
+  coauthor-affiliation]` until he supplies it. §8 carries an
+  author-contributions statement by initials: C.D. wrote the L1–L4 whiteroom
+  specification (palace_whiteroom citation kept), gave design input and review
+  on the operator layer, and contributed the code listed since v11; R.W. ran
+  the research and the agents and is responsible for the results. Supersedes
+  the 2026-10-13 "solo author" ruling and the v18 coauthorship NOTE.
+- **Terminology:** element order $p$, convergence rate $r$, adaptive
+  "passes", "Palace runs" (with "step" and "probe"); "bound" (theorem,
+  capacitance only), "cap" (circuit model), "band" (extrapolation range only;
+  $L_s$, $k$ have "fitted ranges").
+- **Title:** unchanged (ruled). The lens's concern and a proposed alternative
+  are in v19's changelog under "For the operator".
+
+## v13 — reframing revision, 2026-10-15 (tracker #1063, rulings on #1129)
+
+
+**v13 = v12 revised against the Opus and Fable reviews of v12, the operator's
+2026-10-15 rulings on #1129, and the #1129 follow-up runs (PR #1131).** Where
+this section conflicts with the sections below, it wins. v1–v12 and their
+critics stay immutable. Status: DRAFT; no score, review or audit carries over.
+
+- **Framing and title (ruled):** an independent reproduction and cross-check
+  of the Palace/DeviceLayout.jl transmon work. Title: "Uniform mesh refinement
+  underestimates the frequencies of the DeviceLayout.jl transmon: an
+  independent finite-element cross-check and re-optimization". Never
+  "converged frequencies"; the validation sentence is kept once in §1. The
+  differentiable solver is a tool in the body; no run count or design is
+  credited to the shape derivative.
+- **Derivative (ruled):** §10 explains why the derivative gives no advantage
+  here (two nearly decoupled parameters; N+1 = 3 solves for an FD gradient;
+  the coarse fixed-topology derivative is the slope of a different discrete
+  problem) and where derivatives pay off, pointing neutrally to the
+  conformal-antenna companion, whose gradient-free comparison is still being run.
+- **§8 (ruled):** 150–250 words; Crutcher Dunnavant's spec, design input and
+  code contributions with the palace_whiteroom citation; the AI-model
+  statement; no commit counts, provenance or corrected-claim examples.
+- **Controls in one environment:** Newton 3 (shape derivative; scaling law;
+  scaling law with a Palace-only δ) against PRIMA 10 in our Palace
+  environment, the published 9 as context; Broyden 5.
+- **Re-optimized capacitor:** 19–20 % over the published length over two
+  refinement families; about +17 % to +39 % within the band (centred on
+  3.0 GHz).
+- **Length:** about 16–17 pages; v13 is 17.
+
+## v12 — review revision, 2026-10-14 (tracker #1063)
+
+**v12 = v11 revised against the Fable, Opus and Codex reviews of v11, with the
+controls of #1123 (PR #1127, `benchmarks/transmon_devicelayout_controls/`).**
+Where this section conflicts with the sections below, it wins. v1–v11 and
+their critics stay immutable. Status: DRAFT; no score, review or audit carries
+over. The v11 rulings (title, solo author, §9, validation wording,
+acknowledgment) stand.
+
+- **Gradient attribution:** the 3-vs-9 Palace runs is Newton's method in
+  DeviceLayout's near-linear variables, not the shape derivative: a
+  scaling-law c column also takes 3, Broyden 5. Never credit the run count to
+  the shape derivative or autodiff; state the δ sensitivity.
+- **Convergence wording:** Palace's ladders extrapolate; geode-fem reproduces
+  h and h/2 only. Never "both solvers converge".
+- **Initial qubit:** quote 4.444–4.472 GHz (two refinement families); Palace
+  AMR 4.1683 → 4.4297 GHz, no plateau; its fit 4.4552 is an ill-conditioned
+  estimate.
+- **Tiers:** certified = the C_Σ brackets and gap only; the 4.477 GHz cap is
+  model-dependent; shared limits reported for every series.
+- **Voice:** `.anvil/skills/paper/voice.md` applies (no virtue words, no
+  version history in the text, sparing em-dashes, certified vs estimated kept
+  apart, method credit only where an ablation supports it).
+
+## v11 — operator-ruling revision, 2026-10-13 (tracker #1063)
+
+**v11 = v10 + the operator's 2026-10-13 rulings + the v10 Judge's follow-ups.**
+A narrow revision; where it conflicts with the sections below, this section
+wins. v1–v10 and their critics stay immutable. Status: DRAFT; no score, review
+or audit carries over.
+
+- **Title (ruled):** "A differentiable finite-element solver for
+  superconducting-qubit design: converged frequencies and gradient
+  re-optimization of the DeviceLayout.jl transmon".
+- **Validation claim (ruled):** "an independent same-mesh cross-check of the
+  Palace/DeviceLayout.jl transmon stack, complementing the earlier checks of
+  Palace by SQDMetal and Ye et al." in §1 and the last contribution; never
+  "first" or "validation".
+- **Authors (ruled, superseding the 2026-07-14 coauthor note):** solo,
+  "Robb Walters", "Independent Researcher". The operator shares the draft with
+  Crutcher Dunnavant and offers him authorship.
+- **Whiteroom (ruled):** cited as software, `dunnavant2026whiteroom`
+  (https://github.com/crutcher/palace_whiteroom, public). Loom cited as a URL.
+- **New §9 "How geode-fem Was Designed and Built" (ruled):** the whiteroom
+  lineage and Crutcher Dunnavant's own 36 commits (Rust 2024, Metal backend,
+  restructuring, geode-util); role-separated AI agents (Anthropic's Claude
+  Opus, Fable and Sonnet via Claude Code; OpenAI's GPT Sol and GPT Astra
+  models via Codex, which made 3 of the 85 commits) coordinated by Loom and a
+  Squad room; independent agent review of 46 of the 48 PRs, with three
+  claims it corrected (the misread 4.14 GHz anchor,
+  scalar/tensor mixing, the static route presented as independent); git-history
+  counts, recomputed by `count_provenance.py`; the human author's
+  responsibility.
+- **Mechanical:** repository URL https://github.com/rjwalters/geode-fem in the
+  Reproducibility footnote; archival DOI at Zenodo deposit; no public cubecl
+  f64 tracking issue found, so the footnote promises none.
+- **Remaining operator items:** approve the acknowledgment wording; the Zenodo
+  DOI; Crutcher Dunnavant's answer to the coauthorship offer.
+
+## v10 — restructured revision, 2026-10-13 (tracker #1063)
+
+**v10 = the operator's Q5 ruling (2026-10-12, option 1) applied.** The paper is
+reframed around the converged DeviceLayout.jl SingleTransmon cross-check and the
+re-optimization toward the published final design. It folds in #1101 (#1091),
+#1106 (#1092 part 1), #1111 (#1092 part 2) and #1094 (#1093, the verified
+litsearch in `transmon-benchmark.9.litsearch/`). Where this section conflicts
+with the v9 or earlier sections below, this section wins. v1–v9 and their
+critics stay immutable. v10 is a DRAFT; no score, review or audit carries over.
+
+**Headline (one sentence).** The published SingleTransmon frequencies are
+discretization-limited: geode-fem and Palace converge to qubit frequencies
+7.3 % and 8.7 % above them (resonators 2.7 %), a certified tensor-ε C_Σ bracket
+read through a circuit model is consistent with that shift and caps the
+initial qubit (the extrapolation rule was fixed after the static route was
+known, so the 0.22 % agreement is a consistency check, not a blind
+prediction), and a gradient-assisted Newton
+iteration reproduces DeviceLayout's optimization in 3 Palace runs (PRIMA: 9)
+and finds that the converged 3.0/4.0 GHz design needs c ≈ 1446 µm (+19 %;
++16 % to +38 % within the band).
+
+CERTIFIED (for the meshed polygonal geometry; lower floored, upper ceiled):
+- X⁰ C_Σ: scalar [77.40, 77.61] fF, sapphire tensor [79.56, 79.76] fF; certified
+  tensor-minus-scalar gap 2.5–3.1 %, rounded outward (X⁰ and both 93.95 fF designs). The 36.87°
+  rotation is the identity.
+- Under the two-node circuit model, the certified lower bound caps the initial
+  qubit at 4.477 GHz.
+
+MEASURED:
+- Palace at DeviceLayout's discretization: [4.1683, 5.6132] and
+  [3.0164, 3.9956] GHz, < 0.7 % above the published pairs.
+- geode-fem vs Palace on shared ladder meshes: qubit 1e-4 %; resonator 0.03 %
+  at h (Palace bisects), 0.0000 % at h/2.
+- Newton against DeviceLayout's discretization: criterion at step 2 = 3 Palace
+  runs; optimum (1236.360, 7224.900) µm, +18.7 / −19.1 µm from the published
+  final (≈ +10 µm is the Palace build).
+- HF capacitor_length gradient = central FD to every printed digit.
+
+ESTIMATES (extrapolations with bands, never "bounds"):
+- Converged: initial 4.444 [4.415, 4.677] (capped 4.477) / 5.740 GHz; final
+  3.265 [3.236, 3.471] / 4.088 GHz. Static route 4.449–4.458 GHz.
+- Converged design cv2 (1446.078, 7416.352) µm: qubit 3.005 [2.979, 3.221] GHz,
+  resonator 3.998 GHz; not a verified hit; the shared-limit check says the
+  point estimate leans low.
+- L_s and k bands (circuit terms).
+
+Supporting only: the 93.95 fF electrostatic design loop (Appendix A), aimed at a
+misread target (4.14 GHz is the initial-geometry frequency). The anchor chain
+93.954 → 93.853 → 93.143 fF is cut from the paper.
+
+Rules: no revision narrative, no issue/PR numbers or code identifiers in the
+body, no virtue labels; em-dashes only in inherited operator text; certified
+and estimated results keep their labels; about 20 pages.
+
+**Operator decisions still open (#1063), deliberately untouched:** the title;
+the "first independent validation" claim (both sentences verbatim, with one new
+`TODO(operator)` comment recording the recommendation to drop "first" and
+"validation"); the acknowledgments; the six inherited `TODO(operator)` lines.
+Next: the Anvil review, audit and numeric critics on v10.
 
 ## v9 — evidence revision, 2026-10-12 (tracker #1063)
 
@@ -761,7 +1048,16 @@ arXiv papers dated 3 months–5 years back).
 **No fees; moderation (not review) follows submission — typically 1-2 business
 days to announcement once endorsed.**
 
-## Coauthor note (2026-07-14)
+## Coauthor note (2026-07-14) — SUPERSEDED 2026-10-13
+
+**Operator ruling (2026-10-13):** solo author, Robb Walters, Independent
+Researcher. Crutcher Dunnavant is removed from the byline, with the
+equal-contribution footnote; the operator will share the draft with him and
+offer him coauthorship (source comment `% NOTE: Crutcher Dunnavant to be
+offered coauthorship at review (operator, 2026-10-13)`). The whiteroom question below
+is answered: it is public (https://github.com/crutcher/palace_whiteroom) and
+cited. The original note follows for the record.
+
 Crutcher Dunnavant is the expected coauthor, and the two authors are
 EQUAL CONTRIBUTORS (operator-confirmed): the author block carries the
 standard "These authors contributed equally" footnote on both names.

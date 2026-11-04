@@ -1,0 +1,49 @@
+space b interior Sr1 forward h=1e-05 dF: FD 0.001660514167139966 adj 1.968161254e-03 err -0.00030764708646937363 rel 0.1563119312023803
+space b interior Sr1 forward h=1e-05 dmean_full: FD 0.16812442253932813 adj 1.676666451e-01 err 0.0004577774584295091 rel 0.002730283403766044
+space b interior Sr1 forward h=1e-06 dF: FD -0.001143224391889171 adj 1.968161254e-03 err -0.003111385645498511 rel 1.580859108872636
+space b interior Sr1 forward h=1e-06 dmean_full: FD 0.17013620956520026 adj 1.676666451e-01 err 0.002469564484301634 rel 0.014729014725081886
+space b interior Sr1 forward h=1e-07 dF: FD -0.028091738709502177 adj 1.968161254e-03 err -0.030059899963111515 rel 15.273087968775807
+space b interior Sr1 forward h=1e-07 dmean_full: FD 0.192150806377247 adj 1.676666451e-01 err 0.024484161296348367 rel 0.14602881380810617
+space b interior Sr1 central h=1e-05 dF: FD 0.0019681523381540004 adj 1.968161254e-03 err -8.915455339264522e-09 rel 4.529839881216436e-06
+space b interior Sr1 central h=1e-05 dmean_full: FD 0.16766609820528755 adj 1.676666451e-01 err -5.468756110738049e-07 rel 3.2616839849687405e-06
+space b interior Sr1 central h=1e-06 dF: FD 0.0019681643372364546 adj 1.968161254e-03 err 3.083627114937315e-09 rel 1.5667553201153427e-06
+space b interior Sr1 central h=1e-06 dmean_full: FD 0.16766664923119368 adj 1.676666451e-01 err 4.150295052074426e-09 rel 2.4753253994388223e-08
+space b interior SW4 forward h=1e-05 dF: FD 0.005537618705253825 adj 5.853629308e-03 err -0.0003160106023532864 rel 0.053985414133179456
+space b interior SW4 forward h=1e-05 dmean_full: FD 0.5066811772813857 adj 5.070232493e-01 err -0.00034207200595803844 rel 0.0006746672986669631
+space b interior SW4 forward h=1e-06 dF: FD 0.002741501905700121 adj 5.853629308e-03 err -0.0031121274019069904 rel 0.5316577525438125
+space b interior SW4 forward h=1e-06 dmean_full: FD 0.5094126476205408 adj 5.070232493e-01 err 0.002389398333197068 rel 0.004712601121458498
+space b interior SW4 forward h=1e-07 dF: FD -0.024439399809595676 adj 5.853629308e-03 err -0.030293029117202788 rel 5.175084981523401
+space b interior SW4 forward h=1e-07 dmean_full: FD 0.5314993223346977 adj 5.070232493e-01 err 0.024476073047353886 rel 0.048274064516285395
+space b interior SW4 central h=1e-05 dF: FD 0.005853747269725612 adj 5.853629308e-03 err 1.179621185003199e-07 rel 2.015196253493908e-05
+space b interior SW4 central h=1e-05 dmean_full: FD 0.5070240154503509 adj 5.070232493e-01 err 7.661630071487124e-07 rel 1.5111003454488674e-06
+space b interior SW4 central h=1e-06 dF: FD 0.005853740079474338 adj 5.853629308e-03 err 1.1077186722659865e-07 rel 1.8923621808891203e-05
+space b interior SW4 central h=1e-06 dmean_full: FD 0.5070232020902127 adj 5.070232493e-01 err -4.719713109224699e-08 rel 9.308671970878223e-08
+space b interior SW1 forward h=1e-05 dF: FD -0.014172457118121507 adj -1.378915019e-02 err -0.00038330693295359104 rel 0.02779771978739409
+space b interior SW1 forward h=1e-05 dmean_full: FD 0.7702621778849265 adj 7.734698145e-01 err -0.003207636664565694 rel 0.004147074138160108
+space b interior SW1 forward h=1e-06 dF: FD -0.016908107905095313 adj -1.378915019e-02 err -0.0031189577199273975 rel 0.22618926315577126
+space b interior SW1 forward h=1e-06 dmean_full: FD 0.7755705238031788 adj 7.734698145e-01 err 0.002100709253686661 rel 0.0027159550562554534
+space b interior SW1 forward h=1e-07 dF: FD -0.04490731924331124 adj -1.378915019e-02 err -0.031118169058143325 rel 2.256714057086353
+space b interior SW1 forward h=1e-07 dmean_full: FD 0.7979169724925789 adj 7.734698145e-01 err 0.024447157943086717 rel 0.03160712607424244
+space b interior SW1 central h=1e-05 dF: FD -0.013789333140526307 adj -1.378915019e-02 err -1.8295535839096821e-07 rel 1.3268066264718858e-05
+space b interior SW1 central h=1e-05 dmean_full: FD 0.7734937608306107 adj 7.734698145e-01 err 2.394628111856978e-05 rel 3.095955481147936e-05
+space b interior SW1 central h=1e-06 dF: FD -0.013789172576340438 adj -1.378915019e-02 err -2.2391172522021052e-08 rel 1.623825415006776e-06
+space b interior SW1 central h=1e-06 dmean_full: FD 0.7734699664084882 adj 7.734698145e-01 err 1.518589960447514e-07 rel 1.963347414316378e-07
+recorded: fd-step-sweep-L1-warm-b.json
+      125.38 real       124.99 user         0.27 sys
+           411959296  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               46099  page reclaims
+                   3  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                 772  voluntary context switches
+                2977  involuntary context switches
+          2952937615  instructions retired
+          1150800782  cycles elapsed
+            56803928  peak memory footprint

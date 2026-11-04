@@ -1,0 +1,14 @@
+{
+  "L_um": "7207.5505976428285",
+  "c_um": "1209.1251598223562",
+  "fx": 6.5767126905625e-5,
+  "nf": 10,
+  "prima_version": "0.2.4",
+  "reason": "The target function value is reached",
+  "replay": false,
+  "status": "FTARGET_ACHIEVED",
+  "x": [
+    "0.7160778095845071",
+    "0.693716947562631"
+  ]
+}

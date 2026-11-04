@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "scope": "Actual local paired release builds and copied archive verification; no FEM execution, no main-study selection or performance evidence, no independent review approval.",
+  "code_commit": "1c6784e7e1fc8fe0564b1d793a6c4061588028f5",
+  "source_sha256": {
+    "refinement_build.py": "04630c568318c302b7fdb23d7ac1272e5814856d543a3679aaf59de1b5b2b315",
+    "test_refinement_build.py": "6d14f3bd47f17106378d28f13dc8439fa015344eab987ad6557a187e461f7036",
+    "test_paired_build_archive.py": "3bd684c5b2052d378b6188cfbde4b7857b8a609ccad9a3763e6bb3e12ed648c5"
+  },
+  "source_files": 1502,
+  "original_clean_worktree_verified": true,
+  "original_worktree": "/Volumes/Stripe/geode-fem/codex-issue-1203-executor-build",
+  "private_target": "/Volumes/Stripe/geode-fem/codex-issue-1203-executor-build/target",
+  "pair_manifest_sha256": "62a4592a4e1a7f53acde1ff7bdd8aacdd7b3650ebdc5b684b62710a93a93baed",
+  "archive": {
+    "path": "smoke/paired_build_1c6784e7.tar.gz",
+    "sha256": "bcda844984de44312be6c2655285f11f24a37127f0603f79da056d57049b4063",
+    "bytes": 2423093,
+    "files": 18,
+    "copied_replay": "PASS",
+    "preserve_executable_mode": "0555"
+  },
+  "builds": {
+    "icem_harness_eval": {
+      "binary_sha256": "e6ccc3d6ba11d5e4711bd0275bc8e0a80fbe3247f06aeefa81923437436d8f34",
+      "cargo_log_sha256": "75f351dda232d56bb5aec3fa99b390614c930ae5d64e5022bd9aea1963d0567c",
+      "inputs_sha256": "9528a22f02332bead150af1790951c274dd5c6b0763beef12bd1c59c5abcfd1a",
+      "cargo_profile": {
+        "opt_level": "3",
+        "debuginfo": 0,
+        "debug_assertions": false,
+        "overflow_checks": false,
+        "test": false
+      },
+      "features": [
+        "autodiff",
+        "default",
+        "faer-parallel",
+        "testing"
+      ],
+      "cargo_fresh": false,
+      "compiler_returncode": 0,
+      "observed_processes_stopped": true
+    },
+    "icem_final_refinement": {
+      "binary_sha256": "a96ab99cf18540a3028d463e6cd171c06959a6fada4d10e215aeebc376ec4f11",
+      "cargo_log_sha256": "bad46bf418ad13b6c6593659e3aa12f67187e337831d8bc57510c5f0251df9dc",
+      "inputs_sha256": "82929fc707373c7565de3b197be32cf35d81342743263cef402183c9ff2f1d88",
+      "cargo_profile": {
+        "opt_level": "3",
+        "debuginfo": 0,
+        "debug_assertions": false,
+        "overflow_checks": false,
+        "test": false
+      },
+      "features": [
+        "autodiff",
+        "default",
+        "faer-parallel",
+        "testing"
+      ],
+      "cargo_fresh": false,
+      "compiler_returncode": 0,
+      "observed_processes_stopped": true
+    }
+  },
+  "tests": {
+    "command": "python3 -I -m unittest discover -s benchmarks/motor_optimization/final_refinement -p 'test_*.py'",
+    "passed": 208,
+    "seconds": 25.122,
+    "exit_code": 0,
+    "new_tests": 8,
+    "earlier_invocation": "A non-isolated invocation failed the isolation precondition in one build test. Re-running the documented isolated command passed all 208 tests; source unchanged."
+  },
+  "remaining": [
+    "Independent review of the build wrapper and retained evidence.",
+    "Current numerical-runtime, input and process checks before executing post-run requests.",
+    "Completed main capture and selection, final refinement execution/reporting, full performance analysis and publication audit."
+  ],
+  "limitations": [
+    "Recorded build-process observations are historical; archive replay does not verify present process absence.",
+    "The original pinned source checkout is required for native runtime source/reference paths; evidence portability is not executable runtime portability.",
+    "The reviewed-commit argument is a supplied trust input; this candidate build itself is not an independent review."
+  ],
+  "can_launch": false
+}

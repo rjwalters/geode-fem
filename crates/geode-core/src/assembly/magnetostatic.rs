@@ -126,7 +126,7 @@ impl MagnetostaticSystem {
 ///
 /// # Arguments
 ///
-/// * `mesh` — triangular cross-section mesh (CCW triangles).
+/// * `mesh` — triangular cross-section mesh (either triangle orientation).
 /// * `nu` — per-triangle reluctivity `ν = 1/μ_r`, length `mesh.n_tris()`.
 ///   Pass all-ones for free space (`μ_r = 1`).
 /// * `j_z` — per-triangle axial current density `J_z`, length
@@ -181,10 +181,13 @@ pub fn assemble_magnetostatic(
             mesh.nodes[tri[1] as usize],
             mesh.nodes[tri[2] as usize],
         ];
+        // `tri_p1_local` integrates with |T| and true gradients, so `K` and
+        // `M` are invariant under a vertex permutation: clockwise triangles
+        // are accepted (#1166). Only a degenerate triangle is rejected.
         let (k_local, m_local, signed_area) = tri_p1_local(&coords);
         debug_assert!(
-            signed_area > 0.0,
-            "magnetostatic assembler expects CCW triangles; got signed area {signed_area}"
+            signed_area != 0.0,
+            "magnetostatic assembler: degenerate triangle {t} (zero area)"
         );
 
         let nu_t = nu[t];
@@ -305,7 +308,8 @@ pub fn assemble_magnetostatic(
 ///
 /// # Arguments
 ///
-/// * `mesh` — the cross-section mesh (CCW triangles).
+/// * `mesh` — the cross-section mesh. Triangles may be either orientation:
+///   the load uses `|T|` with the true gradients (#1166).
 /// * `m` — per-triangle **physical magnetization** `M` in Cartesian
 ///   components `[M_x, M_y]` (A/m), length `mesh.n_tris()`. Zero outside
 ///   the magnet band. For a radially-magnetized band build it with
@@ -341,12 +345,16 @@ pub fn assemble_magnetization_rhs(
             mesh.nodes[tri[1] as usize],
             mesh.nodes[tri[2] as usize],
         ];
-        let (grad, _gram, signed_area, _abs) = tri_bary_grads(&coords);
+        // `grad` is the true (orientation-independent) gradient: it is divided
+        // by the *signed* determinant. The integral therefore takes the
+        // *unsigned* area |T|; the signed area would flip the load on a
+        // clockwise triangle (#1166).
+        let (grad, _gram, _signed_area, area_abs) = tri_bary_grads(&coords);
         let (mx0, my0) = (mu0 * mx, mu0 * my);
         for p in 0..3 {
-            // ∇φ_p is constant on the element; ∫_T (∇φ_p)^⊥ dA = area·(g_y,−g_x).
+            // ∇φ_p is constant on the element; ∫_T (∇φ_p)^⊥ dA = |T|·(g_y,−g_x).
             let perp = [grad[p][1], -grad[p][0]];
-            b_full[tri[p] as usize] += signed_area * (mx0 * perp[0] + my0 * perp[1]);
+            b_full[tri[p] as usize] += area_abs * (mx0 * perp[0] + my0 * perp[1]);
         }
     }
     Ok(b_full)
@@ -735,7 +743,7 @@ impl MagnetostaticP2System {
 ///
 /// # Arguments
 ///
-/// * `mesh` — triangular cross-section mesh (CCW triangles).
+/// * `mesh` — triangular cross-section mesh (either triangle orientation).
 /// * `nu` — per-triangle reluctivity `ν = 1/μ_r`, length `mesh.n_tris()`.
 /// * `j_z` — per-triangle axial current density `J_z`, length
 ///   `mesh.n_tris()` (piecewise-constant source).
@@ -807,10 +815,13 @@ pub fn assemble_magnetostatic_p2(
             mesh.nodes[tri[1] as usize],
             mesh.nodes[tri[2] as usize],
         ];
+        // `tri_p2_local` integrates with |T| and true gradients, and the
+        // edge-midpoint DOFs are unsigned, so clockwise triangles are
+        // accepted (#1166). Only a degenerate triangle is rejected.
         let (k_local, m_local, signed_area) = tri_p2_local(&coords);
         debug_assert!(
-            signed_area > 0.0,
-            "magnetostatic P2 assembler expects CCW triangles; got signed area {signed_area}"
+            signed_area != 0.0,
+            "magnetostatic P2 assembler: degenerate triangle {t} (zero area)"
         );
         let te = &tri_edges[t];
         let nu_t = nu[t];

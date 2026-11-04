@@ -1,0 +1,234 @@
+{
+ "_lookup": {
+  "date": "2026-10-21",
+  "services": [
+   "api.crossref.org/works/{doi}",
+   "api.openalex.org and api.semanticscholar.org (abstracts)"
+  ],
+  "request_identity": "User-Agent \"litcheck/1.0\"; no email, mailto or user identifier sent",
+  "abstracts": {
+   "10.2514/1.j052184": "OpenAlex",
+   "10.1109/20.123989": "OpenAlex",
+   "10.1109/tmtt.2003.820905": "OpenAlex",
+   "10.1109/cefc.2016.7815990": "OpenAlex",
+   "10.1023/a:1011430410075": "none available; cited only for what its title states",
+   "10.1016/j.cma.2016.12.036": "none available; cited only for what its title states"
+  }
+ },
+ "10.2514/1.j052184": {
+  "DOI": "10.2514/1.j052184",
+  "title": [
+   "Review and Unification of Methods for Computing Derivatives of Multidisciplinary Computational Models"
+  ],
+  "container-title": [
+   "AIAA Journal"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2013,
+     11
+    ]
+   ]
+  },
+  "volume": "51",
+  "issue": "11",
+  "page": "2582-2599",
+  "publisher": "American Institute of Aeronautics and Astronautics (AIAA)",
+  "type": "journal-article",
+  "author": [
+   {
+    "given": "Joaquim R. R. A.",
+    "family": "Martins"
+   },
+   {
+    "given": "John T.",
+    "family": "Hwang"
+   }
+  ]
+ },
+ "10.1023/a:1011430410075": {
+  "DOI": "10.1023/a:1011430410075",
+  "title": [
+   "An Introduction to the Adjoint Approach to Design"
+  ],
+  "container-title": [
+   "Flow, Turbulence and Combustion"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2000,
+     12
+    ]
+   ]
+  },
+  "volume": "65",
+  "issue": "3-4",
+  "page": "393-415",
+  "publisher": "Springer Science and Business Media LLC",
+  "type": "journal-article",
+  "author": [
+   {
+    "given": "Michael B.",
+    "family": "Giles"
+   },
+   {
+    "given": "Niles A.",
+    "family": "Pierce"
+   }
+  ]
+ },
+ "10.1109/20.123989": {
+  "DOI": "10.1109/20.123989",
+  "title": [
+   "Design sensitivity analysis for nonlinear magnetostatic problems using finite element method"
+  ],
+  "container-title": [
+   "IEEE Transactions on Magnetics"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     1992,
+     3
+    ]
+   ]
+  },
+  "volume": "28",
+  "issue": "2",
+  "page": "1533-1536",
+  "publisher": "Institute of Electrical and Electronics Engineers (IEEE)",
+  "type": "journal-article",
+  "author": [
+   {
+    "given": null,
+    "family": "Il-Han Park"
+   },
+   {
+    "given": null,
+    "family": "Beom-Taek Lee"
+   },
+   {
+    "given": null,
+    "family": "Song-Yop Hahn"
+   }
+  ]
+ },
+ "10.1109/tmtt.2003.820905": {
+  "DOI": "10.1109/tmtt.2003.820905",
+  "title": [
+   "Adjoint Techniques for Sensitivity Analysis in High-Frequency Structure CAD"
+  ],
+  "container-title": [
+   "IEEE Transactions on Microwave Theory and Techniques"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2004,
+     1
+    ]
+   ]
+  },
+  "volume": "52",
+  "issue": "1",
+  "page": "403-419",
+  "publisher": "Institute of Electrical and Electronics Engineers (IEEE)",
+  "type": "journal-article",
+  "author": [
+   {
+    "given": "N.K.",
+    "family": "Nikolova"
+   },
+   {
+    "given": "J.W.",
+    "family": "Bandler"
+   },
+   {
+    "given": "M.H.",
+    "family": "Bakr"
+   }
+  ]
+ },
+ "10.1016/j.cma.2016.12.036": {
+  "DOI": "10.1016/j.cma.2016.12.036",
+  "title": [
+   "Design sensitivity analysis for shape optimization based on the Lie derivative"
+  ],
+  "container-title": [
+   "Computer Methods in Applied Mechanics and Engineering"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2017,
+     4
+    ]
+   ]
+  },
+  "volume": "317",
+  "issue": null,
+  "page": "702-722",
+  "publisher": "Elsevier BV",
+  "type": "journal-article",
+  "author": [
+   {
+    "given": "Erin",
+    "family": "Kuci"
+   },
+   {
+    "given": "François",
+    "family": "Henrotte"
+   },
+   {
+    "given": "Pierre",
+    "family": "Duysinx"
+   },
+   {
+    "given": "Christophe",
+    "family": "Geuzaine"
+   }
+  ]
+ },
+ "10.1109/cefc.2016.7815990": {
+  "DOI": "10.1109/cefc.2016.7815990",
+  "title": [
+   "Shape and topology optimization of electrical machines using lie derivative-based analytical sensitivity analysis"
+  ],
+  "container-title": [
+   "2016 IEEE Conference on Electromagnetic Field Computation (CEFC)"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2016,
+     11
+    ]
+   ]
+  },
+  "volume": null,
+  "issue": null,
+  "page": "1-1",
+  "publisher": "IEEE",
+  "type": "proceedings-article",
+  "author": [
+   {
+    "given": "Erin",
+    "family": "Kuci"
+   },
+   {
+    "given": "Francois",
+    "family": "Henrotte"
+   },
+   {
+    "given": "Pierre",
+    "family": "Duysinx"
+   },
+   {
+    "given": "Christophe",
+    "family": "Geuzaine"
+   }
+  ]
+ }
+}

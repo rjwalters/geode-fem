@@ -1,0 +1,85 @@
+{
+  "10.1016/j.cma.2018.01.047": {
+    "key": null,
+    "entry_type": "article",
+    "authors": [
+      "Bontinck, Zeger",
+      "Corno, Jacopo",
+      "Sch\u00f6ps, Sebastian",
+      "De Gersem, Herbert"
+    ],
+    "title": "Isogeometric analysis and harmonic stator\u2013rotor coupling for simulating electric machines",
+    "year": 2018,
+    "journal": "Computer Methods in Applied Mechanics and Engineering",
+    "volume": "334",
+    "issue": null,
+    "pages": "40-55",
+    "doi": "10.1016/j.cma.2018.01.047",
+    "eprint": null,
+    "eprinttype": null,
+    "url": "https://doi.org/10.1016/j.cma.2018.01.047"
+  },
+  "10.1186/s13362-022-00121-2": {
+    "key": null,
+    "entry_type": "article",
+    "authors": [
+      "Egger, Herbert",
+      "Harutyunyan, Man\u00e9",
+      "L\u00f6scher, Richard",
+      "Merkel, Melina",
+      "Sch\u00f6ps, Sebastian"
+    ],
+    "title": "On torque computation in electric machine simulation by harmonic mortar methods",
+    "year": 2022,
+    "journal": "Journal of Mathematics in Industry",
+    "volume": "12",
+    "issue": "1",
+    "pages": null,
+    "doi": "10.1186/s13362-022-00121-2",
+    "eprint": null,
+    "eprinttype": null,
+    "url": "https://doi.org/10.1186/s13362-022-00121-2"
+  },
+  "10.1007/s00202-018-0716-6": {
+    "key": null,
+    "entry_type": "article",
+    "authors": [
+      "Ion, Ion Gabriel",
+      "Bontinck, Zeger",
+      "Loukrezis, Dimitrios",
+      "R\u00f6mer, Ulrich",
+      "Lass, Oliver",
+      "Ulbrich, Stefan",
+      "Sch\u00f6ps, Sebastian",
+      "De Gersem, Herbert"
+    ],
+    "title": "Robust shape optimization of electric devices based on deterministic optimization methods and finite-element analysis with affine parametrization and design elements",
+    "year": 2018,
+    "journal": "Electrical Engineering",
+    "volume": "100",
+    "issue": "4",
+    "pages": "2635-2647",
+    "doi": "10.1007/s00202-018-0716-6",
+    "eprint": null,
+    "eprinttype": null,
+    "url": "https://doi.org/10.1007/s00202-018-0716-6"
+  },
+  "10.1109/SPEEDAM.2012.6264430": {
+    "key": null,
+    "entry_type": "article",
+    "authors": [
+      "Arkkio, Antero",
+      "Hannukainen, Antti"
+    ],
+    "title": "Proper finite-element discretization for torque computation of cage induction motors",
+    "year": 2012,
+    "journal": "International Symposium on Power Electronics Power Electronics, Electrical Drives, Automation and Motion",
+    "volume": null,
+    "issue": null,
+    "pages": "1456-1461",
+    "doi": "10.1109/speedam.2012.6264430",
+    "eprint": null,
+    "eprinttype": null,
+    "url": "https://doi.org/10.1109/speedam.2012.6264430"
+  }
+}

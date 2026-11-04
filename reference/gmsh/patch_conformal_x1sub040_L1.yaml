@@ -1,0 +1,54 @@
+# X1 substrate ladder: in-slab size 0.40 mm under the patch (+4 mm)
+# Issue #1126 (antenna v6, X1/X2/X3/X5): derived from patch_conformal_L1.yaml; only the
+# keys listed below differ: lc_sub_patch = 0.4.
+# Not committed as a mesh; regenerate with gmsh 4.15.2 (Mac or x86, not arm64):
+#   python3 reference/gmsh/generate_patch_fixture.py --max-edges 3000000 \
+#       reference/gmsh/patch_conformal_x1sub040_L1.yaml <dir>/patch_conformal_x1sub040_L1.msh
+# and check the sha256 against the artifact's [meta].fixture_sha256.
+
+name: patch_conformal_x1sub040_L1
+
+patch:
+  patch_w: 38.0       # patch width  (x extent, curved by the bend)
+  patch_l: 29.0       # patch length (y extent, resonant TM010 length)
+  h: 1.6              # FR-4 substrate thickness
+  sub_pad: 12.0       # substrate (and finite ground) margin beyond the patch
+  probe_w: 1.6        # coax-probe footprint side
+  probe_inset: 7.0    # feed inset from the +y patch edge (patch_2g4_matched)
+
+domain:
+  air_margin: 40.0    # air gap substrate -> UPML: 0.33 lambda_0 at 2.4835 GHz,
+#                       >= lambda_0 / 4 down to 1.87 GHz
+  pml_thick: 25.0     # matched box-UPML shell thickness (0.21 lambda_0)
+
+mesh:
+  lc_patch: 2.0       # target size within h of the patch / ground faces
+  lc_sub: 0.8         # in-slab size (h / 2: two substrate layers)
+  sub_zpad: 0.4       # lc_sub box extends 0.4 mm beyond the slab faces
+  sub_box_thick: 3.2  # ... and relaxes to lc_far over 3.2 mm
+  lc_port: 0.6        # target size at the probe gap
+  lc_far: 14.0        # far-field size
+  dist_far: 30.0      # distance over which size grows to lc_far
+  lc_air: 12.0        # air cap ~ lambda_0 / 10 at 2.4835 GHz
+  lc_sub_patch: 0.4
+  lc_pml: 8.3         # UPML cap: three elements through the 25 mm shell
+
+bend:
+  bend_radius: 100.0  # mm; the 62 mm substrate subtends +-0.31 rad, the
+#                       38 mm patch +-0.19 rad (sagitta 1.8 mm at the patch
+#                       edge, 4.8 mm at the substrate edge)
+
+band:
+  f_lo_ghz: 2.4       # ISM band objective, lower edge
+  f_hi_ghz: 2.4835    # ISM band objective, upper edge
+  f_ref_ghz: 2.4835   # reference frequency for elements-per-wavelength
+
+solver:
+  port_resistance_ohm: 50.0
+  upml_sigma_0: 1.0   # s = 1 - j sigma_0 (d/w)^2 / omega (omega in rad/mm);
+#                       one-way attenuation sigma_0 w / 3 = 8.3 Np
+
+materials:
+  substrate_eps_r: 4.4
+  substrate_tan_delta: 0.02
+  conductor_sigma_s_m: 5.8e7   # copper (conductors are PEC in the solver)

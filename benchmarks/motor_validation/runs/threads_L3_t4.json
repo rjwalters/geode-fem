@@ -1,0 +1,324 @@
+{
+  "angles_deg": [
+    0.0,
+    0.5,
+    1.0,
+    1.5,
+    2.0,
+    2.5,
+    3.0,
+    3.5
+  ],
+  "area_mode": "mesh",
+  "commit": "258c670ccd7c1bfd29b4db0f3ba3d69fda1f3c30",
+  "constraints": {
+    "air_gap_min_node_m_scaled": 0.0009999999999991058,
+    "bridge_thickness_m": null,
+    "bridge_thickness_note": "not evaluated: no bridge-thickness functional exists in GEODE for this design space",
+    "gap_band_area_ratio": 1.0000000865584349,
+    "gap_inner_band_area_ratio": 0.9999999373468957,
+    "gap_outer_band_area_ratio": 1.000000234102806,
+    "group1_area_initial_mesh_m2": 0.00003628859969351516,
+    "group1_area_m2_unscaled": 0.00003628859969351516,
+    "magnet_area_m2_scaled": 0.00013300000000000003,
+    "mean_torque_floors": "see per-current means in the summary (no floor is frozen yet)",
+    "rotor_max_node_radius_m_unscaled": 0.04400000000000034,
+    "stator_min_node_radius_m_unscaled": 0.04499999999999944
+  },
+  "coupling": "h45",
+  "coupling_spec": "harmonic:3:6:45",
+  "current_rule": "fixed",
+  "current_rule_definition": "fixed peak current in the unscaled geometry: I_peak = 9.6777 A * f for every design (Prescribed rule of icem_design.rs); physical current = ScaleR * I_peak",
+  "currents": [
+    {
+      "fraction": 1.0,
+      "i_peak_physical_A": 9.677657374172274,
+      "i_peak_unscaled_A": 9.677657374172274,
+      "rows": [
+        {
+          "T_arkkio": 1.5547103778893856,
+          "T_arkkio_inner": 1.5547268626248807,
+          "T_arkkio_outer": 1.5546938931538905,
+          "T_coupling": 1.5547407084874265,
+          "T_ring": 1.5535262041611853,
+          "angle_deg": 0.0,
+          "constraint_violation": 1.0075986303181936e-18,
+          "iron_b_max_T": 3.1392009681458064,
+          "k": 0,
+          "newton_iterations": 12,
+          "residual": 0.000020723905096146246,
+          "solve_s": 7.246648875,
+          "status": "tolerance",
+          "tolerance": 0.0004189003908302918,
+          "torque_eval_s": 0.019902375
+        },
+        {
+          "T_arkkio": 1.566208988640796,
+          "T_arkkio_inner": 1.5662234045765875,
+          "T_arkkio_outer": 1.5661945727050044,
+          "T_coupling": 1.5662390341299735,
+          "T_ring": 1.5649206124094222,
+          "angle_deg": 0.5,
+          "constraint_violation": 1.0683674540194018e-18,
+          "iron_b_max_T": 3.1403020486769035,
+          "k": 8,
+          "newton_iterations": 2,
+          "residual": 0.00013356782113268053,
+          "solve_s": 1.648267833,
+          "status": "tolerance",
+          "tolerance": 0.0004189004449230067,
+          "torque_eval_s": 0.020014416
+        },
+        {
+          "T_arkkio": 1.5651410684007407,
+          "T_arkkio_inner": 1.5651554817287514,
+          "T_arkkio_outer": 1.5651266550727299,
+          "T_coupling": 1.565172868232258,
+          "T_ring": 1.563758343908113,
+          "angle_deg": 1.0,
+          "constraint_violation": 2.7332694416712204e-19,
+          "iron_b_max_T": 3.140733567077356,
+          "k": 16,
+          "newton_iterations": 2,
+          "residual": 0.00018431538474478868,
+          "solve_s": 1.668434833,
+          "status": "tolerance",
+          "tolerance": 0.00041890051219305977,
+          "torque_eval_s": 0.020216791
+        },
+        {
+          "T_arkkio": 1.5524597323807736,
+          "T_arkkio_inner": 1.552476322384376,
+          "T_arkkio_outer": 1.5524431423771712,
+          "T_coupling": 1.552495229810937,
+          "T_ring": 1.550995993484499,
+          "angle_deg": 1.5,
+          "constraint_violation": 6.534660664719914e-19,
+          "iron_b_max_T": 3.1405553599110863,
+          "k": 24,
+          "newton_iterations": 2,
+          "residual": 0.00015696702145501538,
+          "solve_s": 1.7141879580000001,
+          "status": "tolerance",
+          "tolerance": 0.0004189005925015351,
+          "torque_eval_s": 0.020123083
+        },
+        {
+          "T_arkkio": 1.530371879899776,
+          "T_arkkio_inner": 1.5303927537025437,
+          "T_arkkio_outer": 1.5303510060970085,
+          "T_coupling": 1.5304127504249923,
+          "T_ring": 1.5288410034512259,
+          "angle_deg": 2.0,
+          "constraint_violation": 9.829287957294121e-19,
+          "iron_b_max_T": 3.1398725530090443,
+          "k": 32,
+          "newton_iterations": 2,
+          "residual": 0.00029185146903398936,
+          "solve_s": 1.729794959,
+          "status": "tolerance",
+          "tolerance": 0.0004189006854917407,
+          "torque_eval_s": 0.019977291
+        },
+        {
+          "T_arkkio": 1.5017813863736953,
+          "T_arkkio_inner": 1.501808380430353,
+          "T_arkkio_outer": 1.5017543923170376,
+          "T_coupling": 1.5018288874788117,
+          "T_ring": 1.5001936712024773,
+          "angle_deg": 2.5,
+          "constraint_violation": 6.30278539540905e-19,
+          "iron_b_max_T": 3.138797701244409,
+          "k": 40,
+          "newton_iterations": 2,
+          "residual": 0.00016241363277146931,
+          "solve_s": 1.7451805,
+          "status": "tolerance",
+          "tolerance": 0.0004189007908067959,
+          "torque_eval_s": 0.020324167
+        },
+        {
+          "T_arkkio": 1.4697222811133868,
+          "T_arkkio_inner": 1.4697567886180263,
+          "T_arkkio_outer": 1.4696877736087475,
+          "T_coupling": 1.4697771468677925,
+          "T_ring": 1.4680815743869795,
+          "angle_deg": 3.0,
+          "constraint_violation": 8.598112333570195e-19,
+          "iron_b_max_T": 3.137422720147555,
+          "k": 48,
+          "newton_iterations": 2,
+          "residual": 0.00021395632422139247,
+          "solve_s": 1.715164167,
+          "status": "tolerance",
+          "tolerance": 0.00041890090812637547,
+          "torque_eval_s": 0.019813792
+        },
+        {
+          "T_arkkio": 1.4369504064568595,
+          "T_arkkio_inner": 1.436993224360179,
+          "T_arkkio_outer": 1.4369075885535398,
+          "T_coupling": 1.4370127832376842,
+          "T_ring": 1.4352541176642815,
+          "angle_deg": 3.5,
+          "constraint_violation": 3.664476288058917e-19,
+          "iron_b_max_T": 3.13581189923955,
+          "k": 56,
+          "newton_iterations": 2,
+          "residual": 0.0002048794153534176,
+          "solve_s": 1.800302833,
+          "status": "tolerance",
+          "tolerance": 0.0004189010371166026,
+          "torque_eval_s": 0.020480375
+        }
+      ]
+    }
+  ],
+  "design": {
+    "name": "initial",
+    "offsets_m": {
+      "CPR1": 0.0,
+      "CPR2": 0.0,
+      "CPR3": 0.0,
+      "CPR4": 0.0,
+      "CPR5": 0.0,
+      "CPR6": 0.0,
+      "CPR7": 0.0,
+      "CPS1": 0.0,
+      "CPS2": 0.0,
+      "CPS3": 0.0
+    },
+    "scalars": {
+      "LENGTH": 0.1,
+      "MAG": 0.007,
+      "MH": 0.007,
+      "MW": 0.019,
+      "OPERATING_ANGLE": 0.0,
+      "SD1": 0.135,
+      "SW1": 0.004,
+      "SW2": 0.0023,
+      "SW3": 0.001,
+      "SW4": 0.00825,
+      "ScaleR": 1.0,
+      "Sr1": 0.001
+    }
+  },
+  "design_vector": [
+    0.007,
+    0.007,
+    0.019,
+    0.004,
+    0.0023,
+    0.001,
+    0.00825,
+    0.135,
+    0.001,
+    0.1,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "design_vector_order": "MAG MH MW SW1 SW2 SW3 SW4 SD1 Sr1 LENGTH OPERATING_ANGLE ScaleR CPR1..CPR7 CPS1..CPS3",
+  "issue": 1181,
+  "law": "table",
+  "level": 3,
+  "mesh": {
+    "coupling_step_deg": 0.0625,
+    "n_coupling": 960,
+    "nodes": 139268,
+    "reoriented_triangles": 151876,
+    "rotor_edge_pairs": 153,
+    "stator_edge_pairs": 135,
+    "steps_per_degree": 16,
+    "triangles": 275736
+  },
+  "mesh_family": "nurbs",
+  "mesh_file": "icem_initial_sector_L3.msh",
+  "mesh_quality": {
+    "inverted": 0,
+    "max_angle_deg": 126.28298060064331,
+    "max_area_ratio": 1.0,
+    "min_angle_deg": 13.198057928137265,
+    "min_area_ratio": 1.0
+  },
+  "mesh_source": "nurbs",
+  "motion": null,
+  "n_max": 45,
+  "rel_tol": 1e-8,
+  "ring_estimator": {
+    "r_inner_m": 0.044,
+    "r_outer_m": 0.045,
+    "rings": 20,
+    "samples_per_ring": 3840
+  },
+  "rotation_support": [
+    {
+      "angle_deg": 0.0,
+      "k": 0,
+      "supported": true
+    },
+    {
+      "angle_deg": 0.5,
+      "k": 8,
+      "supported": true
+    },
+    {
+      "angle_deg": 1.0,
+      "k": 16,
+      "supported": true
+    },
+    {
+      "angle_deg": 1.5,
+      "k": 24,
+      "supported": true
+    },
+    {
+      "angle_deg": 2.0,
+      "k": 32,
+      "supported": true
+    },
+    {
+      "angle_deg": 2.5,
+      "k": 40,
+      "supported": true
+    },
+    {
+      "angle_deg": 3.0,
+      "k": 48,
+      "supported": true
+    },
+    {
+      "angle_deg": 3.5,
+      "k": 56,
+      "supported": true
+    }
+  ],
+  "solves_failed": 0,
+  "solves_ok": 8,
+  "status": "ok",
+  "threads": {
+    "GEODE_NUM_THREADS": "4",
+    "RAYON_NUM_THREADS": "4",
+    "available_parallelism": 28,
+    "faer_par": "Rayon(4)",
+    "threads_arg": 4
+  },
+  "torque_factor": 1.0,
+  "torque_unit": "N m per modelled 60 deg sector, times ScaleR^2 * LENGTH / 0.1",
+  "wall_s": {
+    "mesh": 0.003370291,
+    "setup": 0.140090583,
+    "solve": 19.267981958,
+    "torque_eval": 0.16085229,
+    "total": 19.747889709
+  }
+}

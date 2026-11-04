@@ -1,0 +1,46 @@
+{
+  "pdf_path": "/Volumes/Stripe/geode-fem/motor-paper-v1/papers/motor-gradient-optimization/motor-gradient-optimization.3/main.pdf",
+  "log_path": "/Volumes/Stripe/geode-fem/motor-paper-v1/papers/motor-gradient-optimization/motor-gradient-optimization.3/main.log",
+  "pages": 15,
+  "page_cap": null,
+  "overfull_boxes": [],
+  "overfull_threshold_pt": 5.0,
+  "compile_status": "ok",
+  "compile_exit_code": 0,
+  "placeholders": [],
+  "findings": [],
+  "passed": true,
+  "reasons": [],
+  "failed_gates": [],
+  "engine_used": null,
+  "template_used": null,
+  "bib_lint": {
+    "ok": true,
+    "issues": []
+  },
+  "artifact_verify": "PASS: 78 evidence hashes; 500 + 1140 forward solve statuses; raw means/ripple, coupling/estimator controls, sensitivity and cost tables; 704 distinct loaded FD cases (96 duplicate records identified), 592 recomputed Taylor windows, cross-model sensitivities, slotless rounding and zero-current sweeps; citations/figure assets.\nRecorded-artifact verification only; not a new FEM run or independent scientific review.",
+  "visual_check": {
+    "pages_inspected": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "figures": 5,
+    "result": "No clipping or overlapping labels found; final changed pages 9\u201315 reinspected; Fig. 4 now shares a page with text."
+  },
+  "pdf_sha256": "68ad400e1d055b7c5acdb97be3a69dffb2b67104db7e67e89eaf85596b399f6d",
+  "checked_at": "2026-10-17T19:03:12.418663+00:00",
+  "independent_review": "pending"
+}

@@ -1,0 +1,33 @@
+   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1168/crates/geode-core)
+   Compiling geode-util v0.8.0 (/Volumes/Stripe/geode-fem/issue-1168/crates/geode-util)
+    Finished `release` profile [optimized] target(s) in 1m 00s
+== L0_table_default_mesh: --level 0 --spectrum
+  total solve wall time 6.34 s
+  wrote /Volumes/Stripe/geode-fem/issue-1168/crates/geode-core/../../benchmarks/motor_reference/forward/runs/L0_table_default_mesh.json
+== L1_table_default_mesh: --level 1 --spectrum
+  total solve wall time 35.95 s
+  wrote /Volumes/Stripe/geode-fem/issue-1168/crates/geode-core/../../benchmarks/motor_reference/forward/runs/L1_table_default_mesh.json
+== L2_table_default_mesh: --level 2 --spectrum
+  total solve wall time 223.43 s
+  wrote /Volumes/Stripe/geode-fem/issue-1168/crates/geode-core/../../benchmarks/motor_reference/forward/runs/L2_table_default_mesh.json
+== L3_table_default_mesh: --level 3 --spectrum
+  total solve wall time 1076.32 s
+  wrote /Volumes/Stripe/geode-fem/issue-1168/crates/geode-core/../../benchmarks/motor_reference/forward/runs/L3_table_default_mesh.json
+== L2_clamp426_default_mesh: --level 2 --law clamp426
+  total solve wall time 209.65 s
+  wrote /Volumes/Stripe/geode-fem/issue-1168/crates/geode-core/../../benchmarks/motor_reference/forward/runs/L2_clamp426_default_mesh.json
+== L3_clamp426_default_mesh: --level 3 --law clamp426
+  total solve wall time 1065.87 s
+  wrote /Volumes/Stripe/geode-fem/issue-1168/crates/geode-core/../../benchmarks/motor_reference/forward/runs/L3_clamp426_default_mesh.json
+== L2_table_tight_mesh: --level 2 --tol tight
+  total solve wall time 245.23 s
+  wrote /Volumes/Stripe/geode-fem/issue-1168/crates/geode-core/../../benchmarks/motor_reference/forward/runs/L2_table_tight_mesh.json
+== L3_table_tight_mesh: --level 3 --tol tight --currents 2
+  total solve wall time 440.10 s
+  wrote /Volumes/Stripe/geode-fem/issue-1168/crates/geode-core/../../benchmarks/motor_reference/forward/runs/L3_table_tight_mesh.json
+== L2_table_default_exact: --level 2 --area exact
+  total solve wall time 197.22 s
+  wrote /Volumes/Stripe/geode-fem/issue-1168/crates/geode-core/../../benchmarks/motor_reference/forward/runs/L2_table_default_exact.json
+| L1 | 9937 | 19163 | 60 | 2/3/12 | 9/11/12 | tolerance | 0.537 / 1.902 | 35.9 |
+| L2 | 36083 | 70757 | 60 | 2/3/13 | 9/12/13 | tolerance | 3.324 / 13.238 | 223.4 |
+| L3 | 139268 | 275736 | 60 | 2/3/14 | 12/12/14 | tolerance | 15.972 / 68.194 | 1076.3 |

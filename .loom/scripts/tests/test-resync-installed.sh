@@ -102,25 +102,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HELPERS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SCRIPT="$HELPERS_DIR/resync-installed.sh"
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
-
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
-
-pass() {
-    TESTS_RUN=$((TESTS_RUN + 1))
-    TESTS_PASSED=$((TESTS_PASSED + 1))
-    echo -e "  ${GREEN}PASS${NC}: $1"
-}
-
-fail() {
-    TESTS_RUN=$((TESTS_RUN + 1))
-    TESTS_FAILED=$((TESTS_FAILED + 1))
-    echo -e "  ${RED}FAIL${NC}: $1"
-}
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/assert.sh"
 
 # Not counted toward pass/fail: used when a test's precondition (e.g. a
 # `update-gitignore`-capable loom-daemon binary) is unavailable in this
@@ -1107,7 +1089,7 @@ echo "Test group 12y: suggest_commit_if_resync_only_dirt() excludes retired-but-
 printf 'ORPHAN\n' > "$REPO/.loom/scripts/some-retired-tool.sh"   # untracked, unignored, no defaults/ counterpart
 printf 'NEW-TEST\n' > "$REPO/.loom/scripts/check-defaults-version-bump.sh"   # untracked, unignored, pure-copy surface
 printf 'NEW-TEST\n' > "$REPO/defaults/scripts/check-defaults-version-bump.sh"   # still shipped today (#6613)
-git -C "$REPO" add defaults/scripts/check-defaults-version-bump.sh >/dev/null 2>&1
+printf '{\n  "version": "9.9.10"\n}\n' > "$REPO/package.json"; git -C "$REPO" add package.json defaults/scripts/check-defaults-version-bump.sh >/dev/null 2>&1
 git -C "$REPO" commit -qm "add new shipped defaults/ file" >/dev/null 2>&1
 OUT="$(cd "$REPO" && bash "$SCRIPT" 2>&1)"
 # #6646: the actionable recommendation is now land-resync-commit.sh (which
@@ -1134,10 +1116,12 @@ if grep -q 'check-defaults-version-bump\.sh' <<<"$commit_line"; then
 else
     fail "(#7336) still-shipped pure-copy-surface path was unexpectedly dropped from the 'git add' commit suggestion"
 fi
-# Every real apply re-stamps .loom/install-metadata.json (one of the
-# function's OTHER hardcoded single-file case-block paths, unrelated to the
-# pure-copy-surface pattern this fix touches) -- confirming it is still
+# An apply that bumps the version re-stamps .loom/install-metadata.json (one
+# of the function's OTHER hardcoded single-file case-block paths, unrelated to
+# the pure-copy-surface pattern this fix touches) -- confirming it is still
 # present guards against the fix accidentally narrowing that unrelated case.
+# (#11680: an apply that changes nothing no longer re-stamps, hence the
+# package.json bump in the fixture above.)
 if grep -q 'install-metadata\.json' <<<"$commit_line"; then
     pass "(#7336) other hardcoded single-file case (install-metadata.json) remains in the commit suggestion"
 else
@@ -2742,7 +2726,7 @@ echo "Test group 28b: forge label check -- drift found, real run fixes it (#6716
 REPO="$(make_fixture)"
 add_labels_stub "$REPO"
 STUB_LOG="$WORKDIR/stub28b.log"; : > "$STUB_LOG"
-OUT="$(cd "$REPO" && STUB_LOG="$STUB_LOG" LOOM_TEST_LABELS_CHECK_RC=3 LOOM_TEST_LABELS_SYNC_RC=0 bash "$SCRIPT" 2>&1)"
+OUT="$(cd "$REPO" && STUB_LOG="$STUB_LOG" LOOM_TEST_LABELS_CHECK_RC=3 LOOM_TEST_LABELS_SYNC_RC=0 bash "$SCRIPT" --sync-labels 2>&1)"
 RC=$?
 if [[ $RC -eq 0 ]] && grep -qi "drift detected" <<<"$OUT" && grep -qi "updated.*forge labels" <<<"$OUT"; then
     pass "(#6716) drift is reported and then fixed on a real run"
@@ -2755,18 +2739,48 @@ else
     fail "(#6716) unexpected sync-labels.sh invocation shape for drift-then-fix: $(cat "$STUB_LOG")"
 fi
 
+echo "Test group 28b2: forge label write is opt-in -- no --sync-labels -> check only, no forge write (#10770)"
+REPO="$(make_fixture)"
+add_labels_stub "$REPO"
+STUB_LOG="$WORKDIR/stub28b2.log"; : > "$STUB_LOG"
+OUT="$(cd "$REPO" && STUB_LOG="$STUB_LOG" LOOM_TEST_LABELS_CHECK_RC=3 LOOM_TEST_LABELS_SYNC_RC=0 bash "$SCRIPT" 2>&1)"
+RC=$?
+if [[ $RC -eq 0 ]] && grep -qi "drift detected" <<<"$OUT" && grep -q "sync-labels.sh" <<<"$OUT" && ! grep -qi "updated.*forge labels" <<<"$OUT"; then
+    pass "(#10770) drift without opt-in is reported with the apply command, not applied"
+else
+    fail "(#10770) no-opt-in drift output wrong (rc=$RC); out=$OUT"
+fi
+if [[ "$(wc -l < "$STUB_LOG")" -eq 1 ]] && grep -q -- '--check' "$STUB_LOG"; then
+    pass "(#10770) no opt-in -> mutating sync-labels.sh never invoked"
+else
+    fail "(#10770) mutating sync-labels.sh ran without opt-in: $(cat "$STUB_LOG")"
+fi
+: > "$STUB_LOG"
+OUT="$(cd "$REPO" && STUB_LOG="$STUB_LOG" LOOM_RESYNC_SYNC_LABELS=1 LOOM_TEST_LABELS_CHECK_RC=3 LOOM_TEST_LABELS_SYNC_RC=0 bash "$SCRIPT" 2>&1)"
+if [[ "$(wc -l < "$STUB_LOG")" -eq 2 ]] && grep -qi "updated.*forge labels" <<<"$OUT"; then
+    pass "(#10770) LOOM_RESYNC_SYNC_LABELS=1 opts in like --sync-labels"
+else
+    fail "(#10770) env opt-in did not apply labels: $(cat "$STUB_LOG"); out=$OUT"
+fi
+
 echo "Test group 28c: forge label check -- drift found, --dry-run previews without fixing (#6716)"
 REPO="$(make_fixture)"
 add_labels_stub "$REPO"
 STUB_LOG="$WORKDIR/stub28c.log"; : > "$STUB_LOG"
 OUT="$(cd "$REPO" && STUB_LOG="$STUB_LOG" LOOM_TEST_LABELS_CHECK_RC=3 bash "$SCRIPT" --dry-run 2>&1)"
-if grep -qi "drift detected" <<<"$OUT" && grep -qi "would run.*sync-labels.sh" <<<"$OUT"; then
-    pass "(#6716) --dry-run previews the label fix instead of applying it"
+if grep -qi "drift detected" <<<"$OUT" && grep -qi "would NOT write to the forge without.*--sync-labels" <<<"$OUT"; then
+    pass "(#6716, #10770) --dry-run previews the label fix and says the forge write is opt-in"
 else
     fail "(#6716) --dry-run did not preview the label fix as expected; out=$OUT"
 fi
 if [[ "$(wc -l < "$STUB_LOG")" -eq 1 ]] && grep -q -- '--check' "$STUB_LOG"; then
     pass "(#6716) --dry-run calls sync-labels.sh only once (--check), never the mutating path"
+    OUT="$(cd "$REPO" && STUB_LOG="$STUB_LOG" LOOM_TEST_LABELS_CHECK_RC=3 bash "$SCRIPT" --dry-run --sync-labels 2>&1)"
+    if grep -qi "would run.*sync-labels.sh" <<<"$OUT" && grep -qi "forge" <<<"$OUT"; then
+        pass "(#10770) --dry-run --sync-labels names the forge write it would perform"
+    else
+        fail "(#10770) --dry-run --sync-labels did not flag a forge write: $OUT"
+    fi
 else
     fail "(#6716) --dry-run made an unexpected sync-labels.sh call: $(cat "$STUB_LOG")"
 fi
@@ -2775,7 +2789,7 @@ echo "Test group 28d: forge label check -- the fix itself fails -> loud warning,
 REPO="$(make_fixture)"
 add_labels_stub "$REPO"
 STUB_LOG="$WORKDIR/stub28d.log"; : > "$STUB_LOG"
-OUT="$(cd "$REPO" && STUB_LOG="$STUB_LOG" LOOM_TEST_LABELS_CHECK_RC=3 LOOM_TEST_LABELS_SYNC_RC=1 bash "$SCRIPT" 2>&1)"
+OUT="$(cd "$REPO" && STUB_LOG="$STUB_LOG" LOOM_TEST_LABELS_CHECK_RC=3 LOOM_TEST_LABELS_SYNC_RC=1 bash "$SCRIPT" --sync-labels 2>&1)"
 RC=$?
 if [[ $RC -eq 0 ]] && grep -qi "could not fully apply" <<<"$OUT"; then
     pass "(#6716) a failed label fix is a loud warning, not a resync-wide failure"

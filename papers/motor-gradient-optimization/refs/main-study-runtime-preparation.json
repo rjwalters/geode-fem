@@ -1,0 +1,93 @@
+{
+  "created_utc": "2026-10-18T15:25:37.706318+00:00",
+  "scope": "Prospective operations/methods source bindings. Private implementation, not reviewed integration, native build execution, main measurements or manuscript audit. Historical test receipts remain scoped to their own source hashes.",
+  "candidate_commit": "d1bae2004b7ecd9fde9c0ef37103c6ef09d5f573",
+  "peer_commit": "1a3a94ea35204891032363dac4452a83ed4dc3d4",
+  "sources": [
+    {
+      "commit": "d1bae2004b7ecd9fde9c0ef37103c6ef09d5f573",
+      "path": "benchmarks/motor_optimization/harness/recovery.py",
+      "sha256": "010acc3d38523c8b8134b6e2ad6c9617f47473877058ac93fc77d5277e118c12"
+    },
+    {
+      "commit": "d1bae2004b7ecd9fde9c0ef37103c6ef09d5f573",
+      "path": "benchmarks/motor_optimization/harness/recovery_policy.py",
+      "sha256": "78688b65fc4221501eb7a676183ce949be31270abb75daada3b6b4d8b5b8b7db"
+    },
+    {
+      "commit": "d1bae2004b7ecd9fde9c0ef37103c6ef09d5f573",
+      "path": "benchmarks/motor_optimization/harness/recovery_registry.py",
+      "sha256": "da3c3ef58a3cc08d36c066883e74a91d3161bb6e2a523cd4d8c4917a82295752"
+    },
+    {
+      "commit": "d1bae2004b7ecd9fde9c0ef37103c6ef09d5f573",
+      "path": "benchmarks/motor_optimization/harness/recovery_history.py",
+      "sha256": "05e6d7a8f1986d70b44d86ee062709b8888a05f4c9ff84be44568406681918be"
+    },
+    {
+      "commit": "d1bae2004b7ecd9fde9c0ef37103c6ef09d5f573",
+      "path": "benchmarks/motor_optimization/harness/diagnostic_repair.py",
+      "sha256": "25cfb29445054e0209c41149e4eb7348a3ae009ded5aa0341329b01144ada329"
+    },
+    {
+      "commit": "d1bae2004b7ecd9fde9c0ef37103c6ef09d5f573",
+      "path": "benchmarks/motor_optimization/harness/build_provenance.py",
+      "sha256": "993c64a9c3a9fa8a7bd223d9de4764345eb7dce7c68232f7c6783dde929e1320"
+    },
+    {
+      "commit": "d1bae2004b7ecd9fde9c0ef37103c6ef09d5f573",
+      "path": "benchmarks/motor_optimization/harness/runtime_fingerprint.py",
+      "sha256": "390170905863824641efb70822732422c103bb58c7baa2fb988194e4dd46cef2"
+    },
+    {
+      "commit": "d1bae2004b7ecd9fde9c0ef37103c6ef09d5f573",
+      "path": "benchmarks/motor_optimization/harness/recovery_bindings.py",
+      "sha256": "dab7e40c6eb23ba739283922828a9dc559b968b840cd2d473f0fb3b92cef48dc"
+    },
+    {
+      "commit": "d1bae2004b7ecd9fde9c0ef37103c6ef09d5f573",
+      "path": "benchmarks/motor_optimization/harness/session.py",
+      "sha256": "8f6a27f1cb9c263933b99002cc7a80feae3454a6fe87b7c865995a348e802098"
+    },
+    {
+      "commit": "d1bae2004b7ecd9fde9c0ef37103c6ef09d5f573",
+      "path": "benchmarks/motor_optimization/harness/driver.py",
+      "sha256": "dd9a594a2b612f0b0bcec263441965c0ad223770ab906e35f7889bfe4715180c"
+    },
+    {
+      "commit": "d1bae2004b7ecd9fde9c0ef37103c6ef09d5f573",
+      "path": "benchmarks/motor_optimization/harness/blas-binding-runtime-checks.json",
+      "sha256": "452576750fbb3c66673eac741498790550476a7baa1ce16b4e5ba3c9504ddfc8"
+    },
+    {
+      "commit": "d1bae2004b7ecd9fde9c0ef37103c6ef09d5f573",
+      "path": "benchmarks/motor_optimization/harness/recovery-execution-runtime-checks.json",
+      "sha256": "e1b2971dc70da746f0dbced82d3c19b0271c1656ede7df7346edc55ccbbbd868"
+    },
+    {
+      "commit": "d1bae2004b7ecd9fde9c0ef37103c6ef09d5f573",
+      "path": "benchmarks/motor_optimization/harness/solver-termination-runtime-checks.json",
+      "sha256": "bdf945c396a1c98d8e6aea5d127a09b045d89249ef9bc7b8cc297379f6319c8b"
+    },
+    {
+      "commit": "d1bae2004b7ecd9fde9c0ef37103c6ef09d5f573",
+      "path": "benchmarks/motor_optimization/harness/build-provenance-runtime-checks.json",
+      "sha256": "94ca428298a9ecfc1a6676953f0bb8fdc9303372ae96ce6478b04bc0e7006d6e"
+    },
+    {
+      "commit": "1a3a94ea35204891032363dac4452a83ed4dc3d4",
+      "path": "benchmarks/motor_optimization/harness/linalg_info.py",
+      "sha256": "2f47982c62609442e43d3772394101ac54309b2761b9e426d2ef90ff5b71e50d"
+    }
+  ],
+  "native_build_observed": false,
+  "main_run_observed": false,
+  "pending": [
+    "reviewed dependency merge and rebase",
+    "native build/start/gradient/mixed smoke verification",
+    "independent implementation review",
+    "operator host choice",
+    "main study and final checks",
+    "new manuscript review and audit"
+  ]
+}

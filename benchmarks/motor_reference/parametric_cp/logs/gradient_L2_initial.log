@@ -1,0 +1,32 @@
+  L2 initial current 1 CPR1 done
+  L2 initial current 1 CPR2 done
+  L2 initial current 1 CPR3 done
+  L2 initial current 1 CPR4 done
+  L2 initial current 1 CPR5 done
+  L2 initial current 1 CPR6 done
+  L2 initial current 1 CPR7 done
+  L2 initial current 1 CPS1 done
+  L2 initial current 1 CPS2 done
+  L2 initial current 1 CPS3 done
+# Control-point design gradients: L2 (36083 nodes), h45/coupling, design initial
+
+Moved mesh: min angle 13.20 deg, 0 inverted; shape map set-up 0.329 s
+
+## Current level 1 (I_peak = 9.677657 A): mean 1.443250662 N m, std 0.080879363 N m (gradient 16.771 s)
+
+### Step sweep, current rule jinit (central differences re-move the mesh)
+
+| component | d mean (adjoint) | mean: best FD rel. err (h) | mean: Taylor window, decades | d std (adjoint) | std: best FD rel. err (h) | std: Taylor window, decades | rejected h |
+|---|---|---|---|---|---|---|---|
+| CPR1 | +5.419454e1 | 1.7e-9 (1e-9) | 1e-4 .. 1e-9, 5.0 | -6.044377e1 | 4.5e-10 (1e-8) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPR2 | +4.033313e1 | 2.9e-9 (1e-8) | 1e-4 .. 1e-9, 5.0 | +8.084796e1 | 1.6e-9 (1e-8) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPR3 | -9.986247e1 | 1.3e-9 (1e-7) | 1e-4 .. 1e-8, 4.0 | +2.362650e1 | 4.1e-8 (1e-7) | 1e-4 .. 1e-8, 4.0 | [0.001] |
+| CPR4 | -2.100345e1 | 2.7e-9 (1e-7) | 1e-4 .. 1e-8, 4.0 | +6.250950e1 | 1.9e-8 (1e-7) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPR5 | +7.846971e1 | 1.2e-10 (1e-7) | 1e-4 .. 1e-9, 5.0 | -6.052828e0 | 1.5e-7 (1e-8) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPR6 | +1.201286e2 | 3.6e-9 (1e-7) | 1e-4 .. 1e-9, 5.0 | -1.621281e1 | 2.6e-9 (1e-8) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPR7 | +1.311963e2 | 3.7e-9 (1e-7) | 1e-4 .. 1e-9, 5.0 | -4.454545e0 | 1.6e-7 (1e-8) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPS1 | -2.723028e2 | 1.9e-9 (1e-8) | 1e-4 .. 1e-9, 5.0 | +1.676285e2 | 3.8e-9 (1e-8) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPS2 | -1.823595e2 | 5.2e-10 (1e-8) | 1e-4 .. 1e-9, 5.0 | -6.526633e1 | 1.6e-9 (1e-7) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+| CPS3 | -1.600608e2 | 5.7e-9 (1e-7) | 1e-4 .. 1e-9, 5.0 | -1.796858e2 | 2.8e-10 (1e-8) | 1e-4 .. 1e-9, 5.0 | [0.001] |
+
+wrote benchmarks/motor_reference/parametric_cp/runs/gradient_L2_initial.json

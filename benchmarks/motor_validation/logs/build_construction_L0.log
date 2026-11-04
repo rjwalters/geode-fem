@@ -1,0 +1,3 @@
+icem_remesh_theta0_L0.msh: nodes 2861 tris 5363 min angle 18.07 deg
+icem_remesh_opt120_L0.msh: nodes 2738 tris 5120 min angle 19.35 deg
+wall_s 0.981

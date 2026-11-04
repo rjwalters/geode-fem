@@ -1,0 +1,63 @@
+{
+  "config": {
+    "angles_deg": [
+      0.0,
+      1.0,
+      2.0,
+      3.0,
+      4.0,
+      5.0,
+      6.0,
+      7.0,
+      8.0,
+      9.0,
+      10.0,
+      11.0,
+      12.0,
+      13.0,
+      14.0,
+      15.0,
+      16.0,
+      17.0,
+      18.0,
+      19.0
+    ],
+    "fractions": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "i_peak0_A": 9.677657374172274,
+    "level": 2,
+    "mode": "conforming-outer",
+    "name": "conforming",
+    "newton_max_iterations": 60,
+    "newton_rel_tol": 1e-8,
+    "policy_min_angle_deg": 5.0,
+    "start": "cold",
+    "torque": "conforming/outer-band Arkkio"
+  },
+  "design": "opt120",
+  "error": "conforming outer-band check is defined only for zero stator offsets on a fresh mesh (#1185 amendment 1)",
+  "issue": 1193,
+  "provenance": {
+    "commit": "043b9c472501ef500b6551dc49793846ca4f6bb5",
+    "host_load": "16.44 12.60 12.22",
+    "mesh": {
+      "bytes": 3515287,
+      "file": "benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+      "msh_sha256": "00a7eb6f88bd8fdf22e8ad0b406d4889a68c2d269fc3216ff81f255cddb71cf5"
+    },
+    "reference_data_sha256": "8bb92a93e0c9cdcad9212516c2f94c0ca6005091773501a56971405d3da24ec3",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "started_utc": "2026-10-18T00:18:04Z",
+    "threads": {
+      "GEODE_NUM_THREADS": "1",
+      "RAYON_NUM_THREADS": "1",
+      "available_parallelism": 28,
+      "faer_par": "Seq"
+    },
+    "worktree_clean": "yes"
+  },
+  "status": "refused"
+}

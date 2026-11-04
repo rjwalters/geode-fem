@@ -1,0 +1,23 @@
+	Command being timed: "palace -np 32 /work/palace_config_dlpec_final.json"
+	User time (seconds): 4402.83
+	System time (seconds): 65.40
+	Percent of CPU this job got: 3198%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 2:19.70
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 503272
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 432
+	Minor (reclaiming a frame) page faults: 4530371
+	Voluntary context switches: 2641
+	Involuntary context switches: 14613
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 368
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

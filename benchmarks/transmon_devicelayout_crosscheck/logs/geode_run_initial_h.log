@@ -1,0 +1,7 @@
+initial_h: <work>/initial_o1.msh (22699 nodes, 133355 tets)
+  assembled 156918 edges in 2.6 s
+  f = 3.452049 GHz  p = 0.994231
+  f = 5.177592 GHz  p = 0.000460
+  f = 15.504293 GHz  p = 0.000018
+  solve 16.4 s, peak RSS Some(3.160428) GB, total 19.1 s
+wrote <work>/geode_runs/initial_h.toml

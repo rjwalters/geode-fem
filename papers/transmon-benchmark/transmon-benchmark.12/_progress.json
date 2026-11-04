@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-14T23:30:00+00:00",
+      "completed": "2026-10-15T03:30:00+00:00"
+    },
+    "figures": {
+      "state": "done",
+      "completed": "2026-10-15T03:30:00+00:00",
+      "note": "Figures 2, 4, 5 redrawn; Figure 3 new; Figure 1 byte-identical to v9"
+    }
+  },
+  "metadata": {
+    "iteration": 12,
+    "max_iterations": 12,
+    "revised_from": 11,
+    "status": "DRAFT",
+    "authorization": "Revision against the Fable, Opus and Codex reviews of v11 and the committed controls of benchmarks/transmon_devicelayout_controls/ (PR #1127). The operator's standing permission to revise this paper covers it. No review score or audit is claimed or carried forward.",
+    "source_paper_commit": "0c10de30 (transmon-benchmark.11 as on main, plus the controls)",
+    "scope": "v12 = v11 + gradient attribution from the controls (scaling-law Newton 3, Broyden 5, PRIMA 9), Palace-ladder convergence wording, second refinement family and adaptive refinement, the cap as model-dependent, shared limits for every series, Figure 3/4/5 fixes, O(h) and PRIMA citations, kernel wording, rhetoric; benchmarks label fix; count_provenance shallow-clone guard; narrowed 'confirmed' pin",
+    "pending_dependencies": [
+      "#1063 operator: approve the acknowledgment wording (TODO(operator) in source)",
+      "Zenodo DOI at deposit (TODO(operator) in source)",
+      "Crutcher Dunnavant's response to the coauthorship offer (source NOTE)",
+      "independent v12 paper review, audit and numeric critic (Anvil)"
+    ],
+    "evidence_snapshot": {
+      "main_commit": "0c10de30",
+      "brief_mtime": null,
+      "refs_mtime": null
+    }
+  }
+}

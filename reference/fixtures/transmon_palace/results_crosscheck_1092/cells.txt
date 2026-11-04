@@ -1,0 +1,10 @@
+initial_h_p1 16
+initial_h_p2 32
+initial_r1_p1 32
+initial_r1_p2 32
+initial_r2_p1 32
+final_h_p1 16
+final_h_p2 32
+final_r1_p1 32
+final_r1_p2 32
+final_r2_p1 32

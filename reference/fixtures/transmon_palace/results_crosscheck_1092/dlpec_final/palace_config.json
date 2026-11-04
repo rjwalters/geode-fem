@@ -1,0 +1,105 @@
+{
+  "Boundaries": {
+    "LumpedPort": [
+      {
+        "Attributes": [
+          4
+        ],
+        "C": 5.5e-15,
+        "Direction": "+Y",
+        "Index": 1,
+        "L": 1.486e-08
+      }
+    ],
+    "PEC": {
+      "Attributes": [
+        3,
+        5
+      ]
+    }
+  },
+  "Domains": {
+    "Materials": [
+      {
+        "Attributes": [
+          2
+        ],
+        "Permeability": 1.0,
+        "Permittivity": 1.0
+      },
+      {
+        "Attributes": [
+          1
+        ],
+        "LossTan": [
+          3e-05,
+          3e-05,
+          8.6e-05
+        ],
+        "MaterialAxes": [
+          [
+            0.8,
+            0.6,
+            0.0
+          ],
+          [
+            -0.6,
+            0.8,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "Permeability": [
+          0.99999975,
+          0.99999975,
+          0.99999979
+        ],
+        "Permittivity": [
+          9.3,
+          9.3,
+          11.5
+        ]
+      }
+    ],
+    "Postprocessing": {
+      "Energy": [
+        {
+          "Attributes": [
+            1
+          ],
+          "Index": 1
+        }
+      ]
+    }
+  },
+  "Model": {
+    "L0": 1e-06,
+    "Mesh": "/work/final_o2.msh2",
+    "Refinement": {
+      "MaxIts": 0
+    }
+  },
+  "Problem": {
+    "Output": "/work/postpro/dlpec_final",
+    "Type": "Eigenmode",
+    "Verbose": 2
+  },
+  "Solver": {
+    "Eigenmode": {
+      "N": 2,
+      "Save": 0,
+      "Target": 2.5,
+      "Tol": 1e-06
+    },
+    "Linear": {
+      "MaxIts": 500,
+      "Tol": 1e-07,
+      "Type": "Default"
+    },
+    "Order": 2
+  }
+}

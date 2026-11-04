@@ -1,0 +1,648 @@
+{
+  "schema": "geode-meep-diag/1",
+  "meep_version": "1.34.0",
+  "started_utc": "2026-10-15T17:04:42.938750+00:00",
+  "geometry": "bent",
+  "shell_mode": "face",
+  "bend_radius_mm": 100.0,
+  "resolution_cells_per_mm": 2.5,
+  "cell_mm": [
+    192.0,
+    183.0,
+    131.6
+  ],
+  "estimated_cells": 72327360,
+  "mpi_ranks": 32,
+  "architecture": "aarch64",
+  "time_step": 0.2,
+  "configuration": {
+    "patch": {
+      "patch_w": 38.0,
+      "patch_l": 29.0,
+      "h": 1.6,
+      "sub_pad": 12.0,
+      "probe_w": 1.6,
+      "probe_inset": 7.0
+    },
+    "domain": {
+      "air_margin": 40.0,
+      "pml_thick": 25.0
+    },
+    "materials": {
+      "substrate_eps_r": 4.4,
+      "substrate_tan_delta": 0.02,
+      "conductor_sigma_s_m": "5.8e7"
+    },
+    "band": {
+      "f_lo_ghz": 2.4,
+      "f_hi_ghz": 2.4835,
+      "f_ref_ghz": 2.4835
+    },
+    "bend_radius_mm": 100.0,
+    "port_resistance_ohm": 50.0,
+    "source": {
+      "commit": "571feba337e3f8bc77393277d5018a7d5d6a56aa",
+      "path": "reference/gmsh/patch_conformal_L0.yaml",
+      "sha256": "4b2bc0e2b7a4d59bb6ab0229083c11bdb1b8681317219e989a670e5c11f8c282"
+    }
+  },
+  "source_sha256": {
+    "diag_antenna.py": "24a54fa8dca0bd3883005381ef737d9420878a105bcd3b4edcb28d868d1dc5ef",
+    "matched_antenna.py": "66d3285f058b42a62bd26671bb9c2955fd66572de99f4c0a1d96f35f7d9d6d05"
+  },
+  "source_fcen_ghz": 2.45,
+  "source_fwidth_meep": 0.012,
+  "grid": {
+    "grid_cells": [
+      480,
+      458,
+      329
+    ],
+    "sample_offsets_mm": {
+      "Ex": [
+        0.2,
+        0.0,
+        0.0
+      ],
+      "Ey": [
+        0.0,
+        0.2,
+        0.0
+      ],
+      "Ez": [
+        0.0,
+        0.0,
+        0.2
+      ]
+    },
+    "offset_search": {
+      "Ex_z_pure": [
+        0.0
+      ],
+      "Ey_z_pure": [
+        0.0
+      ],
+      "Ez_z_pure": [
+        0.2
+      ],
+      "Ex_y_pure": [
+        0.0
+      ],
+      "Ex_x_pure": [
+        0.2
+      ],
+      "Ey_y_pure": [
+        0.2
+      ],
+      "Ey_x_pure": [
+        0.0
+      ],
+      "Ez_y_pure": [
+        0.0
+      ],
+      "Ez_x_pure": [
+        0.0
+      ]
+    },
+    "port_line": {
+      "Ex": {
+        "x": 0.2,
+        "y": 7.6,
+        "samples": [
+          [
+            -2.4,
+            "air"
+          ],
+          [
+            -2.0,
+            "air"
+          ],
+          [
+            -1.6,
+            "air"
+          ],
+          [
+            -1.2,
+            "air"
+          ],
+          [
+            -0.8,
+            "metal"
+          ],
+          [
+            -0.4,
+            "fr4"
+          ],
+          [
+            0.0,
+            "fr4"
+          ],
+          [
+            0.4,
+            "fr4"
+          ],
+          [
+            0.8,
+            "metal"
+          ],
+          [
+            1.2,
+            "air"
+          ],
+          [
+            1.6,
+            "air"
+          ],
+          [
+            2.0,
+            "air"
+          ],
+          [
+            2.4,
+            "air"
+          ]
+        ]
+      },
+      "Ey": {
+        "x": 0.0,
+        "y": 7.4,
+        "samples": [
+          [
+            -2.4,
+            "air"
+          ],
+          [
+            -2.0,
+            "air"
+          ],
+          [
+            -1.6,
+            "air"
+          ],
+          [
+            -1.2,
+            "air"
+          ],
+          [
+            -0.8,
+            "metal"
+          ],
+          [
+            -0.4,
+            "fr4"
+          ],
+          [
+            0.0,
+            "fr4"
+          ],
+          [
+            0.4,
+            "fr4"
+          ],
+          [
+            0.8,
+            "metal"
+          ],
+          [
+            1.2,
+            "air"
+          ],
+          [
+            1.6,
+            "air"
+          ],
+          [
+            2.0,
+            "air"
+          ],
+          [
+            2.4,
+            "air"
+          ]
+        ]
+      },
+      "Ez": {
+        "x": 0.0,
+        "y": 7.6,
+        "samples": [
+          [
+            -2.2,
+            "air"
+          ],
+          [
+            -1.8,
+            "air"
+          ],
+          [
+            -1.4,
+            "air"
+          ],
+          [
+            -1.0,
+            "metal"
+          ],
+          [
+            -0.6,
+            "fr4"
+          ],
+          [
+            -0.2,
+            "fr4"
+          ],
+          [
+            0.2,
+            "fr4"
+          ],
+          [
+            0.6,
+            "fr4"
+          ],
+          [
+            1.0,
+            "metal"
+          ],
+          [
+            1.4,
+            "air"
+          ],
+          [
+            1.8,
+            "air"
+          ],
+          [
+            2.2,
+            "air"
+          ]
+        ]
+      }
+    },
+    "patch_centre_line": {
+      "Ex": {
+        "x": 0.2,
+        "y": 0.0,
+        "samples": [
+          [
+            -2.4,
+            "air"
+          ],
+          [
+            -2.0,
+            "air"
+          ],
+          [
+            -1.6,
+            "air"
+          ],
+          [
+            -1.2,
+            "air"
+          ],
+          [
+            -0.8,
+            "metal"
+          ],
+          [
+            -0.4,
+            "fr4"
+          ],
+          [
+            0.0,
+            "fr4"
+          ],
+          [
+            0.4,
+            "fr4"
+          ],
+          [
+            0.8,
+            "metal"
+          ],
+          [
+            1.2,
+            "air"
+          ],
+          [
+            1.6,
+            "air"
+          ],
+          [
+            2.0,
+            "air"
+          ],
+          [
+            2.4,
+            "air"
+          ]
+        ]
+      },
+      "Ey": {
+        "x": 0.0,
+        "y": 0.2,
+        "samples": [
+          [
+            -2.4,
+            "air"
+          ],
+          [
+            -2.0,
+            "air"
+          ],
+          [
+            -1.6,
+            "air"
+          ],
+          [
+            -1.2,
+            "air"
+          ],
+          [
+            -0.8,
+            "metal"
+          ],
+          [
+            -0.4,
+            "fr4"
+          ],
+          [
+            0.0,
+            "fr4"
+          ],
+          [
+            0.4,
+            "fr4"
+          ],
+          [
+            0.8,
+            "metal"
+          ],
+          [
+            1.2,
+            "air"
+          ],
+          [
+            1.6,
+            "air"
+          ],
+          [
+            2.0,
+            "air"
+          ],
+          [
+            2.4,
+            "air"
+          ]
+        ]
+      },
+      "Ez": {
+        "x": 0.0,
+        "y": 0.0,
+        "samples": [
+          [
+            -2.2,
+            "air"
+          ],
+          [
+            -1.8,
+            "air"
+          ],
+          [
+            -1.4,
+            "air"
+          ],
+          [
+            -1.0,
+            "metal"
+          ],
+          [
+            -0.6,
+            "fr4"
+          ],
+          [
+            -0.2,
+            "fr4"
+          ],
+          [
+            0.2,
+            "fr4"
+          ],
+          [
+            0.6,
+            "fr4"
+          ],
+          [
+            1.0,
+            "metal"
+          ],
+          [
+            1.4,
+            "air"
+          ],
+          [
+            1.8,
+            "air"
+          ],
+          [
+            2.2,
+            "air"
+          ]
+        ]
+      }
+    },
+    "port_ez_samples": {
+      "y_in_resistor": [
+        6.8,
+        7.2,
+        7.6,
+        8.0
+      ],
+      "x_in_resistor": [
+        0.0
+      ],
+      "z_in_resistor": [
+        -0.6,
+        -0.2,
+        0.2,
+        0.6
+      ],
+      "z_material": [
+        [
+          -1.0,
+          "metal"
+        ],
+        [
+          -0.6,
+          "fr4"
+        ],
+        [
+          -0.2,
+          "fr4"
+        ],
+        [
+          0.2,
+          "fr4"
+        ],
+        [
+          0.6,
+          "fr4"
+        ],
+        [
+          1.0,
+          "metal"
+        ]
+      ],
+      "resistor_geometric_width_mm": 1.6,
+      "gap_mm": 1.6
+    },
+    "patch_length_Ex": {
+      "z_plane": 0.8,
+      "first_metal_y": -14.4,
+      "last_metal_y": 14.4,
+      "metal_samples": 73
+    },
+    "patch_length_Ey": {
+      "z_plane": 0.8,
+      "first_metal_y": -14.2,
+      "last_metal_y": 14.2,
+      "metal_samples": 72
+    },
+    "source_z_share": [
+      [
+        -1.0,
+        0.03125000048828127,
+        "metal"
+      ],
+      [
+        -0.6,
+        0.2187499956054687,
+        "fr4"
+      ],
+      [
+        -0.2,
+        0.25000000390625005,
+        "fr4"
+      ],
+      [
+        0.2,
+        0.25000000390625005,
+        "fr4"
+      ],
+      [
+        0.6,
+        0.2187499956054687,
+        "fr4"
+      ],
+      [
+        1.0,
+        0.03125000048828127,
+        "metal"
+      ]
+    ],
+    "source_share_on_metal_samples": 0.06250000097656254,
+    "slice_y0_Ex": {
+      "x0": -31.8,
+      "z": [
+        -6.4,
+        -6.0,
+        -5.6,
+        -5.2,
+        -4.8,
+        -4.4,
+        -4.0,
+        -3.6,
+        -3.2,
+        -2.8,
+        -2.4,
+        -2.0,
+        -1.6,
+        -1.2,
+        -0.8,
+        -0.4,
+        0.0,
+        0.4,
+        0.8,
+        1.2,
+        1.6,
+        2.0,
+        2.4
+      ],
+      "rows": [
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMAAAA",
+        "AAAAFMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMFAAAA",
+        "AAAAFFFFFMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMFFFFFAAAA",
+        "AAAFFFFFFFFFMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMFFFFFFFFFAAA",
+        "AAAFFFFFFFFFFFFFMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMFFFFFFFFFFFFFAAA",
+        "AAAAAAFFFFFFFFFFFFFFMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMFFFFFFFFFFFFFFAAAAAA",
+        "AAAAAAAAAAFFFFFFFFFFFFFFMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMFFFFFFFFFFFFFFAAAAAAAAAA",
+        "AAAAAAAAAAAAAFFFFFFFFFFFFFFFMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMFFFFFFFFFFFFFFFAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAFFFFFFFFFFFFFFFFMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMFFFFFFFFFFFFFFFFAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAFFFFFFFFFFFFFFFFFFMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMFFFFFFFFFFFFFFFFFFAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAFFFFFFFFFFFFFFFFFFFFMMMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMMMFFFFFFFFFFFFFFFFFFFFAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFMMMMMMMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMMMMMMMFFFFFFFFFFFFFFFFFFFFFFFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMFFFFFFFFFFFFFFFFFFFFFFFFFFFMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMFFFFFFFFFFFFFFFFFFFFFFFFFFFMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMMMFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFMMMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMMMMMMFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFMMMMMMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      ]
+    },
+    "slice_y0_Ez": {
+      "x0": -32.0,
+      "z": [
+        -6.2,
+        -5.8,
+        -5.4,
+        -5.0,
+        -4.6,
+        -4.2,
+        -3.8,
+        -3.4,
+        -3.0,
+        -2.6,
+        -2.2,
+        -1.8,
+        -1.4,
+        -1.0,
+        -0.6,
+        -0.2,
+        0.2,
+        0.6,
+        1.0,
+        1.4,
+        1.8,
+        2.2
+      ],
+      "rows": [
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMAAAAA",
+        "AAAAFFFFMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMFFFFAAAA",
+        "AAAAFFFFFFFMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMFFFFFFFAAAA",
+        "AAAAFFFFFFFFFFMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMFFFFFFFFFFAAAA",
+        "AAAAAFFFFFFFFFFFFFMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMFFFFFFFFFFFFFAAAAA",
+        "AAAAAAAAAFFFFFFFFFFFFFMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMFFFFFFFFFFFFFAAAAAAAAA",
+        "AAAAAAAAAAAAFFFFFFFFFFFFFFMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMFFFFFFFFFFFFFFAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAFFFFFFFFFFFFFFFMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMFFFFFFFFFFFFFFFAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAFFFFFFFFFFFFFFFFFMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMFFFFFFFFFFFFFFFFFAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAFFFFFFFFFFFFFFFFFFMMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMMFFFFFFFFFFFFFFFFFFAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAFFFFFFFFFFFFFFFFFFFFFMMMMMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMMMMMFFFFFFFFFFFFFFFFFFFFFAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMFFFFFFFFFFFFFFFFFFFFFFFMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMFFFFFFFFFFFFFFFFFFFFFFFMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMMFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFMMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMMMMMFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFMMMMMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMMMMMMMMMMMMMMFFFFFFFFFMMMMMMMMMMMMMMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMMMMMMMMMMMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      ]
+    }
+  },
+  "wall_seconds": 30.76928643499923,
+  "sum_rank_peak_rss_bytes": 16115482624
+}

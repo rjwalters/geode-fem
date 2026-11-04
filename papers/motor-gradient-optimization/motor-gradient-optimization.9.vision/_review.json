@@ -1,0 +1,154 @@
+{
+  "schema_version": "1",
+  "kind": "vision",
+  "version_dir": "motor-gradient-optimization.9",
+  "critic_id": "paper-vision",
+  "model": "claude-opus-5-5",
+  "rubric": "anvil-pub-vision-v1",
+  "scores": [
+    {
+      "dimension": "label_cropping",
+      "score": 4,
+      "max": 5,
+      "critical": false,
+      "evidence_span": null,
+      "fix": "render_exp2.py: raise ylim top for Fig. 8 (e.g. 2.0) or start curves at the first credited point below 1.5; increase w_pad or drop the 120 label on non-last panels.",
+      "justification": "No table crosses the right margin (Tables 1-8 all inside the text block; main.log has no Overfull hbox). Fig. 8 (exp2-quality) clips the opening values of several space-B LHS 3 curves at its ylim top of 1.5, and its right-hand 120 tick nearly touches the next panel's 0 so the pair reads as '1200'. Fig. 1(b)'s coupling-circle arrow runs through the x-tick label -5. Nothing load-bearing is lost."
+    },
+    {
+      "dimension": "axis_legibility",
+      "score": 4,
+      "max": 5,
+      "critical": false,
+      "evidence_span": null,
+      "fix": "render_exp2.py line 51: font.size 9, legend.fontsize 8 (matching render.py / render_v6.py); enlarge figsize height if panels get crowded.",
+      "justification": "Figures 1-7 use 8-10 pt text at 6.5 in and read cleanly at print size. The two new Section 7 figures are drawn at 7.5 pt (legend 7 pt), the smallest type in the paper. They are legible at 100%, but noticeably smaller than the neighboring figures and the 10 pt captions; Fig. 8's two-line y-label with the subscripts and the 5 pt-class minor log ticks is the tightest."
+    },
+    {
+      "dimension": "palette_adherence",
+      "score": 4,
+      "max": 5,
+      "critical": false,
+      "evidence_span": null,
+      "fix": "Fig. 8: give C a distinct dash pattern (e.g. dash-dot) or add per-method markers at stop ticks; alternatively, label curves directly.",
+      "justification": "The paper uses one muted purple/orange/teal palette consistently across Figs. 2-9, and line style or marker fill separates L0 from L1. However, in Fig. 8 the three solid series A (#704580), B (#bd4e16) and C (#007e80) have nearly equal grayscale luminance (about 0.36/0.42/0.37), so A, B and C cannot be told apart in grayscale print. Fig. 9 avoids this by putting methods on separate labelled rows."
+    },
+    {
+      "dimension": "mathtext_artifacts",
+      "score": 4,
+      "max": 5,
+      "critical": false,
+      "evidence_span": null,
+      "fix": "main.tex/tables: wrap negative numbers in $-$ or use siunitx; pick one unit form for F; change the Fig. 8 y-label to $(F_\\mathrm{val}+\\delta F)/F_0$; remove the thin space in \\mathrm{d}F/\\mathrm{d}p_k.",
+      "justification": "All displayed equations (1)-(12) render correctly, with no overfull displays, broken spans or stray $. Minor typographic inconsistencies: Table 1 'Std vs ref.' and Table 8 phi0 column use ASCII hyphen-minus (-29.1, -5.8231, -11.6463) beside true minus signs elsewhere (Table 7 uses U+2212). The squared-ripple unit appears as N^2 m^2 (Sec. 5.5, Fig. 4c) and as (N m)^2 (Sec. 7.1, Eq. 12). Fig. 8's y-label says (F+deltaF)/F0, while its caption and Eq. (12) use F_val. The inline 'dF/ dp_k' on p.12 has a visible space after the slash."
+    }
+  ],
+  "findings": [
+    {
+      "severity": "minor",
+      "dimension": "label_cropping",
+      "evidence_span": "paper.pdf:page=18 (Fig. 8, figures/exp2-quality.pdf, space B / LHS 3 panel)",
+      "rationale": "ylim (3e-3, 1.5) clips the opening segments of the A, D and B curves in space B LHS 3; they enter from the top spine. The x-axis panels are tight enough that '120' and the next panel's '0' fuse visually into '1200'.",
+      "suggested_fix": "render_exp2.py: a.set_ylim(3e-3, 2.5) (or clip curves at first credited point), and tight_layout w_pad >= 0.8 or label 120 only on the last column.",
+      "tool_calls": null,
+      "downstream_risk": null
+    },
+    {
+      "severity": "minor",
+      "dimension": "axis_legibility",
+      "evidence_span": "paper.pdf:page=18-19 (Figs. 8 and 9)",
+      "rationale": "The new exp2 figures are set at 7.5 pt / 7 pt legend versus 8-10 pt in Figs. 1-7; at print size they are the smallest text in the paper and inconsistent with the rest of the figure set.",
+      "suggested_fix": "render_exp2.py line 51: font.size 9, axes.titlesize 9, legend.fontsize 8; bump figsize heights (3.6 -> 4.0, 2.4 -> 2.7) to absorb it.",
+      "tool_calls": null,
+      "downstream_risk": null
+    },
+    {
+      "severity": "minor",
+      "dimension": "label_cropping",
+      "evidence_span": "paper.pdf:page=18 (Fig. 8 space B row)",
+      "rationale": "On the linear 0-120 time axis, every SLSQP (A, E) space-B trajectory collapses into a near-vertical line at under 10 units, so Fig. 8 does not show the speed contrast that is the paper's headline. Fig. 9 and Table 5 carry it, so no information is lost, but the figure under-serves the claim.",
+      "suggested_fix": "Consider a symlog or log x-axis for Fig. 8 (as Fig. 9 already uses), or an inset for the first 15 units.",
+      "tool_calls": null,
+      "downstream_risk": null
+    },
+    {
+      "severity": "minor",
+      "dimension": "palette_adherence",
+      "evidence_span": "paper.pdf:page=18 (Fig. 8 legend: A/B/C solid lines)",
+      "rationale": "A (purple), B (orange) and C (teal) are all solid lines of nearly equal grayscale luminance (~0.36-0.42), so they are indistinguishable in grayscale print; only E/D are separated by dashing.",
+      "suggested_fix": "Give C a dash-dot style (or distinct markers at the stop tick) in render_exp2.py LS map.",
+      "tool_calls": null,
+      "downstream_risk": null
+    },
+    {
+      "severity": "minor",
+      "dimension": null,
+      "evidence_span": "paper.pdf:page=21",
+      "rationale": "Page 21 is roughly 60% blank because Table 7 (a tall float) could not fit and moved to p.22; the end of Section 7 reads as an abrupt page break.",
+      "suggested_fix": "Place Table 7 with [p] or [!t] earlier in the Final-refinement paragraph, or set it in \\footnotesize so it fits below the text; alternatively, allow \\floatpagefraction tweaks.",
+      "tool_calls": null,
+      "downstream_risk": null
+    },
+    {
+      "severity": "nit",
+      "dimension": "mathtext_artifacts",
+      "evidence_span": "paper.pdf:page=6 (Table 1, Std vs ref. column); paper.pdf:page=24 (Table 8, phi0 row)",
+      "rationale": "Negative values are typeset with ASCII hyphen-minus ('-29.1', '-5.8231', '-11.6463') while '+12.9' and Table 7's values use proper minus signs, a visible inconsistency in glyph width.",
+      "suggested_fix": "Emit $-$ (or \\textminus / siunitx \\num) in the table generators for Tables 1 and 8.",
+      "tool_calls": null,
+      "downstream_risk": null
+    },
+    {
+      "severity": "nit",
+      "dimension": "mathtext_artifacts",
+      "evidence_span": "paper.pdf:page=10 (Sec. 5.5 'in N^2 m^2'); paper.pdf:page=16 (Eq. 12, F0 '(N m)^2'); paper.pdf:page=9 (Fig. 4c axis)",
+      "rationale": "The squared-ripple unit is written two ways (N^2 m^2 vs (N m)^2) across sections; same quantity, different notation.",
+      "suggested_fix": "Choose one (e.g. (N m)^2 via \\si{(\\newton\\metre)^2}) throughout text, Fig. 4c and Sec. 7.",
+      "tool_calls": null,
+      "downstream_risk": null
+    },
+    {
+      "severity": "nit",
+      "dimension": "mathtext_artifacts",
+      "evidence_span": "paper.pdf:page=18 (Fig. 8 y-label vs caption)",
+      "rationale": "The Fig. 8 y-axis label reads 'best (F + deltaF)/F0' while the caption and Eq. (12) define (F_val + deltaF)/F0; the Sec. 7.2 'Attained quality' text also uses the unsubscripted F.",
+      "suggested_fix": "Use F_val in the axis label (render_exp2.py set_ylabel) and in the Attained-quality sentence.",
+      "tool_calls": null,
+      "downstream_risk": null
+    },
+    {
+      "severity": "nit",
+      "dimension": "mathtext_artifacts",
+      "evidence_span": "paper.pdf:page=12 (Sec. 6.1 first line, Sec. 6.2 remainder expression)",
+      "rationale": "Inline 'dF/ dp_k' and 'h dF/ dp_k' show a spurious space after the slash (spacing macro on the differential d).",
+      "suggested_fix": "Use a d-macro without leading \\, inside fractions-by-slash, e.g. \\mathrm{d}F/\\mathrm{d}p_k.",
+      "tool_calls": null,
+      "downstream_risk": null
+    },
+    {
+      "severity": "nit",
+      "dimension": "label_cropping",
+      "evidence_span": "paper.pdf:page=3 (Fig. 1b)",
+      "rationale": "The 'coupling circle r = 44.5 mm' annotation arrow passes directly through the x-tick label '-5'.",
+      "suggested_fix": "render.py line 66: move xytext slightly right (e.g. (.45,-1.05)) so the arrow clears the tick labels.",
+      "tool_calls": null,
+      "downstream_risk": null
+    },
+    {
+      "severity": "nit",
+      "dimension": "axis_legibility",
+      "evidence_span": "paper.pdf:page=19 (Fig. 9, C row)",
+      "rationale": "Not-attained crosses for C stack at x=130 beside the right spine and the 120 reference line, forming an unreadable cluster (e.g. space A T90, space B T99) whose count must be read from Table 5.",
+      "suggested_fix": "Offset crosses vertically as the dots are, or annotate the count ('x3').",
+      "tool_calls": null,
+      "downstream_risk": null
+    }
+  ],
+  "critical_flags": [],
+  "total": 16,
+  "threshold": 20,
+  "verdict": null,
+  "rendered_artifact": "main.pdf",
+  "probes": null,
+  "unscored": false
+}

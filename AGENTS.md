@@ -11,14 +11,16 @@ In Codex, an installed skill is registered at `.agents/skills/anvil-<skill>/SKIL
 <!-- BEGIN SQUAD -->
 ## Squad — cross-agent collaboration
 
-This repo has [Squad](https://github.com/rjwalters/squad) installed. Claude and
-Codex share the same room and MCP tools. Before touching shared state, read
+This repo has [Squad](https://github.com/rjwalters/squad) installed. Claude,
+Codex and opencode share the same room and MCP tools. Before touching shared state, read
 and follow the installed Squad skill, including its room/identity conventions:
 
 - Claude: `.claude/skills/squad/SKILL.md`
 - Codex: `.agents/skills/squad/SKILL.md` (invoke `$squad` or ask naturally)
+- opencode: `.agents/skills/squad/SKILL.md` (reads this `AGENTS.md`; use the
+  `/squad-<workflow>` commands, and loop with `squad wait`)
 
-Both expose join, goals, card, fanout, steward, and clear workflows. Claude aliases are
+Both expose join, wait, goals, card, fanout, steward, and clear workflows. Claude aliases are
 `/squad:<workflow>`; legacy Codex prompts are `/squad-<workflow>`.
 
 **Other channels:** in a squad-enabled repo, coordinate in the room, including

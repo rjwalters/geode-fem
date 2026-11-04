@@ -1,0 +1,38 @@
+Using MPI version 4.1, 1 processes
+-----------
+Initializing structure...
+time for choose_chunkdivision = 1.6407e-05 s
+Working in 3D dimensions.
+Computational cell is 4.8 x 4.8 x 4.8 with resolution 5
+Warning: grid volume is not an integer number of pixels; cell size will be rounded to nearest pixel.
+     block, center = (0.06,0.06,0.06)
+          size (1.24,1.24,1.24)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (2,2,2)
+time for set_epsilon = 0.00450772 s
+-----------
+Meep: using complex fields.
+-----------
+Initializing structure...
+time for choose_chunkdivision = 1.1018e-05 s
+Working in 3D dimensions.
+Computational cell is 5 x 5 x 5 with resolution 5
+     block, center = (0.06,0.06,0.06)
+          size (1.24,1.24,1.24)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (2,2,2)
+time for set_epsilon = 0.00490258 s
+-----------
+Warning: grid volume is not an integer number of pixels; cell size will be rounded to nearest pixel.
+Meep: using complex fields.
+-----------
+Initializing structure...
+time for choose_chunkdivision = 8.642e-06 s
+Working in 3D dimensions.
+Computational cell is 4.8 x 4.8 x 4.8 with resolution 5
+time for set_epsilon = 0.00421458 s
+-----------
+Meep: using complex fields.
+V2_RESULT /results/probe_R5.json mode probe wall 0.03686791299969627 drift None rc None
+
+Elapsed run time = 0.0401 s

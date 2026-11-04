@@ -1,0 +1,31 @@
+{
+  "mean_relative_error_percent": [
+    -0.15320526758483277,
+    -0.15634395640450327
+  ],
+  "ripple_relative_error_percent": [
+    -29.088115429356222,
+    9.857964480274518,
+    11.265730694792865
+  ],
+  "baseline_solves": 240,
+  "harmonic_ripple_relative_error_percent": [
+    12.886599996354132,
+    1.7030558404566687,
+    1.2665813606975052
+  ],
+  "harmonic_mean_relative_error_percent": [
+    -0.002448507136065814,
+    0.05109236278340035
+  ],
+  "max_pointwise_harmonic_gap": [
+    0.0021142669298987553,
+    0.0014934660251807452,
+    0.0033895648268091882
+  ],
+  "loaded_fd_cases": 800,
+  "loaded_fd_below_threshold": 782,
+  "loaded_fd_worst": 1.0668380494405511e-05,
+  "SW1_mean_fixed_I": 1.6837310788758957,
+  "SW1_mean_fixed_density": -220.85202528491794
+}

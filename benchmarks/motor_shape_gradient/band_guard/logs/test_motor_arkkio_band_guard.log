@@ -1,0 +1,56 @@
+   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1183/crates/geode-core)
+   Compiling geode-util v0.8.0 (/Volumes/Stripe/geode-fem/issue-1183/crates/geode-util)
+    Finished `release` profile [optimized] target(s) in 1m 21s
+     Running tests/motor_arkkio_band_guard.rs (/Volumes/Stripe/cargo-target-1183/release/deps/motor_arkkio_band_guard-f0b1f26ad183205e)
+
+running 5 tests
+theta0: both-band ratio 1.000036670, outer ratio 1.000084028
+h45 forward: rejected: Arkkio annulus [4.4e-2, 4.5e-2] m (tags [4, 5]): the band triangles' area 7.526693489e-5 m² is 1.615160 times the annulus area 4.660029103e-5 m² (tolerance 1e-3), so the 1/(r_o - r_i) normalisation does not hold; the design has moved a band boundary. Use an Arkkio term over a band that keeps its annulus, or the coupling torque (issue #1183)
+offsets x0.001: both-band departure 5.923e-4
+opt120: both-band ratio 1.615160190, outer ratio 1.000085368
+h45 angle set: rejected: Arkkio annulus [4.4e-2, 4.5e-2] m (tags [4, 5]): the band triangles' area 7.526693489e-5 m² is 1.615160 times the annulus area 4.660029103e-5 m² (tolerance 1e-3), so the 1/(r_o - r_i) normalisation does not hold; the design has moved a band boundary. Use an Arkkio term over a band that keeps its annulus, or the coupling torque (issue #1183)
+test band_areas_at_theta0_and_opt120 ... ok
+offsets x0.003: both-band departure 1.836e-3
+x0.003 forward: rejected: Arkkio annulus [4.4e-2, 4.5e-2] m (tags [4, 5]): the band triangles' area 4.668586257e-5 m² is 1.001836 times the annulus area 4.660029103e-5 m² (tolerance 1e-3), so the 1/(r_o - r_i) normalisation does not hold; the design has moved a band boundary. Use an Arkkio term over a band that keeps its annulus, or the coupling torque (issue #1183)
+offsets x0.01: both-band departure 6.190e-3
+x0.01 forward: rejected: Arkkio annulus [4.4e-2, 4.5e-2] m (tags [4, 5]): the band triangles' area 4.688873372e-5 m² is 1.006190 times the annulus area 4.660029103e-5 m² (tolerance 1e-3), so the 1/(r_o - r_i) normalisation does not hold; the design has moved a band boundary. Use an Arkkio term over a band that keeps its annulus, or the coupling torque (issue #1183)
+test tolerance_is_pinned_by_scaled_opt120_offsets ... ok
+h45 gradient: rejected: Arkkio annulus [4.4e-2, 4.5e-2] m (tags [4, 5]): the band triangles' area 7.526693489e-5 m² is 1.615160 times the annulus area 4.660029103e-5 m² (tolerance 1e-3), so the 1/(r_o - r_i) normalisation does not hold; the design has moved a band boundary. Use an Arkkio term over a band that keeps its annulus, or the coupling torque (issue #1183)
+h45 theta0: guarded 1.80057407060056507e0, unguarded 1.80057407060056551e0
+conforming forward: rejected: Arkkio annulus [4.4e-2, 4.5e-2] m (tags [4, 5]): the band triangles' area 7.526693489e-5 m² is 1.615160 times the annulus area 4.660029103e-5 m² (tolerance 1e-3), so the 1/(r_o - r_i) normalisation does not hold; the design has moved a band boundary. Use an Arkkio term over a band that keeps its annulus, or the coupling torque (issue #1183)
+conforming angle set: rejected: Arkkio annulus [4.4e-2, 4.5e-2] m (tags [4, 5]): the band triangles' area 7.526693489e-5 m² is 1.615160 times the annulus area 4.660029103e-5 m² (tolerance 1e-3), so the 1/(r_o - r_i) normalisation does not hold; the design has moved a band boundary. Use an Arkkio term over a band that keeps its annulus, or the coupling torque (issue #1183)
+conforming gradient: rejected: Arkkio annulus [4.4e-2, 4.5e-2] m (tags [4, 5]): the band triangles' area 7.526693489e-5 m² is 1.615160 times the annulus area 4.660029103e-5 m² (tolerance 1e-3), so the 1/(r_o - r_i) normalisation does not hold; the design has moved a band boundary. Use an Arkkio term over a band that keeps its annulus, or the coupling torque (issue #1183)
+conforming theta0: guarded 1.79735357815122909e0, unguarded 1.79735357815122976e0
+test both_band_rejected_at_opt120_and_unchanged_at_theta0 ... ok
+conforming: offsets moving the inner band: ["CPR1", "CPR2", "CPR3", "CPR4", "CPR5", "CPR6", "CPR7"]
+ 0 deg: outer Arkkio +1.694184527e0, coupling +1.711091336e0, unguarded both-band +2.994904899e0
+ 2 deg: outer Arkkio +1.695008701e0, coupling +1.711025224e0, unguarded both-band +2.993103738e0
+ 4 deg: outer Arkkio +1.695051066e0, coupling +1.712041344e0, unguarded both-band +2.993467132e0
+ 6 deg: outer Arkkio +1.692568799e0, coupling +1.711686771e0, unguarded both-band +2.993441651e0
+ 8 deg: outer Arkkio +1.692294643e0, coupling +1.711190025e0, unguarded both-band +2.993366919e0
+10 deg: outer Arkkio +1.693704866e0, coupling +1.710421154e0, unguarded both-band +2.990113311e0
+12 deg: outer Arkkio +1.694699440e0, coupling +1.710570362e0, unguarded both-band +2.986159760e0
+14 deg: outer Arkkio +1.695427631e0, coupling +1.712479749e0, unguarded both-band +2.987947129e0
+16 deg: outer Arkkio +1.692995847e0, coupling +1.712268451e0, unguarded both-band +2.990461204e0
+18 deg: outer Arkkio +1.692850940e0, coupling +1.711878472e0, unguarded both-band +2.994366406e0
+mean: outer Arkkio +1.693878646e0, coupling +1.711465289e0
+h45: offsets moving the inner band: ["CPR1", "CPR2", "CPR3", "CPR4", "CPR5", "CPR6", "CPR7"]
+conforming CPR1: outer-Arkkio adjoint -2.536548980e0, FD -2.536548671e0, rel 1.22e-7
+h45 CPR1: outer-Arkkio adjoint -2.644513165e0, FD -2.644511632e0, rel 5.80e-7, coupling adjoint -2.680621603e0, rel 1.35e-2
+conforming CPR2: outer-Arkkio adjoint -1.269213418e1, FD -1.269213386e1, rel 2.59e-8
+h45 CPR2: outer-Arkkio adjoint -1.284575742e1, FD -1.284575684e1, rel 4.56e-8, coupling adjoint -1.299050706e1, rel 1.11e-2
+conforming CPR3: outer-Arkkio adjoint -1.742477672e2, FD -1.742477671e2, rel 3.41e-10
+h45 CPR3: outer-Arkkio adjoint -1.746720524e2, FD -1.746720522e2, rel 9.43e-10, coupling adjoint -1.763546970e2, rel 9.54e-3
+conforming CPR4: outer-Arkkio adjoint -3.842869284e1, FD -3.842869294e1, rel 2.62e-9
+h45 CPR4: outer-Arkkio adjoint -3.859560579e1, FD -3.859560647e1, rel 1.75e-8, coupling adjoint -3.893885735e1, rel 8.82e-3
+conforming CPR5: outer-Arkkio adjoint +6.103121433e1, FD +6.103121438e1, rel 9.23e-10
+h45 CPR5: outer-Arkkio adjoint +6.072167368e1, FD +6.072167384e1, rel 2.76e-9, coupling adjoint +6.107879627e1, rel 5.85e-3
+conforming CPR6: outer-Arkkio adjoint +1.587621824e2, FD +1.587621826e2, rel 1.37e-9
+h45 CPR6: outer-Arkkio adjoint +1.579028146e2, FD +1.579028152e2, rel 4.36e-9, coupling adjoint +1.588854005e2, rel 6.18e-3
+conforming CPR7: outer-Arkkio adjoint +2.422853637e2, FD +2.422853639e2, rel 6.23e-10
+test outer_band_at_opt120_conforming_matches_fd ... ok
+h45 CPR7: outer-Arkkio adjoint +2.409553465e2, FD +2.409553472e2, rel 3.01e-9, coupling adjoint +2.428945712e2, rel 7.98e-3
+test outer_band_at_opt120_harmonic_matches_coupling_and_fd ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.44s
+

@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-22T19:00:00+00:00",
+      "completed": "2026-10-22T23:00:00+00:00"
+    },
+    "figures": {
+      "state": "done",
+      "completed": "2026-10-22T23:00:00+00:00",
+      "note": "Figures 1, 2 and 5 recoloured to one scheme (coauthor item 3); Figures 3 and 4 are v19's bytes; no data changed"
+    }
+  },
+  "metadata": {
+    "iteration": 20,
+    "max_iterations": 20,
+    "revised_from": 19,
+    "status": "DRAFT",
+    "authorization": "Clarity revision from coauthor Crutcher Dunnavant's review of v19 (four items: affiliation, what 'a qubit above' means, figure colours, where the discrepancy comes from). No number changed and no new computation. No review score or audit is claimed or carried forward.",
+    "source_paper_commit": "e74285bf (main, transmon-benchmark.19 as merged)",
+    "scope": "v20 = v19 with the coauthor's affiliation; the qubit frequency defined in Section 1 as the linear eigenfrequency of the junction's (plasma) mode and named in every 'x % above' sentence; one colour scheme in Figures 1, 2 and 5; a Discussion paragraph on where the shift comes from (f64, the pinned Dockerfile, the same-mesh agreement, the discretization), pointed to from Section 1; 21 pages",
+    "pending_dependencies": [
+      "Zenodo DOI at deposit (TODO(operator) in source)",
+      "operator decision on the title (see v19 changelog 'For the operator')",
+      "independent v20 paper reviews (release gate: both >= 40/44)"
+    ],
+    "evidence_snapshot": {
+      "brief_mtime": null,
+      "refs_mtime": null
+    }
+  }
+}

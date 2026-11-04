@@ -1,0 +1,85 @@
+  WARNING: --feed-support-legacy: the feed support (16.74 mm) reaches the patch outline (5.12 mm from the feed): the feed DOFs also move the copper edge
+  WARNING: rebase-feed is NOT exact: a feed support reaches the +y edge (design fixture: true, this fixture: true), so the copper outline differs from the design's; compare the [copper] sections
+  rebase-feed: design fixture inset 5.123104893 / width 4.185270329 mm -> this fixture 5.123104893 / 4.185270329 mm; feed coefficients [-0.054858, 0.082272]
+patch_conformal_nested_dof [copper_38]: patch_conformal_rbD_L1 (164377 edges, 25145 nodes, 136270 tets), R = 100 mm, sigma_0 = 1 (fixture 1); DOFs: 0 radial + 32 outline + 4 corner + 2 feed = 38; band [2.4, 2.4208749999999997, 2.44175, 2.462625, 2.4835] GHz; morph built in 0.2 s
+  verify-only: design L1_copper_38_sm45 on L1 at p1
+    worst tet: tet 92940 ratio 0.250 in air at (s, y) = (-24.57, -0.14) mm, dr -1.89 mm from the substrate top, 26.35 mm from the feed, 15.40 mm from a corner, 5.57 mm outside the patch
+  crater: feed-node lift +0.000 mm (0.30 mm from the feed), mean lift -0.000 mm (thickness 1.600 mm, max 1.600), steepest |grad lift| 0.000 at 4.04 mm from the feed
+  copper: max slab radius change 1.4e-14 mm; probe at (+0.000, +9.432) mm, width 4.268 mm, inset 5.073 mm; patch 28.803 x 49.752 mm (L x W), area 1309.1 mm^2 (base 1110.8)
+  in-band verification sweep:
+    sweep 2.4000 GHz: |S11| = 0.0799 (-21.95 dB), Z = 54.4 -7.1i ohm
+    sweep 2.4104 GHz: |S11| = 0.1239 (-18.14 dB), Z = 48.1 -12.1i ohm
+    sweep 2.4209 GHz: |S11| = 0.1837 (-14.72 dB), Z = 41.7 -14.9i ohm
+    sweep 2.4313 GHz: |S11| = 0.2456 (-12.20 dB), Z = 35.9 -16.2i ohm
+    sweep 2.4417 GHz: |S11| = 0.3055 (-10.30 dB), Z = 30.8 -16.3i ohm
+    sweep 2.4522 GHz: |S11| = 0.3621 ( -8.82 dB), Z = 26.5 -15.7i ohm
+    sweep 2.4626 GHz: |S11| = 0.4147 ( -7.65 dB), Z = 22.9 -14.7i ohm
+    sweep 2.4731 GHz: |S11| = 0.4630 ( -6.69 dB), Z = 19.9 -13.4i ohm
+    sweep 2.4835 GHz: |S11| = 0.5071 ( -5.90 dB), Z = 17.4 -12.1i ohm
+  dense sweep (41 points):
+    sweep 2.3000 GHz: |S11| = 0.5756 ( -4.80 dB), Z = 25.4 +43.7i ohm
+    sweep 2.3075 GHz: |S11| = 0.5436 ( -5.29 dB), Z = 28.8 +44.3i ohm
+    sweep 2.3150 GHz: |S11| = 0.5094 ( -5.86 dB), Z = 32.6 +44.5i ohm
+    sweep 2.3225 GHz: |S11| = 0.4727 ( -6.51 dB), Z = 36.9 +44.2i ohm
+    sweep 2.3300 GHz: |S11| = 0.4338 ( -7.25 dB), Z = 41.6 +43.1i ohm
+    sweep 2.3375 GHz: |S11| = 0.3927 ( -8.12 dB), Z = 46.5 +41.0i ohm
+    sweep 2.3450 GHz: |S11| = 0.3495 ( -9.13 dB), Z = 51.4 +37.8i ohm
+    sweep 2.3525 GHz: |S11| = 0.3046 (-10.33 dB), Z = 56.0 +33.3i ohm
+    sweep 2.3600 GHz: |S11| = 0.2583 (-11.76 dB), Z = 59.7 +27.6i ohm
+    sweep 2.3675 GHz: |S11| = 0.2113 (-13.50 dB), Z = 62.1 +20.8i ohm
+    sweep 2.3750 GHz: |S11| = 0.1647 (-15.67 dB), Z = 62.9 +13.6i ohm
+    sweep 2.3825 GHz: |S11| = 0.1210 (-18.35 dB), Z = 62.0 +6.4i ohm
+    sweep 2.3900 GHz: |S11| = 0.0864 (-21.27 dB), Z = 59.5 -0.1i ohm
+    sweep 2.3975 GHz: |S11| = 0.0758 (-22.40 dB), Z = 55.8 -5.6i ohm
+    sweep 2.4050 GHz: |S11| = 0.0971 (-20.26 dB), Z = 51.4 -9.8i ohm
+    sweep 2.4125 GHz: |S11| = 0.1352 (-17.38 dB), Z = 46.8 -12.8i ohm
+    sweep 2.4200 GHz: |S11| = 0.1786 (-14.96 dB), Z = 42.3 -14.8i ohm
+    sweep 2.4275 GHz: |S11| = 0.2231 (-13.03 dB), Z = 37.9 -15.9i ohm
+    sweep 2.4350 GHz: |S11| = 0.2671 (-11.47 dB), Z = 34.0 -16.3i ohm
+    sweep 2.4425 GHz: |S11| = 0.3097 (-10.18 dB), Z = 30.4 -16.2i ohm
+    sweep 2.4500 GHz: |S11| = 0.3506 ( -9.10 dB), Z = 27.3 -15.8i ohm
+    sweep 2.4575 GHz: |S11| = 0.3894 ( -8.19 dB), Z = 24.6 -15.2i ohm
+    sweep 2.4650 GHz: |S11| = 0.4261 ( -7.41 dB), Z = 22.2 -14.4i ohm
+    sweep 2.4725 GHz: |S11| = 0.4605 ( -6.73 dB), Z = 20.0 -13.5i ohm
+    sweep 2.4800 GHz: |S11| = 0.4928 ( -6.15 dB), Z = 18.2 -12.6i ohm
+    sweep 2.4875 GHz: |S11| = 0.5229 ( -5.63 dB), Z = 16.6 -11.6i ohm
+    sweep 2.4950 GHz: |S11| = 0.5509 ( -5.18 dB), Z = 15.2 -10.6i ohm
+    sweep 2.5025 GHz: |S11| = 0.5768 ( -4.78 dB), Z = 14.0 -9.7i ohm
+    sweep 2.5100 GHz: |S11| = 0.6009 ( -4.42 dB), Z = 12.9 -8.7i ohm
+    sweep 2.5175 GHz: |S11| = 0.6232 ( -4.11 dB), Z = 11.9 -7.8i ohm
+    sweep 2.5250 GHz: |S11| = 0.6438 ( -3.82 dB), Z = 11.1 -6.9i ohm
+    sweep 2.5325 GHz: |S11| = 0.6629 ( -3.57 dB), Z = 10.3 -6.1i ohm
+    sweep 2.5400 GHz: |S11| = 0.6805 ( -3.34 dB), Z = 9.6 -5.2i ohm
+    sweep 2.5475 GHz: |S11| = 0.6967 ( -3.14 dB), Z = 9.0 -4.4i ohm
+    sweep 2.5550 GHz: |S11| = 0.7117 ( -2.95 dB), Z = 8.5 -3.7i ohm
+    sweep 2.5625 GHz: |S11| = 0.7256 ( -2.79 dB), Z = 8.0 -2.9i ohm
+    sweep 2.5700 GHz: |S11| = 0.7383 ( -2.63 dB), Z = 7.5 -2.2i ohm
+    sweep 2.5775 GHz: |S11| = 0.7502 ( -2.50 dB), Z = 7.1 -1.5i ohm
+    sweep 2.5850 GHz: |S11| = 0.7611 ( -2.37 dB), Z = 6.8 -0.8i ohm
+    sweep 2.5925 GHz: |S11| = 0.7711 ( -2.26 dB), Z = 6.5 -0.2i ohm
+    sweep 2.6000 GHz: |S11| = 0.7804 ( -2.15 dB), Z = 6.2 +0.5i ohm
+  verify L1_copper_38_sm45 on L1 (p1): worst -5.90 dB, best -21.95 dB over 9 points; reached -10 dB = false; 41 dense points; min vol ratio 0.250; no wide sweep; 509 s, peak RSS 7.6 GiB
+patch_conformal_nested_dof [verify L1_copper_38_sm45 on L1 p1]: ~/runs/out/rbD_L1_copper_38_sm45_on_rbD_L1_dense.toml
+	Command being timed: "~/tgt1126/release/examples/patch_conformal_nested_dof --fixture ~/fix/patch_conformal_rbD_L1.msh --radial 0 --outline 8 --filter-radius 0 --copper --corners 6 --feed --rebase-feed --feed-support-legacy --verify-only --verify-n 9 --wide-step 0 --dense 2.3:2.6:41 --design rbD_L1_copper_38_sm45.design.toml --out ~/runs/out/rbD_L1_copper_38_sm45_on_rbD_L1_dense.toml"
+	User time (seconds): 6466.26
+	System time (seconds): 460.72
+	Percent of CPU this job got: 1358%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 8:29.93
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 7920416
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 48218444
+	Voluntary context switches: 20925378
+	Involuntary context switches: 4200728
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 152
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

@@ -1,0 +1,8 @@
+cells start 2026-10-15T06:20:17Z: famfinal_u1_p1:16 famfinal_u2_p1:16 famfinal_u1_p2:16
+start famfinal_u1_p1 np=16 2026-10-15T06:20:17Z
+end famfinal_u1_p1 exit=0 2026-10-15T06:46:13Z
+start famfinal_u2_p1 np=16 2026-10-15T06:46:13Z
+end famfinal_u2_p1 exit=0 2026-10-15T07:13:57Z
+start famfinal_u1_p2 np=16 2026-10-15T07:13:57Z
+end famfinal_u1_p2 exit=0 2026-10-15T09:36:47Z
+cells end 2026-10-15T09:36:47Z

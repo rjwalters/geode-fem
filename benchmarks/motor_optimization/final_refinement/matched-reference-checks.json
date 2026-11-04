@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "source_commit": "62222ccfdd1a3a25d2891101776dac02257ef36a",
+  "scope": "Matching-settings theta0 references through selection, schedule and comparisons; synthetic inputs only.",
+  "unit_tests": 70,
+  "test_modules": [
+    "test_selection",
+    "test_check_plan",
+    "test_comparison",
+    "test_geometry_evidence",
+    "test_validation_evidence"
+  ],
+  "mutations_detected": 28,
+  "mutations": {
+    "selection": [
+      "mix_disjoint_rerun_ordinals",
+      "omit_mean_floor",
+      "omit_geometry",
+      "omit_mesh_policy",
+      "omit_discrete_guard",
+      "omit_contamination",
+      "omit_completed",
+      "credit_after_budget",
+      "exclude_exact_budget",
+      "repeat2_substitution",
+      "omit_error_margin",
+      "omit_absolute_margin",
+      "crossing_by_objective",
+      "representative_by_time",
+      "repeat_before_start",
+      "drop_earlier_failed_run",
+      "rounded_geometry"
+    ],
+    "comparison": [
+      "omit_mean_floor",
+      "omit_mesh_gate",
+      "wrong_reference_resolution",
+      "withheld_is_objective",
+      "ignore_actual_settings"
+    ],
+    "reference": [
+      "selection_reference_geometry_unchecked",
+      "missing_reference_uses_wrong_settings",
+      "reference_geometry_unchecked_in_plan",
+      "reference_settings_unchecked_in_plan",
+      "all_spaces_use_primary_theta0",
+      "cross_map_waveform_subtraction_allowed"
+    ]
+  },
+  "source_sha256": {
+    "comparison_mutations.py": "ed1b8b375bfa93c2a86f3a171f4b0a9f781a123ef385bc7217c4fdbf0ff8b609",
+    "test_comparison.py": "5c2eebe379aa278ef36d3a7f5a7eeb228586a812c4e361e2490212539ee20860",
+    "check_plan.py": "95325bb113641180bc59aee39dfb9548b665a5289242545bbfb6498e87d7e656",
+    "reference_mutations.py": "a2ac950de682d041312f8cccf85d56d37f2a337d7e05ca194a28cb6aa6eb259a",
+    "test_selection.py": "5748cc07a678972b4fbdcb35ba61d6341345984cec65b4fcafe320f25ce97f9c",
+    "test_check_plan.py": "ecacb10b6382f5e40f14d1b904dec9c42d32c4c0af72f4bea44fc8dea97c8fb8",
+    "comparison.py": "1a8c767c8a0f44ec7d14599581aedc19f343cb68f3dbf9317c5aea5315ed52a8",
+    "selection.py": "08e8c0f3d7729972701e567d44f118d57b33e843008a4cbd470c9c46705035f4",
+    "mutation_checks.py": "f8cee71325eb3ad2051a991fd5a735b0f051921861d408a4de9fde7197df1f2b"
+  },
+  "synthetic_example": {
+    "cohort_designs": 4,
+    "theta0_references": 2,
+    "checks": 24,
+    "scope": "Synthetic two-space records; no actual FEM, source/mesh authentication or main-study result"
+  },
+  "archive": {
+    "file": "matched_references_62222ccf.tar.gz",
+    "sha256": "8ade2e92c7990db1eba57227785ee55455ac609b3f6e6f167074050a6b779a6a",
+    "files": 18,
+    "each_member_verified": true
+  },
+  "limitations": [
+    "Full physical parameter reconstruction and base-setting declarations remain adapter responsibilities.",
+    "The source documents distinct motion rules; no native motion or FEM comparison was executed in this verification.",
+    "Original common-validator anchors, targets and budgets are unchanged; new references are post-run only.",
+    "Reviewed dependency integration, native refinement and independent review remain pending."
+  ]
+}

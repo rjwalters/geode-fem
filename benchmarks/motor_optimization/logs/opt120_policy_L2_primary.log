@@ -1,0 +1,2 @@
+vs benchmarks/motor_validation/runs/opt120_construction_L2_h93_fixed.json: max |dT| 9.641e-8 N m, max rel d mean 2.978e-8, F 3.798504331e-6 vs 3.798499942e-6 (rel 1.155e-6)
+opt120 primary on benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh [cp]: F 3.798504330813e-6, mean(1) Some(1.3147738518415868), mesh "fresh", 38.0 s

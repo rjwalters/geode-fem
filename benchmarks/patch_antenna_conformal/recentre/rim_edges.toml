@@ -1,0 +1,38 @@
+# Written by benchmarks/patch_antenna_conformal/scripts/rim_edge_stats.py (issue #1134).
+# Patch-rim edge size of the moved meshes, against the moved outline (0.5 mm band).
+
+[mesh.sm54_rbG_L1]
+rim_edge_mean_mm = 0.8034
+rim_edge_max_mm = 1.1487
+n_rim_edges = 507
+patch_edge_mean_mm = 0.8731
+
+[mesh.sm54_rbGrim020_L1]
+rim_edge_mean_mm = 0.2051
+rim_edge_max_mm = 0.3333
+n_rim_edges = 6402
+patch_edge_mean_mm = 0.4367
+
+[mesh.sm57_rbG_L1]
+rim_edge_mean_mm = 0.8039
+rim_edge_max_mm = 1.1481
+n_rim_edges = 507
+patch_edge_mean_mm = 0.8737
+
+[mesh.sm57_rbGcomb_L1_cyl]
+rim_edge_mean_mm = 0.1025
+rim_edge_max_mm = 0.1885
+n_rim_edges = 24711
+patch_edge_mean_mm = 0.2286
+
+[mesh.sm57_rbGrim020_L1]
+rim_edge_mean_mm = 0.2052
+rim_edge_max_mm = 0.3332
+n_rim_edges = 6399
+patch_edge_mean_mm = 0.4370
+
+[mesh.sm57_rbGrim020_L1_cyl]
+rim_edge_mean_mm = 0.2052
+rim_edge_max_mm = 0.3332
+n_rim_edges = 6399
+patch_edge_mean_mm = 0.4370

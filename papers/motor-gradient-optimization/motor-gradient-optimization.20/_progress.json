@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "thread": "motor-gradient-optimization",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-23T00:00:00Z",
+      "completed": "2026-10-23T00:10:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 20,
+    "max_iterations": 10,
+    "revised_from": 19,
+    "note": "v19 with the operator's short title (geode-fem#1231), \"Adjoint Gradients for Torque-Ripple Optimization of a Nonlinear Motor\" (\\title and pdftitle), and two Judge wording fixes in the data statement: the raw-trace archive \"deposited at\" DOI 10.5281/zenodo.23580550, and a sentence giving this paper's DOI 10.5281/zenodo.23580548 for its PDF and LaTeX source. Package pointer moved to v20. No other text, figure or number changed; no computation run. No pending marker remains.",
+    "evidence_snapshot": {
+      "brief_mtime": 1792638669.1807315,
+      "refs_mtime": 1792597193.803293
+    }
+  }
+}

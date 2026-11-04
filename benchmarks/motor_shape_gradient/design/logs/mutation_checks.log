@@ -1,0 +1,39 @@
+=== mutation: sign of dT/dI_g flipped
+    in src/assembly/magnetostatic_shape.rs:
+    - q.iter().zip(&areas).map(|(qg, ag)| -qg / ag).collect()
+    + q.iter().zip(&areas).map(|(qg, ag)| qg / ag).collect()
+test h45_full_current_jinit_rule ... FAILED
+test h45_half_current_perturbed_design ... FAILED
+test conforming_arkkio_band_moving_parameter ... ok
+test h45_full_current_initial_all_parameters ... FAILED
+thread 'h45_full_current_jinit_rule' (800962634) panicked at crates/geode-core/tests/motor_design_gradient.rs:141:13:
+thread 'h45_half_current_perturbed_design' (800962635) panicked at crates/geode-core/tests/motor_design_gradient.rs:141:13:
+thread 'h45_full_current_initial_all_parameters' (800962633) panicked at crates/geode-core/tests/motor_design_gradient.rs:141:13:
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.69s
+
+=== mutation: Jinit area term dropped (mean)
+    in tests/common/icem_design.rs:
+    - d_mean_jinit[k] += d_ipeak[0] * i_peak * d_log_a1[k];
+    + d_mean_jinit[k] += 0.0 * d_ipeak[0] * i_peak * d_log_a1[k];
+test h45_full_current_jinit_rule ... FAILED
+test h45_half_current_perturbed_design ... ok
+test conforming_arkkio_band_moving_parameter ... ok
+test h45_full_current_initial_all_parameters ... ok
+thread 'h45_full_current_jinit_rule' (800978428) panicked at crates/geode-core/tests/motor_design_gradient.rs:141:13:
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.30s
+
+=== mutation: explicit Arkkio term dropped
+    in src/assembly/magnetostatic_shape.rs:
+    -         for (g, e) in grad.iter_mut().zip(&explicit) {
+            g[0] += e[0];
+            g[1] += e[1];
+        }
+    +         let _ = &explicit;
+test h45_half_current_perturbed_design ... ok
+test h45_full_current_jinit_rule ... ok
+test conforming_arkkio_band_moving_parameter ... FAILED
+test h45_full_current_initial_all_parameters ... ok
+thread 'conforming_arkkio_band_moving_parameter' (800998959) panicked at crates/geode-core/tests/motor_design_gradient.rs:141:13:
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.44s
+
+sources restored

@@ -1,0 +1,18 @@
+   Compiling geode-core v0.8.0 (/Volumes/Stripe/geode-fem/issue-1170/crates/geode-core)
+    Finished `release` profile [optimized] target(s) in 5.07s
+     Running tests/motor_icem_harmonic.rs (/Volumes/Stripe/cargo-target-1170/release/deps/motor_icem_harmonic-f49931d5669fa352)
+
+running 3 tests
+test every_order_reproduces_the_conforming_band ... L0 I = 1, 0 deg: conforming 1.566522996706, all 60 orders 1.566522996753 (coupling torque 1.566404230)
+L0 I = 1, 1 deg: conforming 1.564827652505, all 60 orders 1.564827652505 (coupling torque 1.564893492)
+ok
+test l0_reference_orders_reproduce_committed_torque ... L0 h45 current 0, 3 deg: Arkkio 0.01517911265 (pinned 0.01517911265), coupling 0.01518649005 (pinned 0.01518649005), 2 its
+L0 h45 current 0, 4 deg: Arkkio 0.01100069819 (pinned 0.01100069819), coupling 0.01099082493 (pinned 0.01099082493), 2 its
+L0 h45 current 2, 0 deg: Arkkio 1.56344182985 (pinned 1.56344182990), coupling 1.56277677075 (pinned 1.56277677080), 12 its
+L0 h45 current 2, 1 deg: Arkkio 1.57340037608 (pinned 1.57340037610), coupling 1.57266578531 (pinned 1.57266578530), 3 its
+ok
+test tagged_mesh_has_separate_coupling_node_sets ... L0: N = 120, nodes on tag 121 (rotor) 121, tag 122 (stator) 121, split here 0, r_c = 0.044500000 m (+- 7.6e-17), max spacing deviation 4.0e-16 m
+ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.64s
+

@@ -1,0 +1,956 @@
+%% conformal-antenna-diffopt.6 -- revision of v5 against the v5 referee review (27/44),
+%% under the operator's rulings on the companion transmon paper (gradient advantage
+%% demonstrated here; no "certified"; short Section 9). Adds the forward-accuracy study,
+%% curvature, power balance and gain, gradient-free baselines with geode-fem and with
+%% Palace in the loop, a 1.6 mm probe (lumped port) and the design re-centred on the refined model.
+%% See changelog.md, provenance.md and verify_evidence.py. v1-v5 and their critic
+%% siblings are unchanged.
+
+\documentclass{anvil-paper}
+\usepackage{xurl}
+\usepackage{array}
+
+\expandafter\def\expandafter\UrlBreaks\expandafter{\UrlBreaks\do\-\do\_}
+\Urlmuskip=0mu plus 1mu
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.6}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.85}
+\setcounter{topnumber}{3}
+\setcounter{totalnumber}{4}
+\renewcommand{\bibfont}{\small}
+\setlength{\bibsep}{2pt plus 1pt}
+
+\newcommand{\anvilfig}[3][0.98]{%
+  \IfFileExists{figures/#2}%
+    {\includegraphics[width=#1\linewidth]{figures/#2}}%
+    {\fbox{\parbox{#1\linewidth}{\centering\vspace{5em}%
+      \texttt{figures/#2}\\[0.5em]%
+      {\small placeholder: render via \texttt{figures/src/#3}}%
+      \vspace{5em}}}}}
+\newcommand{\PL}{P2/L1}
+
+\title{An Adjoint Gradient Reaches a Worst-of-Band $|S_{11}|$ of $-9.5$\,dB
+with an Order of Magnitude Fewer Solves than Gradient-Free Search:
+Copper-Only Design of a 2.4\,GHz Conformal Patch Antenna}
+\author{Robb Walters\\
+  {\normalsize Independent Researcher}}
+\date{October 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We design the copper of a probe-fed 2.4\,GHz patch antenna on a standard
+$1.6$\,mm FR-4 board bent to a $100$\,mm radius, with 38 shape parameters
+and a finite-element solver, geode-fem, whose discrete shape adjoint gives
+the gradient of the band objective at one factorization per frequency. On
+the coarse optimization model the adjoint reaches a worst-of-band
+$|S_{11}|$ of $-9.5$\,dB in $35$ solves; separable CMA-ES and NEWUOA driven
+by the independent solver Palace need $11$--$23$ times as many, and an
+estimated $7.6$ to $15.5$ times the wall-clock on one host. Palace's forward
+solve is about $11\%$ faster than geode-fem's, so the advantage comes from
+the gradient. A four-parameter rectangle, given the final frequency
+correction in advance, also meets the target on the second-order model. The
+forward model's error sits at the patch rim. After one more frequency
+space-mapping step, the design with a $1.6$\,mm probe reaches $-10.46$\,dB
+worst in band on Palace with third-order elements, with a $93.0$\,MHz
+$-10$\,dB band covering the ISM band by $6.5$ and $2.9$\,MHz; geode-fem's
+finest mesh, not used in choosing the design, agrees. The lower margin covers
+the order-1 estimate of the remaining drift ($6.4$\,MHz), which may be low,
+but not a rim-size fit ($13.5$\,MHz), at which $2.400$\,GHz would sit at
+$-8.94$\,dB.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Gradient-based inverse design is routine in nanophotonics, where
+differentiable solvers such as \textsc{ceviche} \citep{hughes2019forward},
+the Meep adjoint solver \citep{hammond2022meepadjoint}, SPINS-B
+\citep{su_spinsb} and FDTDX \citep{mahlau2026fdtdx} optimize a permittivity
+density on a structured grid. Shape derivatives of scattering parameters for
+finite-element models with ports are older
+\citep{webb2000design,webb2002design,nikolova2004adjoint} and are available
+in commercial tools
+\citep{ansys_hfss_derivatives,comsol_sensitivity_method}. A gradient is worth
+its implementation cost only if it buys something a gradient-free method
+does not. For a design with two nearly independent parameters, finite
+differences or a scaling law are cheap and a gradient adds little. The case
+for a gradient is a design with many coupled parameters, where finite
+differences cost one solve per parameter and gradient-free search scales
+poorly with dimension.
+
+This paper measures that case on one antenna. A 2.4\,GHz probe-fed patch is
+bent around a cylinder of radius $R_b = 100$\,mm. The board is a uniform
+$1.6$\,mm FR-4 shell that is not designed; 38 smooth parameters move the
+copper outline, the corners and the feed. geode-fem, a differentiable
+finite-element solver with a discrete shape adjoint, optimizes the band
+objective by L-BFGS. We run the same problem, objective, parameters and
+volume guard with two gradient-free optimizers, separable CMA-ES
+\citep{hansen2001cmaes,ros2008separable} and NEWUOA
+\citep{powell2006newuoa,zhang2023prima}, each with geode-fem and with Palace
+\citep{palace} as the forward solver, and count solves and wall-clock to fixed
+objective levels on one host.
+
+Three results follow.
+\begin{itemize}
+  \item \textbf{The gradient makes the search about an order of magnitude
+  cheaper} (Section~\ref{sec:baselines}). To reach $-9.5$\,dB on the
+  optimization model the adjoint uses $35$ solves; the gradient-free runs use
+  $385$ to $805$ ($11$--$23\times$) and an estimated $7.6$ to $15.5$ times the
+  wall-clock (geode-fem's side is its solves times its measured per-solve
+  cost on the same host).
+  Palace's forward evaluation is cheaper than geode-fem's, so the difference
+  is the gradient, not the solver. Given enough solves, one CMA-ES seed of
+  three finds a design as good as the adjoint's, and a four-parameter
+  rectangle, given the final band shift in advance, also meets the target on
+  the second-order model, so the gradient
+  buys speed rather than a better optimum, and the 38-parameter basis is not
+  what makes the target reachable.
+  \item \textbf{The forward model's error sits at the patch rim}
+  (Section~\ref{sec:accuracy}). Refining the rim moves the resonance;
+  refining the substrate interior does not. Palace on geode-fem's own
+  meshes reproduces geode-fem at first and second order, and Palace at third
+  order agrees with geode-fem's finest rim-refined mesh to under $1$\,MHz.
+  \item \textbf{A design re-centred on the refined model meets the ISM band at
+  $-10$\,dB on both fine models} (Section~\ref{sec:results}), with a
+  probe of realizable width ($1.6$\,mm, modelled as a lumped port) and margins small enough that we state which
+  drift estimates they cover.
+\end{itemize}
+We also report the checks around the design. The bend moves the resonance
+by under $0.5$\,MHz, though it changes the match by about 1\,dB; the
+absorber and air margin move the band by at most a few megahertz
+(Section~\ref{sec:accuracy}); and the radiation efficiency of a closely
+related design is $0.62$ with perfectly conducting copper
+(Section~\ref{sec:results}).
+
+\paragraph{Evidence tiers.}
+We keep three tiers apart. A \emph{bounded} result is a proven two-sided
+bound; no result in this paper is of that kind. A \emph{model-dependent}
+result is a value computed for a stated discrete model (mesh, element order,
+absorber and port model). An \emph{estimated} result is an extrapolation to
+the mesh limit, given with its band and never called a converged value.
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Finite-element S-parameter sensitivities with ports.}
+Design sensitivities of the scattering matrix for tetrahedral edge elements
+were derived by \citet{webb2000design}, extended to the frequency response
+by \citet{webb2002design} and used in gradient optimization of microwave
+devices by \citet{nair2003optimization}. Adjoint and self-adjoint
+formulations are reviewed by \citet{nikolova2004adjoint} and
+\citet{nikolova2006network}, and continuum shape sensitivity for
+high-frequency devices is given by \citet{choi2011generalized}. HFSS computes
+S-parameter derivatives with respect to geometric parameters by reusing the
+LU factors \citep{ansys_hfss_derivatives,vardapetyan2008sensitivity}, and
+COMSOL documents adjoint shape optimization of waveguide devices on a
+deformed mesh \citep{comsol_sensitivity_method,jensen2022comsolshape}. For
+antennas, \citet{ghassemi2013antenna} evolve a microstrip antenna with an FEM
+adjoint sensitivity and a small set of control vertices.
+
+\paragraph{Variable-fidelity antenna optimization and space mapping.}
+Space mapping aligns a cheap coarse model with an accurate fine model and
+optimizes the coarse one \citep{bandler1994space,bandler2004space,koziel2006framework}.
+In antenna design the coarse model is often the same electromagnetic solver
+on a coarse discretization, corrected by frequency scaling or by
+response-shape correction \citep{koziel2010sprp,koziel2014antenna}, and
+adjoint sensitivities have been used inside trust-region space mapping
+\citep{koziel2013reliable}. Our correction is the simplest member of this
+family: a frequency shift fitted between two discretizations of the same
+solver.
+
+\paragraph{Automated shape differentiation.}
+Shape derivatives of finite-element models can be generated automatically:
+in UFL and Firedrake \citep{ham2019automated,dokken2020,paganini2021fireshape}
+and in NGSolve \citep{gangl2021fully}. \citet{wang2011} give a discrete
+Maxwell shape adjoint on unstructured meshes in two dimensions, in the time
+domain and without ports. geode-fem obtains the element Jacobians by
+forward-mode differentiation of its closed-form element kernels inside a
+tensor stack \citep{burn}.
+
+\paragraph{Structured-grid design of metallic antennas.}
+Density-based topology optimization of conductors on a fixed grid goes back
+at least to \citet{erentok2011topology}; \citet{hassan2014topology} and
+\citet{hassan2014patch} optimize the patch and ground of coax-fed microstrip
+antennas with an FDTD adjoint, and
+\citet{nikolova2004sensitivity,nikolova2006scattering} give FDTD shape
+sensitivities. A plain Yee grid staircases a curved conductor
+\citep{cangellaris1991analysis,haggblad2014accuracy}, but locally conformal
+FDTD handles curved PEC \citep{dey1997locally,mittra2000conformal},
+including uniformly stable second-order schemes
+\citep{zagorodnov2003uniformly,benkler2006new}. Subpixel-smoothed projection
+gives the Meep density adjoint subpixel-accurate boundaries
+\citep{hammond2025unifying,romano2026ssp2}, though the material-grid adjoint
+excludes metals \citep{meepadjointdocs}; Tidy3D offers autograd shape
+gradients and conformal PEC averaging \citep{tidy3dautograd}; and
+\citet{hooten2025} and \citet{liu2024imagerep} map shape parameters to a
+fixed grid. Boundary-integral methods carry recent PEC shape-sensitivity
+work \citep{takahashi2025tdbie,arens2026tubular,balouchev2024balun}.
+
+\paragraph{Conformal and cylindrical patch antennas.}
+The cylindrical-rectangular patch has a cavity-model analysis
+\citep{luk1989cylindrical}, and nonplanar microstrip antennas and conformal
+arrays are treated in the monographs of \citet{wong1999nonplanar} and
+\citet{josefsson2006conformal}. We use a full-wave model and do not compare
+with these analyses; the curvature here is mild (Section~\ref{sec:accuracy}).
+
+\paragraph{Gradient-free optimizers.}
+CMA-ES adapts a full covariance matrix \citep{hansen2001cmaes}; its
+separable variant restricts it to the diagonal, which makes each update
+linear in the dimension \citep{ros2008separable}. NEWUOA builds a quadratic
+interpolation model inside a trust region \citep{powell2006newuoa}; we use
+the PRIMA implementation \citep{zhang2023prima}.
+
+\paragraph{Position of this work.}
+The closest prior work is the FEM S-parameter sensitivity line and the
+variable-fidelity antenna literature, which already reuse factorizations,
+differentiate with respect to geometry and correct coarse models. What this
+paper adds is a measurement: on a 38-parameter open-radiator problem with a
+moving feed, the solve and wall-clock cost of the adjoint against two
+gradient-free optimizers driven by two independent solvers, and a design
+checked on two fine models, one of them from an independent solver (which
+informed the final band shift). We do not claim a first EM shape
+adjoint, and we make no performance comparison with structured-grid methods.
+
+\section{Method}
+\label{sec:method}
+
+\begin{figure}[t]
+  \centering
+  \anvilfig{fig1_geometry.pdf}{fig1_geometry.py}
+  \caption{The fixture and the final copper design. (a) Section at $y = 0$,
+  to scale: the FR-4 board (green) on the $R_b = 100$\,mm cylinder with the
+  patch on top, inside the air box and the $25$\,mm box UPML (hatched).
+  (b) Section through the feed at $s = 0$, vertical axis stretched four
+  times: patch, $1.6$\,mm FR-4, ground, and the $1.6$\,mm probe, final
+  (filled) and initial (dashed). (c) Top view in the chart $(s, y)$: the
+  initial $38\times29$\,mm patch (dashed), the final copper (filled) and the
+  probe positions (bars). The board is the same in both. Drawn from
+  \texttt{baseline\_2g4\_L1.toml} and
+  \texttt{recentre/geometry/rbG\_L1\_copper\_38\_sm57\_w16.json}.}
+  \label{fig:geometry}
+\end{figure}
+
+\subsection{The open-radiator forward model}
+\label{sec:pencil}
+
+The forward problem is the driven frequency-domain curl-curl equation,
+discretized with N\'ed\'elec edge elements of order $p = 1$ or $p = 2$ on an
+unstructured tetrahedral mesh. Lengths are in millimetres and the solver
+works with $\omega = k_0 = 2\pi f/c$ in rad/mm. The assembled system is the
+complex-symmetric pencil
+\begin{equation}
+  A(\omega)\,\mathbf{x}
+  = \Big[\,K(\nu) - \omega^2 M(\varepsilon) + \tfrac{j\omega}{Z_s}\,S_p\,\Big]\,\mathbf{x}
+  = \mathbf{b},
+  \label{eq:pencil}
+\end{equation}
+with curl-curl stiffness $K$, mass matrix $M$ and lumped-port surface term
+$S_p$. The radiating boundary is a box UPML of thickness $t = 25$\,mm:
+per-element tensor weights $\Lambda$ enter $K$ (as $\nu = \Lambda^{-1}$) and
+$M$ (as $\varepsilon = \varepsilon_r \Lambda$), with the stretch
+$\varsigma = 1 - j\sigma_0 (d/t)^2/\omega$ per axis at depth $d$ and
+$\sigma_0 = 1$. The FR-4 has $\varepsilon_r = 4.4$ and $\tan\delta = 0.02$,
+and the conductors are perfect electric conductors (PEC). The port is a
+rectangle of width $w_p$ along $y$ and length $l_p = 1.6$\,mm across the
+substrate, with sheet impedance $Z_s = R_0\,w_p/l_p$ and $R_0 = 50\,\Omega$.
+The reflection coefficient follows from the port voltage $V$:
+\begin{equation}
+  S_{11} = \frac{Z - R_0}{Z + R_0},\qquad Z = \frac{V}{I},\qquad
+  I = \frac{2V_{\mathrm{inc}} - V}{R_0}.
+  \label{eq:s11}
+\end{equation}
+Every evaluation checks passivity, $|S_{11}| \le 1$.
+
+\subsection{Shape adjoint with one factorization per frequency}
+\label{sec:adjoint}
+
+The design moves mesh node coordinates $X$, so the gradient needs
+$\partial K/\partial X$, $\partial M/\partial X$, $\partial S_p/\partial X$
+and $\partial \mathbf{b}/\partial X$. geode-fem evaluates its closed-form
+element kernels in first-order dual arithmetic: seeding the tangent of one
+node coordinate returns the exact partial derivatives of every local matrix
+entry. The UPML weights are held fixed under node motion. Because $A(\omega)$
+is complex symmetric, the adjoint system uses the same operator, and one LU
+factorization per frequency serves the forward and the adjoint solve. The
+nodal gradient is $\lambda^{\top}(\partial A/\partial X)\,\mathbf{x}$ plus the
+explicit dependence of the port drive and of the port-voltage functional on
+the geometry. When a parameter moves the feed, the port faces move and the
+port is rebuilt on every moved mesh. A unit test of the moving-feed gradient
+on a curved mesh, with a source that varies across the port so that the
+explicit term matters, matches central finite differences to below
+$10^{-8}$; without the explicit term it misses by a relative error of about 3.
+
+\subsection{Copper design freedom on a fixed curved board}
+\label{sec:freedom}
+
+The board is not a design variable. Each substrate node has chart
+coordinates $(s, y)$, with $s = R_b\,\mathrm{atan2}(x, z - z_{\mathrm{axis}})$
+the mid-plane arc length and $y$ the bend axis. A design applies a chart
+displacement $(\Delta s, \Delta y)$ and moves the node to angle
+$\phi_0 + \Delta s/R_b$ and height $y_0 + \Delta y$ at its own radius, so
+the FR-4 stays a uniform $1.6$\,mm shell. Every run records the largest
+change of any substrate node's radius ($\le 1.4\times10^{-14}$\,mm). Air
+nodes follow a harmonic extension of the motion; the UPML and the outer
+boundary are fixed. The design gradient chains the nodal adjoint gradient
+through the exact Jacobian of this map.
+
+Table~\ref{tab:dofs} lists the 38 parameters. They are smooth functions of
+the chart, so the same coefficient vector defines the same copper on every
+mesh of the family, which lets a design be carried between discretizations.
+The basis cannot open a hole in the patch; slots change the conductor's
+topology and are outside it.
+
+\begin{table}[t]
+  \centering
+  \caption{The 38 copper parameters, per unit coefficient. The board
+  thickness has none.}
+  \label{tab:dofs}
+  \small
+  \begin{tabular}{@{}l c >{\raggedright\arraybackslash}p{0.66\linewidth}@{}}
+    \toprule
+    Group & Count & What moves \\
+    \midrule
+    Outline & $32$ & $8$ clamped cubic B-splines per patch edge ($\pm y$, $\pm s$); each moves its edge outward in the surface by $1$\,mm, ramped in from the feed band and decaying over the $12$\,mm substrate margin \\
+    Corners & $4$ & one bump per corner, moving it outward along the bisector by $1$\,mm (negative values chamfer), support $1 - \mathrm{smoothstep}(d/6\,\mathrm{mm})$ \\
+    Feed & $2$ & the probe's position along $y$ (its inset from the $+y$ edge) and its width $w_p$, each $1$\,mm \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Objective, optimizer and guards}
+\label{sec:objective}
+
+The objective is a soft maximum of $|S_{11}|^2$ over $n_f = 5$ band
+frequencies,
+\begin{equation}
+  G(\mathbf{c}) = \frac{1}{\beta}\ln \sum_{f} \exp\!\big(\beta\,|S_{11}(f;\mathbf{c})|^2\big),
+  \qquad \beta = 25,
+  \label{eq:objective}
+\end{equation}
+over the coefficient vector $\mathbf{c}$. $G$ exceeds the largest
+$|S_{11}|^2$ by at most $\ln 5/\beta = 0.064$, and every level reported in
+this paper is the worst of the band points, not $G$. L-BFGS (memory 8) with
+Armijo backtracking and a cap of 1 coefficient unit per step minimizes $G$.
+A per-element guard rejects any trial step that would shrink a
+tetrahedron's signed volume below $0.25$ of its base value. Every descent reported
+here ends on the guard with the gradient still nonzero (one intermediate
+re-based run of the space-mapping chain ended on a plateau), so the designs
+are guard-limited rather than stationary.
+
+Before and after each run the pipeline gradient is compared with a central
+finite difference along the steepest-descent direction and along random
+directions. The worst relative error over the runs reported here is
+$1.5\times10^{-5}$ (tolerance $5\times10^{-3}$), and a per-group check on the
+two coarsest meshes passes to $1.9\times10^{-7}$. The adjoint is implemented
+for $p = 1$ only, so optimization runs at $p = 1$ and finer models enter
+through verification.
+
+\section{Fixture and Forward-Model Accuracy}
+\label{sec:accuracy}
+
+\paragraph{Antenna.}
+The initial antenna is a $38\times29$\,mm PEC patch (width along $s$,
+resonant length along $y$) on $1.6$\,mm FR-4 with a $12$\,mm substrate and
+ground margin, fed by a $1.6$\,mm probe, modelled as a uniform lumped port,
+inset $7.0$\,mm from the $+y$ edge (Figure~\ref{fig:geometry}). The bend axis
+is parallel to $y$, so the curvature runs along the non-radiating width; the
+sagitta at the patch edge is $1.8$\,mm. A $40$\,mm air margin separates the
+board from the UPML. The target is $|S_{11}| \le -10$\,dB over the
+$2.400$--$2.4835$\,GHz ISM band.
+
+\paragraph{The coarse mesh.}
+The optimization mesh L1 has $150{,}561$ edges, a median of $2.0$ element
+layers through the substrate under the patch and a mean edge length of
+$0.78$\,mm at the patch rim. On L1 at $p = 1$ the initial patch's
+$|S_{11}|$ dip is at $2.3118$\,GHz; at $p = 2$ on L1 (\PL) it is at
+$2.3566$\,GHz, $45$\,MHz higher. A direct LU solve at \PL{} ($804{,}460$
+unknowns) takes $132$\,GiB in geode-fem, so refining further at $p = 2$ is
+not practical with this solver.
+
+\begin{table}[t]
+  \centering
+  \caption{Where the error sits: the initial patch's $|S_{11}|$ dip under
+  refinement of L1, geode-fem at $p = 1$. ``Slab'' is the element size in
+  the substrate under the patch, ``rim'' the mean edge length within
+  $0.5$\,mm of the patch edge, ``layers'' the median number of elements
+  through the substrate under the patch. Model-dependent values.}
+  \label{tab:x1}
+  \small
+  \begin{tabular}{@{}l c c c r c r@{}}
+    \toprule
+    Mesh & Slab (mm) & Rim (mm) & Layers & DOFs & Dip (GHz) & vs L1 (MHz) \\
+    \midrule
+    L1 & $0.80$ & $0.78$ & $2.00$ & $150{,}561$ & $2.3118$ & $0$ \\
+    slab $0.533$ & $0.533$ & $0.52$ & $2.54$ & $234{,}691$ & $2.3273$ & $+15.5$ \\
+    slab $0.40$ & $0.40$ & $0.39$ & $3.44$ & $414{,}837$ & $2.3404$ & $+28.6$ \\
+    slab $0.30$ & $0.30$ & $0.29$ & $4.19$ & $828{,}775$ & $2.3480$ & $+36.2$ \\
+    rim $0.40$ & $0.80$ & $0.39$ & $1.99$ & $317{,}424$ & $2.3420$ & $+30.2$ \\
+    rim $0.20$ & $0.80$ & $0.20$ & $1.99$ & $430{,}808$ & $2.3569$ & $+45.1$ \\
+    slab $0.30$ + rim $0.10$ & $0.30$ & $0.10$ & $4.19$ & $1{,}738{,}557$ & $2.3659$ & $+54.1$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{The error sits at the rim.}
+Table~\ref{tab:x1} refines L1 in two ways. Refining the whole slab under the
+patch to $0.40$\,mm gives $3.4$ layers and, as a side effect, a $0.39$\,mm
+rim. Refining only within $0.5$\,mm of the patch edge to the same rim size,
+with the 2-layer interior unchanged, lands within $1.6$\,MHz of it
+($2.3404$ against $2.3420$\,GHz). The interior layer count does not decide
+the dip; the rim does, as expected where the field is singular at a
+conductor edge \citep{meixner1972behavior}. A $0.2$\,mm rim at $p = 1$
+($431$k unknowns) matches \PL{} ($805$k) to $0.3$\,MHz. Over all seven
+$p = 1$ rungs the dip follows $f = f_\infty - C\,h_{\mathrm{rim}}^{\,0.80}$
+with a $1.3$\,MHz rms residual (Figure~\ref{fig:accuracy}b). The exponent is
+a fit to the rim edge length on graded meshes, not a demonstrated
+asymptotic order. The combined rung, which halves the rim to $0.1$\,mm and
+refines the slab, moves the dip $9.0$\,MHz.
+
+\begin{figure}[t]
+  \centering
+  \anvilfig{fig2_accuracy.pdf}{fig2_accuracy.py}
+  \caption{The initial patch's $|S_{11}|$ dip under refinement. (a) Against
+  the number of unknowns: geode-fem at $p = 1$ on L1 and its slab, rim and
+  combined refinements, geode-fem at $p = 2$ on L1, and Palace at
+  $p = 1, 2, 3$ on the same L1 mesh. (b) Against the mean edge length at the
+  patch rim, with the fit $f_\infty - C h^{0.80}$ (dashed), its limit and the
+  order-1 Richardson step on the $0.39$/$0.20$\,mm rim pair. The shaded band,
+  $2.366$--$2.380$\,GHz, runs from the finest computed value to the fit's
+  limit; it is an estimate, not a bound. Data:
+  \texttt{v6/v6\_summary.toml} \texttt{[x1]}.}
+  \label{fig:accuracy}
+\end{figure}
+
+\paragraph{An independent solver on the same meshes.}
+Palace \citep{palace} solved the same problem on geode-fem's own meshes,
+written out with their physical tags, with the same materials, PEC surfaces
+and uniform $50\,\Omega$ lumped port. Its absorber is different: Palace has
+no UPML here, so the UPML shell is air and the outer wall carries a
+first-order absorbing boundary. On L1, Palace and geode-fem agree on the
+dip to $1.1$\,MHz at $p = 1$ ($2.3130$ against $2.3118$\,GHz) and $0.4$\,MHz
+at $p = 2$ ($2.3570$ against $2.3566$\,GHz), and on the strip-fed design of
+Section~\ref{sec:procedure} the \PL{} $-10$\,dB band reproduces to about
+$1$\,MHz. Palace at $p = 3$ on L1 gives $2.3660$\,GHz, $8.9$\,MHz above its
+$p = 2$ value and $0.02$\,MHz from geode-fem's finest rung (slab $0.30$ plus
+rim $0.10$\,mm), $2.3659$\,GHz (Figure~\ref{fig:accuracy}a). Two independent
+refinements of the same model, order in Palace and rim size in geode-fem,
+meet at the same number.
+
+\paragraph{The mesh-limit resonance.}
+Every refinement computed so far raises the dip. If that continues, the
+finest computed value, $2.366$\,GHz, is a lower estimate of the mesh-limit
+dip; this is an inference from the trend, not a proof. The rim fit puts the
+limit at $2.380$\,GHz and the order-1 Richardson step on the rim pair at
+$2.372$\,GHz. We therefore estimate the initial patch's mesh-limit dip at
+$2.366$--$2.380$\,GHz, $0$ to $14$\,MHz above the finest computed models.
+The Hammerstad transmission-line estimate of the unloaded patch's resonance
+is $2.433$\,GHz \citep{hammerstad1975equations}, $54$ to $67$\,MHz above the
+estimated mesh-limit dip. The two quantities differ: the closed form gives
+the unloaded cavity resonance and ignores the probe and the finite ground,
+and we expect, but did not test, that the probe's reactance pulls the
+matched dip below that resonance. A port-free eigenfrequency would separate
+them and was not computed.
+
+\paragraph{Absorber and air margin.}
+The UPML conductivity $\sigma_0 = 1$ was chosen from a ladder of $\sigma_0$
+and shell thickness, over which $|S_{11}|$ changes by at most $0.021$ in
+magnitude. Re-meshing the strip-fed design of Section~\ref{sec:procedure}
+with a $60$ or $80$\,mm air margin instead of $40$\,mm moves its $p = 1$ dip
+by at most $2.4$\,MHz and its $-10$\,dB band by at most $1.4$\,MHz, not
+monotonically. The Palace runs, with a different absorber, agree with
+geode-fem to the levels above. The absorber does not load the antenna at
+the level of the refinement shifts.
+
+\paragraph{Curvature.}
+The same copper on a flat board (bend radius $10^6$\,mm, the same mesh node
+for node) resonates $0.3$\,MHz from the bent one at $p = 1$, and a complex
+frequency-shift fit at \PL{} finds $0.28$\,MHz. The bend does not detune the
+patch. It changes its input impedance: on the strip-fed design the bent
+board has a $93.3$\,MHz $p = 1$ $-10$\,dB band against $82.8$\,MHz flat, and
+a worst in-band $|S_{11}|$ at \PL{} of $-10.78$ against $-9.93$\,dB. The
+design was optimized on the bent board; a design optimized flat might
+recover the difference, and was not run.
+
+\section{The Gradient Against Gradient-Free Search}
+\label{sec:baselines}
+
+\paragraph{Setup.}
+All optimizers solve one problem: the 38 parameters, the objective
+(\ref{eq:objective}) on the unshifted band, the $0.25$ volume guard and the
+L1 fixture at $p = 1$, starting from $\mathbf{c} = 0$ ($-1.47$\,dB). The
+adjoint runs L-BFGS. Separable CMA-ES runs with population $\lambda = 14$
+and initial step $\sigma = 0.5$ for 190 evaluations (one seed for 114), with
+three seeds, and with geode-fem or Palace as the forward solver. NEWUOA runs
+with Palace, initial trust radius $0.5$ (equal to $\sigma$), final radius
+$10^{-3}$, PRIMA's default $2n + 1 = 77$ interpolation points and 190
+evaluations. For Palace, geode-fem applies the morph and the guard, writes
+the moved mesh with its tags, and Palace solves the five band frequencies
+directly at $p = 1$ with GMRES on 16 MPI ranks. NEWUOA is unconstrained, so a
+design that fails the guard receives a penalty above any feasible
+objective without a solve; this happened once in 190 evaluations.
+
+\paragraph{Counting.}
+One solve is one band frequency with one matrix factorization. The adjoint
+reuses the forward factorization for its adjoint solve and counts one solve
+per frequency; its start, which yields its first gradient, is counted. The
+gradient-free runs' separate evaluation at $\mathbf{c} = 0$ is not counted,
+except as NEWUOA's own first evaluation. Guard-rejected CMA-ES samples cost
+no solve. Each level is the worst of the five band points in that run's own
+forward model. Wall-clock is on one host type, an r6i.4xlarge (16 vCPU):
+measured for the Palace runs, which include mesh writes and Palace start-up,
+and estimated for the geode-fem runs as solves times the per-solve cost
+measured on that host, $14.4$\,s forward and $19.0$\,s forward plus adjoint.
+A Palace band evaluation costs $64.4$\,s against geode-fem's $72.1$\,s, so
+Palace's forward solve is about $11\%$ faster.
+
+\begin{table}[t]
+  \centering
+  \caption{Solves to fixed worst-of-band levels on the L1 optimization model
+  ($p = 1$), from $\mathbf{c} = 0$. Three CMA-ES entries are seeds (the
+  first ran 114 evaluations, the others 190). ``Best'' is the best level in
+  the run, ``in 125'' the best within the adjoint's 125 solves. Wall-clock
+  to $-9.5$\,dB on an r6i.4xlarge: measured for Palace, estimated for
+  geode-fem. A dash is a censored entry: the run did not reach the level
+  within its budget of 535, 785 and 690 solves (geode-fem CMA-ES seeds),
+  860, 780 and 660 (Palace CMA-ES seeds) or 945 (NEWUOA).}
+  \label{tab:baselines}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{@{}l l c c c c c c@{}}
+    \toprule
+    Optimizer & Forward & \multicolumn{3}{c}{Solves to} & Best & In 125 & Wall to \\
+    \cmidrule(lr){3-5}
+    & & $-9$\,dB & $-9.5$\,dB & $-10$\,dB & (dB) & (dB) & $-9.5$\,dB (min) \\
+    \midrule
+    L-BFGS, adjoint & geode-fem & $30$ & $35$ & $60$ & $-10.04$ & $-10.04$ & $11.1$ (est.) \\
+    sep-CMA-ES & geode-fem & $405$ & $520$ & -- & $-9.56$ & $-2.66$ & $125$ (est.) \\
+    & & $385$ & $385$ & $695$ & $-10.02$ & $-2.40$ & $93$ (est.) \\
+    & & $395$ & $395$ & -- & $-9.77$ & $-2.82$ & $95$ (est.) \\
+    sep-CMA-ES & Palace & $405$ & $805$ & -- & $-9.58$ & $-2.66$ & $172$ \\
+    & & $385$ & $385$ & -- & $-9.89$ & $-2.40$ & $84$ \\
+    & & $395$ & $570$ & -- & $-9.90$ & $-2.83$ & $124$ \\
+    NEWUOA (PRIMA) & Palace & $415$ & $420$ & -- & $-9.95$ & $-1.52$ & $90$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[t]
+  \centering
+  \anvilfig{fig3_optimizers.pdf}{fig3_optimizers.py}
+  \caption{Best worst-of-band $|S_{11}|$ so far on the L1 optimization model,
+  for the adjoint L-BFGS and the gradient-free runs of
+  Table~\ref{tab:baselines}, (a) against solves and (b) against wall-clock
+  on one r6i.4xlarge. Palace wall-clock is measured; geode-fem wall-clock is
+  estimated from the measured per-solve cost on that host. Data:
+  \texttt{copper/L1\_copper\_38.toml}, \texttt{v6/x4/}, \texttt{v6/palace\_loop/}.}
+  \label{fig:optimizers}
+\end{figure}
+
+\paragraph{Results.}
+Table~\ref{tab:baselines} and Figure~\ref{fig:optimizers} give the
+comparison. To reach $-9.5$\,dB the adjoint uses $35$ solves; CMA-ES uses
+$385$--$520$ with geode-fem and $385$--$805$ with Palace, and NEWUOA $420$,
+that is $11$ to $23$ times as many. In wall-clock the Palace-driven runs take
+$84$--$172$\,min (CMA-ES) and $90$\,min (NEWUOA) against an estimated
+$11.1$\,min for the adjoint, $7.6$ to $15.5$ times as long. The wall-clock
+ratio is smaller than the solve ratio because an adjoint evaluation costs
+$1.32$ forward evaluations and Palace's forward solve is the faster one.
+Within the adjoint's whole budget of 125 solves, the gradient-free runs are
+between $-1.52$ and $-2.83$\,dB. NEWUOA spends its first 77 evaluations
+(385 solves) building its interpolation model, which with $2n + 1$ points is
+close to one finite-difference gradient, and then steps to $-9.61$\,dB within
+8 evaluations; a smaller interpolation set was not tried.
+
+The adjoint reaches $-10$\,dB in $60$ solves. One geode-fem CMA-ES seed of
+three reaches it, at $695$ ($11.6\times$), and then matches the adjoint's
+final value ($-10.02$ against $-10.04$\,dB). The other two seeds are
+censored: they miss within their budgets of $535$ and $690$ solves, which
+supports only ratios of at least $8.9$ and $11.5$. Every Palace-driven run is
+censored as well, missing within 190 evaluations ($660$ to $945$ solves),
+and under Palace's own model the adjoint's final design sits at
+$-9.80$\,dB, also short of $-10$\,dB. We therefore state the speedup at
+$-9.5$\,dB and derive none from the $-10$\,dB column. That column needs
+care for a second reason. The two
+forward models agree to $0.004$\,dB on the 41 designs both evaluated (the
+first CMA-ES generation of each seed, 42 samples with one rejected by the
+guard in both), but the difference grows at optimized designs, where the
+band edge sits on a steep slope: Palace reads the adjoint's final design at
+$-9.80$\,dB against geode-fem's $-10.04$\,dB, and geode-fem reads the four
+Palace-optimized designs at $-9.81$ to $-9.89$\,dB, within $0.25$\,dB of
+Palace's own values. A $0.2$\,dB model difference is the size of the gap
+between reaching and missing $-10$\,dB, so that column compares two slightly
+different targets. The $-9$ and $-9.5$\,dB columns do not depend on it.
+
+\paragraph{What the gradient buys, and what it does not.}
+This is an ablation of the gradient: the geode-fem CMA-ES runs share the
+adjoint's forward model, objective, basis and guard, and the Palace runs
+show that a faster forward solver does not close the gap. On this problem
+the gradient buys speed, about an order of magnitude in solves, and not a
+better optimum. Each gradient-free optimizer was run at one setting
+($\sigma = 0.5$, $\lambda = 14$; PRIMA's defaults), so a tuned gradient-free
+method would do better than these rows. All levels are on the L1 model at
+$p = 1$, which sits about $45$--$57$\,MHz below the refined models
+(Section~\ref{sec:accuracy}); none is a level of the refined model.
+
+\paragraph{A four-parameter rectangle.}
+The 38-parameter basis is not needed to meet the target. Collapsing it to
+the patch width and length plus the two feed parameters, with the same
+objective, guard and band shift as the strip-fed design's final step and
+the same feed re-basing (Section~\ref{sec:procedure}), the adjoint widens
+the patch from $38$ to $46.1$\,mm and reaches a worst in-band $|S_{11}|$ of
+$-10.33$\,dB at \PL{}, against $-10.78$\,dB for the 38-parameter design on
+the same model. Its $p = 1$ $-10$\,dB band is $86.9$\,MHz against
+$93.3$\,MHz, so the free outline adds about $6$\,MHz of bandwidth. The
+rectangle started with the 38-parameter chain's final band shift instead of
+finding it, so its 340 driven solves are not comparable with the chain's
+655, which include the steps that found the shift.
+
+\section{Design Procedure}
+\label{sec:procedure}
+
+\paragraph{Frequency space mapping.}
+A design optimized on L1 resonates higher on a finer model. We model the
+fine response as the coarse response shifted in frequency,
+$S_{\mathrm{fine}}(f) \approx S_{\mathrm{coarse}}(f - \delta)$, fit $\delta$
+by least squares over the fine model's points, and re-optimize on the coarse
+model for the band shifted down by $\delta$. For the cold L1 optimum of
+Section~\ref{sec:baselines} the fitted L1-to-\PL{} shift is $47.85$\,MHz, and
+the root-mean-square complex misfit falls from $0.23$--$0.38$ unshifted to
+$0.018$--$0.025$ shifted over the designs fitted. That shift is about
+$3$\,MHz from the initial patch's own L1-to-\PL{} shift ($44.8$\,MHz), so the
+copper motion adds little detune of its own. Without the correction, the
+cold L1 optimum ($-10.04$\,dB on L1) gives $-4.76$\,dB at \PL. This
+ablation is confounded, because the corrected chain also re-bases the feed
+and widens the patch; a cleaner comparison is a design optimized on the
+finer mesh L2 with a $30$\,MHz shift and no re-base, which gives
+$-9.92$\,dB at \PL, against a fitted L2 shift of $29.33$\,MHz.
+
+\paragraph{Feed re-basing.}
+Moving the feed toward the $+y$ edge compresses the mesh between them, and
+the cold runs stop there at the volume guard. We then regenerate the mesh
+with the port at its moved position and carry the design over by shifting
+the two feed coefficients. After re-basing, the optimizer widens the patch
+until the guard binds in the air $5.5$\,mm outside a $\pm s$ edge, which is
+a non-radiating edge. The widening, not the feed, is where every later
+descent stops.
+
+\paragraph{Three designs.}
+Table~\ref{tab:chain} lists the designs. Design~A is the end of the
+space-mapping chain centred for \PL{} with the feed width free, which widened
+the port into a $4.27$\,mm strip. At \PL{} it reaches $-10.78$\,dB with a
+$94.9$\,MHz band, $2.3938$--$2.4887$\,GHz. At Palace $p = 3$ the band moves
+up to $2.4029$--$2.4975$\,GHz, the lower edge misses $2.400$\,GHz by
+$2.9$\,MHz, and the worst in-band value is $-9.56$\,dB: a design centred on
+\PL{} misses once the rim is resolved. Design~B re-runs A's last step with
+the probe width pinned at $1.6$\,mm and reaches $-10.62$\,dB at \PL{}
+($-10.65$\,dB with a $1.27$\,mm probe), so the wide strip was not what
+carried the bandwidth. Design~C re-centres B for the refined model with a
+band shift of $57.0$\,MHz: $44.94$\,MHz from L1 to \PL, $8.7$\,MHz for design~A's
+$p = 2$ to $p = 3$ dip shift in Palace, and
+$3.4$\,MHz further down because every refinement so far has moved the band
+up. A parallel run at $53.6$\,MHz was set aside: adding the initial patch's
+step of about $9$\,MHz from the $0.2$\,mm-rim mesh to Palace $p = 3$ to each
+design's lower edge on that mesh predicts a lower-edge margin at $p = 3$ of
+about $2.6$\,MHz for it and about $6$\,MHz for C. The descent to C ran 10 steps and 125 solves,
+from $-8.73$ to $-10.64$\,dB on its shifted L1 band, and stopped on the guard
+with the gradient norm down from $0.143$ to $2.2\times10^{-3}$; the gradient
+matched finite differences to $1.2\times10^{-6}$. As built, C is
+$29.00$\,mm long and $49.72$\,mm wide on the centre line, with a barrel
+outline whose $\pm s$ edges bow out most at mid-length, and its $1.6$\,mm
+probe sits $5.14$\,mm from the $+y$ edge.
+
+\begin{table}[t]
+  \centering
+  \caption{The designs. $\delta$ is the band shift of the final descent.
+  ``Solves'' counts the driven solves of that descent as recorded,
+  including its gradient checks. ``Fine model'' is the model the design was
+  centred for.}
+  \label{tab:chain}
+  \small
+  \begin{tabular}{@{}l l c c c l@{}}
+    \toprule
+    Design & Feed & $\delta$ (MHz) & Steps & Solves & Fine model \\
+    \midrule
+    A & $4.27$\,mm strip (free width) & $44.94$ & $9$ & $125$ & \PL \\
+    B & $1.6$\,mm probe (pinned) & $44.94$ & $10$ & $130$ & \PL \\
+    C (final) & $1.6$\,mm probe (pinned) & $57.0$ & $10$ & $125$ & refined rim, Palace $p = 3$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Results}
+\label{sec:results}
+
+\begin{figure}[t]
+  \centering
+  \anvilfig{fig4_response.pdf}{fig4_response.py}
+  \caption{(a) Return loss of design~C. Palace at $p = 3$ and $p = 2$ on the
+  design's L1 mesh (1\,MHz grids); geode-fem at $p = 1$ on the combined
+  $0.1$\,mm-rim and $0.3$\,mm-slab mesh (13 points) and on the $0.2$\,mm-rim
+  mesh; and geode-fem at $p = 1$ on L1, the optimization model, on which the
+  design sits $57$\,MHz low by construction. The dashed line is $-10$\,dB and
+  the shaded band is the ISM band. (b) $|S_{11}|$ at $2.400$\,GHz if the
+  whole Palace $p = 3$ response moves up by a further $d$, read from the
+  measured response at $2.400 - d$\,GHz, with the two drift estimates of
+  Section~\ref{sec:accuracy} marked. Data: \texttt{recentre/}.}
+  \label{fig:response}
+\end{figure}
+
+\begin{table}[t]
+  \centering
+  \caption{Design~C on each model, in order of refinement, with design~A on
+  Palace $p = 3$ for comparison. ``Worst'' is over the nine in-band points
+  ($2.400$ to $2.4835$\,GHz in $10.4375$\,MHz steps). Band crossings are
+  interpolated linearly in dB. Margins are $2.400$\,GHz minus the lower
+  crossing and the upper crossing minus $2.4835$\,GHz. Model-dependent
+  values.}
+  \label{tab:verify}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{@{}l r c c c c@{}}
+    \toprule
+    Model & DOFs & Worst (dB) & $-10$\,dB band (GHz) & Coverage & Margins (MHz) \\
+    \midrule
+    geode-fem $p = 1$, L1 & $150{,}541$ & $-4.94$ & $2.3393$--$2.4304$ & $36\%$ & $60.7$ / $-53.1$ \\
+    geode-fem $p = 2$, L1 & $804{,}336$ & $-9.08$ & not swept & not swept & not swept \\
+    Palace $p = 2$, L1 & $884{,}536$ & $-9.08$ & $2.3847$--$2.4770$ & $92.2\%$ & $15.3$ / $-6.5$ \\
+    geode-fem $p = 1$, rim $0.2$ & $431{,}528$ & $-9.23$ & $2.3849$--$2.4782$ & $93.6\%$ & $15.1$ / $-5.3$ \\
+    geode-fem $p = 1$, rim $0.1$ + slab & $1{,}738{,}279$ & $-10.73$ & $2.3934$--$2.4881$ & $100\%$ & $6.6$ / $4.6$ \\
+    Palace $p = 3$, L1 & $2{,}503{,}077$ & $-10.46$ & $2.3935$--$2.4864$ & $100\%$ & $6.5$ / $2.9$ \\
+    \midrule
+    Design A, Palace $p = 3$ & $2{,}729{,}331$ & $-9.56$ & $2.4029$--$2.4975$ & $96.5\%$ & $-2.9$ / $14.0$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{On the finest models.}
+On Palace at $p = 3$ design~C has a worst in-band $|S_{11}|$ of
+$-10.46$\,dB, at $2.4835$\,GHz, and a contiguous $-10$\,dB band from
+$2.3935$ to $2.4864$\,GHz, $93.0$\,MHz wide, which covers the whole
+$83.5$\,MHz ISM band with $6.5$\,MHz to spare at $2.400$\,GHz and $2.9$\,MHz
+at $2.4835$\,GHz (Table~\ref{tab:verify}, Figure~\ref{fig:response}a). At
+$2.400$\,GHz it is at $-11.16$\,dB. geode-fem's finest mesh, the combined
+$0.1$\,mm rim and $0.3$\,mm slab ($1.74$M unknowns), gives $-10.73$\,dB and a
+$94.7$\,MHz band, $2.3934$--$2.4881$\,GHz. The two lower edges agree to
+$0.02$\,MHz, as the two codes agreed on the initial patch's dip. The upper
+edges differ by $1.7$\,MHz, partly because geode-fem's upper crossing is
+interpolated across a $5$\,MHz gap and Palace's across $1$\,MHz. The two
+models are not equally independent of the design. Palace $p = 3$ informed
+the band shift, through design~A's $p = 2$ to $p = 3$ step; geode-fem's
+combined mesh was not used in choosing the design. On the coarser models the
+design sits high by construction and misses at the upper edge: at \PL{}
+Palace and geode-fem agree to $0.003$\,dB on its worst in-band value
+($-9.076$ and $-9.079$\,dB). From $p = 2$ to $p = 3$ the design's dip rises
+$9.1$\,MHz and its lower band edge $8.7$\,MHz; the initial patch's dip rises
+$8.9$\,MHz over the same step, so the design shifts like the patch.
+
+The refined geode-fem meshes were made with a rim refinement laid around
+the initial $38\times29$\,mm outline; measured on the moved meshes, the mean
+rim edge length around the moved outline is $0.21$\,mm and $0.10$\,mm,
+unchanged by the design. On the combined mesh the default air morph
+inverts elements $0.1$\,mm above the patch edge, so the air there was moved
+on cylinders instead, which keeps the copper, slab and ground identical; on
+the $0.2$\,mm-rim mesh the two air motions agree to $0.09$\,MHz at the lower
+edge and $0.015$\,dB in the worst in-band value.
+
+\paragraph{Margin against the remaining drift.}
+If the whole band moves up by a further $d$, design~C keeps the ISM band
+covered at the lower edge while $d \le 6.5$\,MHz; the upper edge only gains.
+The estimates of the remaining drift above the finest models are those of
+the initial patch (Section~\ref{sec:accuracy}). For the order-1 Richardson
+estimate, $d = 6.4$\,MHz, the lower edge reaches about $2.3999$\,GHz and
+$2.400$\,GHz sits at $-10.0$\,dB, just inside. For the rim-fit estimate,
+$d = 13.5$\,MHz, the lower edge reaches about $2.4070$\,GHz and
+$2.400$\,GHz sits at $-8.94$\,dB, a miss (Figure~\ref{fig:response}b).
+These two values are the measured $p = 3$ response shifted, not computed.
+The order-1 estimate may be low. The only data point that tests it is the
+combined rung of Table~\ref{tab:x1}, which moved the initial patch's dip
+$9.0$\,MHz where the order-1 step on the rim pair predicts $7.7$\,MHz; that
+rung also refines the slab, so the comparison is confounded.
+So the design meets the target with margin on the most accurate computed
+models, stays inside the band for the lower part of the drift estimate, and
+misses at $2.400$\,GHz if the drift reaches the rim-fit value. Covering the
+whole $0$ to $14$\,MHz range would need about $97.5$\,MHz of $-10$\,dB
+bandwidth, $4.5$\,MHz more than design~C has.
+
+\paragraph{The guard limits the bandwidth.}
+The descents that produced designs A, B and C each stop on the $0.25$
+volume guard in the air outside the widening patch, not at a stationary point of the objective, so
+the $91$--$95$\,MHz bandwidth and with it the slack are what the guard
+allows. Regenerating the mesh at the widened outline would relieve the
+guard; it was not run.
+
+\paragraph{Radiation efficiency and gain.}
+For the strip-fed design~A, whose outline matches C's to $0.2$\,mm in length
+and $0.03$\,mm in width, we computed the accepted port power, the Poynting
+flux through a closed surface in the air box, the FR-4 loss and the
+broadside gain by a near-to-far-field transform, at $p = 1$ on L1 and on the
+finer L3 mesh. The power balance closes to $2.3\%$ on L1 and $1.2\%$ on L3.
+The radiation efficiency is $0.61$--$0.62$ on L1 and $0.62$ on L3 across the
+band, the dielectric loss fraction $0.36$, and the broadside gain
+$4.4$--$4.6$\,dBi with a front-to-back ratio of $12$--$15$\,dB. With PEC
+conductors this efficiency counts radiation against dielectric loss only;
+copper loss would lower it. These values were not recomputed for
+design~C, whose feed differs.
+
+\paragraph{Bandwidth against a closed form.}
+On the voltage-standing-wave-ratio-2 criterion, Palace gives design~A a
+bandwidth of $100.3$\,MHz at $p = 2$ and $101.0$\,MHz at $p = 3$ (design~C:
+$99.0$\,MHz at $p = 3$). The closed-form formulas of
+\citet{jackson1991simple}, in the form of Jackson's course notes
+\citep{jackson_ece6345}, give $70.4$\,MHz for a $49.75\times28.80$\,mm
+rectangle on this substrate, and $67.9$\,MHz at the area-equivalent width of
+$45.4$\,mm. The gap is in the radiation $Q$. The only loss in the model is
+$\tan\delta$, so the FEM's dielectric loss fraction bounds its total $Q$
+from below, $Q_t \ge 0.362/\tan\delta = 18.1$, and with $\eta = 0.615$ its
+radiation $Q$ is at least $29$; the closed form gives $Q_t = 24.5$ and a
+radiation $Q$ of $48.0$, with radiated and dielectric fractions of
+$0.51$ and $0.49$ against the FEM's $0.62$ and $0.36$. The model patch
+radiates more strongly than the infinite-ground closed form; the finite
+$62\times53$\,mm ground is a plausible cause that we did not test.
+
+\paragraph{Cost.}
+The final descent took $26$\,min on a 32-vCPU cloud host shared with a
+second run. The Palace $p = 3$ sweep of design~C (281 frequencies from an
+adaptive reduced-order model built on 12 full solves at $2.5$M unknowns) took
+$3.5$\,h on 16 MPI ranks. On the combined mesh geode-fem's direct solver
+took about $8$\,min per frequency at $204$\,GiB peak memory, which is why
+that mesh served for verification only.
+
+\section{Limitations and Future Work}
+\label{sec:limits}
+
+\paragraph{Feed and losses.}
+The probe is a uniform lumped port of the pin's width across the substrate.
+A coaxial feed with its own reactance is not modelled, conductors are PEC,
+and the design has not been fabricated or measured.
+
+\paragraph{Refinement.}
+The remaining drift is estimated, not computed, and design~C covers only
+the lower part of its range. The adjoint is first order; a $p = 2$ shape
+adjoint, or optimizing on a rim-refined mesh directly, would remove the
+coarse-to-fine shift that space mapping corrects here. A port-free
+eigenfrequency, which would separate the feed reactance from the patch
+resonance, was not computed, and Palace ran on L1 only.
+
+\paragraph{Scope of the comparison.}
+The optimizer comparison is one problem, one starting point, one setting
+per gradient-free optimizer and one forward model level. A smaller NEWUOA
+interpolation set, Bayesian optimization or a tuned CMA-ES might narrow the
+gap. The comparison measures search cost on the coarse model; it does not
+test whether the gradient helps at the refined level.
+
+\paragraph{Comparison with FDTD.}
+A matched-geometry Meep \citep{oskooi2010meep} model of the initial antenna,
+run at three grid resolutions down to $0.25$\,mm cells, disagrees with
+geode-fem and Palace. In the sampled $2.2$--$2.7$\,GHz window its only deep
+$|S_{11}|$ feature sits at the $2.20$\,GHz lower edge, which suggests a
+resonance at or below $2.20$\,GHz, while geode-fem and Palace on their
+refined models (second order or rim-refined) place the dip at or above
+$2.357$\,GHz ($2.31$\,GHz on L1 at first order); and under refinement the two move in opposite directions, the
+finite-element dip upward and Meep's minimum downward. The cause has not
+been identified and is being diagnosed. Until it is, we make no comparison of
+cost or accuracy with FDTD, including a conformal FDTD scheme
+\citep{dey1997locally,zagorodnov2003uniformly}.
+
+\section{How geode-fem Was Designed and Built}
+\label{sec:built}
+
+geode-fem implements the whiteroom operator specification of Crutcher
+Dunnavant \citep{dunnavant2026whiteroom}, whose four layers restate Palace's
+cited source as pure functions, fused primitives, tensor operations and a
+small graph-evaluation calculus. He also gave design input on the solver's
+operator layer and contributed code: the migration to Rust 2024, the Metal
+(Apple GPU) backend, the present layout of the core crate and the examples,
+and the geode-util crate. The rest of the code, the experiments and the text
+of this paper were produced by AI models working as role-separated agents:
+Anthropic's Claude (Opus, Fable and Sonnet models, through Claude Code) and
+OpenAI's GPT Sol and GPT Astra models (via Codex). The agents were
+coordinated by Loom \citep{loom}, an issue, worktree and pull-request
+workflow, and by Squad, a message room the agents share. Nearly every
+change was reviewed by a separate agent session. The agent reviews of the
+experiments behind this paper recomputed the reported numbers from the
+archived records, and the script that checks this paper's text against
+those records was mutation-tested. The human author directed the research,
+made every scoping and claim decision, and takes responsibility for the
+content.
+
+\section{Reproducibility}
+\label{sec:repro}
+
+Every result in this paper is read from an archived, scripted
+artifact.\footnote{The geode-fem source is public at
+\url{https://github.com/rjwalters/geode-fem}. Archival DOI to be added at
+deposit.}
+% TODO(operator): Zenodo DOI
+Table~\ref{tab:artifacts} lists them, relative to
+\path{benchmarks/patch_antenna_conformal/}. Each run record holds the exact
+command and the SHA-256 of its mesh; the meshes are regenerated from YAML
+recipes in \path{reference/gmsh/} with gmsh 4.15.2, and runs on re-based
+fixtures need the \texttt{--feed-support-legacy} flag. Most records carry no
+generating commit and one carries an intermediate one; the code that
+produced them is merged at geode-fem commit \texttt{99646f06}. Palace is
+commit \texttt{fba6a5b}, built from
+\path{reference/palace/docker/Dockerfile}. PRIMA was built from source at
+libprima commit \texttt{43863c69} (Python package
+\texttt{0.7.3.dev1801+g43863c69c}); the compiler was not recorded. The
+geode-fem solves ran on AWS Graviton4 hosts (r8g.4xlarge and r8g.8xlarge),
+and the Palace solves and the cost measurements on r6i.4xlarge. The figure
+scripts in \path{figures/src/} read the artifacts directly,
+\path{provenance.md} in this paper's directory maps every number to its
+source field, and \path{verify_evidence.py} checks the text against them.
+
+\begin{table}[t]
+  \centering
+  \caption{Artifacts behind each result, relative to
+  \texttt{benchmarks/patch\_antenna\_conformal/}.}
+  \label{tab:artifacts}
+  \footnotesize
+  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth}>{\raggedright\arraybackslash}p{0.64\linewidth}@{}}
+    \toprule
+    Result & Artifact \\
+    \midrule
+    Fixture, coarse ladder, absorber ladder & \path{baseline_2g4_L1.toml}, \path{convergence.toml}, \path{upml_ladder_L1.toml} \\
+    Rim and slab refinement, Palace cross-check, curvature, radiation, air margin (Section~\ref{sec:accuracy}) & \path{v6/v6_summary.toml} from \path{scripts/v6_summary.py}; \path{v6/x1/}, \path{v6/x2/}, \path{v6/x3/} \\
+    Gradient-free baselines (Section~\ref{sec:baselines}) & \path{v6/palace_loop/palace_loop_summary.toml} from \path{scripts/palace_loop_summary.py}; \path{v6/x4/}, \path{v6/palace_loop/}; \path{copper/L1_copper_38.toml} \\
+    Space mapping, designs A and B (Section~\ref{sec:procedure}) & \path{copper/}, \path{copper/g2_summary.toml}, \path{scripts/copper_shift_fit.py}; \path{v6/x5/} \\
+    Design C and its checks (Section~\ref{sec:results}) & \path{recentre/recentre_summary.toml} from \path{scripts/recentre_summary.py}; \path{recentre/}, \path{recentre/palace/} \\
+    FDTD comparison (Section~\ref{sec:limits}) & \path{reference/meep/docker/AWS_R4.md}; \path{benchmarks/fdtd_density_baseline/meep_runs/aws_r4/resolution_trend.json} \\
+    Generator and tests & \path{crates/geode-core/examples/patch_conformal_nested_dof.rs}; \path{crates/geode-core/tests/patch_conformal_*.rs} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+On a 38-parameter copper design of a bent 2.4\,GHz patch, an adjoint
+gradient reaches a worst-of-band $|S_{11}|$ of $-9.5$\,dB on the coarse
+optimization model with an order of magnitude fewer solves than two
+gradient-free optimizers, whether they are driven by the same solver or by
+a faster independent one; at $-10$\,dB most gradient-free runs are censored
+at their budgets. The gradient buys speed, not a better optimum, and a
+four-parameter rectangle, given the final band shift in advance, would also
+have met the target on the second-order model. Getting the target to hold
+on a fine model needed the forward model resolved at the patch rim, where an
+independent solver agrees with geode-fem on the resonance, and one more
+space-mapping step. The resulting design, with a $1.6$\,mm probe on a
+standard board, covers the ISM band at $-10$\,dB on both fine models with
+$6.5$\,MHz of margin at the lower edge. That margin covers the order-1
+estimate of the remaining drift, which may be low, but not the rim-fit
+estimate, and the volume guard, not the objective, limits it.
+
+\paragraph{Acknowledgments.}
+We thank Crutcher Dunnavant for the whiteroom specification, for his
+design input to the solver's operator layer and for his contributions to
+the codebase. The AI-orchestrated development of geode-fem and of this
+paper is described in Section~\ref{sec:built}.
+% TODO(operator): approve acknowledgment wording
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

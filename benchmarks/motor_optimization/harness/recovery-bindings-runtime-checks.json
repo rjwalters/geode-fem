@@ -1,0 +1,56 @@
+{
+  "scope": "Setup and recovery binding component; no optimizer launch or main performance data",
+  "source_sha256": {
+    "recovery_bindings.py": "876b5b49354144d13a3710fd372cab178057bf9766a99a52901e9549c6086e3a",
+    "runtime_fingerprint.py": "ca6ab217aa04f05233c33535393a411ef9864575a2084064a9d3c6dfd005bb58",
+    "test_recovery_bindings.py": "cc40020fc294d1aa985c494ebe48bf5b3b73259aa255a2e75016c1022c957bdf",
+    "recovery_bindings_mutations.py": "2b854c73d5a6606b347eec6958cd8735b4fdef94a062bde97221bfef9bdaaf9f",
+    "session.py": "4881ebc404c7ab14e58684e647bb7244626fd40b8cf39fb50dc12247d76b0c61",
+    "test_session_journal.py": "6ce135955e70e84d346ece2cf38d3015710cf50e1613a1e8dc2424c42428a787"
+  },
+  "checks": {
+    "recovery_bindings": {
+      "tests": 7,
+      "path": "/tmp/codex-1202-recovery-bindings.log",
+      "sha256": "c5550dafc8f77022e1181d1ebc4289f24d23b8156894ad9365f5b1e021daec46",
+      "output": "test_changed_unit_workers_settings_source_or_runtime_refuses (__main__.BindingTests.test_changed_unit_workers_settings_source_or_runtime_refuses) ... ok\ntest_each_external_input_change_is_detected (__main__.BindingTests.test_each_external_input_change_is_detected) ... ok\ntest_installed_payload_is_hashed_not_only_package_version (__main__.BindingTests.test_installed_payload_is_hashed_not_only_package_version) ... ok\ntest_missing_uv_or_failed_runtime_probe_never_returns_verification (__main__.BindingTests.test_missing_uv_or_failed_runtime_probe_never_returns_verification) ... ok\ntest_real_git_manifest_observes_dirty_content_new_sources_and_failures (__main__.BindingTests.test_real_git_manifest_observes_dirty_content_new_sources_and_failures) ... ok\ntest_same_record_reuses_unit_without_launch_or_calibration (__main__.BindingTests.test_same_record_reuses_unit_without_launch_or_calibration) ... ok\ntest_sources_and_primary_inputs_cannot_change_during_calibration (__main__.BindingTests.test_sources_and_primary_inputs_cannot_change_during_calibration) ... ok\n\n----------------------------------------------------------------------\nRan 7 tests in 0.542s\n\nOK\n"
+    },
+    "journal": {
+      "tests": 8,
+      "path": "/tmp/codex-1202-bindings-journal.log",
+      "sha256": "a484e8982436f5fa86df5a81ff5c50ed56b514a3396c03d27ab9ef332a132b44",
+      "output": "test_attempt_started_and_finished_are_durable_and_trace_cannot_be_overwritten (__main__.JournalTests.test_attempt_started_and_finished_are_durable_and_trace_cannot_be_overwritten) ... ok\ntest_immutable_calibration_is_archived_before_rejection (__main__.JournalTests.test_immutable_calibration_is_archived_before_rejection) ... ok\ntest_load_samples_are_saved_before_monitor_stop (__main__.JournalTests.test_load_samples_are_saved_before_monitor_stop) ... ok\ntest_main_freezes_full_queue_and_transient_deferral_is_not_an_unresolved_job (__main__.JournalTests.test_main_freezes_full_queue_and_transient_deferral_is_not_an_unresolved_job) ... ok\ntest_parallel_appends_survive_close_and_refuse_reuse (__main__.JournalTests.test_parallel_appends_survive_close_and_refuse_reuse) ... ok\ntest_rejected_primary_or_secondary_calibration_cannot_dispatch (__main__.JournalTests.test_rejected_primary_or_secondary_calibration_cannot_dispatch) ... ok\ntest_torn_final_event_never_becomes_a_completed_attempt (__main__.JournalTests.test_torn_final_event_never_becomes_a_completed_attempt) ... ok\ntest_worker_exception_is_not_lost_from_scheduler_results (__main__.JournalTests.test_worker_exception_is_not_lost_from_scheduler_results) ... ok\n\n----------------------------------------------------------------------\nRan 8 tests in 0.333s\n\nOK\n"
+    },
+    "cancellation": {
+      "tests": 10,
+      "path": "/tmp/codex-1202-bindings-cancellation.log",
+      "sha256": "e63ae6caa0e11d05b968f9d6ae6d5584c579cbbd766a4468d1bdedcd84672b9e",
+      "output": "test_cancelled_evaluator_never_spawns (__main__.CancellationTests.test_cancelled_evaluator_never_spawns) ... ok\ntest_cancelled_host_gate_does_not_wait_or_dispatch (__main__.CancellationTests.test_cancelled_host_gate_does_not_wait_or_dispatch) ... ok\ntest_completeness_requires_terminal_phase_receipts (__main__.CancellationTests.test_completeness_requires_terminal_phase_receipts) ... ok\ntest_concurrent_lifetimes_have_separate_exclusive_wait4_receipts (__main__.CancellationTests.test_concurrent_lifetimes_have_separate_exclusive_wait4_receipts) ... ok\ntest_failed_journal_does_not_abandon_child (__main__.CancellationTests.test_failed_journal_does_not_abandon_child) ... ok\ntest_forced_exit_is_reaped_but_never_complete (__main__.CancellationTests.test_forced_exit_is_reaped_but_never_complete) ... ok\ntest_real_session_signal_stops_all_concurrent_calibration_workers (__main__.CancellationTests.test_real_session_signal_stops_all_concurrent_calibration_workers) ... ok\ntest_real_session_signal_stops_run_tree_and_preserves_undispatched_queue (__main__.CancellationTests.test_real_session_signal_stops_run_tree_and_preserves_undispatched_queue) ... ok\ntest_space_b_calibration_startup_failure_is_archived (__main__.CancellationTests.test_space_b_calibration_startup_failure_is_archived) ... ok\ntest_worker_start_failure_cancels_and_joins_already_started_workers (__main__.CancellationTests.test_worker_start_failure_cancels_and_joins_already_started_workers) ... ok\n\n----------------------------------------------------------------------\nRan 10 tests in 2.586s\n\nOK\n"
+    },
+    "inventory": {
+      "tests": 5,
+      "path": "/tmp/codex-1202-bindings-inventory.log",
+      "sha256": "a8dc2a5705d133154394c775456b4c1c52e82d561772b04005b6b51c067ca030",
+      "output": "test_changed_calibration_or_trace_is_not_silently_accepted (__main__.RecoveryInventoryTests.test_changed_calibration_or_trace_is_not_silently_accepted) ... ok\ntest_classifications_preserve_all_attempts_and_never_choose_best_outcome (__main__.RecoveryInventoryTests.test_classifications_preserve_all_attempts_and_never_choose_best_outcome) ... ok\ntest_completed_optimizer_with_interrupted_diagnostic_is_never_a_rerun_candidate (__main__.RecoveryInventoryTests.test_completed_optimizer_with_interrupted_diagnostic_is_never_a_rerun_candidate) ... ok\ntest_rejected_calibration_or_different_unit_cannot_be_recovered (__main__.RecoveryInventoryTests.test_rejected_calibration_or_different_unit_cannot_be_recovered) ... ok\ntest_torn_finished_event_leaves_interrupted_attempt_unresolved (__main__.RecoveryInventoryTests.test_torn_finished_event_leaves_interrupted_attempt_unresolved) ... ok\n\n----------------------------------------------------------------------\nRan 5 tests in 0.254s\n\nOK\n"
+    },
+    "preflight": {
+      "tests": 3,
+      "path": "/tmp/codex-1202-bindings-preflight.log",
+      "sha256": "fed5eef0af52b2c1cc9fce8f1a9ca7b18fbcd0fb53c07eb710beaf2b6bc970bf",
+      "output": "test_all_twenty_checks_retained_failed_start_never_replaced (__main__.PreflightTests.test_all_twenty_checks_retained_failed_start_never_replaced) ... ok\ntest_failed_preflight_cannot_dispatch_calibration_or_main_jobs (__main__.PreflightTests.test_failed_preflight_cannot_dispatch_calibration_or_main_jobs) ... ok\ntest_rejects_wrong_bits_bad_domain_trigger_quality_and_fem (__main__.PreflightTests.test_rejects_wrong_bits_bad_domain_trigger_quality_and_fem) ... ok\n\n----------------------------------------------------------------------\nRan 3 tests in 0.090s\n\nOK\n"
+    }
+  },
+  "mutations_detected": 6,
+  "runtime_probe": {
+    "file": "recovery-runtime-probe.json",
+    "sha256": "81d59cdd152c6b4a402a9646ff89dd2506eceaa89759d0ed0b818b6626e61ea1",
+    "note": "Exact existing uv mesher command initially resolved online after offline cache miss; subsequent offline probe succeeds. No registered version or numerical settings changes."
+  },
+  "remaining": [
+    "linked recovery eligibility/counters/order and exclusive attempt ownership",
+    "fresh process verification and binding verification at dispatch",
+    "binary build provenance and cap-hit reporting",
+    "reviewed dependency rebase and affected verification",
+    "independent review and host selection before main jobs"
+  ]
+}

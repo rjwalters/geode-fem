@@ -28,6 +28,27 @@ Cargo.lock.bak
 !reference/fixtures/transmon_palace/results_loop_1079/*/palace_run.log
 # #1084 curved conformal 2.4 GHz fixture: baseline / generator / re-check logs
 !benchmarks/patch_antenna_conformal/logs/*.log
+# #1146 Meep harness-v2 run records (cgroup memory samples, run logs; listed in SHA256SUMS)
+!benchmarks/fdtd_density_baseline/meep_runs/v2/**/*.log
+# #1092 DeviceLayout cross-check: Palace run logs (cited by provenance.txt) and geode solve logs
+!reference/fixtures/transmon_palace/results_crosscheck_1092/*/palace_run.log
+!benchmarks/transmon_devicelayout_crosscheck/logs/*.log
+# #1092 part 2 re-optimization: Palace run logs, geode solve and ladder logs
+!reference/fixtures/transmon_palace/results_optimize_1092/*/palace_run.log
+!benchmarks/transmon_devicelayout_optimize/logs/*.log
+!benchmarks/transmon_devicelayout_optimize/ladder_*/logs/*.log
+# #1123 controls: Palace run logs and worker orchestration / memory logs
+!reference/fixtures/transmon_palace/results_controls_1123/*/palace_run.log
+!reference/fixtures/transmon_palace/results_controls_1123/logs/*.log
+# #1129 controls: Palace run logs and worker orchestration / memory logs
+!reference/fixtures/transmon_palace/results_controls_1129/*/palace_run.log
+!reference/fixtures/transmon_palace/results_controls_1129/logs/*.log
+# #1135 controls: Palace run logs and worker orchestration / memory logs
+!reference/fixtures/transmon_palace/results_controls_1135/*/palace_run.log
+!reference/fixtures/transmon_palace/results_controls_1135/logs/*.log
+# #1145 T7: adaptive refinement on the final design, Palace run log and worker orchestration / memory logs
+!reference/fixtures/transmon_palace/results_controls_1145/*/palace_run.log
+!reference/fixtures/transmon_palace/results_controls_1145/logs/*.log
 .loom/daemon-state.json
 .loom/[0-9][0-9]-daemon-state.json
 .loom/stuck-history.json
@@ -88,11 +109,11 @@ dist/
 .loom/claims/
 .loom/locks/
 .loom/signals/
-.loom/sweep-dispatch-tap/
 .loom/status/
 .loom/retry-state/
 .loom/exit-codes/
 .loom/sweep-checkpoint/
+.loom/private-jobs/
 .loom/sweep-run/
 .loom/targets/
 .loom/target*/

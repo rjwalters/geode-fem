@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-16",
+  "science_card_id": 3,
+  "status": "feasibility_screen_complete_nonlinear_pilot_not_implemented",
+  "repository_head_audited": "9b3a9a4d02457a6be807275422397428f900eb8f",
+  "question": "Can exact field gradients reach a fixed, independently validated motor torque-ripple target substantially faster than inexpensive physical models and competitive derivative-free optimization?",
+  "decision": "Pursue a nonlinear slotted 2D motor pilot. Keep the existing linear slotless motor as a negative control. Do not start a large optimization campaign before forward-model and design-space gates pass.",
+  "completed_this_pass": [
+    "Read existing GEODE magnetostatic, magnetization, torque and motor benchmark source.",
+    "Reanalysed committed torque samples with an even-angle training / odd-angle holdout split; see slotless_screen.json.",
+    "Inspected two primary motor-adjoint papers and the public ICEM code snapshot prerequisites, optimization setup and available artifacts.",
+    "Recorded this question and evidence in the geode-fem Squad room as Science Card 3."
+  ],
+  "not_performed": [
+    "No new FEM solves or optimization runs.",
+    "No reproduction of the authors' MATLAB optimization.",
+    "No verification of motor shape-gradient correctness or speedup.",
+    "No claim that the selected motor requires many independent design directions."
+  ],
+  "prior_art": [
+    {
+      "url": "https://arxiv.org/html/2402.19065v1",
+      "title": "Spline-Based Rotor and Stator Optimization of a Permanent Magnet Synchronous Motor",
+      "findings": "Nonlinear 2D model, 22 variables (12 parameters plus 10 surface controls), three current levels and ten rotor angles. Uses adjoints together with radial/axial scaling laws. Reports 120 iterations in six hours. This is an implementation anchor, not a new research idea.",
+      "reproduction": "Pin the published initial geometry, M27 constitutive data, magnet model, winding phases, boundary conditions, sector normalization and torque convention before porting. Distinguish the published v1 snapshot from later repository updates."
+    },
+    {
+      "url": "https://arxiv.org/html/2311.06046v2",
+      "title": "Combined Parameter and Shape Optimization of Electric Machines with Isogeometric Analysis",
+      "findings": "Uses 17 parameters plus 29 symmetric shape variables. Parameter and combined optimization achieve quarter-machine ripple standard deviations 0.0249 and 0.0013 N m at similar mean torque (0.575 and 0.576 N m). These local optima motivate a design-space test, not a proof of dimensional necessity.",
+      "comparison_limit": "The JMAG evolutionary baseline has different objective/constraint settings and slower hardware. Its timing ratio cannot establish an equal-target gradient advantage. Shape-only and sequential cases also relax the torque constraint.",
+      "cost_lesson": "Reported time split: state assembly/solves 65%, objective/derivative calculation 23%, adjoint solves 3%. Counting only linear solves would miss much of the cost."
+    },
+    {
+      "url": "https://github.com/MichaelWiesheu/ICEMsnapshot/tree/b145aaf4ab1a6424828bc941eaf172f48fa0d458",
+      "head_inspected": "b145aaf4ab1a6424828bc941eaf172f48fa0d458",
+      "readme": "Requires MATLAB plus Optimization, Curve Fitting and Global Optimization toolboxes. Includes GeoPDEs/NURBS dependencies, initial/optimized geometry, material models and saved torque data. GPL-3.0-or-later code; no code copied into GEODE in this screen.",
+      "local_runtime": "Neither matlab nor octave was found on PATH during the audit; gmsh is present. Availability outside PATH was not checked.",
+      "entry_point": "results/PMSM_optimization_nonlin.m"
+    }
+  ],
+  "geode_readiness": {
+    "available": [
+      {"capability": "2D P1/P2 scalar magnetostatic assembly with prescribed element reluctivity and PM source", "path": "crates/geode-core/src/assembly/magnetostatic.rs"},
+      {"capability": "Arkkio and Maxwell-stress torque from P1 cell fields", "path": "crates/geode-core/src/assembly/torque.rs"},
+      {"capability": "Slotless linear PM motor with analytic torque oracle", "path": "crates/geode-core/examples/motor_torque.rs"},
+      {"capability": "Existing oracle and mesh-convergence tests (not rerun in this screen)", "path": "crates/geode-core/tests/motor_torque_benchmark.rs"},
+      {"capability": "3D inductance reluctivity adjoint, useful as a pattern but not a motor shape gradient", "path": "crates/geode-core/src/adjoint.rs"}
+    ],
+    "not_found_in_audited_source": [
+      "Nonlinear magnetic B-H residual, consistent Newton tangent and material-data validation.",
+      "Slotted iron motor geometry with physical rotor rotation and sliding/mortar coupling.",
+      "2D motor torque/ripple discrete shape adjoint including geometry, PM and current-load dependence."
+    ],
+    "additional_checks": [
+      "Existing P2 cell-average B recovery cannot simply be fed to a quadratic torque functional and assumed P2-accurate; integrate the field products with appropriate quadrature.",
+      "Audit dimensional conventions: existing code includes axial length in torque while some labels say per axial length. Define total N m versus N m/m and sector scaling explicitly for the new benchmark.",
+      "A rotating sinusoidal source on a fixed linear operator is not a substitute for moving slotted rotor geometry."
+    ]
+  },
+  "proposed_first_model": {
+    "geometry": "Published ICEM 2D slotted PM motor, initial geometry first; reproduce before changing geometry or bounds.",
+    "physics": "Nonlinear magnetostatics with a differentiable monotone B-H law, permanent magnets and phase windings; synchronous angle snapshots at fixed load angle.",
+    "operating_points": "Use the reference zero/half/full current cases first. Current phase tracks rotor angle. Zero current measures cogging; positive currents measure loaded ripple.",
+    "objective": "F(x) = sum_q w_q mean_k[(T_qk(x)-mean_k T_qk(x))/T_ref]^2, with fixed positive T_ref and predeclared weights. Include zero-current cogging without dividing by its near-zero mean torque.",
+    "constraints": "Per-loaded-condition mean-torque floors, minimum air gap and iron bridge thickness, nonintersecting geometry, bounded magnet area and fixed outer envelope/axial length for the first shape-isolation comparison. Freeze electrical control policy initially.",
+    "scope": "An electromagnetic benchmark. Thermal lifetime, demagnetization, high-speed mechanical qualification and full drive-cycle efficiency are later questions, not implied by these constraints.",
+    "design_spaces": [
+      "A small engineering-parameter subset chosen before optimization; include magnet dimensions and a simple rotor-profile parameter where permitted.",
+      "All reference engineering parameters that remain free under fixed-envelope constraints.",
+      "The same parameters plus the reference symmetric surface controls.",
+      "Only after useful improvement is demonstrated: nested refinements of the same surface basis with a fixed minimum feature size."
+    ]
+  },
+  "execution_gates": [
+    {
+      "stage": 1,
+      "task": "Forward-model reproduction",
+      "deliverable": "Initial and published optimized torque waveforms at all reference current levels, pinned geometry/material inputs, independent reference comparison and mesh/angle convergence.",
+      "gate": "Establish the absolute torque/ripple error floor before setting a target. A stored reference CSV is a cross-check, not a converged ground truth. Reject apparent ripple gains smaller than the numerical uncertainty."
+    },
+    {
+      "stage": 2,
+      "task": "Gradient and cost verification",
+      "deliverable": "Implicit adjoint through the converged nonlinear residual; central-difference step-size sweeps and Taylor tests at initial and perturbed designs, including active loaded conditions and geometry constraints.",
+      "gate": "Differentiate the same torque functional that is optimized. Use the consistent material tangent, not frozen permeability. Confirm derivative convergence under tighter nonlinear tolerances and spatial/angular refinement. Measure total forward-plus-gradient cost."
+    },
+    {
+      "stage": 3,
+      "task": "Cheap design-space discrimination",
+      "deliverable": "Matched local optimization in the small and expanded spaces from three fixed feasible starts, initially capped at 20 iterations each and logged as a screening budget, not a converged optimum comparison.",
+      "gate": "Continue only if added shape freedom produces practically useful, refinement-stable improvements beyond the small basis. If inconclusive at this budget, report inconclusive; do not claim low-dimensional impossibility.",
+      "diagnostic": "Across perturbed designs, compare the cheap model's predicted changes against FEM changes and examine singular values of the scaled torque-waveform residual Jacobian. A scalar objective's gradient rank is not an effective-dimension test. Charge all calibration calls."
+    },
+    {
+      "stage": 4,
+      "task": "Equal-target optimizer comparison",
+      "deliverable": "Measure same-host elapsed time, CPU-hours and peak memory to a preregistered refined target from matched starts. Compare exact-gradient constrained optimization, calibrated reduced-model search, derivative-free trust-region search, and CMA-ES; add finite differences as a diagnostic rather than the sole baseline.",
+      "gate": "Report time against the fastest successful credible baseline, with all failures/censoring and target attainment rates. Test 10x as an ambition, not an assumed or required outcome."
+    }
+  ],
+  "fair_accounting": [
+    "Use the same shape spaces, bounds, targets, material law, physics discretization and starting designs for the optimizer comparison; label the low-dimensional design-space comparison separately.",
+    "Count geometry/mesh updates, matrix assembly, nonlinear iterations, factorization, RHS solves, adjoint/derivative assembly, line search, constraint gradients and calibration. Separate shared setup from per-run cost.",
+    "Permit warm starts, factor reuse, batched operating points and reduced models for all competitors where valid. Match core limits; report elapsed time and total compute when parallel finite differences or populations are used.",
+    "For S operating states, adjoint work is per state and per independent scalar output; it is not one backward solve for the entire motor and every constraint. Aggregate objective and torque constraints transparently.",
+    "Validate on denser and shifted angle grids, tighter state tolerances and finer spatial meshes; check intermediate currents withheld from optimization. Fix target/error margins before final timing.",
+    "If a method does not reach the target, report its budget and best feasible objective; do not replace that outcome with a fabricated finite speedup.",
+    "Existing adjoints already have favorable parameter-count scaling. Automatic differentiation alone does not establish an algorithmic advantage over an established adjoint implementation."
+  ],
+  "next_concrete_task": "Implement and validate nonlinear scalar magnetostatics with a consistent tangent on a small manufactured/material test, then reproduce the published motor's initial torque waveform. The current slotless model cannot answer the optimization question.",
+  "stop_conditions": [
+    "A calibrated simple model reaches the same refined target at comparable or lower total cost.",
+    "Useful changes remain confined to a few engineering parameters over the tested design region.",
+    "The optimized ripple disappears under denser angle sampling or mesh refinement.",
+    "The forward/gradient implementation cost makes this a poor near-term benchmark; retain the negative evidence rather than escalating compute."
+  ]
+}

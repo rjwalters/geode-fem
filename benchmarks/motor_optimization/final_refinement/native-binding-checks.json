@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "source_commit": "b010071be2968897b8781af889b16afaccf77b3e",
+  "scope": "Replay of retained native solver files with synthetic prior selection; not a main-study cohort or optimizer evidence. No new FEM.",
+  "files_sha256": {
+    "native_results.py": "5bdbfc16877649467eff7752707131b47e4f929d0478ffb8d2f8bc966d7ee577",
+    "test_native_results.py": "689d0ff2ea077e025dc5b66ff2e25245b465d74824b66e41703f21fa8cb4d034",
+    "smoke/native_binding_L2.msh.gz": "304ef1595bc9005bfcfb6190e2655203d2dda12878f4c3c5f36cae6aaeb988ab",
+    "smoke/native_refinement_63b3e3d8.tar.gz": "eac07e2ce0a71d45b77e7c7c33cf856206563272f9d63515d36690c5209698bc",
+    "smoke/native_matrix_63b3e3d8.tar.gz": "1c4242794fd7056a17fd4a62e063661875a779451dfe41c240f73b8ead03f337",
+    "smoke/native_binding_report.json.gz": "658ed0721bc3f30d9aa6409462ced708ea179c102ac3f6a3c14e177c7aef1613"
+  },
+  "verification": {
+    "command": "python3 -m unittest discover -s benchmarks/motor_optimization/final_refinement -p 'test_*.py'",
+    "exit_code": 0,
+    "tests_passed": 126,
+    "native_binding_tests": 9
+  },
+  "replay": {
+    "completed_checks": 9,
+    "missing_checks": 15,
+    "raw_torque_samples": 580,
+    "candidate_mean_floor_failure_spaces": [
+      "a",
+      "b"
+    ],
+    "no_feasible_ranked_candidates": true,
+    "can_select": false,
+    "can_launch": false
+  },
+  "limitations": [
+    "Main study remains in progress; no main candidate selection or optimizer speedup claim.",
+    "Closed-capture, build/source/runtime and geometry-definition/base-mesh-construction authentication remain caller obligations.",
+    "Conforming native execution exists but its comparison-report integration remains pending.",
+    "Independent review and full final-cohort execution remain pending."
+  ]
+}

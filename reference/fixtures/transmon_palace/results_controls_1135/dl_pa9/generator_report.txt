@@ -1,0 +1,20 @@
+generate_transmon_param.jl report (issue #1092)
+DeviceLayout:   1.15.0
+julia:          1.10.11
+cap_length:     1185.4583138288576 um
+total_length:   7911.011276230017 um
+mesh_scale:     1.0
+example:        ~/.julia/packages/DeviceLayout/1HRvc/examples/SingleTransmon/SingleTransmon.jl
+
+order-2 MSH 2.2: pa9_o2.msh2 (21.6 s)
+  nodes: 231593
+  (3, 2) vacuum             88182 elements
+  (3, 1) substrate          83903 elements
+  (2, 5) metal              16957 elements
+  (2, 3) exterior_boundary  1978 elements
+  (2, 6) port_1             4 elements
+  (2, 7) port_2             4 elements
+  (2, 4) lumped_element     4 elements
+  DeviceLayout config: pa9_dl_config.json (solver_order 2)
+
+gmsh (gmsh_jll): 4.15.2-git

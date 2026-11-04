@@ -1,0 +1,11 @@
+initial L3 nurbs h45 fixed: 139268 nodes, 275736 tris, N 960, min angle 13.198 deg, inverted 0, gap 1.0000e-3 m, band area ratio 1.000000, factor 1.000000000, A1 3.628860e-5 / base 3.628860e-5, setup 0.14 s
+  current fraction 1 (I_peak = 9.677657374 A unscaled, 9.677657374 A physical)
+      0.00 | coupling    1.55474071 | arkkio   1.55471038 | ring   1.55352620 | its 12 | tolerance | 7.247 s
+      0.50 | coupling    1.56623903 | arkkio   1.56620899 | ring   1.56492061 | its  2 | tolerance | 1.648 s
+      1.00 | coupling    1.56517287 | arkkio   1.56514107 | ring   1.56375834 | its  2 | tolerance | 1.668 s
+      1.50 | coupling    1.55249523 | arkkio   1.55245973 | ring   1.55099599 | its  2 | tolerance | 1.714 s
+      2.00 | coupling    1.53041275 | arkkio   1.53037188 | ring   1.52884100 | its  2 | tolerance | 1.730 s
+      2.50 | coupling    1.50182889 | arkkio   1.50178139 | ring   1.50019367 | its  2 | tolerance | 1.745 s
+      3.00 | coupling    1.46977715 | arkkio   1.46972228 | ring   1.46808157 | its  2 | tolerance | 1.715 s
+      3.50 | coupling    1.43701278 | arkkio   1.43695041 | ring   1.43525412 | its  2 | tolerance | 1.800 s
+  8 ok, 0 failed; solve 19.3 s, torque eval 0.2 s, total 19.7 s; wrote benchmarks/motor_validation/runs/threads_L3_t4.json

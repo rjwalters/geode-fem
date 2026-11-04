@@ -1,0 +1,6 @@
+# icem_design_gradient study --level 0 --mode conforming --design {initial,perturbed} --currents 0,1,2 --jinit (with the #1183 guard), compared with the committed #1177 records
+# python3 -I benchmarks/motor_shape_gradient/band_guard/compare_runs.py OLD NEW ...
+benchmarks/motor_shape_gradient/design/runs/study_L0_conforming_initial.json vs <rerun>/study_L0_conforming_initial.json
+  compared 11367 values; 0 differ; 0 structural mismatches; skipped keys ['adjoint_seconds', 'contract_seconds', 'forward_seconds', 'velocity_seconds']
+benchmarks/motor_shape_gradient/design/runs/study_L0_conforming_perturbed.json vs <rerun>/study_L0_conforming_perturbed.json
+  compared 11420 values; 0 differ; 0 structural mismatches; skipped keys ['adjoint_seconds', 'contract_seconds', 'forward_seconds', 'velocity_seconds']

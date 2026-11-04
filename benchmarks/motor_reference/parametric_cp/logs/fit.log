@@ -1,0 +1,25 @@
+initial: fit at the initial scalars
+  CPR1  offset -2.626726459017633e-16 m   residual 1.587e-16 m   normal 1.587e-16 m   in [-1.5e-3, 0.0e0]: true
+  CPR2  offset +3.798633425223366e-16 m   residual 1.357e-16 m   normal 1.357e-16 m   in [-1.5e-3, 0.0e0]: false
+  CPR3  offset -9.510460173127803e-17 m   residual 6.458e-16 m   normal 4.829e-16 m   in [-1.0e-3, 0.0e0]: true
+  CPR4  offset -3.122138940211555e-16 m   residual 7.545e-17 m   normal 7.544e-17 m   in [-1.5e-3, 0.0e0]: true
+  CPR5  offset +3.286624832028189e-16 m   residual 5.598e-16 m   normal 5.598e-16 m   in [-1.5e-3, 0.0e0]: false
+  CPR6  offset -3.422004841045720e-16 m   residual 1.862e-16 m   normal 1.862e-16 m   in [-1.5e-3, 0.0e0]: true
+  CPR7  offset +2.458787834028189e-16 m   residual 3.157e-16 m   normal 3.157e-16 m   in [-1.5e-3, 0.0e0]: false
+  CPS1  offset -3.592793669623641e-17 m   residual 6.093e-16 m   normal 4.057e-16 m   in [0.0e0, 5.0e-4]: false
+  CPS2  offset +5.057018423332116e-17 m   residual 4.808e-16 m   normal 4.596e-16 m   in [0.0e0, 5.0e-4]: true
+  CPS3  offset -3.295372247872903e-18 m   residual 3.831e-16 m   normal 1.976e-16 m   in [0.0e0, 5.0e-4]: false
+  max residual 6.458e-16 m
+opt120: fit at the opt120 scalars
+  CPR1  offset -1.383650541953159e-3 m   residual 4.822e-16 m   normal 4.821e-16 m   in [-1.5e-3, 0.0e0]: true
+  CPR2  offset -1.499825554409281e-3 m   residual 6.346e-16 m   normal 6.347e-16 m   in [-1.5e-3, 0.0e0]: true
+  CPR3  offset -9.999722849086056e-4 m   residual 4.644e-16 m   normal 4.529e-16 m   in [-1.0e-3, 0.0e0]: true
+  CPR4  offset -7.771495844951707e-4 m   residual 2.346e-16 m   normal 2.346e-16 m   in [-1.5e-3, 0.0e0]: true
+  CPR5  offset -3.996591966338738e-4 m   residual 2.506e-16 m   normal 2.505e-16 m   in [-1.5e-3, 0.0e0]: true
+  CPR6  offset -1.911315412650300e-4 m   residual 2.103e-16 m   normal 2.103e-16 m   in [-1.5e-3, 0.0e0]: true
+  CPR7  offset -1.048389871363566e-8 m   residual 3.860e-16 m   normal 3.860e-16 m   in [-1.5e-3, 0.0e0]: true
+  CPS1  offset +1.323135568377663e-8 m   residual 5.791e-16 m   normal 5.557e-16 m   in [0.0e0, 5.0e-4]: true
+  CPS2  offset +5.893668755087296e-8 m   residual 6.877e-16 m   normal 5.341e-16 m   in [0.0e0, 5.0e-4]: true
+  CPS3  offset +1.495664803290839e-7 m   residual 4.457e-16 m   normal 3.429e-16 m   in [0.0e0, 5.0e-4]: true
+  max residual 6.877e-16 m
+wrote benchmarks/motor_reference/parametric_cp/opt120_offsets.json

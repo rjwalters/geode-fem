@@ -1,0 +1,3 @@
+dl2: <work>/dl2_o1.msh (27773 nodes, 163199 tets), c = 1225.346 um, L = 7223.25 um
+  f = [2.406679, 3.666475, 10.981467]  p = [0.990390, 0.000150, 0.000006]  df/dc = [-0.00087459, -0.00000050] GHz/um  (solve 24.8 s, gradient 0.55 s)
+wrote <work>/opt_runs/dl2.toml

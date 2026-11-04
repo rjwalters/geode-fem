@@ -1,0 +1,12 @@
+55 control points located; max |export(0) - GEODE(theta0)| = 4.996e-16 m; shared slots agree at iteration 120 to 0.000e+00 m
+  CPR1:  2 points, offset -1.383650541953159e-03 m, residual 4.822e-16 m
+  CPR2:  2 points, offset -1.499825554409281e-03 m, residual 6.346e-16 m
+  CPR3:  6 points, offset -9.999722849086056e-04 m, residual 4.644e-16 m
+  CPR4:  2 points, offset -7.771495844951707e-04 m, residual 2.346e-16 m
+  CPR5:  2 points, offset -3.996591966338738e-04 m, residual 2.506e-16 m
+  CPR6:  2 points, offset -1.911315412650300e-04 m, residual 2.103e-16 m
+  CPR7:  2 points, offset -1.048389871363566e-08 m, residual 3.860e-16 m
+  CPS1: 18 points, offset +1.323135568307788e-08 m, residual 5.789e-16 m
+  CPS2: 12 points, offset +5.893668755087296e-08 m, residual 6.877e-16 m
+  CPS3:  7 points, offset +1.495664803290839e-07 m, residual 4.457e-16 m
+wrote benchmarks/motor_reference/parametric_cp/opt120_control_points.json

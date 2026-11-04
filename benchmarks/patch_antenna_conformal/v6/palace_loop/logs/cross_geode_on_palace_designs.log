@@ -1,0 +1,5 @@
+  palace_pcma190_sd: band worst -9.813 dB, verify worst -9.813 dB
+  palace_pcma190_s2: band worst -9.857 dB, verify worst -9.857 dB
+  palace_pcma190_s3: band worst -9.837 dB, verify worst -9.837 dB
+  palace_pnewuoa190: band worst -9.890 dB, verify worst -9.890 dB
+palace_loop_xeval: ~/runs/cross_geode_on_palace_designs.toml

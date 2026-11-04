@@ -1,0 +1,1462 @@
+# paper-audit compile log: motor-gradient-optimization.16
+# Built in a scratch copy (version dir untouched). TEXINPUTS=.:papers/_shared: ; sequence pdflatex -> bibtex -> pdflatex x3 (4 pdflatex passes; pass 3 emitted 'Label(s) may have changed', pass 4 did not; main.aux byte-identical between passes 3 and 4).
+# Every invocation exited 0. 38 pages. 0 undefined references/citations, 0 overfull boxes, 0 LaTeX warnings in the final log. pdftotext of the rebuilt PDF is identical to that of the committed main.pdf.
+
+===== pdflatex -interaction=nonstopmode main.tex =====
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex)
+ restricted \write18 enabled.
+entering extended mode
+(./main.tex
+LaTeX2e <2025-11-01>
+L3 programming layer <2026-01-19>
+(./anvil-paper.cls
+Document Class: anvil-paper 2026/05/28 Anvil generic paper class
+(/usr/local/texlive/2026/texmf-dist/tex/latex/base/article.cls
+Document Class: article 2025/01/22 v1.4n Standard LaTeX document class
+(/usr/local/texlive/2026/texmf-dist/tex/latex/base/size11.clo))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/geometry/geometry.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/keyval.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/iftex/ifvtex.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/iftex/iftex.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/graphicx.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/graphics.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/trig.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-cfg/graphics.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-def/pdftex.def)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsmath.sty
+For additional information on amsmath, use the `?' option.
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amstext.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsgen.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsbsy.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsopn.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/amssymb.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/amsfonts.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amscls/amsthm.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype.sty
+(/Users/rwalters/Library/texmf/tex/latex/etoolbox/etoolbox.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype-pdftex.def)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype.cfg))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/natbib/natbib.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/booktabs/booktabs.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/xcolor/xcolor.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-cfg/color.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/mathcolor.ltx))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/caption/caption.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/caption/caption3.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/hyperref.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/kvsetkeys/kvsetkeys.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/kvdefinekeys/kvdefinekeys.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/pdfescape/pdfescape.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/ltxcmds/ltxcmds.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/pdftexcmds/pdftexcmds.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/infwarerr/infwarerr.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hycolor/hycolor.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/nameref.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/refcount/refcount.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/gettitlestring/gettitlestring.s
+ty (/usr/local/texlive/2026/texmf-dist/tex/latex/kvoptions/kvoptions.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/generic/stringenc/stringenc.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/pd1enc.def)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/intcalc/intcalc.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/puenc.def)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/url/url.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/bitset/bitset.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/bigintcalc/bigintcalc.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/hpdftex.def
+(/usr/local/texlive/2026/texmf-dist/tex/latex/rerunfilecheck/rerunfilecheck.sty
+
+(/usr/local/texlive/2026/texmf-dist/tex/generic/uniquecounter/uniquecounter.sty
+)))) (/usr/local/texlive/2026/texmf-dist/tex/latex/tools/array.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/float/float.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def)
+No file main.aux.
+*geometry* driver: auto-detecting
+*geometry* detected driver: pdftex
+(/usr/local/texlive/2026/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
+[Loading MPS to PDF converter (version 2006.09.02).]
+) (/usr/local/texlive/2026/texmf-dist/tex/latex/epstopdf-pkg/epstopdf-base.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/latexconfig/epstopdf-sys.cfg))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-cmr.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsa.fd)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msa.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsb.fd)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msb.cfg)
+
+Package natbib Warning: Citation `giles2000introduction' on page 1 undefined on
+ input line 45.
+
+
+Package natbib Warning: Citation `martins2013review' on page 1 undefined on inp
+ut line 45.
+
+
+Package natbib Warning: Citation `zingg2008comparative' on page 1 undefined on 
+input line 51.
+
+
+Package natbib Warning: Citation `wiesheu2024spline' on page 1 undefined on inp
+ut line 57.
+
+
+LaTeX Warning: Reference `sec:optimization' on page 1 undefined on input line 5
+9.
+
+
+LaTeX Warning: Reference `sec:exp2-fd' on page 1 undefined on input line 63.
+
+[1{/usr/local/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map}]
+
+LaTeX Warning: Reference `sec:model' on page 2 undefined on input line 80.
+
+
+LaTeX Warning: Reference `sec:gradients' on page 2 undefined on input line 83.
+
+
+LaTeX Warning: Reference `sec:discussion' on page 2 undefined on input line 86.
+
+
+
+Package natbib Warning: Citation `wiesheu2024spline' on page 2 undefined on inp
+ut line 90.
+
+
+Package natbib Warning: Citation `wiesheu2025combined' on page 2 undefined on i
+nput line 93.
+
+
+Package natbib Warning: Citation `park1992design' on page 2 undefined on input 
+line 100.
+
+
+Package natbib Warning: Citation `elbechari2022adjoint' on page 2 undefined on 
+input line 102.
+
+
+Package natbib Warning: Citation `gangl2015shape' on page 2 undefined on input 
+line 105.
+
+
+Package natbib Warning: Citation `kuci2017design' on page 2 undefined on input 
+line 107.
+
+
+Package natbib Warning: Citation `kuci2016shape' on page 2 undefined on input l
+ine 109.
+
+
+Package natbib Warning: Citation `scotzniovsky2025' on page 2 undefined on inpu
+t line 109.
+
+
+Package natbib Warning: Citation `merkel2021shape' on page 2 undefined on input
+ line 111.
+
+
+Package natbib Warning: Citation `martins2013review' on page 2 undefined on inp
+ut line 112.
+
+
+Package natbib Warning: Citation `giles2000introduction' on page 2 undefined on
+ input line 114.
+
+
+Package natbib Warning: Citation `nikolova2004adjoint' on page 2 undefined on i
+nput line 115.
+
+
+Package natbib Warning: Citation `peter2010numerical' on page 2 undefined on in
+put line 117.
+
+
+Package natbib Warning: Citation `kenway2019effective' on page 2 undefined on i
+nput line 117.
+
+
+LaTeX Warning: Reference `sec:exp2-fd' on page 2 undefined on input line 120.
+
+
+Package natbib Warning: Citation `more2011estimating' on page 2 undefined on in
+put line 123.
+
+
+Package natbib Warning: Citation `more2012estimating' on page 2 undefined on in
+put line 124.
+
+
+Package natbib Warning: Citation `haftka1985sensitivity' on page 2 undefined on
+ input line 127.
+
+
+Package natbib Warning: Citation `eyi2011finite' on page 2 undefined on input l
+ine 128.
+
+
+Package natbib Warning: Citation `adelman1986sensitivity' on page 2 undefined o
+n input line 131.
+
+
+Package natbib Warning: Citation `barthelemy1990accuracy' on page 2 undefined o
+n input line 133.
+
+
+Package natbib Warning: Citation `degersem2004harmonic' on page 2 undefined on 
+input line 137.
+
+
+Package natbib Warning: Citation `bontinck2018isogeometric' on page 2 undefined
+ on input line 138.
+
+
+Package natbib Warning: Citation `egger2022torque' on page 2 undefined on input
+ line 140.
+
+
+Package natbib Warning: Citation `arkkio1987' on page 2 undefined on input line
+ 143.
+
+
+Package natbib Warning: Citation `howe1992cogging' on page 2 undefined on input
+ line 144.
+
+
+Package natbib Warning: Citation `arkkio2012proper' on page 2 undefined on inpu
+t line 144.
+
+[2]
+
+Package natbib Warning: Citation `duan2013review' on page 3 undefined on input 
+line 148.
+
+
+Package natbib Warning: Citation `bramerdorfer2018modern' on page 3 undefined o
+n input line 150.
+
+
+Package natbib Warning: Citation `lei2017review' on page 3 undefined on input l
+ine 151.
+
+
+Package natbib Warning: Citation `ion2018robust' on page 3 undefined on input l
+ine 152.
+
+
+Package natbib Warning: Citation `gangl2022multi' on page 3 undefined on input 
+line 153.
+
+
+Package natbib Warning: Citation `zingg2008comparative' on page 3 undefined on 
+input line 157.
+
+
+Package natbib Warning: Citation `yu2018influence' on page 3 undefined on input
+ line 160.
+
+
+Package natbib Warning: Citation `dolan2002benchmarking' on page 3 undefined on
+ input line 167.
+
+
+Package natbib Warning: Citation `more2009benchmarking' on page 3 undefined on 
+input line 168.
+
+
+LaTeX Warning: Reference `fig:geometry' on page 3 undefined on input line 178.
+
+
+Package natbib Warning: Citation `geuzaine2009gmsh' on page 3 undefined on inpu
+t line 195.
+
+[3 <./figures/geometry.pdf>]
+
+LaTeX Warning: Reference `eq:current' on page 4 undefined on input line 207.
+
+
+Package natbib Warning: Citation `arkkio1987' on page 4 undefined on input line
+ 224.
+
+
+Package natbib Warning: Citation `egger2022torque' on page 4 undefined on input
+ line 226.
+
+
+LaTeX Warning: Reference `sec:fieldmodel' on page 4 undefined on input line 233
+.
+
+
+LaTeX Warning: Reference `sec:fieldmodel' on page 4 undefined on input line 247
+.
+
+
+LaTeX Warning: Reference `tab:torque' on page 4 undefined on input line 250.
+
+
+LaTeX Warning: Reference `sec:refinement' on page 4 undefined on input line 261
+.
+
+
+LaTeX Warning: Reference `sec:refinement' on page 4 undefined on input line 261
+.
+
+(./tables/coupling.tex)
+
+LaTeX Warning: Reference `fig:convergence' on page 4 undefined on input line 26
+7.
+
+
+LaTeX Warning: Reference `sec:forward' on page 4 undefined on input line 267.
+
+[4]
+
+LaTeX Warning: Reference `eq:band' on page 5 undefined on input line 284.
+
+
+LaTeX Warning: Reference `sec:refinement' on page 5 undefined on input line 284
+.
+
+
+LaTeX Warning: Reference `eq:band' on page 5 undefined on input line 284.
+
+
+LaTeX Warning: Reference `sec:refinement' on page 5 undefined on input line 284
+.
+
+
+LaTeX Warning: Reference `sec:forward' on page 5 undefined on input line 292.
+
+(./optimization.tex [5 <./figures/coupling-convergence.pdf>]
+
+LaTeX Warning: Reference `sec:exp2-refinement' on page 6 undefined on input lin
+e 8.
+
+
+LaTeX Warning: Reference `tab:methods' on page 6 undefined on input line 14.
+
+
+Package natbib Warning: Citation `kraft1988' on page 6 undefined on input line 
+15.
+
+
+LaTeX Warning: Reference `sec:gradients' on page 6 undefined on input line 15.
+
+
+Package natbib Warning: Citation `ragonneau2022' on page 6 undefined on input l
+ine 17.
+
+
+Package natbib Warning: Citation `virtanen2020scipy' on page 6 undefined on inp
+ut line 19.
+
+
+LaTeX Warning: Reference `sec:settings' on page 6 undefined on input line 23.
+
+
+LaTeX Warning: Reference `sec:exp2-fd' on page 6 undefined on input line 27.
+
+
+Package natbib Warning: Citation `more2009benchmarking' on page 6 undefined on 
+input line 32.
+
+
+Package natbib Warning: Citation `dolan2002benchmarking' on page 6 undefined on
+ input line 32.
+
+
+LaTeX Warning: Reference `sec:gradients' on page 6 undefined on input line 35.
+
+
+LaTeX Warning: Reference `sec:parameters' on page 6 undefined on input line 54.
+
+
+[6]
+
+LaTeX Warning: Reference `sec:protocol-details' on page 7 undefined on input li
+ne 77.
+
+
+LaTeX Warning: Reference `sec:protocol-details' on page 7 undefined on input li
+ne 116.
+
+
+LaTeX Warning: Reference `fig:exp2-quality' on page 7 undefined on input line 1
+30.
+
+
+LaTeX Warning: Reference `fig:exp2-quality' on page 7 undefined on input line 1
+34.
+
+[7]
+
+LaTeX Warning: Reference `fig:exp2-time' on page 8 undefined on input line 157.
+
+
+
+LaTeX Warning: Reference `tab:exp2-time' on page 8 undefined on input line 158.
+
+
+
+LaTeX Warning: Reference `sec:exp2-times' on page 8 undefined on input line 158
+.
+
+
+LaTeX Warning: Reference `tab:exp2-ratios' on page 8 undefined on input line 16
+3.
+
+
+LaTeX Warning: Reference `sec:exp2-times' on page 8 undefined on input line 163
+.
+
+
+LaTeX Warning: Reference `tab:exp2-validation' on page 8 undefined on input lin
+e 182.
+
+
+LaTeX Warning: Reference `sec:exp2-times' on page 8 undefined on input line 182
+.
+
+
+LaTeX Warning: Reference `sec:exp2-times' on page 8 undefined on input line 194
+.
+
+[8 <./figures/exp2-quality.pdf>]
+
+LaTeX Warning: Reference `tab:exp2-refinement' on page 9 undefined on input lin
+e 223.
+
+
+LaTeX Warning: Reference `sec:exp2-times' on page 9 undefined on input line 223
+.
+
+
+LaTeX Warning: Reference `sec:protocol-details' on page 9 undefined on input li
+ne 228.
+
+
+LaTeX Warning: Reference `sec:exp2-times' on page 9 undefined on input line 243
+.
+
+[9 <./figures/exp2-time-to-target.pdf>]
+
+LaTeX Warning: Reference `sec:optimization' on page 10 undefined on input line 
+246.
+
+
+LaTeX Warning: Reference `fig:exp2b' on page 10 undefined on input line 287.
+
+
+LaTeX Warning: Reference `tab:exp2b-ratios' on page 10 undefined on input line 
+290.
+
+
+LaTeX Warning: Reference `sec:exp2-times' on page 10 undefined on input line 29
+4.
+
+
+LaTeX Warning: Reference `sec:exp2-times' on page 10 undefined on input line 32
+0.
+
+
+LaTeX Warning: Reference `sec:exp2-times' on page 10 undefined on input line 33
+0.
+
+[10]
+
+LaTeX Warning: Reference `sec:exp2-times' on page 11 undefined on input line 33
+4.
+
+
+LaTeX Warning: Reference `sec:exp2-times' on page 11 undefined on input line 36
+2.
+
+
+LaTeX Warning: Reference `sec:exp2-times' on page 11 undefined on input line 37
+2.
+
+) [11 <./figures/exp2b-per-start.pdf>]
+
+LaTeX Warning: Reference `sec:parameters' on page 12 undefined on input line 31
+9.
+
+
+LaTeX Warning: Reference `sec:optimization' on page 12 undefined on input line 
+323.
+
+
+LaTeX Warning: Reference `sec:cost' on page 12 undefined on input line 328.
+
+
+LaTeX Warning: Reference `fig:gradients' on page 12 undefined on input line 332
+.
+
+
+LaTeX Warning: Reference `sec:optimization' on page 12 undefined on input line 
+335.
+
+
+LaTeX Warning: Reference `fig:gradients' on page 12 undefined on input line 354
+.
+
+
+LaTeX Warning: Reference `sec:cost' on page 12 undefined on input line 362.
+
+[12]
+
+LaTeX Warning: Reference `sec:cost' on page 13 undefined on input line 378.
+
+
+LaTeX Warning: Reference `sec:cost' on page 13 undefined on input line 378.
+
+
+LaTeX Warning: Reference `fig:gradients' on page 13 undefined on input line 384
+.
+
+
+LaTeX Warning: Reference `sec:cost' on page 13 undefined on input line 385.
+
+
+LaTeX Warning: Reference `sec:exp2-fd' on page 13 undefined on input line 397.
+
+
+LaTeX Warning: Reference `sec:optimization' on page 13 undefined on input line 
+404.
+
+[13 <./figures/design-gradients.pdf>]
+
+LaTeX Warning: Reference `sec:exp2-fd' on page 14 undefined on input line 410.
+
+
+LaTeX Warning: Reference `sec:settings' on page 14 undefined on input line 413.
+
+
+
+Package natbib Warning: Citation `kemmetmueller2015' on page 14 undefined on in
+put line 416.
+
+
+Package natbib Warning: Citation `roomi2022' on page 14 undefined on input line
+ 416.
+
+
+Package natbib Warning: Citation `wen2023' on page 14 undefined on input line 4
+17.
+
+
+LaTeX Warning: Reference `sec:slotless' on page 14 undefined on input line 418.
+
+
+
+LaTeX Warning: Reference `sec:optimization' on page 14 undefined on input line 
+456.
+
+
+Underfull \hbox (badness 1173) in paragraph at lines 456--479
+\OT1/cmr/m/n/10.95 (+20) final-refinement pro-gram is at [][]\OT1/cmtt/m/n/10.9
+5 3e4ee0c6[][]\OT1/cmr/m/n/10.95 (+20) . The pa-per pack-age is the di-rec-tory
+ \OT1/cmtt/m/n/10.95 papers/
+[14]
+
+LaTeX Warning: Reference `sec:exp2-times' on page 15 undefined on input line 49
+6.
+
+[15]
+
+LaTeX Warning: Reference `sec:controls' on page 16 undefined on input line 555.
+
+
+
+LaTeX Warning: Reference `eq:current' on page 16 undefined on input line 565.
+
+
+Package natbib Warning: Citation `arkkio1987' on page 16 undefined on input lin
+e 568.
+
+
+Package natbib Warning: Citation `egger2022torque' on page 16 undefined on inpu
+t line 600.
+
+
+LaTeX Warning: Reference `sec:model' on page 16 undefined on input line 610.
+
+[16]
+
+LaTeX Warning: Reference `tab:settings' on page 17 undefined on input line 624.
+
+
+
+LaTeX Warning: Reference `sec:optimization' on page 17 undefined on input line 
+625.
+
+
+Package natbib Warning: Citation `mckay1979comparison' on page 17 undefined on 
+input line 644.
+
+
+Package natbib Warning: Citation `harris2020array' on page 17 undefined on inpu
+t line 645.
+
+
+Package natbib Warning: Citation `virtanen2020scipy' on page 17 undefined on in
+put line 646.
+
+
+LaTeX Warning: Reference `sec:gradients' on page 17 undefined on input line 650
+.
+
+[17] (./tables/exp2-time-to-target.tex) [18] (./tables/exp2-ratios.tex)
+[19] (./tables/exp2-refinement.tex) [20]
+
+LaTeX Warning: Reference `sec:optimization' on page 21 undefined on input line 
+731.
+
+[21] (./tables/exp2-validation.tex)
+
+LaTeX Warning: Reference `sec:exp2-fd' on page 22 undefined on input line 785.
+
+
+LaTeX Warning: Reference `tab:exp2b-validation' on page 22 undefined on input l
+ine 799.
+
+
+LaTeX Warning: Reference `tab:settings' on page 22 undefined on input line 808.
+
+
+[22]
+
+LaTeX Warning: Reference `sec:opt120' on page 23 undefined on input line 826.
+
+
+Package natbib Warning: Citation `more2011estimating' on page 23 undefined on i
+nput line 867.
+
+
+Package natbib Warning: Citation `more2012estimating' on page 23 undefined on i
+nput line 867.
+
+[23]
+
+LaTeX Warning: Reference `tab:exp2b-refinement' on page 24 undefined on input l
+ine 884.
+
+
+LaTeX Warning: Reference `sec:exp2-fd' on page 24 undefined on input line 898.
+
+
+LaTeX Warning: Reference `sec:exp2-fd' on page 24 undefined on input line 898.
+
+(./tables/exp2b-ratios.tex) (./tables/exp2b-validation.tex)
+
+LaTeX Warning: Reference `tab:exp2-refinement' on page 24 undefined on input li
+ne 916.
+
+
+LaTeX Warning: Reference `tab:exp2-refinement' on page 24 undefined on input li
+ne 916.
+
+(./tables/exp2b-refinement.tex) [24]
+
+LaTeX Warning: Reference `tab:exp2c-ratios' on page 25 undefined on input line 
+948.
+
+[25]
+
+LaTeX Warning: Reference `tab:exp2b-refinement' on page 26 undefined on input l
+ine 977.
+
+(./tables/exp2c-ratios.tex) [26]
+
+LaTeX Warning: Reference `fig:waveforms' on page 27 undefined on input line 101
+4.
+
+
+LaTeX Warning: Reference `sec:controls' on page 27 undefined on input line 1014
+.
+
+
+LaTeX Warning: Reference `sec:controls' on page 27 undefined on input line 1034
+.
+
+
+Package natbib Warning: Citation `eaton2026octave' on page 27 undefined on inpu
+t line 1042.
+
+
+Package natbib Warning: Citation `defalco2011geopdes' on page 27 undefined on i
+nput line 1043.
+
+
+Package natbib Warning: Citation `vazquez2016geopdes' on page 27 undefined on i
+nput line 1043.
+
+
+LaTeX Warning: Reference `fig:validation' on page 27 undefined on input line 10
+49.
+
+
+LaTeX Warning: Reference `sec:coupling-results' on page 27 undefined on input l
+ine 1059.
+
+
+LaTeX Warning: Reference `eq:band' on page 27 undefined on input line 1076.
+
+
+LaTeX Warning: Reference `sec:opt120-policy' on page 27 undefined on input line
+ 1076.
+
+
+LaTeX Warning: Reference `eq:band' on page 27 undefined on input line 1076.
+
+
+LaTeX Warning: Reference `sec:opt120-policy' on page 27 undefined on input line
+ 1076.
+
+[27]
+
+LaTeX Warning: Reference `fig:validation' on page 28 undefined on input line 11
+11.
+
+
+LaTeX Warning: Reference `sec:opt120-policy' on page 28 undefined on input line
+ 1118.
+
+[28 <./figures/refined-validation.pdf>]
+
+LaTeX Warning: Reference `sec:exp2-times' on page 29 undefined on input line 11
+24.
+
+
+LaTeX Warning: Reference `sec:optimization' on page 29 undefined on input line 
+1127.
+
+
+LaTeX Warning: Reference `sec:opt120-policy' on page 29 undefined on input line
+ 1130.
+
+
+LaTeX Warning: Reference `eq:band' on page 29 undefined on input line 1145.
+
+
+LaTeX Warning: Reference `sec:refinement' on page 29 undefined on input line 11
+45.
+
+
+LaTeX Warning: Reference `eq:band' on page 29 undefined on input line 1145.
+
+
+LaTeX Warning: Reference `sec:refinement' on page 29 undefined on input line 11
+45.
+
+
+LaTeX Warning: Reference `tab:sensitivity' on page 29 undefined on input line 1
+148.
+
+[29 <./figures/coupling-waveforms.pdf>]
+
+LaTeX Warning: Reference `sec:forward' on page 30 undefined on input line 1171.
+
+
+
+LaTeX Warning: Reference `fig:validation' on page 30 undefined on input line 11
+88.
+
+
+LaTeX Warning: Reference `tab:parameters' on page 30 undefined on input line 11
+97.
+
+
+LaTeX Warning: Reference `sec:opt120' on page 30 undefined on input line 1221.
+
+[30]
+
+LaTeX Warning: Reference `fig:opt-waveforms' on page 31 undefined on input line
+ 1233.
+
+[31 <./figures/opt120-waveforms.pdf>]
+
+LaTeX Warning: Reference `fig:modelgradients' on page 32 undefined on input lin
+e 1278.
+
+[32]
+
+LaTeX Warning: Reference `fig:gradients' on page 33 undefined on input line 134
+1.
+
+
+LaTeX Warning: Reference `tab:cost' on page 33 undefined on input line 1342.
+
+
+LaTeX Warning: Reference `sec:forward' on page 33 undefined on input line 1346.
+
+
+(./tables/gradient-cost.tex) [33 <./figures/model-gradients.pdf>]
+
+LaTeX Warning: Reference `tab:parameters' on page 34 undefined on input line 13
+70.
+
+(./tables/design-points.tex)
+No file main.bbl.
+
+Package natbib Warning: There were undefined citations.
+
+[34] (./main.aux)
+
+LaTeX Warning: There were undefined references.
+
+
+LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
+
+
+Package rerunfilecheck Warning: File `main.out' has changed.
+(rerunfilecheck)                Rerun to get outlines right
+(rerunfilecheck)                or use package `bookmark'.
+
+ )
+(see the transcript file for additional information)</usr/local/texlive/2026/te
+xmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2026/tex
+mf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2026/texm
+f-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2026/texmf
+-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/local/texlive/2026/texmf-
+dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb></usr/local/texlive/2026/texmf-di
+st/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/local/texlive/2026/texmf-dist
+/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/local/texlive/2026/texmf-dist/f
+onts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/texlive/2026/texmf-dist/fon
+ts/type1/public/amsfonts/cm/cmr12.pfb></usr/local/texlive/2026/texmf-dist/fonts
+/type1/public/amsfonts/cm/cmr17.pfb></usr/local/texlive/2026/texmf-dist/fonts/t
+ype1/public/amsfonts/cm/cmr6.pfb></usr/local/texlive/2026/texmf-dist/fonts/type
+1/public/amsfonts/cm/cmr7.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/p
+ublic/amsfonts/cm/cmr8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/publ
+ic/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/publi
+c/amsfonts/cm/cmsy6.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/
+amsfonts/cm/cmsy7.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/am
+sfonts/cm/cmsy8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsf
+onts/cm/cmti10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfo
+nts/cm/cmti8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfont
+s/cm/cmtt10.pfb>
+Output written on main.pdf (34 pages, 767350 bytes).
+Transcript written on main.log.
+exit=0
+===== bibtex main =====
+This is BibTeX, Version 0.99e (TeX Live 2026)
+The top-level auxiliary file: main.aux
+The style file: plainnat.bst
+Database file #1: refs.bib
+exit=0
+===== pdflatex -interaction=nonstopmode main.tex =====
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex)
+ restricted \write18 enabled.
+entering extended mode
+(./main.tex
+LaTeX2e <2025-11-01>
+L3 programming layer <2026-01-19>
+(./anvil-paper.cls
+Document Class: anvil-paper 2026/05/28 Anvil generic paper class
+(/usr/local/texlive/2026/texmf-dist/tex/latex/base/article.cls
+Document Class: article 2025/01/22 v1.4n Standard LaTeX document class
+(/usr/local/texlive/2026/texmf-dist/tex/latex/base/size11.clo))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/geometry/geometry.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/keyval.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/iftex/ifvtex.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/iftex/iftex.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/graphicx.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/graphics.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/trig.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-cfg/graphics.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-def/pdftex.def)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsmath.sty
+For additional information on amsmath, use the `?' option.
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amstext.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsgen.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsbsy.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsopn.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/amssymb.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/amsfonts.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amscls/amsthm.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype.sty
+(/Users/rwalters/Library/texmf/tex/latex/etoolbox/etoolbox.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype-pdftex.def)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype.cfg))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/natbib/natbib.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/booktabs/booktabs.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/xcolor/xcolor.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-cfg/color.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/mathcolor.ltx))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/caption/caption.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/caption/caption3.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/hyperref.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/kvsetkeys/kvsetkeys.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/kvdefinekeys/kvdefinekeys.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/pdfescape/pdfescape.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/ltxcmds/ltxcmds.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/pdftexcmds/pdftexcmds.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/infwarerr/infwarerr.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hycolor/hycolor.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/nameref.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/refcount/refcount.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/gettitlestring/gettitlestring.s
+ty (/usr/local/texlive/2026/texmf-dist/tex/latex/kvoptions/kvoptions.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/generic/stringenc/stringenc.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/pd1enc.def)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/intcalc/intcalc.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/puenc.def)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/url/url.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/bitset/bitset.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/bigintcalc/bigintcalc.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/hpdftex.def
+(/usr/local/texlive/2026/texmf-dist/tex/latex/rerunfilecheck/rerunfilecheck.sty
+
+(/usr/local/texlive/2026/texmf-dist/tex/generic/uniquecounter/uniquecounter.sty
+)))) (/usr/local/texlive/2026/texmf-dist/tex/latex/tools/array.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/float/float.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def)
+(./main.aux)
+*geometry* driver: auto-detecting
+*geometry* detected driver: pdftex
+(/usr/local/texlive/2026/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
+[Loading MPS to PDF converter (version 2006.09.02).]
+) (/usr/local/texlive/2026/texmf-dist/tex/latex/epstopdf-pkg/epstopdf-base.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/latexconfig/epstopdf-sys.cfg))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-cmr.cfg) (./main.out
+) (./main.out) (/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsa.fd)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msa.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsb.fd)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msb.cfg)
+
+Package natbib Warning: Citation `giles2000introduction' on page 1 undefined on
+ input line 45.
+
+
+Package natbib Warning: Citation `martins2013review' on page 1 undefined on inp
+ut line 45.
+
+
+Package natbib Warning: Citation `zingg2008comparative' on page 1 undefined on 
+input line 51.
+
+
+Package natbib Warning: Citation `wiesheu2024spline' on page 1 undefined on inp
+ut line 57.
+
+[1{/usr/local/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map}]
+
+Package natbib Warning: Citation `wiesheu2024spline' on page 2 undefined on inp
+ut line 90.
+
+
+Package natbib Warning: Citation `wiesheu2025combined' on page 2 undefined on i
+nput line 93.
+
+
+Package natbib Warning: Citation `park1992design' on page 2 undefined on input 
+line 100.
+
+
+Package natbib Warning: Citation `elbechari2022adjoint' on page 2 undefined on 
+input line 102.
+
+
+Package natbib Warning: Citation `gangl2015shape' on page 2 undefined on input 
+line 105.
+
+
+Package natbib Warning: Citation `kuci2017design' on page 2 undefined on input 
+line 107.
+
+
+Package natbib Warning: Citation `kuci2016shape' on page 2 undefined on input l
+ine 109.
+
+
+Package natbib Warning: Citation `scotzniovsky2025' on page 2 undefined on inpu
+t line 109.
+
+
+Package natbib Warning: Citation `merkel2021shape' on page 2 undefined on input
+ line 111.
+
+
+Package natbib Warning: Citation `martins2013review' on page 2 undefined on inp
+ut line 112.
+
+
+Package natbib Warning: Citation `giles2000introduction' on page 2 undefined on
+ input line 114.
+
+
+Package natbib Warning: Citation `nikolova2004adjoint' on page 2 undefined on i
+nput line 115.
+
+
+Package natbib Warning: Citation `peter2010numerical' on page 2 undefined on in
+put line 117.
+
+
+Package natbib Warning: Citation `kenway2019effective' on page 2 undefined on i
+nput line 117.
+
+
+Package natbib Warning: Citation `more2011estimating' on page 2 undefined on in
+put line 123.
+
+
+Package natbib Warning: Citation `more2012estimating' on page 2 undefined on in
+put line 124.
+
+
+Package natbib Warning: Citation `haftka1985sensitivity' on page 2 undefined on
+ input line 127.
+
+
+Package natbib Warning: Citation `eyi2011finite' on page 2 undefined on input l
+ine 128.
+
+
+Package natbib Warning: Citation `adelman1986sensitivity' on page 2 undefined o
+n input line 131.
+
+
+Package natbib Warning: Citation `barthelemy1990accuracy' on page 2 undefined o
+n input line 133.
+
+
+Package natbib Warning: Citation `degersem2004harmonic' on page 2 undefined on 
+input line 137.
+
+
+Package natbib Warning: Citation `bontinck2018isogeometric' on page 2 undefined
+ on input line 138.
+
+
+Package natbib Warning: Citation `egger2022torque' on page 2 undefined on input
+ line 140.
+
+
+Package natbib Warning: Citation `arkkio1987' on page 2 undefined on input line
+ 143.
+
+
+Package natbib Warning: Citation `howe1992cogging' on page 2 undefined on input
+ line 144.
+
+
+Package natbib Warning: Citation `arkkio2012proper' on page 2 undefined on inpu
+t line 144.
+
+[2]
+
+Package natbib Warning: Citation `duan2013review' on page 3 undefined on input 
+line 148.
+
+
+Package natbib Warning: Citation `bramerdorfer2018modern' on page 3 undefined o
+n input line 150.
+
+
+Package natbib Warning: Citation `lei2017review' on page 3 undefined on input l
+ine 151.
+
+
+Package natbib Warning: Citation `ion2018robust' on page 3 undefined on input l
+ine 152.
+
+
+Package natbib Warning: Citation `gangl2022multi' on page 3 undefined on input 
+line 153.
+
+
+Package natbib Warning: Citation `zingg2008comparative' on page 3 undefined on 
+input line 157.
+
+
+Package natbib Warning: Citation `yu2018influence' on page 3 undefined on input
+ line 160.
+
+
+Package natbib Warning: Citation `dolan2002benchmarking' on page 3 undefined on
+ input line 167.
+
+
+Package natbib Warning: Citation `more2009benchmarking' on page 3 undefined on 
+input line 168.
+
+
+Package natbib Warning: Citation `geuzaine2009gmsh' on page 3 undefined on inpu
+t line 195.
+
+[3 <./figures/geometry.pdf>]
+
+Package natbib Warning: Citation `arkkio1987' on page 4 undefined on input line
+ 224.
+
+
+Package natbib Warning: Citation `egger2022torque' on page 4 undefined on input
+ line 226.
+
+(./tables/coupling.tex) [4] (./optimization.tex [5 <./figures/coupling-converge
+nce.pdf>]
+
+Package natbib Warning: Citation `kraft1988' on page 6 undefined on input line 
+15.
+
+
+Package natbib Warning: Citation `ragonneau2022' on page 6 undefined on input l
+ine 17.
+
+
+Package natbib Warning: Citation `virtanen2020scipy' on page 6 undefined on inp
+ut line 19.
+
+
+Package natbib Warning: Citation `more2009benchmarking' on page 6 undefined on 
+input line 32.
+
+
+Package natbib Warning: Citation `dolan2002benchmarking' on page 6 undefined on
+ input line 32.
+
+[6] [7] [8 <./figures/exp2-quality.pdf>] [9 <./figures/exp2-time-to-target.pdf>
+] [10]) [11 <./figures/exp2b-per-start.pdf>] [12] [13 <./figures/design-gradien
+ts.pdf>]
+
+Package natbib Warning: Citation `kemmetmueller2015' on page 14 undefined on in
+put line 416.
+
+
+Package natbib Warning: Citation `roomi2022' on page 14 undefined on input line
+ 416.
+
+
+Package natbib Warning: Citation `wen2023' on page 14 undefined on input line 4
+17.
+
+
+Underfull \hbox (badness 1173) in paragraph at lines 456--479
+\OT1/cmr/m/n/10.95 (+20) final-refinement pro-gram is at [][]\OT1/cmtt/m/n/10.9
+5 3e4ee0c6[][]\OT1/cmr/m/n/10.95 (+20) . The pa-per pack-age is the di-rec-tory
+ \OT1/cmtt/m/n/10.95 papers/
+[14] [15]
+
+Package natbib Warning: Citation `arkkio1987' on page 16 undefined on input lin
+e 568.
+
+
+Package natbib Warning: Citation `egger2022torque' on page 16 undefined on inpu
+t line 600.
+
+[16]
+
+Package natbib Warning: Citation `mckay1979comparison' on page 17 undefined on 
+input line 644.
+
+
+Package natbib Warning: Citation `harris2020array' on page 17 undefined on inpu
+t line 645.
+
+
+Package natbib Warning: Citation `virtanen2020scipy' on page 17 undefined on in
+put line 646.
+
+[17] (./tables/exp2-time-to-target.tex) [18] (./tables/exp2-ratios.tex)
+[19] (./tables/exp2-refinement.tex) [20] [21] (./tables/exp2-validation.tex)
+[22]
+
+Package natbib Warning: Citation `more2011estimating' on page 23 undefined on i
+nput line 867.
+
+
+Package natbib Warning: Citation `more2012estimating' on page 23 undefined on i
+nput line 867.
+
+[23] (./tables/exp2b-ratios.tex) (./tables/exp2b-validation.tex)
+(./tables/exp2b-refinement.tex) [24] [25] (./tables/exp2c-ratios.tex) [26]
+
+Package natbib Warning: Citation `eaton2026octave' on page 27 undefined on inpu
+t line 1042.
+
+
+Package natbib Warning: Citation `defalco2011geopdes' on page 27 undefined on i
+nput line 1043.
+
+
+Package natbib Warning: Citation `vazquez2016geopdes' on page 27 undefined on i
+nput line 1043.
+
+[27] [28 <./figures/refined-validation.pdf>] [29 <./figures/coupling-waveforms.
+pdf>] [30] [31 <./figures/opt120-waveforms.pdf>] [32]
+(./tables/gradient-cost.tex) [33 <./figures/model-gradients.pdf>]
+(./tables/design-points.tex) (./main.bbl [34] [35] [36] [37])
+
+Package natbib Warning: There were undefined citations.
+
+[38] (./main.aux
+
+Package natbib Warning: Citation(s) may have changed.
+(natbib)                Rerun to get citations correct.
+
+) )
+(see the transcript file for additional information)</usr/local/texlive/2026/te
+xmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2026/tex
+mf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2026/texm
+f-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2026/texmf
+-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/local/texlive/2026/texmf-
+dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb></usr/local/texlive/2026/texmf-di
+st/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/local/texlive/2026/texmf-dist
+/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/local/texlive/2026/texmf-dist/f
+onts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/texlive/2026/texmf-dist/fon
+ts/type1/public/amsfonts/cm/cmr12.pfb></usr/local/texlive/2026/texmf-dist/fonts
+/type1/public/amsfonts/cm/cmr17.pfb></usr/local/texlive/2026/texmf-dist/fonts/t
+ype1/public/amsfonts/cm/cmr6.pfb></usr/local/texlive/2026/texmf-dist/fonts/type
+1/public/amsfonts/cm/cmr7.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/p
+ublic/amsfonts/cm/cmr8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/publ
+ic/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/publi
+c/amsfonts/cm/cmsy6.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/
+amsfonts/cm/cmsy7.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/am
+sfonts/cm/cmsy8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsf
+onts/cm/cmti10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfo
+nts/cm/cmti8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfont
+s/cm/cmtt10.pfb>
+Output written on main.pdf (38 pages, 801374 bytes).
+Transcript written on main.log.
+exit=0
+===== pdflatex -interaction=nonstopmode main.tex =====
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex)
+ restricted \write18 enabled.
+entering extended mode
+(./main.tex
+LaTeX2e <2025-11-01>
+L3 programming layer <2026-01-19>
+(./anvil-paper.cls
+Document Class: anvil-paper 2026/05/28 Anvil generic paper class
+(/usr/local/texlive/2026/texmf-dist/tex/latex/base/article.cls
+Document Class: article 2025/01/22 v1.4n Standard LaTeX document class
+(/usr/local/texlive/2026/texmf-dist/tex/latex/base/size11.clo))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/geometry/geometry.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/keyval.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/iftex/ifvtex.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/iftex/iftex.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/graphicx.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/graphics.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/trig.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-cfg/graphics.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-def/pdftex.def)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsmath.sty
+For additional information on amsmath, use the `?' option.
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amstext.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsgen.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsbsy.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsopn.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/amssymb.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/amsfonts.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amscls/amsthm.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype.sty
+(/Users/rwalters/Library/texmf/tex/latex/etoolbox/etoolbox.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype-pdftex.def)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype.cfg))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/natbib/natbib.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/booktabs/booktabs.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/xcolor/xcolor.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-cfg/color.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/mathcolor.ltx))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/caption/caption.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/caption/caption3.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/hyperref.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/kvsetkeys/kvsetkeys.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/kvdefinekeys/kvdefinekeys.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/pdfescape/pdfescape.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/ltxcmds/ltxcmds.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/pdftexcmds/pdftexcmds.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/infwarerr/infwarerr.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hycolor/hycolor.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/nameref.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/refcount/refcount.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/gettitlestring/gettitlestring.s
+ty (/usr/local/texlive/2026/texmf-dist/tex/latex/kvoptions/kvoptions.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/generic/stringenc/stringenc.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/pd1enc.def)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/intcalc/intcalc.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/puenc.def)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/url/url.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/bitset/bitset.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/bigintcalc/bigintcalc.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/hpdftex.def
+(/usr/local/texlive/2026/texmf-dist/tex/latex/rerunfilecheck/rerunfilecheck.sty
+
+(/usr/local/texlive/2026/texmf-dist/tex/generic/uniquecounter/uniquecounter.sty
+)))) (/usr/local/texlive/2026/texmf-dist/tex/latex/tools/array.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/float/float.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def)
+(./main.aux)
+*geometry* driver: auto-detecting
+*geometry* detected driver: pdftex
+(/usr/local/texlive/2026/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
+[Loading MPS to PDF converter (version 2006.09.02).]
+) (/usr/local/texlive/2026/texmf-dist/tex/latex/epstopdf-pkg/epstopdf-base.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/latexconfig/epstopdf-sys.cfg))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-cmr.cfg) (./main.out
+) (./main.out) (/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsa.fd)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msa.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsb.fd)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msb.cfg) [1{/usr/loc
+al/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map}] [2] [3] [4 <./fi
+gures/geometry.pdf>] (./tables/coupling.tex) (./optimization.tex [5] [6 <./figu
+res/coupling-convergence.pdf>] [7] [8 <./figures/exp2-quality.pdf>] [9 <./figur
+es/exp2-time-to-target.pdf>] [10] [11 <./figures/exp2b-per-start.pdf>])
+[12] [13] [14 <./figures/design-gradients.pdf>]
+Underfull \hbox (badness 1173) in paragraph at lines 456--479
+\OT1/cmr/m/n/10.95 (+20) final-refinement pro-gram is at [][]\OT1/cmtt/m/n/10.9
+5 3e4ee0c6[][]\OT1/cmr/m/n/10.95 (+20) . The pa-per pack-age is the di-rec-tory
+ \OT1/cmtt/m/n/10.95 papers/
+[15] [16] [17] [18] (./tables/exp2-time-to-target.tex)
+(./tables/exp2-ratios.tex) [19] (./tables/exp2-refinement.tex) [20] [21]
+(./tables/exp2-validation.tex) [22] [23] (./tables/exp2b-ratios.tex)
+(./tables/exp2b-validation.tex) (./tables/exp2b-refinement.tex) [24] [25]
+(./tables/exp2c-ratios.tex) [26] [27] [28 <./figures/refined-validation.pdf>]
+[29 <./figures/coupling-waveforms.pdf>] [30] [31 <./figures/opt120-waveforms.pd
+f>] [32] (./tables/gradient-cost.tex) [33 <./figures/model-gradients.pdf>]
+(./tables/design-points.tex) (./main.bbl [34] [35] [36] [37]) [38] (./main.aux)
+
+LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
+
+ )
+(see the transcript file for additional information)</usr/local/texlive/2026/te
+xmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2026/tex
+mf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2026/texm
+f-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2026/texmf
+-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/local/texlive/2026/texmf-
+dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb></usr/local/texlive/2026/texmf-di
+st/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/local/texlive/2026/texmf-dist
+/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/local/texlive/2026/texmf-dist/f
+onts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/texlive/2026/texmf-dist/fon
+ts/type1/public/amsfonts/cm/cmr12.pfb></usr/local/texlive/2026/texmf-dist/fonts
+/type1/public/amsfonts/cm/cmr17.pfb></usr/local/texlive/2026/texmf-dist/fonts/t
+ype1/public/amsfonts/cm/cmr6.pfb></usr/local/texlive/2026/texmf-dist/fonts/type
+1/public/amsfonts/cm/cmr7.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/p
+ublic/amsfonts/cm/cmr8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/publ
+ic/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/publi
+c/amsfonts/cm/cmsy6.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/
+amsfonts/cm/cmsy7.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/am
+sfonts/cm/cmsy8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsf
+onts/cm/cmti10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfo
+nts/cm/cmti8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfont
+s/cm/cmtt10.pfb>
+Output written on main.pdf (38 pages, 808158 bytes).
+Transcript written on main.log.
+exit=0
+===== pdflatex -interaction=nonstopmode main.tex =====
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex)
+ restricted \write18 enabled.
+entering extended mode
+(./main.tex
+LaTeX2e <2025-11-01>
+L3 programming layer <2026-01-19>
+(./anvil-paper.cls
+Document Class: anvil-paper 2026/05/28 Anvil generic paper class
+(/usr/local/texlive/2026/texmf-dist/tex/latex/base/article.cls
+Document Class: article 2025/01/22 v1.4n Standard LaTeX document class
+(/usr/local/texlive/2026/texmf-dist/tex/latex/base/size11.clo))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/geometry/geometry.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/keyval.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/iftex/ifvtex.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/iftex/iftex.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/graphicx.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/graphics.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/trig.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-cfg/graphics.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-def/pdftex.def)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsmath.sty
+For additional information on amsmath, use the `?' option.
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amstext.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsgen.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsbsy.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsmath/amsopn.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/amssymb.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/amsfonts.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amscls/amsthm.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype.sty
+(/Users/rwalters/Library/texmf/tex/latex/etoolbox/etoolbox.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype-pdftex.def)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/microtype.cfg))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/natbib/natbib.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/booktabs/booktabs.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/xcolor/xcolor.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics-cfg/color.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/mathcolor.ltx))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/caption/caption.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/caption/caption3.sty))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/hyperref.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/kvsetkeys/kvsetkeys.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/kvdefinekeys/kvdefinekeys.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/pdfescape/pdfescape.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/ltxcmds/ltxcmds.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/pdftexcmds/pdftexcmds.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/infwarerr/infwarerr.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hycolor/hycolor.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/nameref.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/refcount/refcount.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/gettitlestring/gettitlestring.s
+ty (/usr/local/texlive/2026/texmf-dist/tex/latex/kvoptions/kvoptions.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/generic/stringenc/stringenc.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/pd1enc.def)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/intcalc/intcalc.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/puenc.def)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/url/url.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/generic/bitset/bitset.sty
+(/usr/local/texlive/2026/texmf-dist/tex/generic/bigintcalc/bigintcalc.sty)))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/hpdftex.def
+(/usr/local/texlive/2026/texmf-dist/tex/latex/rerunfilecheck/rerunfilecheck.sty
+
+(/usr/local/texlive/2026/texmf-dist/tex/generic/uniquecounter/uniquecounter.sty
+)))) (/usr/local/texlive/2026/texmf-dist/tex/latex/tools/array.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/float/float.sty)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def)
+(./main.aux)
+*geometry* driver: auto-detecting
+*geometry* detected driver: pdftex
+(/usr/local/texlive/2026/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
+[Loading MPS to PDF converter (version 2006.09.02).]
+) (/usr/local/texlive/2026/texmf-dist/tex/latex/epstopdf-pkg/epstopdf-base.sty
+(/usr/local/texlive/2026/texmf-dist/tex/latex/latexconfig/epstopdf-sys.cfg))
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-cmr.cfg) (./main.out
+) (./main.out) (/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsa.fd)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msa.cfg)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/amsfonts/umsb.fd)
+(/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msb.cfg) [1{/usr/loc
+al/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map}] [2] [3] [4 <./fi
+gures/geometry.pdf>] (./tables/coupling.tex) (./optimization.tex [5] [6 <./figu
+res/coupling-convergence.pdf>] [7] [8 <./figures/exp2-quality.pdf>] [9 <./figur
+es/exp2-time-to-target.pdf>] [10] [11 <./figures/exp2b-per-start.pdf>])
+[12] [13] [14 <./figures/design-gradients.pdf>]
+Underfull \hbox (badness 1173) in paragraph at lines 456--479
+\OT1/cmr/m/n/10.95 (+20) final-refinement pro-gram is at [][]\OT1/cmtt/m/n/10.9
+5 3e4ee0c6[][]\OT1/cmr/m/n/10.95 (+20) . The pa-per pack-age is the di-rec-tory
+ \OT1/cmtt/m/n/10.95 papers/
+[15] [16] [17] [18] (./tables/exp2-time-to-target.tex)
+(./tables/exp2-ratios.tex) [19] (./tables/exp2-refinement.tex) [20] [21]
+(./tables/exp2-validation.tex) [22] [23] (./tables/exp2b-ratios.tex)
+(./tables/exp2b-validation.tex) (./tables/exp2b-refinement.tex) [24] [25]
+(./tables/exp2c-ratios.tex) [26] [27] [28 <./figures/refined-validation.pdf>]
+[29 <./figures/coupling-waveforms.pdf>] [30] [31 <./figures/opt120-waveforms.pd
+f>] [32] (./tables/gradient-cost.tex) [33 <./figures/model-gradients.pdf>]
+(./tables/design-points.tex) (./main.bbl [34] [35] [36] [37]) [38] (./main.aux)
+ )
+(see the transcript file for additional information)</usr/local/texlive/2026/te
+xmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2026/tex
+mf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2026/texm
+f-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2026/texmf
+-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/local/texlive/2026/texmf-
+dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb></usr/local/texlive/2026/texmf-di
+st/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/local/texlive/2026/texmf-dist
+/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/local/texlive/2026/texmf-dist/f
+onts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/texlive/2026/texmf-dist/fon
+ts/type1/public/amsfonts/cm/cmr12.pfb></usr/local/texlive/2026/texmf-dist/fonts
+/type1/public/amsfonts/cm/cmr17.pfb></usr/local/texlive/2026/texmf-dist/fonts/t
+ype1/public/amsfonts/cm/cmr6.pfb></usr/local/texlive/2026/texmf-dist/fonts/type
+1/public/amsfonts/cm/cmr7.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/p
+ublic/amsfonts/cm/cmr8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/publ
+ic/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/publi
+c/amsfonts/cm/cmsy6.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/
+amsfonts/cm/cmsy7.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/am
+sfonts/cm/cmsy8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsf
+onts/cm/cmti10.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfo
+nts/cm/cmti8.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/public/amsfont
+s/cm/cmtt10.pfb>
+Output written on main.pdf (38 pages, 808158 bytes).
+Transcript written on main.log.
+exit=0

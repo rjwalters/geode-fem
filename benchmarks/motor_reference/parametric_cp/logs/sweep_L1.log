@@ -1,0 +1,20 @@
+/Volumes/Stripe/geode-fem/issue-1179/crates/geode-core/../../benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L1.msh: 9937 nodes, 19163 triangles; attached 1807 boundary nodes (77 at curve ends), 8130 free, 30 sliding edge pairs; edges Slide, stiffening 0; max attach distance 7.557e-16 m; setup 0.072 s
+theta0: {"inverted":0,"max_angle_deg":139.44731814935767,"max_area_ratio":1.0,"min_angle_deg":13.19805792813239,"min_area_ratio":1.0}
+  CPR1 : box [-1.50e-3, 0.00e0] m, valid from 0 to -1.5000e-3 m, min angle 12.83 deg
+  CPR2 : box [-1.50e-3, 0.00e0] m, valid from 0 to -1.5000e-3 m, min angle 13.06 deg
+  CPR3 : box [-1.00e-3, 0.00e0] m, valid from 0 to -1.0000e-3 m, min angle 11.43 deg
+  CPR4 : box [-1.50e-3, 0.00e0] m, valid from 0 to -1.5000e-3 m, min angle 13.20 deg
+  CPR5 : box [-1.50e-3, 0.00e0] m, valid from 0 to -1.5000e-3 m, min angle 13.20 deg
+  CPR6 : box [-1.50e-3, 0.00e0] m, valid from 0 to -1.5000e-3 m, min angle 13.20 deg
+  CPR7 : box [-1.50e-3, 0.00e0] m, valid from 0 to -1.5000e-3 m, min angle 13.20 deg
+  CPS1 : box [0.00e0, 5.00e-4] m, valid from 0 to +5.0000e-4 m, min angle 13.20 deg
+  CPS2 : box [0.00e0, 5.00e-4] m, valid from 0 to +5.0000e-4 m, min angle 13.20 deg
+  CPS3 : box [0.00e0, 5.00e-4] m, valid from 0 to +5.0000e-4 m, min angle 13.20 deg
+  corner rotor at min             at initial scalars: {"inverted":4,"max_angle_deg":154.83779275053698,"max_area_ratio":3.993744901132339,"min_angle_deg":8.538476013506068,"min_area_ratio":-0.08544138524656672}
+  corner stator at max            at initial scalars: {"inverted":0,"max_angle_deg":139.4463849763524,"max_area_ratio":2.020485889797224,"min_angle_deg":13.19805792813239,"min_area_ratio":0.49409409726187853}
+  corner rotor min + stator max   at initial scalars: {"inverted":4,"max_angle_deg":154.83779275053698,"max_area_ratio":3.993744901132339,"min_angle_deg":8.538476013506068,"min_area_ratio":-0.08544138524656672}
+  corner rotor at min             at opt120  scalars: {"inverted":0,"max_angle_deg":170.44257138794046,"max_area_ratio":3.993744901132339,"min_angle_deg":2.1805104606553902,"min_area_ratio":0.046776855821948744}
+  corner stator at max            at opt120  scalars: {"inverted":796,"max_angle_deg":179.98246481508926,"max_area_ratio":2.9401460054463096,"min_angle_deg":0.005480149181575799,"min_area_ratio":-0.001570841358110984}
+  corner rotor min + stator max   at opt120  scalars: {"inverted":796,"max_angle_deg":179.98246481508926,"max_area_ratio":3.993744901132339,"min_angle_deg":0.005480149181575799,"min_area_ratio":-0.001570841358110984}
+  opt120 (12 scalars + fitted offsets): {"inverted":0,"max_angle_deg":170.44257136973079,"max_area_ratio":3.797516253583649,"min_angle_deg":2.18051046465985,"min_area_ratio":0.12381783975487903}
+wrote benchmarks/motor_reference/parametric_cp/runs/sweep_L1.json

@@ -44,13 +44,12 @@ Apply the following skip rules (each "skip" logs the reason; the PR does NOT con
 | Condition | Action | Reason |
 |-----------|--------|--------|
 | `state != OPEN` (MERGED or CLOSED) | skip | PR is not open; nothing to do |
-| Has `loom:blocked` | skip | Operator-flagged; do not act |
+| Has `loom:blocked` | skip | Parked (Champion's merge-risk / critical-file hold included, #11861); do not act |
+| Has `loom:operator` | skip | A human must act or decide; no role acts on it (#11861) |
 | Has none of `{loom:review-requested, loom:changes-requested, loom:pr}` | skip | No actionable label — Mode C only handles these three states |
 | Has two or more of `{loom:review-requested, loom:changes-requested, loom:pr}` simultaneously | skip | Conflicting state; human-attention case |
-| Has `loom:operator-only` **and** `loom:operator-mechanical`, and this worker holds **every** capability the PR body's `<!-- loom:capability=<name> -->` marker(s) declare | **do not skip** | Capability-aware mechanical lane (#6893). Route through the normal label branch (C1a/C1b/C1c) but in **propose mode**: the phase produces the exact commands / a PR description for an operator to approve, never a live credentialed action. See "Capability-aware `loom:operator-mechanical` lane" |
-| Has `loom:operator-only` **and** `loom:operator-mechanical`, but a declared capability is **not** held | skip (comment first) | Post the capability request naming what is missing (lane section below), then log `PR #P: skip — mechanical, missing capability <name>` |
-| Has `loom:operator-only` (any other case) | skip | Operator-only PR; do not act. Unchanged — the two rows above are the only carve-out, and they fail closed |
-| Has `loom:needs-capability` | skip | Blocked on a missing tool/agent capability, not operator-by-right (#5817); do not act. Explicitly **not** part of the capability lane |
+| Has `loom:frozen` | skip | Not now; do not act (#11743) |
+| Has `loom:blocked` (no named blocker), a `<!-- loom:capability=<name> -->` marker, **no** `decision` block, no `loom:pr`, and this worker holds **every** declared capability | **do not skip** (the one exception to the `loom:blocked` row) | Capability-aware lane (#6893, #11861). Route through the normal label branch (C1a/C1b) but in **propose mode**. See "Capability-aware lane" |
 
 **`loom:reviewing`/`loom:treating` are claim *overlays*, not one of the three state labels the "two or more" conflict-skip row above counts (Issue #6167).** A PR carrying `loom:review-requested` **and** `loom:reviewing` together (a Judge has claimed it and is mid-review — or died mid-review) still has exactly **one** of `{loom:review-requested, loom:changes-requested, loom:pr}`, so it does not hit the conflict-skip row and routes normally to **C1a**. A *stale* `loom:reviewing` next to an actionable state label is therefore **recoverable, not a human-attention case**:
 
@@ -69,11 +68,12 @@ Determine the **closing issue number** (used for checkpoint scope below) from `c
 
 ### C1. Per-PR routing by current label
 
-Apply exactly one of the three branches below, based on the PR's current label. After each checkpoint write, run the `usage-record` step (Execution Model, "Usage record"):
+Apply exactly one of the three branches below, based on the PR's current label.
 
 #### C1a. `loom:review-requested` → Judge phase only
 
 - Load and follow the instructions in `.claude/commands/loom/judge.md` for this PR.
+- **In-session Judge dispatch (#13222):** do not pass the orchestrator's run id as the Judge's `LOOM_SWEEP_ID`; the Stale-Read Gate takes the start from a `step-judge-<pr>-<epoch>` id or the PR judge lease. Brief the Judge to run `loom-daemon lease pr claim <pr> --role judge --watch-pid "${LOOM_AGENT_SESSION_PID:-${CLAUDE_PID:-$PPID}}"` (and `release`) with that same `--watch-pid` value on every call (#13264): without it the claim records `pr-lease-unknown` and `post-verdict.sh` refuses the approval as a peer's lease (exit 10).
 - Dispatch `loom-judge` as a **single subagent Task** from this orchestrator session. Do **NOT** invoke `/loom:sweep` or `/loom:judge` slash-commands as subagents — see "CRITICAL: One level deep" in the Execution Model.
 - If a previous Judge attempt for this PR died mid-flight without a fresh checkpoint (rate limit, crash), re-verify forge state and complete only the missing steps before re-dispatching — see "Mid-phase-death recovery" in the Wave Lifecycle (the rule is phase-generic; Mode C inherits it, same as the Doctor-cycle cap).
 - Expected exit states:
@@ -94,6 +94,7 @@ Apply exactly one of the three branches below, based on the PR's current label. 
 If the PR entered the wave already labeled `loom:changes-requested` (e.g., from a previous Judge run), or just transitioned there from C1a, run inline Doctor → Judge cycles for this PR — **up to `sweep.max_doctor_cycles`** (default 1; see "Doctor-cycle cap" in the Execution Model):
 
 - Load and follow the instructions in `.claude/commands/loom/doctor.md` for this PR.
+- **In-session sweep (#13222):** before the first Doctor dispatch, release the closing issue's lease if one is live (`loom-daemon lease release N`), and dispatch the Doctor with `LOOM_DOCTOR_PUSH_WINDOW_MINUTES=0` (all roles push as one GitHub login, so the Builder's own push would otherwise read as another actor).
 - Dispatch `loom-doctor` as a **single subagent Task** from this orchestrator session. Do **NOT** invoke `/loom:sweep` or `/loom:doctor` slash-commands as subagents — see "CRITICAL: One level deep".
 - If a previous Doctor attempt for this PR died mid-flight without a fresh `doctor-done` checkpoint (rate limit, crash), re-verify forge state (pushed commit? already re-labeled `loom:review-requested`?) and complete only the missing steps rather than duplicating the pushed fix — see "Mid-phase-death recovery" in the Wave Lifecycle (inherited here, same as the Doctor-cycle cap).
 - **Model escalation (#3481)**: Mode C inherits the issue-side rule unchanged — this Doctor is dispatched because of a `loom:changes-requested` rejection, so resolve its model per "Model escalation on Judge rejection" in the Execution Model: pass `ladder[1]` from `sweep.escalation` via the Task tool's `model` parameter, **unless** a tier-1/tier-2 pin applies (pins win) or escalation is disabled (`[]`/`false`). Run a pinned ID through `resolve-model.sh --task-alias` (#4282).
@@ -111,7 +112,7 @@ If the PR entered the wave already labeled `loom:changes-requested` (e.g., from 
     ```bash
     ./.loom/scripts/sweep-checkpoint.sh write N judge-rejected --task-id "$RUN_ID" --pr-number P --attempt <next-attempt>
     ```
-  - **Request changes again, cap reached** → PR labeled `loom:changes-requested`. **Do NOT run another Doctor** — mark this PR as blocked (log `PR #P blocked: doctor cycle exhausted after <k> Doctor→Judge round(s); human attention required`), advance to the next PR in the candidate list. Do NOT block the rest of the candidate list on it. **Do NOT write a `judge-rejected` checkpoint for this terminal rejection** — leave the last checkpoint (`doctor-done`) as-is for the stale-checkpoint cleanup path. **Distinct-defect exception (default cap only):** when `max_doctor_cycles` is at its default of 1 and this second rejection is a demonstrably distinct defect from the first, you MAY grant exactly one additional bounded cycle (single-use per PR, log `PR #P: granted one extra Doctor cycle — second rejection is a distinct defect (<short reason>)`) — see "Doctor-cycle cap". If granted, this is a "cap not yet reached" case per the bullet above — write `judge-rejected` with the matching `--attempt` before the grace cycle. Same-defect / ambiguous still blocks (no grace, no `judge-rejected` write).
+  - **Request changes again, cap reached** → PR labeled `loom:changes-requested`. **Do NOT run another Doctor** — park it (`loom-daemon park-record apply --pr <P> --reason "doctor cycle exhausted" --by sweep`, and a comment opening `<!-- loom:doctor-cycle-cap -->`, #11861) (log `PR #P blocked: doctor cycle exhausted after <k> Doctor→Judge round(s); human attention required`), advance to the next PR in the candidate list. Do NOT block the rest of the candidate list on it. **Do NOT write a `judge-rejected` checkpoint for this terminal rejection** — leave the last checkpoint (`doctor-done`) as-is for the stale-checkpoint cleanup path. **Distinct-defect exception (default cap only):** when `max_doctor_cycles` is at its default of 1 and this second rejection is a demonstrably distinct defect from the first, you MAY grant exactly one additional bounded cycle (single-use per PR, log `PR #P: granted one extra Doctor cycle — second rejection is a distinct defect (<short reason>)`) — see "Doctor-cycle cap". If granted, this is a "cap not yet reached" case per the bullet above — write `judge-rejected` with the matching `--attempt` before the grace cycle. Same-defect / ambiguous still blocks (no grace, no `judge-rejected` write).
 
 This configurable cap matches the issue-side Wave Lifecycle §6 — Mode C inherits the same rule (and the same default-cap distinct-defect exception) for the same reason (bounds worst-case latency, prevents Judge/Doctor disagreement loops).
 
@@ -119,7 +120,7 @@ This configurable cap matches the issue-side Wave Lifecycle §6 — Mode C inher
 
 If the PR entered the wave already labeled `loom:pr`, skip Judge and Doctor entirely — the PR has already been judged. Continue directly to **C2 (Merge)**, subject to the two gates below.
 
-**First, check for an operator hold (#6398).** `loom:operator` (`.loom/docs/label-state-machine.md`) means "the engine will not work this item further; a human is the only transition out" — most commonly Champion's merge-risk hold (`champion:merge-risk-hold`), posted alongside the label. The `labels` array C0 already fetched for this PR carries this — no extra call needed. If it includes `loom:operator`, **do not continue to Merge**: log `PR #P: skip — held by loom:operator (human required)` and advance to the next PR in the candidate list, leaving `loom:pr` and `loom:operator` untouched (the hold is re-evaluable, per the label-state-machine doc, so the next sweep re-checks it — but the engine itself never overrides it). This check runs regardless of the verdict-staleness outcome below; `verdict-staleness-guard.sh` clears a *stale-SHA* verdict and by design never a hold label, so it does not substitute for this check.
+**First, check for a hold (#6398, #11861).** C0 already skips `loom:operator` and `loom:blocked` (Champion's merge-risk / critical-file hold is `loom:blocked` beside `loom:pr`), so a held PR never reaches here; re-check the `labels` array C0 fetched as a backstop. If it carries either, **do not continue to Merge**: log `PR #P: skip — held (<label>)` and advance, leaving every label untouched. This check runs regardless of the verdict-staleness outcome below; `verdict-staleness-guard.sh` clears a *stale-SHA* verdict and by design never a hold label, so it does not substitute for this check.
 
 **Second, confirm the approval still describes THIS tree (#5686).** "Already judged" is a claim about a specific head SHA, and a `loom:pr` label survives a rebase or force-push that replaced every commit it was rendered against. Mode C does not run `champion-pr-merge.md`'s Verdict-State Janitor, so run the same gate here:
 
@@ -140,10 +141,10 @@ VERDICT_RC=$?
 Use the merge script (CLAUDE.md "Merging PRs" mandate — never `gh pr merge`):
 
 ```bash
-LOOM_AUTO_MERGE_TIMEOUT=420 ./.loom/scripts/merge-pr.sh P --auto
+./.loom/scripts/merge-pr.sh P --auto
 ```
 
-**Give that call a 600000 ms Bash-tool timeout (#9395)**: the 420s pin must stay strictly under its caller's, or the tool kills the script and no exit code reaches the branches below. Raise neither alone. Why the pin but no `CHAMPION-MERGE-OUTCOME` sentinel (#9096): [exit codes](../../../.loom/docs/merge-pr-exit-code-exceptions.md).
+That call waits on no checks (#12063), so the default Bash-tool timeout suffices. Why no `CHAMPION-MERGE-OUTCOME` sentinel (#9096): [exit codes](../../../.loom/docs/merge-pr-exit-code-exceptions.md).
 
 It merges via the forge API and cleans up the worktree. `--auto` waits for the head's check-runs to settle, re-validates `loom:pr` and the head SHA against fresh state, then merges **in this process** — never via the server-side queue, which re-reads neither label nor non-required suites once armed (#8410). An already-settled head merges at once, so `--auto` is always safe to pass (#3820); a repo with no workflows (Checks API 404s everywhere) merges straight off, not polling out (#6389). CI outlasting the wait exits 5 — retry next pass.
 

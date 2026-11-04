@@ -1,0 +1,59 @@
+Warning: grid volume is not an integer number of pixels; cell size will be rounded to nearest pixel.
+Using MPI version 4.1, 4 processes
+-----------
+Initializing structure...
+Splitting into 4 chunks by voxels
+time for choose_chunkdivision = 0.0135209 s
+Working in 3D dimensions.
+Computational cell is 192 x 183.2 x 131.6 with resolution 2.5
+     block, center = (-29.8,0,-4)
+          size (0.4008,52.8008,0.0008)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (2.7,2.7,2.7)
+     block, center = (-29,0,-3.6)
+          size (1.2008,52.8008,0.0008)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (2.7,2.7,2.7)
+     block, center = (-27.8,0,-3.2)
+          size (1.2008,52.8008,0.0008)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (2.7,2.7,2.7)
+     block, center = (-26.4,0,-2.8)
+          size (1.6008,52.8008,0.0008)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (2.7,2.7,2.7)
+     block, center = (-24.8,0,-2.4)
+          size (1.6008,52.8008,0.0008)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (2.7,2.7,2.7)
+     block, center = (-23.2,0,-2)
+          size (1.6008,52.8008,0.0008)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (2.7,2.7,2.7)
+     block, center = (-21.6,0,-1.6)
+          size (1.6008,52.8008,0.0008)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (2.7,2.7,2.7)
+     block, center = (-19.8,0,-1.2)
+          size (2.0008,52.8008,0.0008)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (2.7,2.7,2.7)
+     block, center = (-17.6,0,-0.8)
+          size (2.4008,52.8008,0.0008)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (2.7,2.7,2.7)
+     block, center = (-15.2,0,-0.4)
+          size (2.4008,52.8008,0.0008)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (2.7,2.7,2.7)
+     ...(+ 107 objects not shown)...
+time for set_epsilon = 9.56113 s
+time for set_conductivity = 0.964692 s
+time for set_conductivity = 0.964988 s
+time for set_conductivity = 0.961007 s
+-----------
+Meep: using complex fields.
+V2_RESULT /results/audit_bent_R2.5.json mode antenna wall 13.354871511000056 drift None rc None
+
+Elapsed run time = 13.2084 s
+exit=0

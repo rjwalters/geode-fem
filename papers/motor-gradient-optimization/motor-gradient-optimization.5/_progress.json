@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "thread": "motor-gradient-optimization",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-18T03:32:32.388627+00:00",
+      "completed": "2026-10-18T03:37:59.802685+00:00"
+    }
+  },
+  "metadata": {
+    "iteration": 5,
+    "max_iterations": 5,
+    "revised_from": 4,
+    "operator_requested_continuation": true,
+    "cap_change_reason": "Ongoing operator instruction to iterate and improve the paper; continuation recorded in room 451; v4 review fixes requested in room 494.",
+    "evidence_snapshot": {
+      "brief_mtime": 1792294663.6861129,
+      "refs_mtime": 1792212372.0749316
+    }
+  }
+}

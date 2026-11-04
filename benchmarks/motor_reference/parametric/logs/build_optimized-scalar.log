@@ -1,0 +1,4 @@
+L0 N=120 nodes=3046 tris=5732 minang=13.20 qmin=0.351 worst|dA/A|=1.38e-02 bytes=313603
+L1 N=240 nodes=9493 tris=18283 minang=13.20 qmin=0.379 worst|dA/A|=4.18e-03 bytes=899673
+L2 N=480 nodes=35467 tris=69537 minang=13.20 qmin=0.378 worst|dA/A|=1.06e-03 bytes=3457063
+L3 N=960 nodes=137103 tris=271428 minang=13.20 qmin=0.383 worst|dA/A|=2.58e-04 bytes=13921460

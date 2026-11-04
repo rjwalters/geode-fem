@@ -1,0 +1,57 @@
+{
+ "issue": 1195,
+ "label": "pilot",
+ "session_id": "pilot-20261018T041148Z",
+ "budget_fe": 60.0,
+ "unit_seconds": 37.663682541499995,
+ "weights": {
+  "validation_eval": 1.0,
+  "train_forward_eval": 0.33089982546894237,
+  "adjoint_eval": 0.07566320066711422,
+  "validation_solve": 0.016666666666666666,
+  "train_forward_solve": 0.0055149970911490395,
+  "adjoint_solve": 0.0012610533444519037,
+  "validation_solves_per_eval": 60,
+  "train_solves_per_eval": 60
+ },
+ "theta0_train": {
+  "F": 0.00851489362042318,
+  "fractions": [
+   0.0,
+   0.5,
+   1.0
+  ],
+  "mean_full": 1.4437877886426493,
+  "means": [
+   2.656106397202606e-06,
+   0.6625523819938548,
+   1.4437877886426493
+  ],
+  "stds": [
+   0.01190098086338203,
+   0.040484093675806014,
+   0.08206277130441769
+  ],
+  "x": [
+   0.007,
+   0.007,
+   0.019,
+   0.004,
+   0.0023,
+   0.001,
+   0.00825,
+   0.001
+  ]
+ },
+ "evaluator": {
+  "binary": "/Volumes/Stripe/cargo-target-1198/release/examples/icem_harness_eval",
+  "train_mesh": "/Volumes/Stripe/geode-fem/issue-1198/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L1.msh",
+  "val_mesh": "/Volumes/Stripe/geode-fem/issue-1198/benchmarks/motor_reference/geometry/meshes/icem_initial_sector_L2.msh",
+  "anchor": "/Volumes/Stripe/geode-fem/issue-1198/benchmarks/motor_optimization/anchor.json",
+  "train_level": 1,
+  "val_level": 2
+ },
+ "starts": "/Volumes/Stripe/geode-fem/issue-1198/benchmarks/motor_optimization/harness/starts.json",
+ "procs": 6,
+ "host_idle": false
+}

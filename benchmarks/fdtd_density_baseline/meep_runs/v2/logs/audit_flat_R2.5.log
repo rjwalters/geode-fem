@@ -1,0 +1,38 @@
+Warning: grid volume is not an integer number of pixels; cell size will be rounded to nearest pixel.
+Using MPI version 4.1, 4 processes
+-----------
+Initializing structure...
+Splitting into 4 chunks by voxels
+time for choose_chunkdivision = 0.000826595 s
+Working in 3D dimensions.
+Computational cell is 192 x 183.2 x 131.6 with resolution 2.5
+     block, center = (0.2,0,0.8)
+          size (62.0008,52.8008,0.0008)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (2.7,2.7,2.7)
+     block, center = (0.2,0,-0.0004)
+          size (62.0008,52.8008,1.6)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (4.4,4.4,4.4)
+     block, center = (0,7.4,0)
+          size (0.3992,1.5992,1.5992)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (4.4,4.4,4.4)
+     block, center = (0.2,0,-0.8)
+          size (62.0008,52.8008,0.0008)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (-1e+20,-1e+20,-1e+20)
+     block, center = (0.2,0,0.8)
+          size (38.0008,28.8008,0.0008)
+          axes (1,0,0), (0,1,0), (0,0,1)
+          dielectric constant epsilon diagonal = (-1e+20,-1e+20,-1e+20)
+time for set_epsilon = 6.19574 s
+time for set_conductivity = 0.504137 s
+time for set_conductivity = 0.501042 s
+time for set_conductivity = 0.495162 s
+-----------
+Meep: using complex fields.
+V2_RESULT /results/audit_flat_R2.5.json mode antenna wall 8.44898219300012 drift None rc None
+
+Elapsed run time = 8.4516 s
+exit=0

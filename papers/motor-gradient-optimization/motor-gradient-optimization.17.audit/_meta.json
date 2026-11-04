@@ -1,0 +1,12 @@
+{
+  "critic": "paper-audit",
+  "scorecard_kind": "human-verdict",
+  "started": "2026-10-22T03:13:54Z",
+  "finished": "2026-10-22T03:22:43Z",
+  "model": "claude-opus-5-5[1m]",
+  "schema_version": 1,
+  "audited_commit": "45221c52c4858e7b8b5b7a00d61c2b3b5888b84c",
+  "audited_branch": "claude/motor-paper-v17",
+  "sidecar": "staged via 'python -m anvil.lib.sidecar stage/commit' (uv run --project /Users/rwalters/GitHub/geode-fem/.anvil); compile-log.txt landed via 'sidecar copy'",
+  "lookup_hygiene": "api.crossref.org, doi.org, api.openalex.org only; no email, mailto or user identifier sent"
+}
