@@ -217,11 +217,11 @@
     },
     "Polygon": {
       "additionalProperties": false,
-      "description": "A simple rectilinear polygon (every edge parallel to x or y).",
+      "description": "A simple polygon whose edges are parallel to x or y or at ±45°, with\noptional holes.",
       "properties": {
         "holes": {
           "default": [],
-          "description": "Interior rings. Accepted by the schema, but v1 rejects non-empty\nholes.",
+          "description": "Interior rings (same rules as `outer`, either orientation): each\nmust lie strictly inside the outer ring and must not touch another\nhole.",
           "items": {
             "items": {
               "items": {
@@ -253,7 +253,7 @@
           ]
         },
         "outer": {
-          "description": "Outer ring `[[x, y], …]` (`≥ 4` vertices, either orientation,\nclosing vertex optional).",
+          "description": "Outer ring `[[x, y], …]` (`≥ 3` vertices, either orientation,\nclosing vertex optional). Every edge is axis-parallel or at ±45°.",
           "items": {
             "items": {
               "format": "double",

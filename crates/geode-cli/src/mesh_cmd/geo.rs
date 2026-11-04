@@ -25,6 +25,16 @@
 //! distance/threshold size field, and pinned output options (MSH 4.1
 //! ASCII, linear elements, single-threaded meshing for determinism).
 //!
+//! A polygon with holes or 45° edges (issue #1287) is a single part
+//! emitted as `Point` / `Line` / `Curve Loop` / `Plane Surface` (outer
+//! loop first, holes after) and, on a thick layer, `Extrude`d; the
+//! hollow / fragment pipeline consumes it like a `Box`. Rectilinear
+//! polygons without holes still decompose into `Box` / `Rectangle`
+//! parts, so v1 scripts are byte-identical. Bounding-box selection can
+//! enclose another group's faces or a hole's enclosed interface face, so
+//! polygon groups are tagged after the groups nested in them and a hole's
+//! flat bottom / top faces are dropped from the part's selection.
+//!
 //! The analysis ([`ResolvedLayout::analysis`], issue #720) only filters
 //! this pipeline: ports are meshed for the driven analysis only; for the
 //! inductance analysis the current-path conductors
