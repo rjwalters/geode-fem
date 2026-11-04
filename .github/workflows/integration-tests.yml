@@ -134,6 +134,7 @@ jobs:
               --test fe_assemble \
               --test fiber_dispersion_benchmark \
               --test floquet_ports \
+              --test floquet_sensitivity \
               --test formulation_audit_graddiv \
               --test hcurl_error_estimator \
               --test hcurl_space_p2 \
@@ -223,6 +224,7 @@ jobs:
               --test fe_assemble \
               --test fiber_dispersion_benchmark \
               --test floquet_ports \
+              --test floquet_sensitivity \
               --test formulation_audit_graddiv \
               --test hcurl_error_estimator \
               --test hcurl_space_p2 \
