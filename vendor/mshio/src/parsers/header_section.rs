@@ -46,7 +46,6 @@ pub(crate) fn parse_header_section<'a>(
             ),
         ),
     )(input)?;
-    // TODO: Check for all allowed data sizes
     let (input, data_size) = context("data size", delimited(sp, map(digit1, from_u8), br))(input)?;
 
     // TODO: Replace these unwraps
@@ -54,7 +53,13 @@ pub(crate) fn parse_header_section<'a>(
     let data_size = data_size.unwrap();
 
     let endianness = if file_type == 1 {
-        // Binary file
+        // Binary file: the num parsers only support these `size_t` widths, so reject
+        // anything else here instead of letting `uint_parser` panic.
+        if !matches!(data_size, 1 | 2 | 4 | 8 | 16) {
+            return Err(make_error(input, MshParserErrorKind::InvalidFileHeader)
+                .with_context(input, "Unsupported binary data size"));
+        }
+
         let (_, i_be) = context("endianness test value", numbers::be_i32)(input)?;
         let (_, i_le) = context("endianness test value", numbers::le_i32)(input)?;
 
@@ -95,5 +100,35 @@ pub(crate) fn num_parsers_from_header<'a, U: MshUsizeT, I: MshIntT, F: MshFloatT
         size_t_parser,
         int_parser,
         float_parser: double_parser,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::parse_msh_bytes;
+
+    fn binary_msh(data_size: &str) -> Vec<u8> {
+        let mut bytes = format!("$MeshFormat\n4.1 1 {}\n", data_size).into_bytes();
+        bytes.extend_from_slice(&1i32.to_le_bytes());
+        bytes.extend_from_slice(b"\n$EndMeshFormat\n$Nodes\n");
+        bytes
+    }
+
+    #[test]
+    fn unsupported_binary_data_size_is_an_error_not_a_panic() {
+        for size in ["0", "3", "300"] {
+            let bytes = binary_msh(size);
+            assert!(
+                parse_msh_bytes(&bytes).is_err(),
+                "binary data size {size} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn supported_binary_data_size_passes_header_validation() {
+        // Header is accepted; the truncated body then fails later, but not with a panic.
+        let bytes = binary_msh("8");
+        let _ = parse_msh_bytes(&bytes);
     }
 }
