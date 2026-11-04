@@ -54,7 +54,9 @@ use std::f64::consts::PI;
 
 use faer::c64;
 
-use crate::driven::scattering::{BoxFaceSample, box_surface_samples};
+use crate::driven::scattering::{
+    BoxFaceSample, box_surface_faces, box_surface_samples, cross, dot,
+};
 use crate::mesh::TetMesh;
 
 /// Free-space impedance in the codebase's natural units (`η₀ = 1`).
@@ -258,6 +260,164 @@ pub fn ntff_far_field(
 ) -> FarField {
     let samples = box_surface_samples(mesh, omega, e_edges, box_lo, box_hi);
     far_field_from_currents(&samples, omega, n_theta, n_phi)
+}
+
+/// Edge-space **covectors** of the far field `(E_θ, E_φ)` in one fixed
+/// direction `(θ₀, φ₀)` (issue #652).
+///
+/// For a fixed Huygens box the whole near-to-far map is **linear** in the
+/// edge DOFs `e_edges`: the Love currents are `J_s = n̂ × H`, `M_s = −n̂ × E`,
+/// `E`/`H = (i/ω)∇×E` are Whitney interpolants, and the radiation integral is
+/// a weighted sum. So each far-field component is `g_c · e_edges` for a
+/// complex covector `g_c` (the *transpose* of the Love map applied to the
+/// direction's polarisation, no conjugation):
+///
+/// ```text
+/// E_θ = Σ_s w_s [ E·(φ̂×n̂) − η H·(θ̂×n̂) ],   E_φ = Σ_s w_s [ −E·(θ̂×n̂) − η H·(φ̂×n̂) ],
+/// w_s = A_s e^{+jk r̂·r'_s}.
+/// ```
+///
+/// Building the covectors once gives both the value and the exact Wirtinger
+/// cotangent of any scalar far-field figure of merit (see
+/// [`FarFieldCovectors::realized_gain_objective`]), reusing the single
+/// forward LU of the shape adjoint — no separate far-field adjoint solve.
+#[derive(Debug, Clone)]
+pub struct FarFieldCovectors {
+    /// `E_θ(θ₀, φ₀) = g_theta · e_edges`.
+    pub g_theta: Vec<c64>,
+    /// `E_φ(θ₀, φ₀) = g_phi · e_edges`.
+    pub g_phi: Vec<c64>,
+    /// Wavenumber `k = ω` (natural units) the covectors were built for.
+    pub omega: f64,
+}
+
+/// Build the [`FarFieldCovectors`] of the Huygens box `[box_lo, box_hi]` for
+/// the observation direction `(theta0, phi0)` (radians).
+///
+/// `E_θ`, `E_φ` carry the same (dropped) common prefactor as
+/// [`ntff_far_field`]; the covectors reproduce its grid values exactly.
+///
+/// # Panics
+///
+/// As [`box_surface_faces`] (empty / all-inside box).
+pub fn far_field_covectors(
+    mesh: &TetMesh,
+    omega: f64,
+    box_lo: [f64; 3],
+    box_hi: [f64; 3],
+    theta0: f64,
+    phi0: f64,
+) -> FarFieldCovectors {
+    let n_edges = mesh.edges().len();
+    let (r_hat, theta_hat, phi_hat) = sph_basis(theta0, phi0);
+    let eta = ETA_0_NATURAL;
+    let i_over_omega = c64::new(0.0, 1.0 / omega);
+
+    let mut g_theta = vec![c64::new(0.0, 0.0); n_edges];
+    let mut g_phi = vec![c64::new(0.0, 0.0); n_edges];
+    for face in box_surface_faces(mesh, box_lo, box_hi) {
+        let kr = omega
+            * (r_hat[0] * face.centroid[0]
+                + r_hat[1] * face.centroid[1]
+                + r_hat[2] * face.centroid[2]);
+        let w = c64::new(kr.cos(), kr.sin()) * c64::new(face.area, 0.0);
+        let phi_x_n = cross(phi_hat, face.n_hat);
+        let theta_x_n = cross(theta_hat, face.n_hat);
+        for (slot, &(idx, sign)) in face.tet_edges.iter().enumerate() {
+            let s = c64::new(sign as f64, 0.0);
+            let e_phi_n = dot(face.e_basis[slot], phi_x_n);
+            let e_theta_n = dot(face.e_basis[slot], theta_x_n);
+            let h_phi_n = i_over_omega * dot(face.curl_basis[slot], phi_x_n);
+            let h_theta_n = i_over_omega * dot(face.curl_basis[slot], theta_x_n);
+            // E_θ = E·(φ̂×n̂) − η H·(θ̂×n̂);  E_φ = −E·(θ̂×n̂) − η H·(φ̂×n̂).
+            g_theta[idx as usize] += s * w * (c64::new(e_phi_n, 0.0) - eta * h_theta_n);
+            g_phi[idx as usize] += s * w * (c64::new(-e_theta_n, 0.0) - eta * h_phi_n);
+        }
+    }
+    FarFieldCovectors {
+        g_theta,
+        g_phi,
+        omega,
+    }
+}
+
+impl FarFieldCovectors {
+    /// `(E_θ, E_φ)` of the edge field `e_edges` in this direction.
+    pub fn components(&self, e_edges: &[c64]) -> (c64, c64) {
+        assert_eq!(e_edges.len(), self.g_theta.len(), "one DOF per global edge");
+        let mut a = c64::new(0.0, 0.0);
+        let mut b = c64::new(0.0, 0.0);
+        for ((x, gt), gp) in e_edges.iter().zip(&self.g_theta).zip(&self.g_phi) {
+            a += *gt * *x;
+            b += *gp * *x;
+        }
+        (a, b)
+    }
+
+    /// Radiation intensity `U = k²/(32π²)·(|E_θ|² + |E_φ|²)` (natural units,
+    /// `η₀ = 1`; the dropped far-field prefactor `jk e^{−jkr}/(4πr)` restored
+    /// so that `∮ U dΩ` equals the radiated power).
+    pub fn intensity(&self, e_edges: &[c64]) -> f64 {
+        let (a, b) = self.components(e_edges);
+        self.intensity_scale() * (a.norm_sqr() + b.norm_sqr())
+    }
+
+    fn intensity_scale(&self) -> f64 {
+        self.omega * self.omega / (32.0 * PI * PI)
+    }
+
+    /// **Realized-gain** objective `G = 4π U(θ₀, φ₀) / P_acc` as a
+    /// `(value, Wirtinger cotangent)` closure for the matched-UPML shape
+    /// gradient ([`crate::driven::shape::driven_shape_gradient_matched_upml_ports`]).
+    ///
+    /// `P_acc = Re(V·conj(I))/2` is the power accepted at the lumped port,
+    /// `V = inv_width·Σ flux_i x_i`, `I = (2 V_inc − V)/R` (the same port
+    /// functional as [`crate::driven::extraction::s11_sq_objective`]); this is
+    /// the IEEE gain definition (`G = D·η` incl. mismatch and dissipation).
+    /// The cotangent follows the `∂g/∂x_i` (un-conjugated Wirtinger)
+    /// convention of that module:
+    ///
+    /// ```text
+    /// ∂G/∂x = (k²/8π) [ (conj(E_θ) g_θ + conj(E_φ) g_φ)/P − S · (∂P/∂V) c f / P² ],
+    /// ∂P/∂V = (conj(V_inc) − conj(V)) / (2R),   S = |E_θ|² + |E_φ|².
+    /// ```
+    ///
+    /// Valid under the pinned-feed + stationary-box premise (neither the port
+    /// functional nor the near-to-far map depends on node positions), so no
+    /// explicit `∂g/∂X|_x` term is needed.
+    pub fn realized_gain_objective(
+        self,
+        flux: Vec<f64>,
+        inv_width: f64,
+        v_inc: c64,
+        resistance: f64,
+    ) -> impl Fn(&[c64]) -> (f64, Vec<c64>) {
+        move |x: &[c64]| {
+            assert_eq!(x.len(), flux.len(), "one DOF per global edge");
+            let (a, b) = self.components(x);
+            let s = a.norm_sqr() + b.norm_sqr();
+
+            let mut v = c64::new(0.0, 0.0);
+            for (f, xi) in flux.iter().zip(x.iter()) {
+                v += *xi * *f;
+            }
+            v *= inv_width;
+            let p_acc = (v * (v_inc * 2.0 - v).conj()).re / (2.0 * resistance);
+
+            let k_g = 4.0 * self.intensity_scale();
+            let g = k_g * s / p_acc;
+            let dp_dv = (v_inc.conj() - v.conj()) * (0.5 / resistance);
+            let port_scale = dp_dv * inv_width * (-k_g * s / (p_acc * p_acc));
+            let inv_p = k_g / p_acc;
+            let cot: Vec<c64> = (0..x.len())
+                .map(|i| {
+                    (a.conj() * self.g_theta[i] + b.conj() * self.g_phi[i]) * inv_p
+                        + port_scale * flux[i]
+                })
+                .collect();
+            (g, cot)
+        }
+    }
 }
 
 /// Far-field directivity from the radiated angular power.
@@ -662,6 +822,100 @@ mod tests {
         assert_eq!(gain(2.0, 0.5), 1.0);
         assert_eq!(gain(2.0, 1.5), 2.0); // η clamped to 1
         assert_eq!(gain(2.0, -0.3), 0.0); // η clamped to 0
+    }
+
+    /// Deterministic pseudo-random complex edge field (no RNG dependency).
+    fn pseudo_field(n: usize, seed: f64) -> Vec<c64> {
+        (0..n)
+            .map(|i| {
+                let t = i as f64 + seed;
+                c64::new((1.7 * t).sin() + 0.3, (0.9 * t).cos() - 0.2)
+            })
+            .collect()
+    }
+
+    /// The edge-space covectors reproduce `ntff_far_field` on its grid.
+    #[test]
+    fn covectors_match_grid_far_field() {
+        let mesh = cube_tet_mesh(6, 1.0);
+        let n_edges = mesh.edges().len();
+        let e = pseudo_field(n_edges, 0.0);
+        let (lo, hi) = ([0.2, 0.2, 0.2], [0.8, 0.8, 0.8]);
+        let omega = 2.3;
+        let (n_theta, n_phi) = (7, 8);
+        let ff = ntff_far_field(&mesh, omega, &e, lo, hi, n_theta, n_phi);
+        for &(it, ip) in &[(0, 0), (2, 3), (3, 5), (6, 1)] {
+            let cov = far_field_covectors(&mesh, omega, lo, hi, ff.theta[it], ff.phi[ip]);
+            let (a, b) = cov.components(&e);
+            let idx = it * n_phi + ip;
+            assert!(
+                (a - ff.e_theta[idx]).norm() < 1e-10 * (1.0 + a.norm()),
+                "E_theta"
+            );
+            assert!(
+                (b - ff.e_phi[idx]).norm() < 1e-10 * (1.0 + b.norm()),
+                "E_phi"
+            );
+        }
+    }
+
+    /// Adjoint identity: the realized-gain Wirtinger cotangent satisfies
+    /// `dG = 2 Re(Σ cot_i δ_i)` for a random complex perturbation, and the
+    /// conjugated cotangent does not (tripwire that the check bites).
+    #[test]
+    fn realized_gain_cotangent_matches_directional_difference() {
+        let mesh = cube_tet_mesh(6, 1.0);
+        let n_edges = mesh.edges().len();
+        let (lo, hi) = ([0.2, 0.2, 0.2], [0.8, 0.8, 0.8]);
+        let omega = 1.9;
+        let cov = far_field_covectors(&mesh, omega, lo, hi, 0.4, 1.1);
+        // A port-like flux covector on a few edges, complex drive.
+        let mut flux = vec![0.0; n_edges];
+        for (i, f) in flux.iter_mut().enumerate().take(12) {
+            *f = 0.1 * (i as f64 - 5.0);
+        }
+        let obj = cov.realized_gain_objective(flux, 0.7, c64::new(1.0, 0.4), 0.3);
+
+        // (Synthetic field: P_acc need not be positive; the algebra is what is tested.)
+        let x: Vec<c64> = pseudo_field(n_edges, 1.0)
+            .iter()
+            .map(|z| *z * 0.05)
+            .collect();
+        let d = pseudo_field(n_edges, 7.0);
+        let (g0, cot) = obj(&x);
+        assert!(g0.is_finite() && g0.abs() > 1e-6, "degenerate gain {g0}");
+        let h = 1e-6;
+        let shift =
+            |s: f64| -> Vec<c64> { x.iter().zip(&d).map(|(xi, di)| *xi + *di * s).collect() };
+        let fd = (obj(&shift(h)).0 - obj(&shift(-h)).0) / (2.0 * h);
+        let ana: f64 = 2.0 * cot.iter().zip(&d).map(|(c, di)| (*c * *di).re).sum::<f64>();
+        let rel = (ana - fd).abs() / fd.abs().max(1e-12);
+        assert!(rel < 1e-4, "cotangent {ana} vs FD {fd}, rel {rel:.2e}");
+        let wrong: f64 = 2.0
+            * cot
+                .iter()
+                .zip(&d)
+                .map(|(c, di)| (c.conj() * *di).re)
+                .sum::<f64>();
+        assert!(
+            (wrong - fd).abs() / fd.abs().max(1e-12) > 1e-3,
+            "conjugation not detected"
+        );
+    }
+
+    /// The pinned-node mask covers exactly the nodes of the surface tets.
+    #[test]
+    fn box_surface_tet_nodes_cover_surface() {
+        use crate::driven::scattering::{box_surface_faces, box_surface_tet_nodes};
+        let mesh = cube_tet_mesh(6, 1.0);
+        let (lo, hi) = ([0.2, 0.2, 0.2], [0.8, 0.8, 0.8]);
+        let pinned = box_surface_tet_nodes(&mesh, lo, hi);
+        for f in box_surface_faces(&mesh, lo, hi) {
+            for &n in &mesh.tets[f.tet] {
+                assert!(pinned[n as usize]);
+            }
+        }
+        assert!(pinned.iter().any(|&p| p) && pinned.iter().any(|&p| !p));
     }
 
     /// Shared `cross` helper agrees with the right-hand rule.
