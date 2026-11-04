@@ -137,6 +137,11 @@ pub struct ConductorLayer {
     /// [`MeshControls::size_conductor`]).
     #[serde(default)]
     pub mesh_size: Option<f64>,
+    /// Finite conductivity σ in S/m (`> 0`). When set, the layer's group
+    /// is a Leontovich surface-impedance wall in the driven starter spec
+    /// (`boundary_conditions.leontovich`) instead of PEC. Omit for PEC.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conductivity_s_m: Option<f64>,
 }
 
 impl ConductorLayer {
@@ -411,6 +416,9 @@ pub struct ConductorGroup {
     pub body: ConductorBody,
     /// Listed in [`Layout::ground`].
     pub ground: bool,
+    /// Finite conductivity (S/m) shared by every layer in the group;
+    /// `None` = PEC.
+    pub conductivity_s_m: Option<f64>,
 }
 
 /// An axis-aligned face `[lo, hi]` (degenerate along one axis).
@@ -1100,6 +1108,9 @@ impl Layout {
             if let Some(s) = c.mesh_size {
                 positive(&format!("conductors[{}].mesh_size", c.name), s)?;
             }
+            if let Some(s) = c.conductivity_s_m {
+                positive(&format!("conductors[{}].conductivity_s_m", c.name), s)?;
+            }
             if !(c.z_bottom > z_min && c.z_top() < z_max) {
                 return Err(format!(
                     "conductors[{}] spans z = [{}, {}], which must lie strictly inside the \
@@ -1160,6 +1171,7 @@ impl Layout {
             parts: Vec::new(),
             body: ConductorBody::Sheet,
             ground: self.ground.iter().any(|g| g == name),
+            conductivity_s_m: None,
         };
         let layer_group: Vec<Option<usize>> = self
             .conductors
@@ -1181,6 +1193,16 @@ impl Layout {
                     None => layer_group[li].expect("layer has un-netted polygons"),
                     Some(n) => net_base + nets.iter().position(|m| m == n).expect("collected"),
                 };
+                if cgroups[g].parts.is_empty() {
+                    cgroups[g].conductivity_s_m = c.conductivity_s_m;
+                } else if cgroups[g].conductivity_s_m != c.conductivity_s_m {
+                    return Err(format!(
+                        "conductor group `{}` mixes layers with different conductivity_s_m \
+                         (layer `{}` has {:?}, an earlier layer has {:?}); give every layer \
+                         of a net the same value",
+                        cgroups[g].name, c.name, c.conductivity_s_m, cgroups[g].conductivity_s_m
+                    ));
+                }
                 for (&rect, poly) in shape.rects.iter().zip(&shape.polys) {
                     cgroups[g].parts.push(GroupPart {
                         layer: li,
@@ -1622,6 +1644,55 @@ mod tests {
     }
 
     #[test]
+    fn conductivity_is_validated_and_carried_to_the_group() {
+        let mut l = two_pad_layout();
+        let r = l.clone().resolve().unwrap();
+        assert_eq!(r.groups[0].conductivity_s_m, None);
+        l.conductors[0].conductivity_s_m = Some(5.8e7);
+        let r = l.clone().resolve().unwrap();
+        assert_eq!(r.groups[0].conductivity_s_m, Some(5.8e7));
+        for bad in [0.0, -1.0, f64::NAN] {
+            l.conductors[0].conductivity_s_m = Some(bad);
+            assert!(
+                l.clone()
+                    .resolve()
+                    .unwrap_err()
+                    .contains("conductivity_s_m")
+            );
+        }
+    }
+
+    #[test]
+    fn a_net_cannot_mix_conductivities() {
+        let mut l: Layout = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [
+                {"name": "substrate", "z_bottom": -10, "thickness": 10, "eps_r": [11.9, 0]},
+                {"name": "air", "z_bottom": 0, "thickness": 20}
+            ],
+            "conductors": [
+                {"name": "m1", "z_bottom": 1, "conductivity_s_m": 3.0e7,
+                 "polygons": [
+                    {"name": "a", "net": "n", "outer": rect(0.0, 0.0, 4.0, 4.0)},
+                    {"name": "b", "net": "n", "outer": rect(0.0, 6.0, 4.0, 10.0)}]},
+                {"name": "m2", "z_bottom": 3,
+                 "polygons": [{"net": "n", "outer": rect(0.0, 0.0, 4.0, 4.0)}]}
+            ],
+            "ports": [{"name": "p1", "layer": "m1", "between": ["a", "b"]}],
+            "margin": 5,
+            "mesh": {"size_max": 5, "size_conductor": 1}
+        }))
+        .unwrap();
+        assert!(l.clone().resolve().unwrap_err().contains("mixes layers"));
+        l.conductors[1].conductivity_s_m = Some(3.0e7);
+        assert_eq!(
+            l.clone().resolve().unwrap().groups[0].conductivity_s_m,
+            Some(3.0e7)
+        );
+    }
+
+    #[test]
     fn rectangle_and_l_shape_decompose() {
         let r = decompose_rectilinear(&rect(0.0, 0.0, 2.0, 1.0)).unwrap();
         assert_eq!(
@@ -1739,7 +1810,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(l.boundary, BoundaryDef::Pec {});
-        let r = l.resolve().unwrap();
+        let r = l.clone().resolve().unwrap();
         assert_eq!(r.ports[0].resistance_ohm, 50.0);
         assert_eq!(r.ports[0].e_hat, [1.0, 0.0, 0.0]);
 
@@ -1830,7 +1901,7 @@ mod tests {
                 .join("tests/fixtures")
                 .join(fixture);
             let l: Layout = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-            let r = l.resolve().unwrap();
+            let r = l.clone().resolve().unwrap();
             assert_eq!(r.groups.len(), r.layout.conductors.len(), "{fixture}");
             for (i, (g, c)) in r.groups.iter().zip(&r.layout.conductors).enumerate() {
                 assert_eq!(g.name, c.name);
@@ -1915,7 +1986,7 @@ mod tests {
         let mut l = two_pad_layout();
         l.conductors[0].polygons[0].net = Some("na".into());
         l.conductors[0].polygons[1].net = Some("nb".into());
-        let r = l.resolve().unwrap();
+        let r = l.clone().resolve().unwrap();
         assert_eq!(names(&r), ["na", "nb"]);
     }
 
