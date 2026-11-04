@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.120.0
+      - uses: dtolnay/rust-toolchain@1.98.1
       - name: Install checksum-pinned LibTorch 2.9 CPU archive
         shell: bash
         run: |
