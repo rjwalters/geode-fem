@@ -796,6 +796,16 @@ pub fn extract_capacitance(
 /// The recomputed true residual must satisfy
 /// `‖b − K x‖₂ ≤ TRUE_RESIDUAL_SLACK · rel_tol · ‖b‖₂` for the solve to count
 /// as converged (the recurrence residual alone is not trusted).
+///
+/// Why 10: in exact arithmetic the recurrence residual equals the true one;
+/// the gate only has to absorb rounding drift, not a looser solve. Measured
+/// 2026-11-04 (`cargo test -p geode-core --lib amg_pcg_capacitance_matches_direct_lu
+/// -- --nocapture` with a temporary print of `true_rel / rel_tol`, default
+/// `rel_tol = 1e-10`): the two-conductor AMG-PCG solve gave 0.35 and 0.53; the
+/// SPD chain control gave 4e-6. So real solves sit below 1x `rel_tol` and 10x
+/// leaves ~19x headroom over the worst observed case, while a recurrence/true
+/// mismatch of even 1e-6 (see `amg_pcg_true_residual_gate_rejects_drift_1065`)
+/// is rejected by four orders of magnitude.
 const TRUE_RESIDUAL_SLACK: f64 = 10.0;
 
 /// Options for [`extract_capacitance_amg_pcg`].
@@ -914,6 +924,112 @@ pub fn extract_capacitance_amg_pcg_fields(
     )
 }
 
+/// Preconditioned CG on the reduced system `K x = b` with the true-residual
+/// gate, returning `(x, iterations, true_relative_residual)`.
+///
+/// `precond` applies `z = M⁻¹ r`; `loop_matvec` applies the operator inside
+/// the CG recurrence. Production passes the AMG V-cycle and `K` itself, so the
+/// recurrence and the true residual use the same operator; the split exists so
+/// tests can inject a preconditioner or a recurrence/true-operator mismatch.
+/// The true residual is always recomputed with the real `k`.
+fn pcg_solve(
+    k: &SparseColMat<usize, f64>,
+    b: &[f64],
+    b_norm: f64,
+    opts: AmgPcgOptions,
+    excitation: usize,
+    mut precond: impl FnMut(&[f64], &mut [f64]),
+    mut loop_matvec: impl FnMut(&[f64], &mut [f64]),
+) -> Result<(Vec<f64>, usize, f64), ElectrostaticError> {
+    let i = excitation;
+    let nf = b.len();
+    let mut x = vec![0.0_f64; nf];
+    let mut it = 0;
+    if b_norm > 0.0 {
+        let mut r = b.to_vec();
+        let mut z = vec![0.0_f64; nf];
+        precond(&r, &mut z);
+        let mut p = z.clone();
+        let mut rz = dot_slices(&r, &z);
+        let mut q = vec![0.0_f64; nf];
+        loop {
+            let rn = dot_slices(&r, &r).sqrt();
+            // A NaN/inf residual fails every `>` comparison, so it must be
+            // caught before the convergence test, not by it.
+            if !rn.is_finite() {
+                return Err(ElectrostaticError::NotConverged(format!(
+                    "excitation {i}: non-finite residual after {it} iterations"
+                )));
+            }
+            if rn <= opts.rel_tol * b_norm {
+                break;
+            }
+            if it == opts.max_iter {
+                return Err(ElectrostaticError::NotConverged(format!(
+                    "excitation {i}: relative residual {:.3e} after {it} iterations \
+                     (tolerance {:.1e})",
+                    rn / b_norm,
+                    opts.rel_tol
+                )));
+            }
+            // PCG with an SPD preconditioner has r.z > 0 while r != 0. This
+            // is checked after the convergence test because an exact solve
+            // legitimately ends with r = 0 and so r.z = 0. A non-positive or
+            // non-finite r.z means the preconditioner is indefinite/broken
+            // (and would otherwise give beta = NaN or a wrong-sign step).
+            if !rz.is_finite() || rz <= 0.0 {
+                return Err(ElectrostaticError::NotConverged(format!(
+                    "excitation {i}: CG breakdown (r.z = {rz:e} <= 0 or non-finite) \
+                     after {it} iterations; the preconditioner is not SPD"
+                )));
+            }
+            loop_matvec(&p, &mut q);
+            let pq = dot_slices(&p, &q);
+            // CG on an SPD operator has p.q > 0; otherwise the operator
+            // is indefinite/singular (or the data are non-finite).
+            if pq.is_nan() || pq <= 0.0 || pq.is_infinite() {
+                return Err(ElectrostaticError::NotConverged(format!(
+                    "excitation {i}: CG breakdown (p.Kp = {pq:e} <= 0 or non-finite) \
+                     after {it} iterations; the operator is not SPD"
+                )));
+            }
+            let alpha = rz / pq;
+            for j in 0..nf {
+                x[j] += alpha * p[j];
+                r[j] -= alpha * q[j];
+            }
+            precond(&r, &mut z);
+            let rz_new = dot_slices(&r, &z);
+            let beta = rz_new / rz;
+            rz = rz_new;
+            for j in 0..nf {
+                p[j] = z[j] + beta * p[j];
+            }
+            it += 1;
+        }
+    }
+    // True residual, recomputed against the real operator.
+    let mut kx = vec![0.0_f64; nf];
+    sym_spmv(k, &x, &mut kx);
+    let res = b
+        .iter()
+        .zip(&kx)
+        .map(|(bi, ki)| (bi - ki).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    let true_rel = if b_norm > 0.0 { res / b_norm } else { 0.0 };
+    // The recurrence residual can drift from the true one; success
+    // requires the true residual within TRUE_RESIDUAL_SLACK x rel_tol.
+    if true_rel.is_nan() || true_rel > TRUE_RESIDUAL_SLACK * opts.rel_tol {
+        return Err(ElectrostaticError::NotConverged(format!(
+            "excitation {i}: recurrence residual met the tolerance but the true relative \
+             residual is {true_rel:.3e} (> {TRUE_RESIDUAL_SLACK} x tolerance {:.1e})",
+            opts.rel_tol
+        )));
+    }
+    Ok((x, it, true_rel))
+}
+
 /// The AMG-PCG energy-method Maxwell matrix on any assembled system (P1 or
 /// P2): one unit excitation per conductor DOF set, the reduced `k` solved by
 /// PCG, `C_ij = u⁽ⁱ⁾ᵀ K_full u⁽ʲ⁾`.
@@ -955,79 +1071,15 @@ pub(crate) fn amg_pcg_maxwell(
                 "excitation {i}: non-finite right-hand side"
             )));
         }
-        let mut x = vec![0.0_f64; nf];
-        let mut it = 0;
-        if b_norm > 0.0 {
-            let mut r = b.clone();
-            let mut z = vec![0.0_f64; nf];
-            amg.apply(&r, &mut z);
-            let mut p = z.clone();
-            let mut rz = dot_slices(&r, &z);
-            let mut q = vec![0.0_f64; nf];
-            loop {
-                let rn = dot_slices(&r, &r).sqrt();
-                // A NaN/inf residual fails every `>` comparison, so it must be
-                // caught before the convergence test, not by it.
-                if !rn.is_finite() {
-                    return Err(ElectrostaticError::NotConverged(format!(
-                        "excitation {i}: non-finite residual after {it} iterations"
-                    )));
-                }
-                if rn <= opts.rel_tol * b_norm {
-                    break;
-                }
-                if it == opts.max_iter {
-                    return Err(ElectrostaticError::NotConverged(format!(
-                        "excitation {i}: relative residual {:.3e} after {it} iterations \
-                         (tolerance {:.1e})",
-                        dot_slices(&r, &r).sqrt() / b_norm,
-                        opts.rel_tol
-                    )));
-                }
-                sym_spmv(k, &p, &mut q);
-                let pq = dot_slices(&p, &q);
-                // CG on an SPD operator has p.q > 0; otherwise the operator
-                // is indefinite/singular (or the data are non-finite).
-                if pq.is_nan() || pq <= 0.0 || pq.is_infinite() {
-                    return Err(ElectrostaticError::NotConverged(format!(
-                        "excitation {i}: CG breakdown (p.Kp = {pq:e} <= 0 or non-finite) \
-                         after {it} iterations; the operator is not SPD"
-                    )));
-                }
-                let alpha = rz / pq;
-                for j in 0..nf {
-                    x[j] += alpha * p[j];
-                    r[j] -= alpha * q[j];
-                }
-                amg.apply(&r, &mut z);
-                let rz_new = dot_slices(&r, &z);
-                let beta = rz_new / rz;
-                rz = rz_new;
-                for j in 0..nf {
-                    p[j] = z[j] + beta * p[j];
-                }
-                it += 1;
-            }
-        }
-        // True residual, recomputed.
-        let mut kx = vec![0.0_f64; nf];
-        sym_spmv(k, &x, &mut kx);
-        let res = b
-            .iter()
-            .zip(&kx)
-            .map(|(bi, ki)| (bi - ki).powi(2))
-            .sum::<f64>()
-            .sqrt();
-        let true_rel = if b_norm > 0.0 { res / b_norm } else { 0.0 };
-        // The recurrence residual can drift from the true one; success
-        // requires the true residual within TRUE_RESIDUAL_SLACK x rel_tol.
-        if true_rel.is_nan() || true_rel > TRUE_RESIDUAL_SLACK * opts.rel_tol {
-            return Err(ElectrostaticError::NotConverged(format!(
-                "excitation {i}: recurrence residual met the tolerance but the true relative \
-                 residual is {true_rel:.3e} (> {TRUE_RESIDUAL_SLACK} x tolerance {:.1e})",
-                opts.rel_tol
-            )));
-        }
+        let (x, it, true_rel) = pcg_solve(
+            k,
+            &b,
+            b_norm,
+            opts,
+            i,
+            |r, z| amg.apply(r, z),
+            |p, q| sym_spmv(k, p, q),
+        )?;
         report.iterations.push(it);
         report.rel_residual.push(true_rel);
         let mut u = pinned_value;
@@ -2389,6 +2441,146 @@ mod tests {
             matches!(
                 &r,
                 Err(ElectrostaticError::NotConverged(m)) if m.contains("breakdown")
+            ),
+            "{r:?}"
+        );
+    }
+
+    /// Reduced chain operator, its AMG preconditioner and the folded RHS
+    /// (excitation of the conductor DOF) for driving `pcg_solve` directly.
+    fn chain_problem(n: usize) -> (SparseColMat<usize, f64>, Vec<f64>, f64) {
+        let (k, _) = chain(n, |_| 2.0, -1.0);
+        // Conductor at 1 V couples to the last free DOF through off = -1.
+        let mut b = vec![0.0_f64; n];
+        b[n - 1] = 1.0;
+        (k, b, 1.0)
+    }
+
+    /// `y = scale * K x` -- a recurrence operator that disagrees with `K`.
+    fn scaled_matvec(
+        k: &SparseColMat<usize, f64>,
+        scale: f64,
+    ) -> impl FnMut(&[f64], &mut [f64]) + '_ {
+        move |x, y| {
+            sym_spmv(k, x, y);
+            y.iter_mut().for_each(|v| *v *= scale);
+        }
+    }
+
+    /// The true-residual gate: the recurrence residual reaches `rel_tol`
+    /// against a slightly wrong operator, the true residual against `K` does
+    /// not, and the solve must be rejected. The control (matching operator)
+    /// converges.
+    #[test]
+    fn amg_pcg_true_residual_gate_rejects_drift_1065() {
+        let n = 40;
+        let (k, b, b_norm) = chain_problem(n);
+        let opts = AmgPcgOptions::default();
+        let amg = crate::eigen::ams::ScalarAmg::new(k.as_ref(), opts.cycles).unwrap();
+        let (_, it, true_rel) = pcg_solve(
+            &k,
+            &b,
+            b_norm,
+            opts,
+            0,
+            |r, z| amg.apply(r, z),
+            scaled_matvec(&k, 1.0),
+        )
+        .unwrap();
+        assert!(it > 0 && true_rel <= TRUE_RESIDUAL_SLACK * opts.rel_tol);
+        // Recurrence operator (1 + 1e-6) K: converges against it, but
+        // K x - b = -1e-6/(1+1e-6) b, i.e. true_rel ~ 1e-6 >> 10 * 1e-10.
+        let r = pcg_solve(
+            &k,
+            &b,
+            b_norm,
+            opts,
+            0,
+            |r, z| amg.apply(r, z),
+            scaled_matvec(&k, 1.0 + 1e-6),
+        );
+        assert!(
+            matches!(
+                &r,
+                Err(ElectrostaticError::NotConverged(m)) if m.contains("true relative")
+            ),
+            "{r:?}"
+        );
+    }
+
+    /// An indefinite / zero / NaN preconditioner (`r.z <= 0` or non-finite)
+    /// is a breakdown even though `p.Kp` of the SPD operator would be fine.
+    #[test]
+    fn amg_pcg_preconditioner_breakdown_1065() {
+        let n = 40;
+        let (k, b, b_norm) = chain_problem(n);
+        let opts = AmgPcgOptions::default();
+        let run = |precond: &mut dyn FnMut(&[f64], &mut [f64])| {
+            pcg_solve(&k, &b, b_norm, opts, 0, precond, scaled_matvec(&k, 1.0))
+        };
+        // Indefinite from the very first apply: z = -r gives r.z < 0.
+        let r = run(&mut |r, z| {
+            z.iter_mut().zip(r).for_each(|(zi, ri)| *zi = -ri);
+        });
+        assert!(
+            matches!(&r, Err(ElectrostaticError::NotConverged(m))
+                if m.contains("breakdown") && m.contains("r.z")),
+            "{r:?}"
+        );
+        // r.z == 0 with r != 0 would otherwise give beta = NaN.
+        let r = run(&mut |_, z| z.fill(0.0));
+        assert!(
+            matches!(&r, Err(ElectrostaticError::NotConverged(m))
+                if m.contains("breakdown") && m.contains("r.z")),
+            "{r:?}"
+        );
+        // Healthy first apply (identity), then NaN: caught on the next
+        // iteration's r.z (r itself is still finite there).
+        let mut calls = 0;
+        let r = run(&mut |r, z| {
+            calls += 1;
+            if calls == 1 {
+                z.copy_from_slice(r);
+            } else {
+                z.fill(f64::NAN);
+            }
+        });
+        assert!(
+            matches!(&r, Err(ElectrostaticError::NotConverged(m))
+                if m.contains("breakdown") && m.contains("r.z") && m.contains("non-finite")),
+            "{r:?}"
+        );
+    }
+
+    /// The in-loop non-finite-residual branch is reachable when `p.Kp` is a
+    /// tiny positive number while `Kp` is huge (an ill-conditioned operator):
+    /// `alpha = r.z / p.Kp` is large and `alpha * q` overflows, so `r` becomes
+    /// infinite although every scalar checked before the update was finite.
+    #[test]
+    fn amg_pcg_nonfinite_residual_branch_1065() {
+        let n = 40;
+        let (k, b, b_norm) = chain_problem(n);
+        let opts = AmgPcgOptions::default();
+        // p = 0.01 r = 0.01 e_{n-1}: p_0 = p_1 = 0, so adding w = 1e308 (e_0 - e_1)
+        // to K p leaves p.q = p.Kp = 2e-4 exactly, while alpha = 50 and
+        // alpha * 1e308 overflows.
+        let r = pcg_solve(
+            &k,
+            &b,
+            b_norm,
+            opts,
+            0,
+            |r, z| z.iter_mut().zip(r).for_each(|(zi, ri)| *zi = 0.01 * ri),
+            |p, q| {
+                sym_spmv(&k, p, q);
+                q[0] += 1e308;
+                q[1] -= 1e308;
+            },
+        );
+        assert!(
+            matches!(
+                &r,
+                Err(ElectrostaticError::NotConverged(m)) if m.contains("non-finite residual")
             ),
             "{r:?}"
         );
