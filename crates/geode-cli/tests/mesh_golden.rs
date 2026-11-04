@@ -42,7 +42,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use geode_core::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
+use geode_core::analytic::spiral::{mohan_current_sheet_l, SquareSpiral};
 
 fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1010,10 +1010,7 @@ fn gds_script_emits_a_layout_geode_mesh_accepts() {
         .arg("-rd")
         .arg("cell=TOP")
         .arg("-rd")
-        .arg(format!(
-            "layermap={}",
-            s(&gds.join("two_bars.layermap.json"))
-        ))
+        .arg(format!("layermap={}", s(&gds.join("two_bars.layermap"))))
         .arg("-rd")
         .arg(format!("out={}", s(&layout)))
         .output()

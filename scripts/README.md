@@ -9,7 +9,7 @@ Repository maintenance scripts used by CI and by the release flow.
 | [`ci-test-coverage-allowlist.txt`](ci-test-coverage-allowlist.txt) | Integration-test targets that intentionally run in no CI workflow, each with a reason |
 | [`ci-test-coverage-ignored-allowlist.txt`](ci-test-coverage-ignored-allowlist.txt) | `#[ignore]`d tests that intentionally run in no CI workflow (issue #793) |
 | [`aws/geode-worker.sh`](aws/geode-worker.sh) | The AWS worker pool: launch, bootstrap, ssh into, sync results from, stop and cost tagged EC2 workers (`project=geode-fem`) that stop themselves when idle, so heavy builds and solver runs leave the local Mac. Guide: [`aws/README.md`](aws/README.md) |
-| [`gds2geode-layout.py`](gds2geode-layout.py) | KLayout batch script (issue #1288): flattens a GDS/OASIS cell (hierarchy and arrays) to `geode mesh` layout JSON v1, given a layer map JSON. Run as `klayout -b -r scripts/gds2geode-layout.py -rd gds=… -rd cell=… -rd layermap=… -rd out=…`; example map in `crates/geode-cli/tests/fixtures/gds/` |
+| [`gds2geode-layout.py`](gds2geode-layout.py) | KLayout batch script (issue #1288): flattens a GDS/OASIS cell (hierarchy and arrays) to `geode mesh` layout JSON v1, given a layer map JSON. Run as `klayout -b -r scripts/gds2geode-layout.py -rd gds=… -rd cell=… -rd layermap=… -rd out=…`; example map `crates/geode-cli/tests/fixtures/gds/two_bars.layermap` (not `.json`, so the `schema` test walker skips it) |
 
 Usage, from the repository root:
 
