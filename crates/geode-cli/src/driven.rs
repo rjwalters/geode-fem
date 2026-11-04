@@ -706,7 +706,7 @@ fn dense_sweep<B: burn::tensor::backend::Backend>(
         let op = s_parameter_operator::<B>(
             mesh,
             FrequencyMaterials::constant(p).materials(),
-            None,
+            p.sigma(),
             bcs,
             lumped,
             surfaces,
@@ -718,8 +718,15 @@ fn dense_sweep<B: burn::tensor::backend::Backend>(
     par_map(n, opts.jobs, |index| {
         let device = <B as BackendTypes>::Device::default();
         let m = FrequencyMaterials::at(p, &centroids, &p.frequencies[index]);
-        let op =
-            s_parameter_operator::<B>(mesh, m.materials(), None, bcs, lumped, surfaces, &device)?;
+        let op = s_parameter_operator::<B>(
+            mesh,
+            m.materials(),
+            p.sigma(),
+            bcs,
+            lumped,
+            surfaces,
+            &device,
+        )?;
         solve_row(index, &op)
     })
 }
@@ -747,7 +754,7 @@ fn adaptive_sweep<B: burn::tensor::backend::Backend>(
     let op = s_parameter_operator::<B>(
         &p.tagged.mesh,
         FrequencyMaterials::constant(p).materials(),
-        None,
+        p.sigma(),
         bcs,
         lumped,
         surfaces,
@@ -1376,7 +1383,7 @@ fn dense_channel_points<B: burn::tensor::backend::Backend>(
         solve_wave_port_sweep_with_mode::<B>(
             &p.tagged.mesh,
             materials,
-            None,
+            p.sigma(),
             bcs,
             ports,
             surfaces,
@@ -1391,7 +1398,7 @@ fn dense_channel_points<B: burn::tensor::backend::Backend>(
         solve_mixed_port_sweep_with_mode::<B>(
             &p.tagged.mesh,
             materials,
-            None,
+            p.sigma(),
             bcs,
             lumped,
             ports,
@@ -1435,7 +1442,7 @@ fn adaptive_wave_sweep<B: burn::tensor::backend::Backend>(
     let op = DrivenOperator::assemble::<B>(
         mesh,
         materials.materials(),
-        None,
+        p.sigma(),
         bcs,
         lumped,
         surfaces,
@@ -1652,7 +1659,7 @@ impl<'a, B: burn::tensor::backend::Backend> Exporter<'a, B> {
         Ok(DrivenOperator::assemble::<B>(
             &self.p.tagged.mesh,
             materials,
-            None,
+            self.p.sigma(),
             &DrivenBcs {
                 pec_interior_mask: &self.p.pec_mask,
             },

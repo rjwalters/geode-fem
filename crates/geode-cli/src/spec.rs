@@ -608,6 +608,10 @@ pub enum SensitivityParameterKind {
     /// Loss tangent `tan δ = ε″/ε′`, `ε′` held (driven, issue #883):
     /// `∂/∂tan δ = ε′·∂/∂ε″`.
     TanDelta,
+    /// Volumetric conductivity `σ` in S/m (driven N-port S sensitivity,
+    /// issue #1254): `∂A/∂σ = jωM`. The region's `conductivity_s_m` is the
+    /// design point (absent = 0).
+    Sigma,
     /// Relative reluctivity `ν_r = 1/μ_r` (inductance) — the parameter
     /// the inductance energy form is linear in.
     NuR,
@@ -626,6 +630,7 @@ impl SensitivityParameterKind {
             SensitivityParameterKind::EpsR => "eps_r",
             SensitivityParameterKind::EpsRImag => "eps_r_imag",
             SensitivityParameterKind::TanDelta => "tan_delta",
+            SensitivityParameterKind::Sigma => "sigma",
             SensitivityParameterKind::NuR => "nu_r",
             SensitivityParameterKind::MuR => "mu_r",
             SensitivityParameterKind::Shape => "shape",
@@ -736,6 +741,15 @@ pub struct MaterialSpec {
     /// an isotropic `μ_r ≠ 1` there.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mu_r_diag: Option<MuDiagSpec>,
+    /// Volumetric electrical conductivity `σ` in S/m (additive in v1, issue
+    /// #1254; finite, `≥ 0`). Omit (or `null`) for a non-conducting region —
+    /// existing specs are unchanged. It adds the conduction term `jωσM` to
+    /// the driven operator (`exp(+jωt)`: `Im ε_eff = −σ/ω`), in `driven`,
+    /// `extract` and a `driven` `sensitivity` (a `kind: "sigma"` parameter).
+    /// Rejected by `eigen`, `capacitance` and `inductance`, which have no
+    /// conduction term.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conductivity_s_m: Option<f64>,
 }
 
 /// Diagonal complex relative-permittivity tensor `diag(ε_xx, ε_yy, ε_zz)`

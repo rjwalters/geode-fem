@@ -223,6 +223,7 @@ Driven example (the spiral-inductor golden input,
 | `materials[].physical_group` | string | name of a **dimension-3** physical group |
 | `materials[].eps_r` | `[re, im]`, `im ≤ 0` (eigen: `re > 0`; capacitance: `im = 0`, `re > 0`; inductance: omit or `[1, 0]`); default `[1, 0]` (vacuum, for every analysis: a `materials` entry may omit `eps_r`) | complex relative permittivity, `exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`. `im > 0` (gain) is rejected |
 | `materials[].mu_r` | float > 0, default `1` (additive in v1, issue #714) | real relative permeability. Honoured **only by `geode inductance`**; every other analysis rejects `mu_r ≠ 1` (for a permeable region in `driven` / `extract` / `eigen` give `mu_r_diag`, three equal components for an isotropic one) |
+| `materials[].conductivity_s_m` | float `≥ 0`, S/m; omit for a non-conducting region (additive, issue #1254); `driven` / `extract` only | **volumetric conductivity**: adds the conduction term `jωσM` to the driven operator (`exp(+jωt)`, so `Im ε_eff = −σ/ω`; natural units `σ·η₀·length_unit_m`, like `leontovich[].conductivity_s_m`). Absent or `0` leaves the spec byte-identical. A Drude region with `ω_p² = σγ/ε₀`, `γ → ∞` is the same medium. `driven` `sensitivity` differentiates it (`kind: "sigma"`); `eigen` / `capacitance` / `inductance` reject `σ > 0` — see [`spiral_inductor_sigma.json`](examples/driven/README.md#explicit-conductivity-silicon-issue-1254) |
 | `materials[].eps_r_diag` | optional `{"xx": [re, im], "yy": …, "zz": …}`, each `im ≤ 0` (additive, issue #760) | **diagonal anisotropic** permittivity in mesh axes; replaces `eps_r` (omit it) and cannot be combined with `dispersion`. `driven` / `extract` / `eigen` (eigen: every `re > 0`) and `capacitance` (every component real, `> 0`); rejected by `inductance` and with `sensitivity` — see [Anisotropic materials](#anisotropic-materials-issue-760) |
 | `materials[].mu_r_diag` | optional `{"xx": μ, "yy": μ, "zz": μ}`, each finite `> 0` (additive, issue #760) | **diagonal anisotropic** real permeability in mesh axes; replaces `mu_r` (omit it). `driven` / `extract` / `eigen` and `inductance`; rejected by `capacitance` and with `sensitivity` |
 | `materials[].dispersion` | optional (additive, #757 / #761); driven / extract dense sweeps only | frequency-dependent permittivity, one of `{"model": "djordjevic_sarkar", "eps_r": ε′, "tan_delta": tan δ, "f_ref_hz": f_ref}` (optional `f_low_hz` = `1e3`, `f_high_hz` = `1e12`), `{"model": "debye", "eps_inf": ε∞, "poles": [{"delta_eps": Δε, "tau_s": τ}, …]}` or `{"model": "drude", "eps_inf": ε∞, "omega_p_rad_s": ω_p, "gamma_rad_s": γ}`; replaces `eps_r` (which must then be omitted) — see [Dispersive dielectrics](#dispersive-dielectrics-issue-757) |
@@ -1281,7 +1282,7 @@ consumed by that subcommand.
 | `inductance` | every `L_ij` (H) | `nu_r` (= `1/μ_r`), `mu_r` | self-adjoint energy form (`inductance_adjoint_sensitivity`), `∂L/∂μ_r = −ν_r² ∂L/∂ν_r` | the forward solves again on one factorization; no adjoint solve |
 | `eigen`, **lossless** (real `eps_r`, no `absorbing_regions`) | `frequency_hz` of each `modes[]` entry | `eps_r` | Hellmann–Feynman (`EigenSensitivity::deigenvalue_deps`), `∂f/∂ε = (f/2λ) ∂λ/∂ε` | a local contraction; no solve |
 | `driven`, **exactly one** lumped port, no `wave_ports` / `absorbing_regions`, direct solver, dense sweep (issue #739) | `s11_mag_sq` = `\|S11\|²` at **every** swept frequency (dimensionless) | `eps_r` | port-loaded discrete adjoint (`driven_material_adjoint_gradient_ports` + `s11_sq_objective`) | per frequency: one assembly + LU of the port-loaded `A(ω)`, one forward + one adjoint back-solve |
-| `driven` with `observables`, `frequencies`, a non-`eps_r` kind or any other port set — lumped, wave (geometric, filled), mixed, walled, hybrid (issue #883) | `driven_observables`: any `S_ij` (`mag` / `mag_sq` / `db` / `phase_deg` / `real` / `imag`), `Σ\|S_ij\|²`, a hybrid port's `z0` / `eps_eff` | `eps_r`, `eps_r_imag`, `tan_delta`, `shape` | N-port S-matrix adjoint (`s_matrix_sensitivity_sweep`; reciprocity) | per frequency: one LU (the forward's own excitation solves, **zero** extra solves) — see [N-port driven sensitivities](#n-port-driven-sensitivities-issue-883) |
+| `driven` with `observables`, `frequencies`, a non-`eps_r` kind or any other port set — lumped, wave (geometric, filled), mixed, walled, hybrid (issue #883) | `driven_observables`: any `S_ij` (`mag` / `mag_sq` / `db` / `phase_deg` / `real` / `imag`), `Σ\|S_ij\|²`, a hybrid port's `z0` / `eps_eff` | `eps_r`, `eps_r_imag`, `tan_delta`, `sigma`, `shape` | N-port S-matrix adjoint (`s_matrix_sensitivity_sweep`; reciprocity) | per frequency: one LU (the forward's own excitation solves, **zero** extra solves) — see [N-port driven sensitivities](#n-port-driven-sensitivities-issue-883) |
 
 - **Parameters.** `physical_group` is any dimension-3 group (listed in
   `materials` or not — an unlisted group is differentiated at its vacuum
@@ -1399,6 +1400,7 @@ lumped-port spec whose parameters are all `eps_r` and that has no
     { "kind": "eps_r", "physical_group": "substrate" },        // ε′ (ε″ held)
     { "kind": "eps_r_imag", "physical_group": "substrate" },   // ε″ = −Im ε_r (ε′ held)
     { "kind": "tan_delta", "physical_group": "substrate" },    // tan δ (ε′ held)
+    { "kind": "sigma", "physical_group": "substrate" },        // σ in S/m (materials[].conductivity_s_m)
     { "kind": "shape", "name": "strip_width", "physical_group": "strip",
       "motion": "stretch", "axis": [1, 0, 0], "pinned": ["shield"] },
     { "kind": "shape", "name": "iris_x", "physical_groups": ["iris_l", "iris_r"],
@@ -1420,6 +1422,12 @@ lumped-port spec whose parameters are all `eps_r` and that has no
   `ε″` held; `eps_r_imag` is `ε″` (`ε_r = ε′ − jε″`) with `ε′` held — at a
   lossless point the gradient is the passive-side (`ε″ → 0⁺`) one;
   `tan_delta` is `tan δ = ε″/ε′` with `ε′` held (`∂/∂tan δ = ε′·∂/∂ε″`).
+  `sigma` is the volumetric conductivity `materials[].conductivity_s_m` in
+  S/m (absent = 0, the design point; issue #1254): `∂A/∂σ = jωM` through
+  the same zero-extra-solve adjoint, gradient per S/m. At `σ = 0` the
+  FD self-check is one-sided (a negative `σ` is gain). A `sigma` parameter on
+  a region that bounds a hybrid port's face is `invalid_spec` (σ there changes
+  the port's modes).
   A geometric wave port filled by a differentiated region follows it
   (its `β`, drive and power weights, #777); a hybrid port's face modes
   follow the face triangles' tets.

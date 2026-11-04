@@ -474,11 +474,27 @@ pub fn sweep(
     let (points, reports, core_warnings): (Vec<ChannelPoint>, _, _) = if lumped.is_empty() {
         let out = if dispersive {
             solve_wave_port_spec_sweep_dispersive_with_mode::<B>(
-                mesh, &eps_at, None, &bcs, &specs, &surfaces, &omegas, mode, &device,
+                mesh,
+                &eps_at,
+                p.sigma(),
+                &bcs,
+                &specs,
+                &surfaces,
+                &omegas,
+                mode,
+                &device,
             )
         } else {
             solve_wave_port_spec_sweep_with_mode::<B>(
-                mesh, materials, None, &bcs, &specs, &surfaces, &omegas, mode, &device,
+                mesh,
+                materials,
+                p.sigma(),
+                &bcs,
+                &specs,
+                &surfaces,
+                &omegas,
+                mode,
+                &device,
             )
         }
         .map_err(err)?;
@@ -490,11 +506,29 @@ pub fn sweep(
     } else {
         let out = if dispersive {
             solve_mixed_port_spec_sweep_dispersive_with_mode::<B>(
-                mesh, &eps_at, None, &bcs, &lumped, &specs, &surfaces, &omegas, mode, &device,
+                mesh,
+                &eps_at,
+                p.sigma(),
+                &bcs,
+                &lumped,
+                &specs,
+                &surfaces,
+                &omegas,
+                mode,
+                &device,
             )
         } else {
             solve_mixed_port_spec_sweep_with_mode::<B>(
-                mesh, materials, None, &bcs, &lumped, &specs, &surfaces, &omegas, mode, &device,
+                mesh,
+                materials,
+                p.sigma(),
+                &bcs,
+                &lumped,
+                &specs,
+                &surfaces,
+                &omegas,
+                mode,
+                &device,
             )
         }
         .map_err(err)?;

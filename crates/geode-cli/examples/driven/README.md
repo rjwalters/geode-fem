@@ -201,6 +201,35 @@ both to direct LU (`--ignored`, release). A Drude **plasma** with
 with `solver.mode = "direct"`; with `solver.preconditioner = "ams"` it is
 `invalid_spec` (the AMS SPD proxy needs `Re ε > 0`).
 
+## Explicit-conductivity silicon (issue #1254)
+
+`spiral_inductor_sigma.json` is `spiral_inductor_drude.json` with the Drude
+substrate replaced by the same 10 Ω·cm silicon as a plain conductor:
+`eps_r = [11.9, 0]` (the lattice `ε∞`) and `"conductivity_s_m": 10.0`, which
+adds the conduction term `jωσM` to the operator (`Im ε_eff = −σ/ω`). It is the
+`ω ≪ γ` limit of the Drude model: with `ω_p² = σγ/ε₀` and `γ → ∞` the two
+are the same medium (`tests/sensitivity_nport.rs` pins that to 1e-6 on a
+guide), but the finite-γ Drude spiral also has carrier inertia: `Re ε` drops by
+`ω_p²/γ² = 0.23` and `Im ε` by `ω²/γ²`.
+
+```sh
+geode driven crates/geode-cli/examples/driven/spiral_inductor_sigma.json -o spiral_sigma.json
+```
+
+Band of agreement with `spiral_inductor_drude.json` (`tests/cookbook.rs`
+asserts `|Z_σ − Z_Drude| / |Z_Drude| ≤ 2e-3` at every solved frequency):
+
+| f (GHz) | Drude `Z` (Ω) | explicit σ `Z` (Ω) | relative difference |
+|---|---|---|---|
+| 1  | 0.6353 + 5.330j | 0.6353 + 5.330j | 6e-8 |
+| 5  | 1.7445 + 25.022j | 1.7443 + 25.022j | 1.2e-5 |
+| 10 | 3.2312 + 51.227j | 3.2258 + 51.227j | 1.1e-4 |
+| 20 | 9.9213 + 122.216j | 9.8602 + 122.283j | 7.4e-4 |
+
+`σ` is also a sensitivity parameter (`{"kind": "sigma", "physical_group":
+"substrate"}`, gradient per S/m) — see the
+[CLI README](../../README.md#n-port-driven-sensitivities-issue-883).
+
 ## Waveguide into a lumped sheet (mixed ports, issue #759)
 
 `waveguide_lumped_sheet.json` (copy of

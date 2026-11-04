@@ -532,7 +532,7 @@ pub fn driven(
         let op = s_parameter_operator::<B>(
             mesh,
             DrivenMaterials::Scalar(&eps),
-            None,
+            p.sigma(),
             &bcs,
             &lumped,
             &walls,

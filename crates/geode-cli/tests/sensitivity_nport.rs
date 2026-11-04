@@ -1273,3 +1273,136 @@ fn n_port_kinds_and_observables_are_driven_only_and_check_gradient_needs_a_secti
         "{msg}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Volumetric conductivity `materials[].conductivity_s_m` (issue #1254)
+// ---------------------------------------------------------------------------
+
+/// Slab conductivity of the σ specs (S/m): `σ_nat = σ·η₀·L ≈ 18.8`, so the
+/// slab's `Im ε_eff = −σ_nat/k₀ ≈ −7` is a strongly lossy, smooth point.
+const SLAB_SIGMA_S_M: f64 = 5.0;
+
+/// A slab-guide spec whose slab conducts (`conductivity_s_m`, `None`: absent)
+/// and differentiates `σ` and `ε′` of the slab.
+fn sigma_spec(name: &str, ports: Ports, sigma: Option<f64>) -> ScratchFile {
+    slab_spec(name, ports, |v| {
+        let mut slab = json!({"physical_group": "slab", "eps_r": SLAB_EPS});
+        if let Some(s) = sigma {
+            slab["conductivity_s_m"] = json!(s);
+        }
+        v["materials"] = json!([slab]);
+        v["sensitivity"]["parameters"] = json!([
+            {"kind": "sigma", "physical_group": "slab"},
+            {"kind": "eps_r", "physical_group": "slab"}
+        ]);
+    })
+}
+
+#[test]
+fn volumetric_sigma_gradient_agrees_with_the_shipped_forward() {
+    // Lumped, then mixed (wave + lumped): the FD re-runs the *shipped*
+    // forward with the slab's `conductivity_s_m` moved ±h in S/m, so the
+    // gradient's unit (per S/m, not per natural unit) is pinned end to end.
+    for (name, ports) in [
+        ("sigma-lumped", Ports::Lumped),
+        ("sigma-mixed", Ports::Mixed),
+    ] {
+        let spec = sigma_spec(name, ports, Some(SLAB_SIGMA_S_M));
+        let r = ok(
+            &geode(&["driven", spec.to_str().unwrap(), "--check-gradient"]),
+            "geode driven --check-gradient (σ)",
+        );
+        let s = assert_fd_agreement(&r, name);
+        assert_every_parameter_is_live(&s, name);
+        assert_eq!(s["parameters"][0]["kind"], "sigma");
+        assert_eq!(f(&s["parameters"][0]["value"]), SLAB_SIGMA_S_M);
+    }
+}
+
+#[test]
+fn volumetric_sigma_gradient_at_zero_conductivity_uses_the_one_sided_fd() {
+    // σ absent = 0: the passive-side derivative, checked one-sided like ε″.
+    let spec = sigma_spec("sigma-zero", Ports::Lumped, None);
+    let r = ok(
+        &geode(&["driven", spec.to_str().unwrap(), "--check-gradient"]),
+        "geode driven --check-gradient (σ = 0)",
+    );
+    let s = assert_fd_agreement(&r, "σ = 0 lumped slab guide");
+    assert_every_parameter_is_live(&s, "σ = 0 lumped slab guide");
+}
+
+/// The reported `S` of every row, flattened to `(re, im)` pairs.
+fn s_entries(report: &Value) -> Vec<(f64, f64)> {
+    report["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|row| {
+            row["s"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|r| r.as_array().unwrap().iter())
+                .map(|z| (f(&z[0]), f(&z[1])))
+        })
+        .collect()
+}
+
+#[test]
+fn drude_with_sigma_fixed_and_gamma_to_infinity_equals_explicit_sigma() {
+    // Drude `ε∞ − ω_p²/(ω² − jγω)` with `ω_p² = σγ/ε₀`, `γ → ∞` tends to
+    // `ε∞ − jσ/(ε₀ω)`: the same medium as `conductivity_s_m = σ`.
+    const EPS0: f64 = 8.854_187_812_8e-12;
+    let gamma = 1e18_f64;
+    let wp = (SLAB_SIGMA_S_M * gamma / EPS0).sqrt();
+    let run = |name: &str, slab: Value| {
+        let spec = slab_spec(name, Ports::Lumped, |v| {
+            v["materials"] = json!([slab]);
+            v.as_object_mut().unwrap().remove("sensitivity");
+        });
+        ok(&geode(&["driven", spec.to_str().unwrap()]), name)
+    };
+    let drude = run(
+        "drude",
+        json!({"physical_group": "slab", "dispersion": {"model": "drude",
+            "eps_inf": SLAB_EPS[0], "omega_p_rad_s": wp, "gamma_rad_s": gamma}}),
+    );
+    let explicit = run(
+        "explicit-sigma",
+        json!({"physical_group": "slab", "eps_r": [SLAB_EPS[0], 0.0],
+               "conductivity_s_m": SLAB_SIGMA_S_M}),
+    );
+    let (a, b) = (s_entries(&drude), s_entries(&explicit));
+    assert_eq!(a.len(), b.len());
+    let worst = a
+        .iter()
+        .zip(&b)
+        .map(|(x, y)| ((x.0 - y.0).powi(2) + (x.1 - y.1).powi(2)).sqrt())
+        .fold(0.0, f64::max);
+    eprintln!("DRUDE vs σ | worst |ΔS| = {worst:.2e}");
+    assert!(worst <= 1e-6, "Drude(γ→∞) vs explicit σ: {worst:e}");
+}
+
+#[test]
+fn conductivity_is_validated_and_scoped_to_the_driven_analyses() {
+    let neg = slab_spec("sigma-negative", Ports::Lumped, |v| {
+        v["materials"] = json!([{"physical_group": "slab", "eps_r": SLAB_EPS,
+                                 "conductivity_s_m": -1.0}]);
+        v.as_object_mut().unwrap().remove("sensitivity");
+    });
+    let m = check_err(&neg);
+    assert!(m.contains("conductivity_s_m") && m.contains(">= 0"), "{m}");
+
+    // A σ on a spec whose solver has no conduction term is loud, not ignored.
+    let eig = slab_spec("sigma-eigen", Ports::Lumped, |v| {
+        v["materials"] = json!([{"physical_group": "slab", "eps_r": [2.5, 0.0],
+                                 "conductivity_s_m": 1.0}]);
+        let o = v.as_object_mut().unwrap();
+        for k in ["sensitivity", "frequencies", "ports", "wave_ports"] {
+            o.remove(k);
+        }
+        v["eigen"] = json!({"n_modes": 2, "unit": "k0", "shift": 1.0});
+    });
+    let m = check_err(&eig);
+    assert!(m.contains("conductivity_s_m") && m.contains("eigen"), "{m}");
+}
