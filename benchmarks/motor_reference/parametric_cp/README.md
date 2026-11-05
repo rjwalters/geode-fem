@@ -101,9 +101,11 @@ not give these numbers. The groups are therefore identified from the data:
   round-off.
 
 The other stator assignment, with the tooth-arc middles and the opening
-middle in one group, leaves a 3.0e-8 m misfit. The order of the labels
-CPR4..CPR7, and of CPR1 against CPR2, follows the contiguous upstream
-numbers. The fit and the bounds do not depend on that order.
+middle in one group, was tried during identification and found worse. A
+misfit of 3.0e-8 m was recorded for it at the time, but no script or log in
+this repository reproduces that figure, so treat it as uncited. The order
+of the labels CPR4..CPR7, and of CPR1 against CPR2, follows the contiguous
+upstream numbers. The fit and the bounds do not depend on that order.
 
 Symmetry and antiperiodicity follow from the ties. Every group is symmetric
 about the pole axis. `CPR1` and `CPS3` each contain both antiperiodic edge

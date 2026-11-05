@@ -1,0 +1,48 @@
+     Running tests/floquet_ports.rs (/home/ubuntu/GitHub/geode-fem/.loom/targets/builder-227218-1793815744/debug/deps/floquet_ports-21d61d35b4e66be9)
+test reciprocity_energy_and_adjoint_on_an_asymmetric_cell ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 41.49s
+     Running tests/floquet_sensitivity.rs (/home/ubuntu/GitHub/geode-fem/.loom/targets/builder-227218-1793815744/debug/deps/floquet_sensitivity-8086bf02e31a5a24)
+bragg Γ EpsPrime { region: 0 } Te: |dS| = 5.610e-1, rel_err = 7.57e-8
+bragg Γ EpsPrime { region: 0 } Tm: |dS| = 5.610e-1, rel_err = 8.02e-8
+brick, oblique: worst rel_err 2.28e-8
+brick, oblique, ForwardSolveAsAdjoint: worst rel_err 8.22e0
+brick, oblique, UnconjugatedPhase: worst rel_err 8.64e0
+bragg Γ EpsPrime { region: 1 } Te: |dS| = 6.235e-1, rel_err = 1.19e-8
+bragg Γ EpsPrime { region: 1 } Tm: |dS| = 6.235e-1, rel_err = 1.47e-8
+bragg Γ EpsDoublePrime { region: 0 } Te: |dS| = 5.610e-1, rel_err = 4.06e-9
+bragg Γ EpsDoublePrime { region: 0 } Tm: |dS| = 5.610e-1, rel_err = 4.53e-9
+brick, normal, ForwardSolveAsAdjoint: worst rel_err 1.70e-8
+brick, normal, UnconjugatedPhase: worst rel_err 1.70e-8
+test brick_cell_with_cross_polarization_matches_fd_and_the_tripwires_bite_only_obliquely ... ok
+test bragg_stack_at_gamma_matches_central_fd_for_shape_and_eps has been running for over 60 seconds
+bragg Γ EpsDoublePrime { region: 1 } Te: |dS| = 6.235e-1, rel_err = 3.45e-9
+bragg Γ EpsDoublePrime { region: 1 } Tm: |dS| = 6.235e-1, rel_err = 1.94e-9
+slab θ=0° EpsPrime { region: 0 } Te: |dS| = 2.654e-1, rel_err = 1.17e-7
+slab θ=0° EpsPrime { region: 0 } Tm: |dS| = 2.654e-1, rel_err = 1.09e-7
+slab θ=0° EpsDoublePrime { region: 0 } Te: |dS| = 2.654e-1, rel_err = 1.97e-8
+slab θ=0° EpsDoublePrime { region: 0 } Tm: |dS| = 2.654e-1, rel_err = 1.28e-8
+bragg Γ Shape { column: 0 } Te: |dS| = 1.606e0, rel_err = 2.45e-9
+bragg Γ Shape { column: 0 } Tm: |dS| = 1.606e0, rel_err = 4.74e-9
+test bragg_stack_at_gamma_matches_central_fd_for_shape_and_eps ... ok
+slab θ=0° Shape { column: 0 } Te: |dS| = 1.677e0, rel_err = 2.49e-9
+slab θ=0° Shape { column: 0 } Tm: |dS| = 1.677e0, rel_err = 2.82e-9
+slab θ=30° EpsPrime { region: 0 } Te: |dS| = 2.673e-1, rel_err = 1.08e-7
+slab θ=30° EpsPrime { region: 0 } Tm: |dS| = 2.880e-1, rel_err = 8.67e-8
+slab θ=30° EpsDoublePrime { region: 0 } Te: |dS| = 2.673e-1, rel_err = 1.78e-8
+slab θ=30° EpsDoublePrime { region: 0 } Tm: |dS| = 2.880e-1, rel_err = 3.41e-8
+slab θ=30° Shape { column: 0 } Te: |dS| = 1.610e0, rel_err = 4.14e-9
+slab θ=30° Shape { column: 0 } Tm: |dS| = 1.263e0, rel_err = 6.06e-9
+test one_factorization_per_point_and_the_vjp_is_the_jvp_contraction ... ok
+test pinned_faces_broken_pairing_and_port_regions_are_typed_errors ... ok
+test oblique_slab_te_tm_matches_central_fd_for_shape_and_eps has been running for over 60 seconds
+slab θ=60° EpsPrime { region: 0 } Te: |dS| = 2.280e-1, rel_err = 1.30e-7
+slab θ=60° EpsPrime { region: 0 } Tm: |dS| = 3.267e-1, rel_err = 1.12e-7
+slab θ=60° EpsDoublePrime { region: 0 } Te: |dS| = 2.280e-1, rel_err = 1.44e-8
+slab θ=60° EpsDoublePrime { region: 0 } Tm: |dS| = 3.267e-1, rel_err = 1.72e-8
+slab θ=60° Shape { column: 0 } Te: |dS| = 1.192e0, rel_err = 3.68e-9
+slab θ=60° Shape { column: 0 } Tm: |dS| = 1.407e-1, rel_err = 8.61e-8
+test oblique_slab_te_tm_matches_central_fd_for_shape_and_eps ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 134.22s
+test bloch_phase_periodic_driven_solve_converges_and_its_adjoint_is_the_transpose ... ok
+test reciprocity_energy_and_adjoint_on_an_asymmetric_cell ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 44.89s

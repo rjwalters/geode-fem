@@ -39,6 +39,9 @@ use sha2::{Digest, Sha256};
 
 pub mod geo;
 pub mod layout;
+// Importer only so far (issue #1288); the `--stackup` wiring is a follow-up.
+#[allow(dead_code)]
+pub mod stackup;
 
 use self::geo::{GeoScript, GroupRole};
 use self::layout::{BoundaryDef, Layout, ResolvedLayout};
@@ -701,6 +704,7 @@ fn bare_spec(mesh_path: PathBuf, length_unit_m: f64, materials: Vec<MaterialSpec
         inductance: None,
         sensitivity: None,
         optimize: None,
+        element_order: Default::default(),
         adaptive_mesh: None,
     }
 }

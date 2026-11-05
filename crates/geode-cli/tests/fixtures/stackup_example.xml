@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Self-authored example stackup (issue #1288). Not derived from any
+     gds2palace / IHP file; the layers are deliberately listed out of
+     z-order. Units: microns. -->
+<Stackup Unit="1e-6">
+  <Materials>
+    <Material Name="Si"   Type="Dielectric" Permittivity="11.9"/>
+    <Material Name="SiO2" Type="Dielectric" Permittivity="4.1"/>
+    <Material Name="Nit"  Type="Dielectric" Permittivity="6.6"/>
+    <Material Name="Cu"   Type="Conductor"  Conductivity="5.8e7"/>
+    <Material Name="PEC"  Type="Conductor"/>
+  </Materials>
+  <Layers>
+    <Layer Name="top_pec"     Material="PEC" Zmin="6"   Zmax="7"/>
+    <Layer Name="passivation" Material="Nit" Zmin="8"   Zmax="10"/>
+    <Layer Name="oxide"       Material="SiO2" Zmin="0"  Zmax="8"/>
+    <Layer Name="via_sheet"   Material="Cu"  Zmin="3"   Zmax="3"/>
+    <Layer Name="m1"          Material="Cu"  Zmin="2"   Zmax="3"/>
+    <Layer Name="substrate"   Material="Si"  Zmin="-20" Zmax="0"/>
+  </Layers>
+</Stackup>
