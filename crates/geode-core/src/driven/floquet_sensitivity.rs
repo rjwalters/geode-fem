@@ -617,7 +617,9 @@ impl<'a> Prepared<'a> {
                             *o = zz * c64::new(0.0, omega2);
                         }
                     }
-                    SParam::Shape { .. } => {}
+                    // Shape is handled below; Floquet never builds direction or wall
+                    // columns (only ε′/ε″/shape above), so these contribute nothing here.
+                    SParam::Shape { .. } | SParam::EpsDirection { .. } | SParam::Wall { .. } => {}
                 }
             }
         }
