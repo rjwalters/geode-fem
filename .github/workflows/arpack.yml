@@ -470,9 +470,15 @@ jobs:
       # under --check-gradient (dZ0/dw, deps_eff/dw, dS vs the shipped
       # forward on the morphed mesh + the Hammerstad-Jensen oracle; ~1 min
       # in release on an M-series laptop).
+      #
+      # Issue #1261 adds the `geode optimize` golden (i): a microstrip strip
+      # width driven to a 50 ohm target and checked against Hammerstad-Jensen
+      # within the port accuracy (the single #[ignore]d test of
+      # --test optimize_loop; ~5 min in release).
       - name: geode extraction / eigen benchmark tiers (release, --ignored)
         run: |
           cargo test -p geode-cli --release --test mesh_golden \
               --test patch_extract_golden --test slcfet_extract_golden \
               --test sphere_pec_golden --test hybrid_wave_port \
-              --test cookbook --test sensitivity_nport -- --ignored
+              --test cookbook --test sensitivity_nport \
+              --test optimize_loop -- --ignored
