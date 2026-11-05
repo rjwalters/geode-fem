@@ -919,7 +919,22 @@ pub struct NonlinearMagnetostaticSolution {
     pub sign_of_global: Vec<f64>,
     /// Number of reduced unknowns (the order of `tangent`).
     pub n_free: usize,
+    /// The sparse LU the last Newton update was computed with, i.e. of the
+    /// tangent at the iterate *before* the final update (`None` when the
+    /// solve converged at iteration 0, for a frozen-ν tangent, and for
+    /// constrained solves). Near convergence it differs from
+    /// [`tangent`](Self::tangent) by the size of the last update, so it is
+    /// an effective preconditioner for the adjoint solve
+    /// ([`solve_tangent_transpose`](Self::solve_tangent_transpose)).
+    pub(crate) previous_lu: Option<Arc<TangentLu>>,
 }
+
+/// Sparse LU factorization of a reduced tangent.
+pub(crate) type TangentLu = faer::sparse::linalg::solvers::Lu<usize, f64>;
+
+/// Maximum refinement steps of the adjoint solve before it falls back to a
+/// fresh factorization.
+const ADJOINT_MAX_REFINEMENTS: usize = 5;
 
 impl NonlinearMagnetostaticSolution {
     /// The prolongation `P` (`n_nodes × n_free`, one `±1` per free node)
@@ -962,6 +977,20 @@ impl NonlinearMagnetostaticSolution {
         &self,
         rhs: &[f64],
     ) -> Result<Vec<f64>, NonlinearMagnetostaticError> {
+        self.solve_tangent_transpose_timed(rhs).map(|(x, _, _)| x)
+    }
+
+    /// [`Self::solve_tangent_transpose`] that also returns the wall time (s)
+    /// of the sparse LU factorization and of the back-substitution, in that
+    /// order. Used to split the shape-adjoint cost.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::solve_tangent_transpose`].
+    pub fn solve_tangent_transpose_timed(
+        &self,
+        rhs: &[f64],
+    ) -> Result<(Vec<f64>, f64, f64), NonlinearMagnetostaticError> {
         if rhs.len() != self.n_free {
             return Err(NonlinearMagnetostaticError::ShapeMismatch(format!(
                 "adjoint rhs length {} != free-node count {}",
@@ -969,14 +998,74 @@ impl NonlinearMagnetostaticSolution {
                 self.n_free
             )));
         }
+        let t0 = std::time::Instant::now();
+        if let Some(prev) = &self.previous_lu
+            && let Some(x) = self.refine_transpose(prev, rhs)
+        {
+            return Ok((x, 0.0, t0.elapsed().as_secs_f64()));
+        }
         let lu = self
             .tangent
             .as_ref()
             .sp_lu()
             .map_err(|e| NonlinearMagnetostaticError::Factorization(format!("{e:?}")))?;
+        let factor_s = t0.elapsed().as_secs_f64();
+        let t1 = std::time::Instant::now();
         let mut x: Mat<f64> = Mat::from_fn(self.n_free, 1, |i, _| rhs[i]);
         lu.solve_transpose_in_place(x.as_mut());
-        Ok((0..self.n_free).map(|i| x[(i, 0)]).collect())
+        let out = (0..self.n_free).map(|i| x[(i, 0)]).collect();
+        Ok((out, factor_s, t1.elapsed().as_secs_f64()))
+    }
+
+    /// Solve `Kᵀ x = rhs` by iterative refinement preconditioned with the
+    /// retained factorization `M ≈ K` (the previous Newton tangent):
+    /// `x ← x + M⁻ᵀ (rhs − Kᵀ x)`. Returns `None` (the caller refactors) if
+    /// the residual does not reach the round-off level of a direct solve,
+    /// `‖r‖₂ ≤ 16 ε ‖|K|ᵀ|x|‖₂`, within [`ADJOINT_MAX_REFINEMENTS`] steps or
+    /// stops contracting by at least a factor 2.
+    fn refine_transpose(&self, lu: &TangentLu, rhs: &[f64]) -> Option<Vec<f64>> {
+        let n = self.n_free;
+        let k = self.tangent.as_ref();
+        let (cp, ri, vals) = (k.col_ptr(), k.row_idx(), k.val());
+        let precondition = |v: &[f64]| -> Vec<f64> {
+            let mut m: Mat<f64> = Mat::from_fn(n, 1, |i, _| v[i]);
+            lu.solve_transpose_in_place(m.as_mut());
+            (0..n).map(|i| m[(i, 0)]).collect()
+        };
+        // (Kᵀ x)_j = Σ_i K_ij x_i, and the same with |K_ij||x_i|.
+        let residual = |x: &[f64]| -> (Vec<f64>, f64) {
+            let mut r = rhs.to_vec();
+            let mut scale = vec![0.0_f64; n];
+            for j in 0..n {
+                for p in cp[j]..cp[j + 1] {
+                    let t = vals[p] * x[ri[p]];
+                    r[j] -= t;
+                    scale[j] += t.abs();
+                }
+            }
+            (r, norm2(&scale))
+        };
+        let mut x = precondition(rhs);
+        let mut prev = f64::INFINITY;
+        for _ in 0..=ADJOINT_MAX_REFINEMENTS {
+            let (r, scale) = residual(&x);
+            let rn = norm2(&r);
+            if !rn.is_finite() {
+                return None;
+            }
+            if rn <= 16.0 * f64::EPSILON * scale {
+                return Some(x);
+            }
+            if rn > 0.5 * prev {
+                return None;
+            }
+            prev = rn;
+            let dx = precondition(&r);
+            for (xi, di) in x.iter_mut().zip(&dx) {
+                *xi += di;
+            }
+        }
+        None
     }
 
     /// Successive residual ratios `‖R_{k+1}‖/‖R_k‖`.
@@ -1901,6 +1990,7 @@ impl NonlinearMagnetostaticSystem {
         let mut step_norms = Vec::new();
         let mut step_lengths = Vec::new();
         let mut floor = f64::NAN;
+        let mut last_lu: Option<Arc<TangentLu>> = None;
 
         for it in 0..=config.max_iterations {
             let status = if rn <= tol {
@@ -1933,6 +2023,7 @@ impl NonlinearMagnetostaticSystem {
                     free_of_global: self.dofs.free_of_global.clone(),
                     sign_of_global: self.dofs.sign_of_global.clone(),
                     n_free: self.dofs.n_free,
+                    previous_lu: last_lu,
                 });
             }
             if it == config.max_iterations {
@@ -1946,6 +2037,11 @@ impl NonlinearMagnetostaticSystem {
                 .map_err(|e| NonlinearMagnetostaticError::Factorization(format!("{e:?}")))?;
             let mut rhs: Mat<f64> = Mat::from_fn(self.dofs.n_free, 1, |i, _| -r[i]);
             lu.solve_in_place(rhs.as_mut());
+            // Kept for the adjoint: the last one factored is the tangent
+            // before the final update.
+            if config.tangent == TangentKind::Consistent {
+                last_lu = Some(Arc::new(lu));
+            }
             let delta: Vec<f64> = (0..self.dofs.n_free).map(|i| rhs[(i, 0)]).collect();
             let slope: f64 = r.iter().zip(&delta).map(|(ri, di)| ri * di).sum();
             // Energy and its round-off level: once the predicted decrease
@@ -2394,6 +2490,7 @@ impl NonlinearMagnetostaticSystem {
                         free_of_global: self.dofs.free_of_global.clone(),
                         sign_of_global: self.dofs.sign_of_global.clone(),
                         n_free: n,
+                        previous_lu: None,
                     },
                     multipliers: lam,
                     constraint_violation,

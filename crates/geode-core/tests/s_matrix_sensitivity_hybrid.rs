@@ -110,6 +110,7 @@ fn label(sw: &SSensitivitySweep, i: usize, shape_names: &[&str]) -> String {
         SParam::Shape { column } => shape_names
             .get(column)
             .map_or_else(|| format!("shape[{column}]"), |s| (*s).to_string()),
+        SParam::Wall { wall, param } => format!("wall[{wall}].{param:?}"),
     }
 }
 
@@ -188,7 +189,7 @@ fn shift_eps(eps: &[c64], regions: &[Option<usize>], prm: SParam, h: f64) -> Vec
     let (region, d) = match prm {
         SParam::EpsPrime { region } => (region, c64::new(h, 0.0)),
         SParam::EpsDoublePrime { region } => (region, c64::new(0.0, -h)),
-        SParam::Shape { .. } => return eps.to_vec(),
+        SParam::Shape { .. } | SParam::Wall { .. } => return eps.to_vec(),
     };
     eps.iter()
         .zip(regions)
@@ -1164,6 +1165,7 @@ fn touched_hybrid_face_fences_are_typed_errors() {
     // port_fill on a hybrid port.
     let bound = SDesign {
         port_fill: vec![Some(0)],
+        wall_params: vec![],
         ..material.clone()
     };
     let err = run(&specs, &bound);

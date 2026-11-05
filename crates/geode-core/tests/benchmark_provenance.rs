@@ -777,6 +777,13 @@ const MANIFEST: &[Entry] = &[
          Backend generic",
     ),
     b(
+        "benchmarks/transmon_diffopt/claw_beta.toml",
+        "examples/transmon_claw_beta.rs: scalar f64 electrostatic assembly + faer LU \
+         (shape::capacitance_matrix_shape_gradient with a fictitious claw electrode, \
+         shape::transmon_remorph::TransmonCSigmaProblem::new_with_claw, \
+         quantum::diffopt::optimize_multiparam_bounded), no Backend generic (issue #1037)",
+    ),
+    b(
         "benchmarks/transmon_diffopt/c_sigma_convergence.toml",
         "examples/transmon_c_sigma_convergence.rs: scalar/tensor f64 P1 and P2 electrostatic \
          assembly + faer LU / AMG-PCG on host CSR (shape::transmon_remorph::\

@@ -352,6 +352,12 @@ pub struct TorqueShapeGradient {
     pub group_current_grad: Vec<f64>,
     /// Wall time of the adjoint solve and the gradient assembly (s).
     pub adjoint_seconds: f64,
+    /// Part of [`Self::adjoint_seconds`] spent in the sparse LU
+    /// factorization of the tangent (s).
+    pub adjoint_factor_seconds: f64,
+    /// Part of [`Self::adjoint_seconds`] spent in the back-substitution(s)
+    /// (and, for the saddle path, the Schur complement algebra) (s).
+    pub adjoint_backsolve_seconds: f64,
 }
 
 /// Torques and gradients over an angle set at one current, with the mean
@@ -377,6 +383,10 @@ pub struct AngleSetGradient {
     pub forward_seconds: Vec<f64>,
     /// Adjoint wall time per operating point (s).
     pub adjoint_seconds: Vec<f64>,
+    /// LU factorization share of [`Self::adjoint_seconds`] per point (s).
+    pub adjoint_factor_seconds: Vec<f64>,
+    /// Back-substitution share of [`Self::adjoint_seconds`] per point (s).
+    pub adjoint_backsolve_seconds: Vec<f64>,
 }
 
 fn invalid(s: String) -> SectorError {
@@ -830,8 +840,8 @@ impl SectorShapeProblem {
 
         // Adjoint: [[K, C], [Cᵀ, 0]] [ψ; χ] = −[Pᵀ ∂T/∂A; ∂T/∂λ].
         let f: Vec<f64> = sol.solution.reduce(&dt_da).iter().map(|x| -x).collect();
-        let psi_red = match self.coupling.harmonic() {
-            None => sol.solution.solve_tangent_transpose(&f)?,
+        let (psi_red, factor_s, backsolve_s) = match self.coupling.harmonic() {
+            None => sol.solution.solve_tangent_transpose_timed(&f)?,
             Some((orders, free)) => {
                 let g_neg: Vec<f64> = dt_dlam.iter().map(|x| -x).collect();
                 let p = self.sliding_problem(&s.op.group_currents)?;
@@ -897,6 +907,8 @@ impl SectorShapeProblem {
             explicit,
             group_current_grad,
             adjoint_seconds: t0.elapsed().as_secs_f64(),
+            adjoint_factor_seconds: factor_s,
+            adjoint_backsolve_seconds: backsolve_s,
         })
     }
 
@@ -954,12 +966,16 @@ impl SectorShapeProblem {
         let mut grads = Vec::with_capacity(solves.len());
         let mut current_grads = Vec::with_capacity(solves.len());
         let mut adjoint_seconds = Vec::with_capacity(solves.len());
+        let mut adjoint_factor_seconds = Vec::with_capacity(solves.len());
+        let mut adjoint_backsolve_seconds = Vec::with_capacity(solves.len());
         for s in solves {
             let g = self.torque_gradient(s, torque)?;
             torques.push(g.torque);
             grads.push(g.grad);
             current_grads.push(g.group_current_grad);
             adjoint_seconds.push(g.adjoint_seconds);
+            adjoint_factor_seconds.push(g.adjoint_factor_seconds);
+            adjoint_backsolve_seconds.push(g.adjoint_backsolve_seconds);
         }
         let (mean, mean_grad, std, std_grad) = mean_std_gradients(&torques, &grads);
         Ok(AngleSetGradient {
@@ -972,6 +988,8 @@ impl SectorShapeProblem {
             group_current_grads: current_grads,
             forward_seconds: solves.iter().map(|s| s.forward_seconds).collect(),
             adjoint_seconds,
+            adjoint_factor_seconds,
+            adjoint_backsolve_seconds,
         })
     }
 
@@ -1232,12 +1250,14 @@ fn arkkio_with_derivatives(
 
 /// Solve `[[K, C], [Cᵀ, 0]] [ψ; χ] = [f; g]` for `ψ` (`K` sparse and
 /// symmetric, `C` dense `n × m`) through the Schur complement `Cᵀ K⁻¹ C`.
+/// Returns `ψ` with the wall times (s) of the LU factorization and of the
+/// remaining solve algebra.
 fn saddle_solve(
     k: &faer::sparse::SparseColMat<usize, f64>,
     c: &Mat<f64>,
     f: &[f64],
     g: &[f64],
-) -> Result<Vec<f64>, SectorError> {
+) -> Result<(Vec<f64>, f64, f64), SectorError> {
     let n = f.len();
     let m = g.len();
     if c.nrows() != n || c.ncols() != m {
@@ -1247,14 +1267,18 @@ fn saddle_solve(
             c.ncols()
         )));
     }
+    let t_factor = Instant::now();
     let lu = k.as_ref().sp_lu().map_err(|e| {
         SectorError::Solve(NonlinearMagnetostaticError::Factorization(format!("{e:?}")))
     })?;
+    let factor_s = t_factor.elapsed().as_secs_f64();
+    let t_solve = Instant::now();
     let mut rhs: Mat<f64> =
         Mat::from_fn(n, m + 1, |i, j| if j == 0 { f[i] } else { c[(i, j - 1)] });
     lu.solve_in_place(rhs.as_mut());
     if m == 0 {
-        return Ok((0..n).map(|i| rhs[(i, 0)]).collect());
+        let psi = (0..n).map(|i| rhs[(i, 0)]).collect();
+        return Ok((psi, factor_s, t_solve.elapsed().as_secs_f64()));
     }
     // S = Cᵀ Y, r = Cᵀ z − g, χ = S⁻¹ r, ψ = z − Y χ.
     let s = Mat::<f64>::from_fn(m, m, |i, j| {
@@ -1269,9 +1293,10 @@ fn saddle_solve(
             "adjoint Schur complement solve".into(),
         )));
     }
-    Ok((0..n)
+    let psi = (0..n)
         .map(|i| rhs[(i, 0)] - (0..m).map(|j| rhs[(i, j + 1)] * chi[(j, 0)]).sum::<f64>())
-        .collect())
+        .collect();
+    Ok((psi, factor_s, t_solve.elapsed().as_secs_f64()))
 }
 
 /// Mean and population standard deviation of `t`, with their gradients
