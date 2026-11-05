@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New grazing warning above 85° ([`GRAZING_WARN_DEG`]).
   - `FloquetSolution::propagating_labels` and `FloquetSolution::s_on_labels` map `S` onto a fixed `(port, order, polarization)` label list, with zeros for channels that are not propagating at that frequency, for a fixed-shape S across a sweep.
   - Goldens in `tests/floquet_ports.rs`: an empty cell with a propagating non-specular order (the Hermitian-pairing pin), a lamellar dielectric grating (orders −1, 0, +1, TE and TM) against a new test-only 1-D RCWA oracle (`tests/common/rcwa1d.rs`, agreement 4e-3), an inductive strip grating against Marcuvitz, the warning thresholds and the fixed-label accessor.
+- **Differentiable EDA (Epic #841):** `geode eigen` accepts `sensitivity` on lossy and open (UPML) specs. The unconjugated Hellmann–Feynman gradient of the complex-symmetric pencil gives `∂f/∂ε_r` and `∂Q/∂ε_r` per mode (`q_gradient` in the report, additive); the library adds `LossyEigenSensitivity` with `∂/∂ε″`, `∂/∂σ_wall` and `∂/∂λ_L` pencil derivatives (#1329).
 
 ### Changed
 

@@ -76,8 +76,14 @@ pub struct MeshSummary {
     pub n_tets: usize,
     /// Nédélec edge-DOF count before PEC elimination.
     pub n_edges: usize,
-    /// Edge DOFs kept after PEC elimination (the linear-system size).
+    /// DOFs kept after PEC elimination (the linear-system size).
     pub n_interior: usize,
+    /// Nédélec element order actually used (additive in v1, issue #1265):
+    /// `1` or `2`.
+    pub element_order: u8,
+    /// Global H(curl) DOF count before PEC elimination: `n_edges` at order
+    /// 1, `2·n_edges + 2·n_faces` at order 2 (additive in v1, issue #1265).
+    pub n_dofs: usize,
 }
 
 /// One volume region.
@@ -832,6 +838,35 @@ pub struct CheckReport {
     /// driven run reports.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<WarningResult>,
+    /// What the spec's `adaptive_mesh` would cost (additive in v1, issue
+    /// #1267; present only with that section). `check` never solves or
+    /// refines.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive_mesh: Option<AdaptiveMeshCheck>,
+}
+
+/// `geode check` view of an `adaptive_mesh` section (issue #1267).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct AdaptiveMeshCheck {
+    /// The DOF budget.
+    pub max_dofs: usize,
+    /// Edge DOFs of the initial mesh (before PEC elimination).
+    pub initial_n_dofs: usize,
+    /// `true` when the initial mesh already exceeds `max_dofs` (the run
+    /// would fail).
+    pub initial_over_budget: bool,
+    /// `max_dofs / initial_n_dofs`: the factor `resources_at_max_dofs`
+    /// scales the loaded mesh by.
+    pub scale_to_max_dofs: f64,
+    /// Worst-case resources at `max_dofs`: the loaded mesh's
+    /// [`ResourceEstimate`] with `nnz`, system size, tets and nodes scaled
+    /// to that DOF count (no level of the loop is larger).
+    pub resources_at_max_dofs: ResourceEstimate,
+    /// `k₀·√ε_r·h` at the highest frequency (`eigen`: the shift) with the
+    /// largest edge `h` and largest `√ε_r` of the initial mesh.
+    pub initial_kh: f64,
+    /// `2π / initial_kh`: points per wavelength at the coarsest resolution.
+    pub initial_points_per_wavelength: f64,
 }
 
 /// One conductor of a capacitance spec (terminal or ground surface).
@@ -1159,6 +1194,48 @@ pub struct ResourceEstimate {
     pub wall_time_confidence: Option<&'static str>,
     /// The calibration anchor, its date and the scaling assumptions.
     pub calibration_basis: &'static str,
+    /// Order-2 vs order-1 comparison on the same mesh (additive in v1,
+    /// issue #1265); present only when `element_order = 2`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order_comparison: Option<OrderComparison>,
+}
+
+/// What `element_order = 2` costs relative to order 1 on the same mesh
+/// (`geode check`, issue #1265). DOF and nnz counts are **exact** (from the
+/// order-2 DOF tables, no assembly); memory is the order-1 anchor's
+/// linear-in-nnz model applied to the order-2 pattern, with no order-2
+/// anchor measurement yet, so it stays `order_of_magnitude`.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct OrderComparison {
+    /// Order-2 global DOFs before PEC elimination, `2·n_edges + 2·n_faces`.
+    pub n_dofs_p2: usize,
+    /// Order-2 DOFs after PEC elimination (the linear-system size).
+    pub n_interior_p2: usize,
+    /// Order-1 DOFs after PEC elimination on the same mesh.
+    pub n_interior_p1: usize,
+    /// `n_interior_p2 / n_interior_p1`.
+    pub dof_ratio: f64,
+    /// Exact order-2 `nnz(A)` before PEC elimination (equals `nnz_a`).
+    pub nnz_p2: usize,
+    /// Exact order-1 `nnz(A)` before PEC elimination.
+    pub nnz_p1: usize,
+    /// `nnz_p2 / nnz_p1`.
+    pub nnz_ratio: f64,
+    /// Order-1 peak-memory estimate on the same mesh (GB).
+    pub peak_memory_gb_p1: f64,
+    /// `peak_memory_gb / peak_memory_gb_p1`.
+    pub memory_ratio: f64,
+    /// Interior DOF count above which direct LU runs out of memory
+    /// (memory-abundance experiment, about 1M DOF).
+    pub direct_lu_dof_limit: usize,
+    /// `false` when the order-2 system is at or above the direct-LU limit
+    /// (or the iterative solver is selected, which has no order-2 path).
+    pub fits_direct_lu: bool,
+    /// Plain-language verdict, including the order-1 numbers when order 2
+    /// will not fit.
+    pub verdict: String,
+    /// `"p1_anchor_linear_in_nnz"`: no order-2 anchor measurement exists.
+    pub memory_model: &'static str,
 }
 
 /// Aggregate solver statistics for a driven sweep.
@@ -1442,6 +1519,64 @@ pub struct DrivenReport {
     /// geometric wave ports' degeneracy notes (issue #923).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<WarningResult>,
+    /// Adaptive mesh refinement record (additive in v1, issue #1267;
+    /// present only with a spec `adaptive_mesh` section).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive_mesh: Option<AdaptiveMeshReport>,
+}
+
+/// Adaptive mesh refinement record of a `driven` / `eigen` report (additive
+/// in v1, issue #1267; present only with a spec `adaptive_mesh` section).
+/// The report's S-parameters / modes are those of an ordinary run on the
+/// final mesh.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct AdaptiveMeshReport {
+    /// The goal that steered the refinement (`"energy"` or
+    /// `"eigenfrequency"`).
+    pub goal: &'static str,
+    /// One entry per solved level, level 0 being the initial mesh.
+    pub history: Vec<AdaptiveIteration>,
+    /// Why the loop stopped: `target_met`, `max_iterations`, `max_dofs`,
+    /// `nothing_to_mark`, `target_met_incomplete` or `mode_lost`.
+    pub stop_reason: &'static str,
+    /// Tets of the final mesh (the mesh the report's results belong to).
+    pub final_n_tets: usize,
+    /// Edge DOFs of the final mesh before PEC elimination.
+    pub final_n_dofs: usize,
+    /// The final mesh as MSH 4.1 ASCII (`adaptive_mesh.export_mesh`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mesh_file: Option<FileRef>,
+    /// Warnings of the loop; always includes one when `stop_reason` is not
+    /// `target_met` (the target was not verified).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+/// One level of the adaptive mesh loop.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct AdaptiveIteration {
+    /// Level (0 = the initial mesh).
+    pub level: usize,
+    /// Tets of the level's mesh.
+    pub n_tets: usize,
+    /// Edge DOFs of the level's mesh before PEC elimination.
+    pub n_dofs: usize,
+    /// Relative residual error estimate `η_rel` (max over the adaptation
+    /// frequencies / tracked modes).
+    pub estimate: f64,
+    /// The goal's value: `η_rel` for `"energy"`, the tracked
+    /// eigenfrequency in Hz for `"eigenfrequency"`.
+    pub goal_value: f64,
+    /// Fraction of tets marked for refinement after this level (`null` on
+    /// the last level, which is not refined).
+    pub marked_fraction: Option<f64>,
+    /// Smallest dihedral angle of the level's mesh (degrees).
+    pub min_dihedral_deg: f64,
+    /// Whether the estimate was pre-asymptotic (under-resolved: not yet a
+    /// reliable error bound).
+    pub pre_asymptotic: bool,
+    /// Wall time of the level (solve + estimate + refine), seconds.
+    pub wall_s: f64,
 }
 
 /// Per-port extraction results of a `geode extract` sweep.
@@ -1637,6 +1772,10 @@ pub struct EigenReport {
     /// lossless pencil only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sensitivities: Option<SensitivityReport>,
+    /// Adaptive mesh refinement record (additive in v1, issue #1267;
+    /// present only with a spec `adaptive_mesh` section).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive_mesh: Option<AdaptiveMeshReport>,
 }
 
 /// Material design sensitivities of a report's observable (additive in
@@ -1653,7 +1792,8 @@ pub struct SensitivityReport {
     /// capacitance — distinct from, and about the P1 discretization
     /// error off, the report's own `c_farad`), `"l_henry"`
     /// (inductance-matrix entries), `"frequency_hz"` (eigenmode
-    /// resonant frequency) or `"s11_mag_sq"` (driven: the squared
+    /// resonant frequency; on a lossy / open pencil each entry also carries
+    /// `∂Q/∂parameter`, `q_gradient`) or `"s11_mag_sq"` (driven: the squared
     /// reflection magnitude `|S11|²` of the single lumped port).
     pub observable: &'static str,
     /// Unit of every entry's `value` and `gradient`: `"F"`, `"H"`, `"Hz"`
@@ -1806,6 +1946,24 @@ pub struct SensitivityEntry {
     /// central-difference round-off (present only with `fd_check`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fd_rel_error: Option<f64>,
+    /// Lossy / open eigen path (issue #1329): the mode's quality factor
+    /// `Q = Re k₀ / (2|Im k₀|)` at the base point. Absent on every other
+    /// path and for a numerically lossless mode (`Q = ∞`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub q_value: Option<f64>,
+    /// Lossy / open eigen path: `∂Q/∂parameter` (per unit parameter),
+    /// from the unconjugated Hellmann–Feynman `∂λ/∂p` chained through the
+    /// cancellation-free `Im k₀`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub q_gradient: Option<f64>,
+    /// Lossy / open eigen path with `fd_check`: central finite-difference
+    /// estimate of `∂Q/∂parameter`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub q_fd_gradient: Option<f64>,
+    /// Lossy / open eigen path with `fd_check`: relative disagreement of
+    /// `q_gradient` and `q_fd_gradient` (same floor rule as `fd_rel_error`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub q_fd_rel_error: Option<f64>,
 }
 
 /// Finite-difference self-check summary of a [`SensitivityReport`].

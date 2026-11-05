@@ -155,6 +155,167 @@ pub struct ProblemSpec {
     /// `sensitivities` block to that report. Extract specs reject it in v1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sensitivity: Option<SensitivitySpec>,
+    /// Nédélec element order of the H(curl) space (additive in v1, issue
+    /// #1265, Epic #836 Phase 5a): `1` (default, lowest-order edge
+    /// elements) or `2` (second-order, `2·n_edges + 2·n_faces` DOFs).
+    /// Order 2 is supported by lossless / lossy `eigen` specs and by `driven`
+    /// specs with lumped ports, a direct solver and a dense sweep; every
+    /// other combination is rejected with `invalid_spec` naming the feature
+    /// (never solved at order 1 and reported as order 2).
+    #[serde(default, skip_serializing_if = "ElementOrderSpec::is_default")]
+    pub element_order: ElementOrderSpec,
+    /// Adaptive mesh refinement (additive in v1, issue #1267, Epic #835
+    /// Phase 6): solve → estimate → mark → bisect until `target_error`,
+    /// then run the normal analysis on the refined mesh. `driven` (lumped
+    /// ports) and lossless `eigen` specs only. Not the frequency-sweep
+    /// `sweep.adaptive`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adaptive_mesh: Option<AdaptiveMeshSpec>,
+}
+
+/// `element_order`: `1` or `2` (any other value is a `spec_parse` error).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(into = "u8")]
+pub enum ElementOrderSpec {
+    /// Order 1 (default).
+    #[default]
+    P1,
+    /// Order 2.
+    P2,
+}
+
+impl ElementOrderSpec {
+    /// `true` for the default (order 1), so it is not serialized.
+    pub fn is_default(&self) -> bool {
+        *self == Self::P1
+    }
+
+    /// The order as an integer (`1` / `2`).
+    pub fn as_u8(self) -> u8 {
+        self.into()
+    }
+}
+
+impl<'de> Deserialize<'de> for ElementOrderSpec {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl serde::de::Visitor<'_> for V {
+            type Value = ElementOrderSpec;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("element_order: the integer 1 or 2")
+            }
+            fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Self::Value, E> {
+                match v {
+                    1 => Ok(ElementOrderSpec::P1),
+                    2 => Ok(ElementOrderSpec::P2),
+                    _ => Err(E::custom(format!("element_order must be 1 or 2 (got {v})"))),
+                }
+            }
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Self::Value, E> {
+                i64::try_from(v)
+                    .map_err(|_| E::custom(format!("element_order must be 1 or 2 (got {v})")))
+                    .and_then(|v| self.visit_i64(v))
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
+
+impl From<ElementOrderSpec> for u8 {
+    fn from(o: ElementOrderSpec) -> u8 {
+        match o {
+            ElementOrderSpec::P1 => 1,
+            ElementOrderSpec::P2 => 2,
+        }
+    }
+}
+
+impl JsonSchema for ElementOrderSpec {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "ElementOrderSpec".into()
+    }
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "Nédélec element order: 1 (default) or 2.",
+            "type": "integer",
+            "enum": [1, 2],
+            "default": 1
+        })
+    }
+}
+
+/// Adaptive **mesh** refinement of a `driven` or `eigen` spec (issue
+/// #1267). Distinct from [`AdaptiveSweepSpec`] (`sweep.adaptive`, the
+/// reduced-order *frequency* sweep).
+///
+/// The loop is [`geode_core::adapt::driver`]: residual a-posteriori
+/// estimate, Dörfler bulk marking, conforming bisection. It stops when the
+/// relative estimate reaches `target_error`, after `max_iterations`
+/// levels, or when the next refinement would exceed `max_dofs`; the
+/// report's `adaptive_mesh.stop_reason` says which and a warning is
+/// raised unless it is `target_met`. The reported S-parameters /
+/// eigenvalues are those of an ordinary run on the final mesh.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AdaptiveMeshSpec {
+    /// Target relative error estimate `η_rel` (finite, `≥ 0`; `0` never
+    /// stops on the target).
+    pub target_error: f64,
+    /// Maximum number of levels solved, the initial mesh being level 0
+    /// (default `12`, `≥ 1`).
+    #[serde(default = "default_adaptive_mesh_max_iterations")]
+    pub max_iterations: usize,
+    /// DOF budget (full H(curl) space, PEC edges included; default
+    /// `1000000`). No level exceeds it; `geode check` reports the
+    /// worst-case resources at this size.
+    #[serde(default = "default_adaptive_mesh_max_dofs")]
+    pub max_dofs: usize,
+    /// Dörfler bulk-marking fraction θ in `(0, 1]` (default `0.5`).
+    #[serde(default = "default_marking_fraction")]
+    pub marking_fraction: f64,
+    /// What the refinement is steered by. `"energy"` (the residual
+    /// energy-norm estimate; default) and `"eigenfrequency"` (`eigen`
+    /// specs) are available; `{"s_param": [i, j]}` arrives with Epic #835
+    /// Phase 4 and `{"z0": port}` with Phase 5.
+    #[serde(default)]
+    pub goal: AdaptiveGoal,
+    /// Frequencies the driven estimate is maximised over. Omitted: every
+    /// frequency of `frequencies`. Driven specs only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapt_frequencies: Option<FrequencySpec>,
+    /// Write the final mesh here as Gmsh MSH 4.1 ASCII (relative to the
+    /// spec's directory). Re-solving it without `adaptive_mesh`
+    /// reproduces the reported result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export_mesh: Option<PathBuf>,
+}
+
+fn default_adaptive_mesh_max_iterations() -> usize {
+    12
+}
+
+fn default_adaptive_mesh_max_dofs() -> usize {
+    1_000_000
+}
+
+fn default_marking_fraction() -> f64 {
+    0.5
+}
+
+/// The goal of an [`AdaptiveMeshSpec`].
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdaptiveGoal {
+    /// The residual energy-norm estimate (Phase 3).
+    #[default]
+    Energy,
+    /// The tracked eigenfrequency (`eigen` specs).
+    Eigenfrequency,
+    /// S-parameter entry `[i, j]` (goal-oriented DWR, Epic #835 Phase 4;
+    /// not yet available).
+    SParam([usize; 2]),
+    /// Line impedance of a port (Epic #835 Phase 5; not yet available).
+    Z0(String),
 }
 
 /// Which analysis a spec describes, decided by the presence of the
