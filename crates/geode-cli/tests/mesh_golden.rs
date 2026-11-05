@@ -1274,3 +1274,84 @@ fn gds_script_emits_a_layout_geode_mesh_accepts() {
         .unwrap();
     assert_error(&out, "gmsh_not_found");
 }
+
+/// A small substrate + sheet cell for the periodic layout option
+/// (Epic #837 Phase 4a, issue #1315).
+fn periodic_layout(axes: &[&str]) -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": 1,
+        "length_unit_m": 1e-6,
+        "dielectrics": [
+            {"name": "substrate", "z_bottom": -10, "thickness": 10, "eps_r": [11.9, 0]},
+            {"name": "air", "z_bottom": 0, "thickness": 20}
+        ],
+        "conductors": [{"name": "m1", "z_bottom": 1, "polygons": [
+            {"name": "a", "outer": [[0, 0], [10, 0], [10, 4], [0, 4]]}]}],
+        "margin": 5,
+        "periodic": axes,
+        "mesh": {"size_max": 5, "size_conductor": 1}
+    })
+}
+
+/// Real-Gmsh check of the `Periodic Surface ... Translate` convention the
+/// `.geo` goldens cannot exercise (issue #1315): `geode mesh --analysis
+/// eigen` then `geode check` must pair every periodic wall with the
+/// *declared* translation (`translation_inferred = false`), without
+/// snapping any node. A wrong sign or axis fails `check` loudly.
+#[test]
+fn periodic_layouts_mesh_and_check_with_declared_translations() {
+    if !gmsh_or_skip("periodic_layouts_mesh_and_check_with_declared_translations") {
+        return;
+    }
+    // (axes, expected (master, slave, translation) per pair; cell = 20 x 14)
+    let cases: [(&[&str], &[(&str, &str, [f64; 3])]); 2] = [
+        (&["x"], &[("x_lo", "x_hi", [20.0, 0.0, 0.0])]),
+        (
+            &["x", "y"],
+            &[
+                ("x_lo", "x_hi", [20.0, 0.0, 0.0]),
+                ("y_lo", "y_hi", [0.0, 14.0, 0.0]),
+            ],
+        ),
+    ];
+    for (axes, expect) in cases {
+        let tag = format!("periodic-{}", axes.join(""));
+        let dir = scratch(&tag);
+        let layout = dir.join("layout.json");
+        write_json(&layout, &periodic_layout(axes));
+        let (mesh, spec) = (dir.join("p.msh"), dir.join("p.spec.json"));
+        let report = ok(
+            geode(&[
+                "mesh",
+                s(&layout),
+                "--analysis",
+                "eigen",
+                "--mesh-out",
+                s(&mesh),
+                "--spec-out",
+                s(&spec),
+            ]),
+            "geode mesh --analysis eigen",
+        );
+        assert_eq!(report["kind"], "mesh", "{axes:?}");
+
+        let check = ok(geode(&["check", s(&spec)]), "geode check");
+        assert_eq!(check["kind"], "check", "{axes:?}");
+        let periodic = &check["periodic"];
+        let pairs = periodic["pairs"].as_array().expect("periodic.pairs");
+        assert_eq!(pairs.len(), expect.len(), "{axes:?}: {periodic:#}");
+        for (pair, (master, slave, t)) in pairs.iter().zip(expect) {
+            assert_eq!(pair["master"], *master, "{axes:?}");
+            assert_eq!(pair["slave"], *slave, "{axes:?}");
+            assert_eq!(pair["translation_inferred"], false, "{axes:?}: {pair:#}");
+            assert_eq!(pair["n_snapped"], 0, "{axes:?}: {pair:#}");
+            for (got, want) in pair["translation"].as_array().unwrap().iter().zip(t) {
+                assert_eq!(got.as_f64().unwrap(), *want, "{axes:?}: {pair:#}");
+            }
+        }
+        assert!(
+            periodic["warnings"].as_array().unwrap().is_empty(),
+            "{axes:?}: {periodic:#}"
+        );
+    }
+}
