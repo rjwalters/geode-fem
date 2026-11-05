@@ -1317,6 +1317,46 @@
       ],
       "type": "object"
     },
+    "DispersionParameter": {
+      "description": "A differentiable parameter of a [`DispersionSpec`] model (Epic #841\nPhase 2a, issue #1259): the `model_parameter` of a\n[`SensitivityParameterKind::Dispersion`] parameter. Units are the\nmodel's own (`tau_s` s, `omega_p_rad_s` / `gamma_rad_s` rad/s).",
+      "oneOf": [
+        {
+          "const": "eps_r",
+          "description": "Djordjevic–Sarkar datasheet `ε′` at `f_ref_hz` (`tan δ` held).",
+          "type": "string"
+        },
+        {
+          "const": "tan_delta",
+          "description": "Djordjevic–Sarkar datasheet `tan δ` at `f_ref_hz` (`ε′` held).",
+          "type": "string"
+        },
+        {
+          "const": "eps_inf",
+          "description": "Debye / Drude high-frequency permittivity `ε∞`.",
+          "type": "string"
+        },
+        {
+          "const": "delta_eps",
+          "description": "Debye pole step `Δε_k` (needs `pole`).",
+          "type": "string"
+        },
+        {
+          "const": "tau_s",
+          "description": "Debye pole relaxation time `τ_k` in s (needs `pole`).",
+          "type": "string"
+        },
+        {
+          "const": "omega_p_rad_s",
+          "description": "Drude plasma angular frequency `ω_p` (rad/s).",
+          "type": "string"
+        },
+        {
+          "const": "gamma_rad_s",
+          "description": "Drude collision rate `γ` (rad/s).",
+          "type": "string"
+        }
+      ]
+    },
     "DispersionSpec": {
       "description": "Frequency-dependent relative-permittivity model of a material\n(issues #757, #761), selected by `model`. Further models are added as\nnew `model` variants. All follow the solver's `exp(+jωt)` convention\n(passive: `Im ε_r ≤ 0`).",
       "oneOf": [
@@ -5695,6 +5735,11 @@
           "const": "wall_ball_density",
           "description": "Huray sphere density `N/A_tile` (1/m²) of a Leontovich wall, at\nfixed sphere radius.",
           "type": "string"
+        },
+        {
+          "const": "dispersion",
+          "description": "A parameter of the group's `materials[].dispersion` model (driven\nN-port S sensitivity, Epic #841 Phase 2a, issue #1259): see\n[`SensitivityParameterSpec::model_parameter`]. Costs zero extra\nsolves: `∂ε(ω)/∂θ` is contracted with the region's mass at every\nfrequency.",
+          "type": "string"
         }
       ]
     },
@@ -5718,6 +5763,17 @@
         "kind": {
           "$ref": "#/$defs/SensitivityParameterKind",
           "description": "Which property."
+        },
+        "model_parameter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DispersionParameter"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`kind = \"dispersion\"` only (required): the parameter of the group's\n`materials[].dispersion` model to differentiate — `eps_r` /\n`tan_delta` (`djordjevic_sarkar`), `eps_inf` / `delta_eps` / `tau_s`\n(`debye`), `eps_inf` / `omega_p_rad_s` / `gamma_rad_s` (`drude`)."
         },
         "motion": {
           "anyOf": [
@@ -5761,6 +5817,15 @@
           },
           "type": [
             "array",
+            "null"
+          ]
+        },
+        "pole": {
+          "description": "`kind = \"dispersion\"` with a `debye` model, `delta_eps` / `tau_s`\nonly (required there): the 0-based index of the relaxation pole.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
             "null"
           ]
         }
