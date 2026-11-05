@@ -1303,6 +1303,9 @@ pub enum FaceBc {
     /// as a [`BoundaryFaceKind::Robin`] face with `c = iω/Z_s(ω)`.
     Impedance(usize),
     /// Lumped port `i` of [`DrivenAdaptSpec::lumped_ports`]. Driven only.
+    /// May also be returned for a tagged triangle shared by two tets (an
+    /// interior sheet); such faces are only classified when they carry a
+    /// 2-D physical tag, and are estimated with the sheet term (#1340).
     /// Estimated as a [`BoundaryFaceKind::Robin`] face with
     /// `c = iω/(R w / l)` and the drive `2c (V_inc / l) ê`.
     LumpedPort(usize),
@@ -1438,6 +1441,39 @@ fn classify(
                 list.push(f);
             }
             FaceBc::LumpedPort(i) => {
+                let Some(list) = out.ports.get_mut(i) else {
+                    return Err(AdaptError::InvalidSpec(format!(
+                        "face {f:?} is classified LumpedPort({i}), but only {n_ports} ports are \
+                         defined"
+                    )));
+                };
+                list.push(f);
+            }
+        }
+    }
+    // Interior sheets: a tagged triangle that is a mesh face shared by two
+    // tets and classified `LumpedPort(i)` is part of port `i` (a lumped port
+    // realised as an interior sheet). Other conditions on an interior face
+    // are not defined and stay ignored. Sorted for a deterministic order.
+    let on_boundary: std::collections::HashSet<[u32; 3]> = m.boundary_faces().into_iter().collect();
+    let mut sheet_tris: Vec<([u32; 3], i32)> = tags
+        .iter()
+        .filter(|(f, _)| !on_boundary.contains(*f))
+        .map(|(f, &g)| (*f, g))
+        .collect();
+    sheet_tris.sort_unstable();
+    if !sheet_tris.is_empty() {
+        let mesh_faces = all_faces.clone().unwrap_or_else(|| m.faces());
+        for (f, g) in sheet_tris {
+            if mesh_faces.binary_search(&f).is_err() {
+                continue;
+            }
+            let ctx = FaceCtx {
+                nodes: f,
+                points: std::array::from_fn(|i| m.nodes[f[i] as usize]),
+                tag: Some(g),
+            };
+            if let FaceBc::LumpedPort(i) = boundary(&ctx) {
                 let Some(list) = out.ports.get_mut(i) else {
                     return Err(AdaptError::InvalidSpec(format!(
                         "face {f:?} is classified LumpedPort({i}), but only {n_ports} ports are \
@@ -1836,7 +1872,7 @@ impl<B: Backend> LevelSolver for DrivenLevelSolver<'_, '_, B> {
         for (i, (faces, p)) in cls.ports.iter().zip(&spec.lumped_ports).enumerate() {
             if faces.is_empty() {
                 return Err(AdaptError::InvalidSpec(format!(
-                    "lumped port {i} has no boundary face classified LumpedPort({i})"
+                    "lumped port {i} has no face classified LumpedPort({i})"
                 )));
             }
             ports.push(LumpedPort {

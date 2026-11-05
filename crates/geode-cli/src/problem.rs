@@ -2652,19 +2652,9 @@ fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), Cl
                 )));
             }
         }
-        Analysis::Eigen => {
-            if !spec.absorbing_regions.is_empty()
-                || spec.materials.iter().any(|m| m.eps_r[1] != 0.0)
-            {
-                return Err(invalid(
-                    "`sensitivity` on an eigen spec needs a lossless pencil (real `eps_r`, no \
-                     `absorbing_regions`): the library's eigenvalue sensitivity \
-                     (EigenSensitivity::deigenvalue_deps, Hellmann–Feynman) is real \
-                     symmetric-definite only — there is no complex-eigenvalue (frequency / Q) \
-                     gradient of a lossy or open pencil yet",
-                ));
-            }
-        }
+        // Lossless and lossy / open pencils both differentiate (the lossy path
+        // is the unconjugated Hellmann–Feynman of issue #1329).
+        Analysis::Eigen => {}
         Analysis::Inductance => {}
     }
     if sens.parameters.is_empty() {
