@@ -617,9 +617,9 @@ impl<'a> Prepared<'a> {
                             *o = zz * c64::new(0.0, omega2);
                         }
                     }
-                    // Floquet builds only material and shape params (above); wall
-                    // params belong to the driven N-port path.
-                    SParam::Shape { .. } | SParam::Wall { .. } => {}
+                    // Shape is handled below; Floquet never builds direction or wall
+                    // columns (only ε′/ε″/shape above), so these contribute nothing here.
+                    SParam::Shape { .. } | SParam::EpsDirection { .. } | SParam::Wall { .. } => {}
                 }
             }
         }
