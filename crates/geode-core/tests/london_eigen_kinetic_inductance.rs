@@ -36,6 +36,9 @@
 //!    before the `λ_L⁻¹` penalty's conditioning noise; exact λ_L = 0 is
 //!    invalid by convention (PEC goes through the edge mask).
 
+mod common;
+use common::edge_tables;
+
 use burn::tensor::Tensor;
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
@@ -65,18 +68,6 @@ fn device() -> <B as BackendTypes>::Device {
 
 fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
     t.into_data().iter::<f64>().collect()
-}
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
 }
 
 /// A rectangular vacuum box `dims[0] × dims[1] × dims[2]` (anisotropic

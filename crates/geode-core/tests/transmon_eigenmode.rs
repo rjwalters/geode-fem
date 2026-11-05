@@ -39,6 +39,9 @@
 //!   ([`real_transmon_eigenmodes_release`]) with the blog sanity band and
 //!   the committed Palace oracle comparison.
 
+mod common;
+use common::edge_tables;
+
 use burn::tensor::Tensor;
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
@@ -69,18 +72,6 @@ const M_PER_UNIT: f64 = 1e-6;
 /// Read a `[nnz]` Burn value tensor to a host Vec<f64>.
 fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
     t.into_data().iter::<f64>().collect()
-}
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
 }
 
 /// Assemble the REAL transmon pencil value vectors `(k_vals, m_vals)` via

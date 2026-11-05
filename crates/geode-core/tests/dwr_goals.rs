@@ -9,6 +9,9 @@
 //! gradient. The goldens of steps 4-5 (S-parameter, goal-adaptive DOF count, eigenfrequency) are
 //! added here as they land.
 
+mod common;
+use common::boundary_plane_faces;
+
 use faer::c64;
 use geode_core::adapt::dwr::{DwrEstimator, P2Enrichment, dwr_p2};
 use geode_core::adapt::goal::{GoalFunctional, LinearGoal, SParamGoal};
@@ -30,16 +33,6 @@ fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()
 }
 
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.boundary_faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
 /// A driven PEC unit-cube cavity at one order.
 fn cavity(
     mesh: &TetMesh,
@@ -48,7 +41,7 @@ fn cavity(
 ) -> (HcurlSpace, DrivenOperator) {
     let space = HcurlSpace::build(mesh, order);
     let walls: Vec<Vec<[u32; 3]>> = (0..3)
-        .flat_map(|a| [0.0, 1.0].map(|v| plane_faces(mesh, a, v)))
+        .flat_map(|a| [0.0, 1.0].map(|v| boundary_plane_faces(mesh, a, v)))
         .collect();
     let refs: Vec<&[[u32; 3]]> = walls.iter().map(Vec::as_slice).collect();
     let mask = space.pec_interior_mask(mesh, &refs).unwrap();
@@ -155,10 +148,10 @@ fn two_port(
 ) -> (HcurlSpace, DrivenOperator) {
     let space = HcurlSpace::build(mesh, order);
     let walls: Vec<Vec<[u32; 3]>> = vec![
-        plane_faces(mesh, 1, 0.0),
-        plane_faces(mesh, 1, 1.0),
-        plane_faces(mesh, 2, 1.0),
-        plane_faces(mesh, 0, 0.0),
+        boundary_plane_faces(mesh, 1, 0.0),
+        boundary_plane_faces(mesh, 1, 1.0),
+        boundary_plane_faces(mesh, 2, 1.0),
+        boundary_plane_faces(mesh, 0, 0.0),
     ];
     let refs: Vec<&[[u32; 3]]> = walls.iter().map(Vec::as_slice).collect();
     let mask = space.pec_interior_mask(mesh, &refs).unwrap();
@@ -198,7 +191,10 @@ fn two_port(
 fn s_goal_dual_is_the_forward_solve_of_the_output_port() {
     const OMEGA: f64 = 2.0;
     let mesh = cube_tet_mesh(3, 1.0);
-    let (f0, f1) = (plane_faces(&mesh, 2, 0.0), plane_faces(&mesh, 0, 1.0));
+    let (f0, f1) = (
+        boundary_plane_faces(&mesh, 2, 0.0),
+        boundary_plane_faces(&mesh, 0, 1.0),
+    );
     let (_sp, op) = two_port(&mesh, ElementOrder::P1, &f0, &f1);
     let fac = op.factor_at(OMEGA).unwrap();
     let x_j = fac.solve_excited(0).unwrap().e_edges; // port 0 excited
@@ -249,7 +245,10 @@ fn s_goal_dual_is_the_forward_solve_of_the_output_port() {
 fn dwr_p2_on_an_s_parameter_reproduces_the_p1_to_p2_gain() {
     const OMEGA: f64 = 2.0;
     let mesh = cube_tet_mesh(3, 1.0);
-    let (f0, f1) = (plane_faces(&mesh, 2, 0.0), plane_faces(&mesh, 0, 1.0));
+    let (f0, f1) = (
+        boundary_plane_faces(&mesh, 2, 0.0),
+        boundary_plane_faces(&mesh, 0, 1.0),
+    );
     let (sp1, op1) = two_port(&mesh, ElementOrder::P1, &f0, &f1);
     let (sp2, op2) = two_port(&mesh, ElementOrder::P2, &f0, &f1);
     let x1 = op1
@@ -295,7 +294,7 @@ fn one_goal_serves_the_adjoint_gradient_and_the_dwr_rhs() {
     let mesh = cube_tet_mesh(2, 1.0);
     let space = HcurlSpace::build(&mesh, ElementOrder::P1);
     let walls: Vec<Vec<[u32; 3]>> = (0..3)
-        .flat_map(|a| [0.0, 1.0].map(|v| plane_faces(&mesh, a, v)))
+        .flat_map(|a| [0.0, 1.0].map(|v| boundary_plane_faces(&mesh, a, v)))
         .collect();
     let refs: Vec<&[[u32; 3]]> = walls.iter().map(Vec::as_slice).collect();
     let mask = space.pec_interior_mask(&mesh, &refs).unwrap();

@@ -23,6 +23,9 @@
 //! observed iteration counts are printed to stderr so future runs surface
 //! convergence degradation (matching the `iterative_sweep.rs` convention).
 
+mod common;
+use common::{all_plane_faces, pec_mask_for_planes};
+
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::driven::extraction::{
@@ -54,29 +57,6 @@ fn zero_source(mesh: &TetMesh) -> CurrentSource {
     }
 }
 
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
-fn pec_mask_for_planes(mesh: &TetMesh, edges: &[[u32; 2]], planes: &[(usize, f64)]) -> Vec<bool> {
-    edges
-        .iter()
-        .map(|e| {
-            let a = mesh.nodes[e[0] as usize];
-            let b = mesh.nodes[e[1] as usize];
-            !planes.iter().any(|&(axis, value)| {
-                (a[axis] - value).abs() < 1e-12 && (b[axis] - value).abs() < 1e-12
-            })
-        })
-        .collect()
-}
-
 // ===========================================================================
 // 1. driven_frequency_sweep: matrix-free vs direct (cube lumped port)
 // ===========================================================================
@@ -90,7 +70,7 @@ fn pec_mask_for_planes(mesh: &TetMesh, edges: &[[u32; 2]], planes: &[(usize, f64
 fn driven_frequency_sweep_matrix_free_matches_direct() {
     let mesh = cube_tet_mesh(4, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
     let sigma = 2.0;
     let eps = vacuum(&mesh);
@@ -179,8 +159,8 @@ fn driven_frequency_sweep_matrix_free_matches_direct() {
 fn s_parameter_sweep_matrix_free_matches_direct() {
     let mesh = cube_tet_mesh(3, 1.0);
     let edges = mesh.edges();
-    let port1_faces = plane_faces(&mesh, 2, 0.0);
-    let port2_faces = plane_faces(&mesh, 2, 1.0);
+    let port1_faces = all_plane_faces(&mesh, 2, 0.0);
+    let port2_faces = all_plane_faces(&mesh, 2, 1.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
     let eps = vacuum(&mesh);
     // A little volumetric σ sharpens conditioning for the Jacobi COCG so the
@@ -277,7 +257,7 @@ fn s_parameter_sweep_matrix_free_matches_direct() {
 fn iteration_counts_track_assembled_cocg() {
     let mesh = cube_tet_mesh(4, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
     let eps = vacuum(&mesh);
     let sigma_tet = vec![2.0_f64; mesh.n_tets()];
@@ -373,7 +353,7 @@ fn leontovich_surface_matrix_free_matches_direct() {
     let bcs = DrivenBcs {
         pec_interior_mask: &mask,
     };
-    let wall = plane_faces(&mesh, 2, 1.0);
+    let wall = all_plane_faces(&mesh, 2, 1.0);
     let surfaces = [SurfaceImpedanceBc {
         triangles: &wall,
         model: SurfaceImpedanceModel::GoodConductor { sigma: 40.0 },
@@ -509,7 +489,7 @@ fn matrix_free_rejects_wave_port_sweep() {
     // "needs at least one port" check passes and the mode guard is reached.
     let mesh = cube_tet_mesh(2, 1.0);
     let n_edges = mesh.edges().len();
-    let faces = plane_faces(&mesh, 2, 0.0);
+    let faces = all_plane_faces(&mesh, 2, 0.0);
     let eps = vacuum(&mesh);
     let mask = vec![true; n_edges];
     // A dummy single-mode wave port (profile length = n_edges, nonzero a_inc).
@@ -573,7 +553,7 @@ fn driven_matrix_free_cuda_f32_smoke() {
     // single lumped port, single ω (no sweep) — a fast correctness gate.
     let mesh = cube_tet_mesh(4, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
     let eps = vacuum(&mesh);
     let sigma_tet = vec![2.0_f64; mesh.n_tets()];

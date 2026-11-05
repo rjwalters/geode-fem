@@ -33,8 +33,10 @@
 //! `tests/magnetostatic_wire.rs`).
 #![allow(clippy::needless_range_loop)]
 
+mod common;
+use common::repo_root;
+
 use std::f64::consts::PI;
-use std::path::PathBuf;
 
 use geode_core::adjoint::{build_region_nu, inductance_adjoint_sensitivity};
 use geode_core::assembly::magnetostatic3d::{
@@ -434,12 +436,6 @@ fn tripwire_non_solenoidal_current_rejected() {
 // ─────────────────────────────────────────────────────────────────────
 // 5. Palace terminal-M cross-check slot (skip-with-note convention).
 // ─────────────────────────────────────────────────────────────────────
-
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-}
 
 #[test]
 fn fem_vs_palace_terminal_m_within_band_or_skip_with_note() {

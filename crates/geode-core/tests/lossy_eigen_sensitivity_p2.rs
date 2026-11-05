@@ -10,6 +10,9 @@
 //! (3) a degenerate pair is a typed error; (4) the lossless limit
 //! reproduces the real-ε [`SpaceEigenSensitivity`] result.
 
+mod common;
+use common::boundary_plane_faces;
+
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
@@ -117,22 +120,12 @@ fn jitter(
     }
 }
 
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.boundary_faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
 /// The six walls of the box `[0, len]` as separate tagged triangle lists.
 fn box_walls(mesh: &TetMesh, len: [f64; 3]) -> Vec<Vec<[u32; 3]>> {
     let mut out = Vec::new();
     for (axis, &l) in len.iter().enumerate() {
-        out.push(plane_faces(mesh, axis, 0.0));
-        out.push(plane_faces(mesh, axis, l));
+        out.push(boundary_plane_faces(mesh, axis, 0.0));
+        out.push(boundary_plane_faces(mesh, axis, l));
     }
     out
 }

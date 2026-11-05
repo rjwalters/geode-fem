@@ -56,9 +56,11 @@
 //!   test pins the achieved ratio with a tracking band (1–7×) so a
 //!   regression in either direction is visible.
 
+mod common;
+use common::repo_root;
+
 use faer::c64;
 use std::fs;
-use std::path::PathBuf;
 
 use geode_core::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
 use geode_core::constants::ETA_0_OHM as ETA_0;
@@ -85,12 +87,6 @@ const FIXTURE_SPIRAL: SquareSpiral = SquareSpiral {
     spacing: 4.0e-6,
     d_in: 60.0e-6,
 };
-
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-}
 
 /// Run the benchmark pipeline (Leontovich conductor surface, PEC outer
 /// walls, 50 Ω port) on `fixture` at the given frequencies.
