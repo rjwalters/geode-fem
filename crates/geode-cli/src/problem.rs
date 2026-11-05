@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use faer::c64;
 use geode_core::assembly::current_path::triangle_node_components;
 use geode_core::assembly::electrostatic::face_to_tet_map;
+use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::assembly::nedelec::tet_centroids;
 use geode_core::constants::{C_M_PER_S, ETA_0_OHM};
 use geode_core::driven::ports::{
@@ -29,6 +30,7 @@ use geode_core::driven::ports::{
     TmCutoffEstimate, project_port_face, tm_evanescent_leak, tm_guard_axial_reach,
 };
 use geode_core::driven::solve::{SurfaceImpedanceModel, SurfaceRoughness};
+use geode_core::elements::ElementOrder;
 use geode_core::mesh::patch::box_upml_tensors;
 use geode_core::mesh::{TaggedTetMesh, pec_interior_mask_from_triangles, read_tagged_tet_mesh};
 use sha2::{Digest, Sha256};
@@ -575,6 +577,12 @@ pub struct Problem {
     /// spec it also eliminates the current paths' source / sink faces
     /// (PEC contacts).
     pub pec_mask: Vec<bool>,
+    /// Element order actually solved (issue #1265). At order 2 `pec_mask`
+    /// is the kept-DOF mask over [`Problem::hcurl_space`] (length
+    /// `2·n_edges + 2·n_faces`), not an edge mask.
+    pub element_order: ElementOrder,
+    /// The order-2 H(curl) space (`None` at order 1).
+    pub hcurl_space: Option<HcurlSpace>,
     /// Per-tet complex relative permittivity (dispersive regions at their
     /// reference frequency; the solve uses [`Problem::eps_at`]).
     pub eps: Vec<c64>,
@@ -1049,6 +1057,99 @@ fn invalid(msg: impl Into<String>) -> CliError {
     CliError::InvalidSpec(msg.into())
 }
 
+/// Whether an analysis kind has an order-2 path in the CLI (issue #1265).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum P2Support {
+    /// Order 2 runs (subject to the per-feature rejections of
+    /// [`validate_element_order`]).
+    Supported,
+    /// Order 2 is rejected; the string names the feature and what unblocks it.
+    Unsupported(&'static str),
+}
+
+/// The single order-2 support table: one entry per [`Analysis`] kind. The
+/// match is exhaustive, so a new analysis cannot be added without choosing.
+pub fn p2_support(analysis: Analysis) -> P2Support {
+    match analysis {
+        Analysis::Driven | Analysis::Eigen => P2Support::Supported,
+        Analysis::Extract => P2Support::Unsupported(
+            "`extract` specs are not wired to the order-2 driven sweep yet (Epic #836 Phase 5 follow-up)",
+        ),
+        Analysis::Capacitance => P2Support::Unsupported(
+            "`capacitance` specs have no CLI order-2 path: the electrostatic solve is scalar P1 \
+             (the scalar P2 kernels exist in the library but are not wired to the CLI)",
+        ),
+        Analysis::Inductance => P2Support::Unsupported(
+            "`inductance` specs have no CLI order-2 path: the magnetostatic P2 kernels are not \
+             wired to the CLI",
+        ),
+    }
+}
+
+/// Reject every `element_order = 2` combination the CLI cannot honour, with
+/// a message naming the feature and the unblocking issue / phase. Order 2
+/// is never silently solved at order 1 (the #804 rule). Runs before the mesh
+/// is read; a no-op at order 1.
+pub fn validate_element_order(spec: &ProblemSpec) -> Result<(), CliError> {
+    if spec.element_order != crate::spec::ElementOrderSpec::P2 {
+        return Ok(());
+    }
+    let analysis = spec.analysis();
+    if let P2Support::Unsupported(why) = p2_support(analysis) {
+        return Err(invalid(format!(
+            "element_order = 2 is not supported: {why}"
+        )));
+    }
+    let no = |feature: &str, why: &str| {
+        Err(invalid(format!(
+            "element_order = 2 is not supported with {feature}: {why}; use element_order = 1"
+        )))
+    };
+    if spec.sensitivity.is_some() {
+        return no("`sensitivity`", "p=2 sensitivities need Epic #836 Phase 4");
+    }
+    if spec.adaptive_mesh.is_some() {
+        return no(
+            "`adaptive_mesh`",
+            "the adaptive loop's estimator and bisection run at order 1 (Epic #835 x #836)",
+        );
+    }
+    if !spec.absorbing_regions.is_empty() {
+        return no(
+            "`absorbing_regions` (UPML)",
+            "the order-2 UPML pencil is not wired to the CLI (Epic #836 Phase 5 follow-up)",
+        );
+    }
+    if !matches!(spec.solver, SolverSpec::Direct {}) {
+        return no(
+            "`solver.mode = \"iterative\"`",
+            "matrix-free / AMS / Jacobi iteration has no order-2 path (principle 5 of Epic #836)",
+        );
+    }
+    if spec.materials.iter().any(|m| m.dispersion.is_some()) {
+        return no(
+            "`materials[].dispersion`",
+            "per-frequency order-2 assembly is not wired to the CLI",
+        );
+    }
+    if analysis == Analysis::Driven {
+        if !spec.wave_ports.is_empty() {
+            return no(
+                "`wave_ports`",
+                "hybrid ports at p=2 are Epic #836 Phase 3b, and the geometric wave-port sweep is \
+                 not wired to the CLI yet",
+            );
+        }
+        if spec.sweep.as_ref().is_some_and(|s| s.adaptive.is_some()) {
+            return no(
+                "`sweep.adaptive`",
+                "the order-2 reduced-order sweep is not wired to the CLI",
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Parse, validate and resolve the spec at `spec_path` (no solve).
 ///
 /// The spec is validated for the analysis it describes
@@ -1094,6 +1195,7 @@ pub fn load_parsed(
     {
         return Err(invalid(wrong_subcommand(want, analysis)));
     }
+    validate_element_order(&spec)?;
 
     // `adaptive_mesh` is rejected on the wrong analysis before any mesh
     // work (issue #1267).
@@ -1652,6 +1754,22 @@ pub fn load_parsed(
         }
     }
     let pec_mask = pec_interior_mask_from_triangles(&edges, &pec_lists);
+    // Order 2 (issue #1265): the kept-DOF mask over the p=2 space (face-exact
+    // PEC), replacing the edge mask so `n_interior` and the solve see p=2.
+    let element_order = match spec.element_order {
+        crate::spec::ElementOrderSpec::P1 => ElementOrder::P1,
+        crate::spec::ElementOrderSpec::P2 => ElementOrder::P2,
+    };
+    let (hcurl_space, pec_mask) = match element_order {
+        ElementOrder::P1 => (None, pec_mask),
+        ElementOrder::P2 => {
+            let space = HcurlSpace::build(&tagged.mesh, ElementOrder::P2);
+            let mask = space
+                .pec_interior_mask(&tagged.mesh, &pec_lists)
+                .map_err(|e| invalid(format!("order-2 PEC mask: {e}")))?;
+            (Some(space), mask)
+        }
+    };
     check_silver_muller_port_rims(&wave_ports, &silver_muller, &edges, &pec_mask)?;
     // Route each wave port (issue #807): an inhomogeneous face, or one with
     // a floating conductor, goes to the hybrid path; the rest stay
@@ -1721,6 +1839,8 @@ pub fn load_parsed(
         tagged,
         edges,
         pec_mask,
+        element_order,
+        hcurl_space,
         eps,
         dispersion,
         mu_r,
@@ -2532,19 +2652,9 @@ fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), Cl
                 )));
             }
         }
-        Analysis::Eigen => {
-            if !spec.absorbing_regions.is_empty()
-                || spec.materials.iter().any(|m| m.eps_r[1] != 0.0)
-            {
-                return Err(invalid(
-                    "`sensitivity` on an eigen spec needs a lossless pencil (real `eps_r`, no \
-                     `absorbing_regions`): the library's eigenvalue sensitivity \
-                     (EigenSensitivity::deigenvalue_deps, Hellmann–Feynman) is real \
-                     symmetric-definite only — there is no complex-eigenvalue (frequency / Q) \
-                     gradient of a lossy or open pencil yet",
-                ));
-            }
-        }
+        // Lossless and lossy / open pencils both differentiate (the lossy path
+        // is the unconjugated Hellmann–Feynman of issue #1329).
+        Analysis::Eigen => {}
         Analysis::Inductance => {}
     }
     if sens.parameters.is_empty() {
@@ -5129,6 +5239,25 @@ fn sorted_tet_faces(tets: &[[u32; 4]]) -> std::collections::HashSet<[u32; 3]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #1265: every analysis kind has an explicit order-2 decision, and
+    /// each rejection names what it is rejecting (the match in `p2_support`
+    /// is exhaustive, so a new kind cannot skip this table).
+    #[test]
+    fn p2_support_table_covers_every_analysis() {
+        for a in [
+            Analysis::Driven,
+            Analysis::Eigen,
+            Analysis::Extract,
+            Analysis::Capacitance,
+            Analysis::Inductance,
+        ] {
+            match p2_support(a) {
+                P2Support::Supported => assert!(matches!(a, Analysis::Driven | Analysis::Eigen)),
+                P2Support::Unsupported(why) => assert!(why.contains(a.name()), "{why}"),
+            }
+        }
+    }
 
     /// Issue #930: the default `"auto"` preconditioner resolves to `ams`
     /// with no warning when nothing rules AMS out, and to `jacobi` with a
