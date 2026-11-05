@@ -663,7 +663,9 @@ pub struct WarningResult {
     /// `"sensitivity_shape_moves_interface"` (issue #893: the motion's
     /// extension drags a material interface the parameter does not own
     /// along its normal; `physical_group` is `null`, the message names the
-    /// two volume groups).
+    /// two volume groups) and `"sensitivity_wall_saturated"` (issue #1330:
+    /// a wall roughness parameter whose loss factor sits on its plateau, so
+    /// its column is ~0 by saturation; `physical_group` is the wall).
     pub kind: &'static str,
     /// Wave-port index (spec order), if the warning is about one port.
     pub wave_port: Option<usize>,
@@ -1735,11 +1737,13 @@ pub struct SensitivityObservableSummary {
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct SensitivityParameterSummary {
     /// Volume physical-group name (a shape parameter: its moving groups,
-    /// comma-joined).
+    /// comma-joined; a wall parameter: the Leontovich wall's group).
     pub physical_group: String,
     /// `"eps_r"` (real relative permittivity), `"eps_r_imag"` (loss
     /// `ε″ = −Im ε_r`), `"tan_delta"`, `"nu_r"` (relative reluctivity
-    /// `1/μ_r`), `"mu_r"` (relative permeability) or `"shape"`.
+    /// `1/μ_r`), `"mu_r"` (relative permeability), `"shape"`, or (issue
+    /// #1330) a Leontovich wall parameter: `"wall_sigma"`,
+    /// `"wall_rms_roughness"`, `"wall_ball_radius"`, `"wall_ball_density"`.
     pub kind: &'static str,
     /// Parameter value at which the gradient was taken (dimensionless; a
     /// shape parameter in metres: the stretch extent, or `0` for a
@@ -1762,7 +1766,8 @@ pub struct SensitivityParameterSummary {
     /// that no surface you meant to keep fixed is listed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved_groups: Option<Vec<String>>,
-    /// Unit of the parameter (`"1"` material, `"m"` shape); present on the
+    /// Unit of the parameter (`"1"` material, `"m"` shape, `"S/m"` / `"m"` /
+    /// `"1/m^2"` wall); present on the
     /// N-port path. Gradients are in observable unit per parameter unit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unit: Option<&'static str>,

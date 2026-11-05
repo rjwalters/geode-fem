@@ -58,12 +58,13 @@ use std::time::Instant;
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::assembly::hcurl_space::HcurlSpace;
+use geode_core::constants::ETA_0_OHM;
 use geode_core::driven::ports::WavePortSpec;
 use geode_core::driven::s_sensitivity::{
     MaterialDesign, PortModeObservables, SDesign, SNetwork, SSensitivityError, SSensitivityOptions,
     SSensitivitySweep, ShapeDesign, s_matrix_sensitivity_sweep,
 };
-use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, ElementOrder};
+use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, ElementOrder, WallParam};
 
 use crate::backend::CompiledBackend;
 use crate::error::CliError;
@@ -76,7 +77,8 @@ use crate::report::{
 };
 use crate::sensitivity::{FD_SCALE_FLOOR, rel_error};
 use crate::spec::{
-    ImpedanceDefinition, ObservableForm, ObservableQuantity, SensitivityParameterKind,
+    ImpedanceDefinition, ObservableForm, ObservableQuantity, RoughnessSpec,
+    SensitivityParameterKind,
 };
 
 /// Largest accepted relative difference between the sensitivity's S matrix
@@ -204,23 +206,33 @@ fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
             None => columns.push(None),
         }
     }
+    let shape_cols_len = shape_cols.len();
     let shape = if shape_cols.is_empty() {
         None
     } else {
         Some(ShapeDesign::from_columns(shape_cols, shape_names).map_err(lib_error)?)
     };
+    // Wall columns (issue #1330), in spec order.
+    let wall_params: Vec<(usize, WallParam)> = sens
+        .parameters
+        .iter()
+        .filter_map(|prm| prm.wall.as_ref().map(|w| (w.wall, w.param)))
+        .collect();
+    let n_shape = shape_cols_len;
     let sdesign = SDesign {
         material,
         shape,
         port_fill,
-        wall_params: vec![],
+        wall_params,
     };
     // The library's flat order: every region's ε′ (if selected), then ε″,
-    // then the shape columns.
+    // then the shape columns, then the wall columns.
     let n_reg = regions.len();
     let dprime_base = if need_prime { n_reg } else { 0 };
     let shape_base = dprime_base + if need_dprime { n_reg } else { 0 };
+    let wall_base = shape_base + n_shape;
     let mut next_shape = 0;
+    let mut next_wall = 0;
     let map = sens
         .parameters
         .iter()
@@ -245,6 +257,19 @@ fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
                         factor: 1.0 / p.length_unit_m(),
                     };
                     next_shape += 1;
+                    m
+                }
+                SensitivityParameterKind::WallSigma
+                | SensitivityParameterKind::WallRmsRoughness
+                | SensitivityParameterKind::WallBallRadius
+                | SensitivityParameterKind::WallBallDensity => {
+                    // The library differentiates in natural units; the
+                    // report is per SI parameter.
+                    let m = ParamMap {
+                        index: wall_base + next_wall,
+                        factor: prm.wall.as_ref().expect("a wall parameter").si_factor,
+                    };
+                    next_wall += 1;
                     m
                 }
                 SensitivityParameterKind::NuR | SensitivityParameterKind::MuR => {
@@ -1113,7 +1138,11 @@ fn parameter_summary(
         }),
         pinned: sh.map(|s| s.pinned.clone()).unwrap_or_default(),
         moved_groups: col.map(|c| moved_groups(p, c)),
-        unit: Some(if sh.is_some() { "m" } else { "1" }),
+        unit: Some(match (&prm.wall, sh) {
+            (Some(w), _) => w.unit,
+            (None, Some(_)) => "m",
+            (None, None) => "1",
+        }),
     }
 }
 
@@ -1160,6 +1189,38 @@ fn perturbed(
                     prm.physical_group
                 )));
             }
+        }
+        (kind, _) if kind.is_wall() => {
+            let w = prm.wall.as_ref().expect("a wall parameter");
+            let l = &mut q.leontovich[w.wall];
+            let v = prm.value + delta;
+            let lu = p.length_unit_m();
+            match (kind, &mut l.roughness) {
+                (SensitivityParameterKind::WallSigma, _) => {
+                    l.sigma_s_m = v;
+                    l.sigma_natural = v * ETA_0_OHM * lu;
+                }
+                (
+                    SensitivityParameterKind::WallRmsRoughness,
+                    Some(RoughnessSpec::Hammerstad { rms_m }),
+                ) => *rms_m = v,
+                (
+                    SensitivityParameterKind::WallBallRadius,
+                    Some(RoughnessSpec::Huray { ball_radius_m, .. }),
+                ) => *ball_radius_m = v,
+                (
+                    SensitivityParameterKind::WallBallDensity,
+                    Some(RoughnessSpec::Huray {
+                        n_balls,
+                        tile_area_m2,
+                        ..
+                    }),
+                ) => *n_balls = v * *tile_area_m2,
+                _ => unreachable!("validated at load"),
+            }
+            l.roughness_natural = l
+                .roughness
+                .map(|r| crate::problem::roughness_natural(r, lu));
         }
         (kind, _) => {
             for (e, &r) in q
@@ -1247,6 +1308,8 @@ pub fn driven(
         .filter_map(|(prm, col)| Some(shape_warnings(p, prm, col.as_ref()?, faces.as_ref()?)))
         .flatten()
         .collect();
+    // Frequencies (Hz) at which parameter k's roughness has saturated.
+    let mut wall_saturated: Vec<Vec<f64>> = vec![Vec::new(); sens.parameters.len()];
     for &fi in &sens.frequency_indices {
         let pt = point_of(fi);
         let row = &rows[fi];
@@ -1291,6 +1354,17 @@ pub fn driven(
                 }
             }
         }
+        for note in &pt.wall_notes {
+            for (k, prm) in sens.parameters.iter().enumerate() {
+                if prm
+                    .wall
+                    .as_ref()
+                    .is_some_and(|w| w.wall == note.wall && w.param == note.param)
+                {
+                    wall_saturated[k].push(row.frequency_hz);
+                }
+            }
+        }
         for note in &pt.port_mode_warnings {
             let w = &p.wave_ports[note.port];
             warnings.push(WarningResult {
@@ -1305,6 +1379,28 @@ pub fn driven(
                 ),
             });
         }
+    }
+    for (prm, freqs) in sens.parameters.iter().zip(&wall_saturated) {
+        if freqs.is_empty() {
+            continue;
+        }
+        let w = WarningResult {
+            kind: "sensitivity_wall_saturated",
+            wave_port: None,
+            physical_group: Some(prm.physical_group.clone()),
+            message: format!(
+                "wall parameter {}: the roughness loss factor has reached its plateau at {} Hz \
+                 — the gradient there is ~0 by saturation, not by error",
+                display(prm),
+                freqs
+                    .iter()
+                    .map(|f| format!("{f}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        };
+        eprintln!("warning: {}", w.message);
+        warnings.push(w);
     }
     if parity.is_nan() || parity > FORWARD_PARITY_TOL {
         return Err(CliError::SensitivitySolve(format!(
@@ -1490,6 +1586,7 @@ pub fn driven(
 fn display(prm: &SensitivityParameter) -> String {
     match &prm.shape {
         Some(sh) => format!("`{}`", sh.name),
+        None if prm.wall.is_some() => format!("`{}` of `{}`", prm.kind.name(), prm.physical_group),
         None => format!("`{}`", prm.physical_group),
     }
 }

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **CLI wall-parameter sensitivities** (#1330, Epic #841 Phase 2b). `sensitivity.parameters[]` accepts `wall_sigma`, `wall_rms_roughness`, `wall_ball_radius` and `wall_ball_density`, naming a Leontovich wall by its `physical_group`, on the driven N-port path. Columns are per SI parameter, additive in report schema v1 (new `sensitivity_wall_saturated` warning kind); spec and report schemas regenerated.
 - **Floquet ports: higher orders and diffraction** (#1262, Epic #837 Phase 3b). Library only.
   - Every order that propagates at a port is now a reported TE + TM channel, so a grating with period `> λ` solves and `S` is power-normalized over all propagating orders (`Σ|S_pq|² = 1` for a lossless cell). Evanescent terminations are the rings `max(|m|,|n|) ≤ n_evanescent` beyond that set, and the excluded-ring decay warning is measured from the largest included ring.
   - New grazing warning above 85° ([`GRAZING_WARN_DEG`]).
