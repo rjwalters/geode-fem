@@ -126,7 +126,10 @@ pub fn file_ref_at(on_disk: &Path, reported: String) -> Result<FileRef, CliError
     })?;
     Ok(FileRef {
         path: reported,
-        sha256: format!("{:x}", Sha256::digest(&bytes)),
+        sha256: Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>(),
     })
 }
 
@@ -230,7 +233,13 @@ mod tests {
         let r = out.write_json("x.json", &[1, 2]).unwrap();
         assert_eq!(r.path, "x.json");
         let bytes = std::fs::read(dir.join("nested/x.json")).unwrap();
-        assert_eq!(r.sha256, format!("{:x}", Sha256::digest(&bytes)));
+        assert_eq!(
+            r.sha256,
+            Sha256::digest(&bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        );
         assert_eq!(r.sha256.len(), 64);
         // Overwrite semantics: same name, new content, new hash.
         let r2 = out.write_json("x.json", &[3]).unwrap();

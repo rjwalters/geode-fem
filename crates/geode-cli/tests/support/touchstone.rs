@@ -70,7 +70,13 @@ pub fn assert_round_trip(report: &serde_json::Value, path: &std::path::Path) {
     let bytes = std::fs::read(path).expect("touchstone file written");
     let tf = &report["touchstone_file"];
     assert_eq!(tf["path"], path.display().to_string());
-    assert_eq!(tf["sha256"], format!("{:x}", Sha256::digest(&bytes)));
+    assert_eq!(
+        tf["sha256"],
+        Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    );
     let (n, refs, rows) = parse(std::str::from_utf8(&bytes).unwrap());
     let ports = report["ports"].as_array().unwrap();
     assert_eq!(n, ports.len());
@@ -269,7 +275,13 @@ pub fn assert_wave_round_trip(
     let bytes = std::fs::read(path).expect("touchstone file written");
     let tf = &report["touchstone_file"];
     assert_eq!(tf["path"], path.display().to_string());
-    assert_eq!(tf["sha256"], format!("{:x}", Sha256::digest(&bytes)));
+    assert_eq!(
+        tf["sha256"],
+        Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    );
     let text = std::str::from_utf8(&bytes).unwrap();
     let parsed = parse(text);
     let (n, file_refs, rows) = &parsed;

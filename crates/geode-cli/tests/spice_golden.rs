@@ -140,7 +140,10 @@ fn assert_file_ref(report: &serde_json::Value, path: &Path) -> String {
     assert_eq!(sf["path"], path.display().to_string());
     assert_eq!(
         sf["sha256"],
-        format!("{:x}", Sha256::digest(text.as_bytes()))
+        Sha256::digest(text.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
     );
     text
 }

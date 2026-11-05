@@ -396,7 +396,10 @@ fn patch_smoke_extract_default_iterative_reports_upml_preconditioner_fallback_wa
 /// Hex SHA-256 of a file's bytes.
 fn sha256_of(path: &std::path::Path) -> String {
     use sha2::{Digest, Sha256};
-    format!("{:x}", Sha256::digest(std::fs::read(path).unwrap()))
+    Sha256::digest(std::fs::read(path).unwrap())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>()
 }
 
 /// The ASCII values of `.vtu` `DataArray` `name`.
