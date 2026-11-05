@@ -149,6 +149,7 @@ jobs:
               --test leontovich_surface_impedance \
               --test london_eigen_kinetic_inductance \
               --test london_surface_impedance \
+              --test lossy_eigen_sensitivity_p2 \
               --test lp01_profile_selector_benchmark \
               --test lumped_port \
               --test m27_law \
@@ -239,6 +240,7 @@ jobs:
               --test leontovich_surface_impedance \
               --test london_eigen_kinetic_inductance \
               --test london_surface_impedance \
+              --test lossy_eigen_sensitivity_p2 \
               --test lp01_profile_selector_benchmark \
               --test lumped_port \
               --test m27_law \
