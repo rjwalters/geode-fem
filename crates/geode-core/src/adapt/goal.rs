@@ -123,6 +123,102 @@ impl GoalFunctional for LinearGoal {
     }
 }
 
+/// The lumped-port scattering coefficient `S_kj` of a driven problem as a
+/// goal of the field `x` solved with port `j` excited (the power-wave
+/// definition of [`crate::driven::ports`]):
+///
+/// ```text
+/// S_kj = (V_k(x) − V_inc,j δ_kj) / V_inc,j · √(R_j / R_k) ,   V_k = w_kᵀ x .
+/// ```
+///
+/// For a fixed excitation `j` this is **affine in `x`**, so
+/// [`GoalFunctional::is_linear`] is `true` (the constant offset does not
+/// enter [`GoalFunctional::rhs`]) and the DWR identity is exact.
+///
+/// # Dual problem and reciprocity
+///
+/// `rhs` is `∂S_kj/∂x = w_k √(R_j/R_k) / V_inc,j`, proportional to the
+/// excitation pattern of port `k`. The driven operator is complex-symmetric,
+/// so the dual `A z = rhs` is the forward solve **for port `k`** scaled by a
+/// constant (`tests/dwr_goals.rs` pins the proportionality): in an N-port sweep, which
+/// already holds the forward solve of every port, the dual of any `S_kj` is
+/// available with no extra factorization or back-solve. That relies on
+/// `Aᵀ = A`; with a Bloch phase (`A(k)ᵀ = A(−k)`) a transpose solve is
+/// required instead (see the module docs).
+#[derive(Debug, Clone)]
+pub struct SParamGoal {
+    name: String,
+    /// `∂S/∂x` (full-length), already carrying `√(R_j/R_k)/V_inc,j`.
+    weights: Vec<c64>,
+    /// The constant `−δ_kj · √(R_j/R_k)` of the affine goal.
+    offset: c64,
+}
+
+impl SParamGoal {
+    /// `S_kj` of the lumped-port operator `op`: output port `k`, excited
+    /// port `j`, incident voltage `v_inc_j` of the excitation solve.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `k` or `j` is not a port of `op`, or `v_inc_j` is zero.
+    pub fn lumped(
+        op: &crate::driven::solve::DrivenOperator,
+        k: usize,
+        j: usize,
+        v_inc_j: c64,
+    ) -> Self {
+        assert!(k < op.n_ports() && j < op.n_ports(), "port out of range");
+        assert!(
+            v_inc_j.norm() > 0.0,
+            "the excitation needs a non-zero V_inc"
+        );
+        let ratio = (op.port_resistance(j) / op.port_resistance(k)).sqrt();
+        let scale = v_inc_j.inv() * ratio;
+        let weights = op
+            .port_voltage_weights(k)
+            .into_iter()
+            .map(|w| w * scale)
+            .collect();
+        let offset = if k == j {
+            c64::new(-ratio, 0.0)
+        } else {
+            c64::new(0.0, 0.0)
+        };
+        Self {
+            name: format!("s{}{}", k + 1, j + 1),
+            weights,
+            offset,
+        }
+    }
+}
+
+impl GoalFunctional for SParamGoal {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn value(&self, x: &[c64]) -> c64 {
+        assert_eq!(
+            x.len(),
+            self.weights.len(),
+            "goal `{}`: DOF length",
+            self.name
+        );
+        self.weights
+            .iter()
+            .zip(x)
+            .fold(self.offset, |acc, (w, v)| acc + w * v)
+    }
+
+    fn rhs(&self, _x: &[c64]) -> Vec<c64> {
+        self.weights.clone()
+    }
+
+    fn is_linear(&self) -> bool {
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
