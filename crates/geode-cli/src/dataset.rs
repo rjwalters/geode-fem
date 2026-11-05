@@ -190,18 +190,24 @@ impl Data {
     fn from_le_bytes(dtype: Dtype, b: &[u8]) -> Self {
         match dtype {
             Dtype::F64 => Data::F64(
-                b.chunks_exact(8)
-                    .map(|c| f64::from_le_bytes(c.try_into().unwrap()))
+                b.as_chunks::<8>()
+                    .0
+                    .iter()
+                    .map(|c| f64::from_le_bytes(*c))
                     .collect(),
             ),
             Dtype::U32 => Data::U32(
-                b.chunks_exact(4)
-                    .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+                b.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|c| u32::from_le_bytes(*c))
                     .collect(),
             ),
             Dtype::I32 => Data::I32(
-                b.chunks_exact(4)
-                    .map(|c| i32::from_le_bytes(c.try_into().unwrap()))
+                b.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|c| i32::from_le_bytes(*c))
                     .collect(),
             ),
         }
