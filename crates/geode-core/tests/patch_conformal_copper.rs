@@ -438,7 +438,8 @@ fn load(rel: &str) -> toml::Value {
     let p = copper_dir().join(rel);
     std::fs::read_to_string(&p)
         .unwrap_or_else(|e| panic!("read {}: {e}", p.display()))
-        .parse()
+        .parse::<toml::Table>()
+        .map(toml::Value::Table)
         .unwrap_or_else(|e| panic!("parse {}: {e}", p.display()))
 }
 
@@ -578,7 +579,12 @@ fn tomls(sub: &str) -> Vec<(String, toml::Value)> {
         .filter(|p| p.file_stem().unwrap() != "g2_summary")
         .map(|p| {
             let stem = p.file_stem().unwrap().to_string_lossy().into_owned();
-            let v = std::fs::read_to_string(&p).unwrap().parse().unwrap();
+            let v = toml::Value::Table(
+                std::fs::read_to_string(&p)
+                    .unwrap()
+                    .parse::<toml::Table>()
+                    .unwrap(),
+            );
             (stem, v)
         })
         .collect();

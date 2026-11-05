@@ -1572,7 +1572,8 @@ fn read_design(path: &Path) -> DesignFile {
     let text =
         fs::read_to_string(path).unwrap_or_else(|e| panic!("read design {}: {e}", path.display()));
     let v: toml::Value = text
-        .parse()
+        .parse::<toml::Table>()
+        .map(toml::Value::Table)
         .unwrap_or_else(|e| panic!("parse design {}: {e}", path.display()));
     let s = |t: &str, k: &str| -> String {
         v[t][k]

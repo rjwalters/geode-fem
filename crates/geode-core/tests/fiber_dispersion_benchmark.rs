@@ -603,7 +603,8 @@ fn check_against_committed(fresh: &Path) {
     let read = |p: &Path| -> toml::Value {
         fs::read_to_string(p)
             .unwrap_or_else(|e| panic!("cannot read {}: {e}", p.display()))
-            .parse()
+            .parse::<toml::Table>()
+            .map(toml::Value::Table)
             .unwrap_or_else(|e| panic!("malformed TOML in {}: {e}", p.display()))
     };
     let (new, old) = (read(fresh), read(&committed));
