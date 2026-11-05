@@ -126,6 +126,68 @@
       },
       "type": "object"
     },
+    "BlochPathSpec": {
+      "additionalProperties": false,
+      "description": "`eigen.bloch` along a k-path.",
+      "properties": {
+        "lattice": {
+          "$ref": "#/$defs/LatticeSpec",
+          "description": "The orthogonal lattice the labels refer to."
+        },
+        "path": {
+          "description": "Vertex labels (`G`/`Γ`, `X`, `Y`, `Z`, `M`, `R`), `≥ 2`; their\ncoordinates come from `lattice`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "points_per_segment": {
+          "default": 16,
+          "description": "Samples per segment (default `16`, `≥ 1`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "lattice"
+      ],
+      "type": "object"
+    },
+    "BlochPointSpec": {
+      "additionalProperties": false,
+      "description": "`eigen.bloch` at a single wave vector.",
+      "properties": {
+        "k": {
+          "description": "`[kx, ky, kz]` in rad per mesh length unit.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "k"
+      ],
+      "type": "object"
+    },
+    "BlochSpec": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BlochPointSpec",
+          "description": "A single wave vector."
+        },
+        {
+          "$ref": "#/$defs/BlochPathSpec",
+          "description": "A labelled polyline through k-space, sampled and band-tracked."
+        }
+      ],
+      "description": "The Bloch wave vector(s) of an `eigen.bloch` analysis: one point, or a\npath through the Brillouin zone."
+    },
     "BoundaryConditionsSpec": {
       "additionalProperties": false,
       "description": "Boundary conditions: PEC, Leontovich and (additive in v1, issue\n#683) first-order Silver-Müller absorbing walls. A dimension-2\nphysical group may carry at most one of {port, wave port, PEC,\nLeontovich, Silver-Müller}.",
@@ -143,6 +205,13 @@
           "description": "Dimension-2 physical-group names whose edges are eliminated as\nperfect electric conductor (tangential `E = 0`).",
           "items": {
             "type": "string"
+          },
+          "type": "array"
+        },
+        "periodic": {
+          "description": "Periodic master/slave surface pairs (additive in v1, Epic #837\nPhase 4a). The two groups must be conforming translates of each\nother (Gmsh `Periodic Surface` or `geode mesh` with `periodic`);\nan `eigen.bloch` analysis is the only consumer in this phase. A\ngroup may not also be PEC (or carry any other boundary condition).",
+          "items": {
+            "$ref": "#/$defs/PeriodicSpec"
           },
           "type": "array"
         },
@@ -345,6 +414,17 @@
       "additionalProperties": false,
       "description": "Eigenmode analysis settings (`geode eigen`).\n\nSolves the PEC-cavity pencil `K x = k₀² M_ε x` with the pure-Rust\nsparse shift-invert Lanczos (direct sparse-LU inner solve) and returns\nthe `n_modes` physical modes closest to `shift`, ascending. The pencil\nis real symmetric (lossless, `Q = null`) for real `ε_r`, and complex\nsymmetric (complex `k₀`, finite `Q`) when any `materials[].eps_r` has\n`Im < 0` or the spec has `absorbing_regions` (UPML frozen at `shift`;\nissue #706). Leontovich / Silver-Müller walls are rejected: their\nfrequency-dependent terms would make the eigenproblem nonlinear.\n`shift` must be `> 0`; place it just **below** the lowest mode of\ninterest (open cavities: **near** the resonance of interest) — the\ncurl-curl gradient nullspace sits at `k₀ = 0` and is filtered out, so a\nshift near 0 wastes the Lanczos basis on it.",
       "properties": {
+        "bloch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BlochSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Bloch (unit-cell band) analysis (additive in v1, Epic #837 Phase\n4a): solve the periodic unit cell named by\n`boundary_conditions.periodic` at one wave vector `k`, or along a\nk-path, instead of the PEC cavity modes. Needs at least one\n`periodic` pair and a lossless spec (real `eps_r`, no\n`absorbing_regions`). `shift` / `unit` give the target frequency\nof the shift-invert solve, as for a cavity."
+        },
         "max_iters": {
           "default": 160,
           "description": "Lanczos basis size (default `160`). Raise it when modes are\nnearly degenerate or when `n_modes` is large. Too small a basis\nleaves modes unconverged: any returned mode whose relative\nresidual exceeds [`EigenSpec::residual_tol`] fails the run with\n`solve_failed` (never silently wrong frequencies).",
@@ -640,6 +720,37 @@
       ],
       "type": "object"
     },
+    "LatticeSpec": {
+      "additionalProperties": false,
+      "description": "An orthogonal lattice with periods `a`, `b`, `c` (mesh length units).\nThe high-symmetry points are `Γ = 0`, `X = (π/a, 0, 0)`,\n`Y = (0, π/b, 0)`, `Z = (0, 0, π/c)`, `M = (π/a, π/b, 0)` and\n`R = (π/a, π/b, π/c)`.",
+      "properties": {
+        "a": {
+          "description": "Period along `x` (`> 0`).",
+          "format": "double",
+          "type": "number"
+        },
+        "b": {
+          "description": "Period along `y` (default `a`).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "c": {
+          "description": "Period along `z` (default `a`).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "a"
+      ],
+      "type": "object"
+    },
     "LeontovichSpec": {
       "additionalProperties": false,
       "description": "One Leontovich good-conductor surface\n(`Z_s = (1 + j)·√(ωμ₀ / 2σ)`, times the roughness factor `K(f)` when\n`roughness` is given).",
@@ -914,6 +1025,38 @@
           "type": "string"
         }
       ]
+    },
+    "PeriodicSpec": {
+      "additionalProperties": false,
+      "description": "One periodic boundary pair: the slave surface is the master translated\nby `translation`.",
+      "properties": {
+        "master": {
+          "description": "Dimension-2 physical-group name of the master face.",
+          "type": "string"
+        },
+        "slave": {
+          "description": "Dimension-2 physical-group name of the slave face.",
+          "type": "string"
+        },
+        "translation": {
+          "description": "Translation `slave − master` in mesh length units. Optional: when\nomitted it is inferred from the two faces (a least-squares fit\nover the matched nodes).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "master",
+        "slave"
+      ],
+      "type": "object"
     },
     "PreconditionerSpec": {
       "description": "Preconditioner for `solver.mode = \"iterative\"` (issue #708).",

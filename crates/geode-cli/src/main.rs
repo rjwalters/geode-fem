@@ -29,6 +29,7 @@
 
 mod adaptive;
 mod backend;
+mod bloch;
 mod capacitance;
 mod check;
 mod dataset;

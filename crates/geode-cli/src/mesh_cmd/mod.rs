@@ -46,9 +46,10 @@ use self::layout::{BoundaryDef, Layout, ResolvedLayout};
 use crate::error::CliError;
 use crate::report::Provenance;
 use crate::spec::{
-    BoundaryConditionsSpec, CapacitanceSpec, CurrentPathSpec, FrequencySpec, FrequencyUnit,
-    InductanceSpec, LeontovichSpec, LumpedPortSpec, MaterialSpec, MeshSpec, ProblemSpec,
-    SPEC_SCHEMA_VERSION, SolverSpec, Spacing, UpmlSpec,
+    self, BlochPointSpec, BlochSpec, BoundaryConditionsSpec, CapacitanceSpec, CurrentPathSpec,
+    EigenSpec, FrequencySpec, FrequencyUnit, InductanceSpec, LeontovichSpec, LumpedPortSpec,
+    MaterialSpec, MeshSpec, PeriodicSpec, ProblemSpec, SPEC_SCHEMA_VERSION, SolverSpec, Spacing,
+    UpmlSpec,
 };
 
 /// Environment variable naming the Gmsh binary (below `--gmsh`).
@@ -75,6 +76,10 @@ pub enum MeshAnalysis {
     /// every other conductor group are the PEC return. Ports are not
     /// meshed.
     Inductance,
+    /// Eigen spec (`geode eigen`): PEC cavity modes, or with the layout's
+    /// `periodic` axes a Bloch unit cell (`eigen.bloch` at Γ). Ports are
+    /// not meshed.
+    Eigen,
 }
 
 impl MeshAnalysis {
@@ -84,6 +89,7 @@ impl MeshAnalysis {
             MeshAnalysis::Driven => "driven",
             MeshAnalysis::Capacitance => "capacitance",
             MeshAnalysis::Inductance => "inductance",
+            MeshAnalysis::Eigen => "eigen",
         }
     }
 }
@@ -650,6 +656,7 @@ fn summarize_groups(
             GroupRole::Port(_) => "port",
             GroupRole::Contact(_) => "contact",
             GroupRole::OuterBoundary => "outer_boundary",
+            GroupRole::PeriodicWall { .. } => "periodic_wall",
         };
         out.push(GroupSummary {
             dim: g.dim,
@@ -689,6 +696,7 @@ pub fn starter_spec(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf) 
         MeshAnalysis::Driven => starter_spec_driven(r, script, mesh_path),
         MeshAnalysis::Capacitance => starter_spec_capacitance(r, script, mesh_path),
         MeshAnalysis::Inductance => starter_spec_inductance(r, script, mesh_path),
+        MeshAnalysis::Eigen => starter_spec_eigen(r, script, mesh_path),
     }
 }
 
@@ -843,6 +851,67 @@ fn starter_spec_capacitance(
     ground.extend(l.ground.iter().cloned());
     ProblemSpec {
         capacitance: Some(CapacitanceSpec { terminals, ground }),
+        ..bare_spec(mesh_path, l.length_unit_m, materials)
+    }
+}
+
+/// The eigen starter spec: every slab's `eps_r` (real part: the Bloch
+/// pencil is lossless), PEC `outer_boundary` and conductors, and a
+/// placeholder 1 GHz shift to edit. With the layout's `periodic` axes the
+/// `<axis>_lo` / `<axis>_hi` walls become `boundary_conditions.periodic`
+/// pairs (explicit `translation` = the cell period) and the spec asks for
+/// the Bloch bands at Γ.
+fn starter_spec_eigen(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf) -> ProblemSpec {
+    let l = &r.layout;
+    let name = |role: GroupRole| group_name(script, role);
+    let materials = l
+        .dielectrics
+        .iter()
+        .enumerate()
+        .map(|(i, d)| MaterialSpec {
+            physical_group: name(GroupRole::Dielectric(i)),
+            eps_r: [d.eps_r[0], 0.0],
+            mu_r: 1.0,
+            dispersion: None,
+            eps_r_diag: None,
+            mu_r_diag: None,
+        })
+        .collect();
+    let mut pec = vec![name(GroupRole::OuterBoundary)];
+    pec.extend((0..r.groups.len()).map(|i| name(GroupRole::Conductor(i))));
+    let periodic: Vec<PeriodicSpec> = l
+        .periodic
+        .iter()
+        .map(|&axis| {
+            let period = match axis {
+                layout::Axis::X => r.domain.x1 - r.domain.x0,
+                layout::Axis::Y => r.domain.y1 - r.domain.y0,
+            };
+            let mut translation = [0.0; 3];
+            translation[axis as usize] = period;
+            PeriodicSpec {
+                master: name(GroupRole::PeriodicWall { axis, hi: false }),
+                slave: name(GroupRole::PeriodicWall { axis, hi: true }),
+                translation: Some(translation),
+            }
+        })
+        .collect();
+    let bloch = (!periodic.is_empty()).then_some(BlochSpec::Point(BlochPointSpec { k: [0.0; 3] }));
+    ProblemSpec {
+        boundary_conditions: BoundaryConditionsSpec {
+            pec,
+            periodic,
+            ..Default::default()
+        },
+        eigen: Some(EigenSpec {
+            n_modes: 6,
+            unit: FrequencyUnit::Ghz,
+            shift: 1.0,
+            max_iters: spec::default_eigen_max_iters(),
+            tol: spec::default_eigen_tol(),
+            residual_tol: spec::default_eigen_residual_tol(),
+            bloch,
+        }),
         ..bare_spec(mesh_path, l.length_unit_m, materials)
     }
 }

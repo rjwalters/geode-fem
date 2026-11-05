@@ -764,6 +764,21 @@ pub struct EigenSettingsSummary {
     pub tol: f64,
     /// Per-mode relative-residual acceptance bound.
     pub residual_tol: f64,
+    /// The Bloch request (`eigen.bloch` specs only; additive in v1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bloch: Option<BlochRequestSummary>,
+}
+
+/// The wave vectors an `eigen.bloch` spec asks for.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct BlochRequestSummary {
+    /// `"point"` or `"path"`.
+    pub mode: &'static str,
+    /// Number of k-points to solve.
+    pub n_k_points: usize,
+    /// The path's vertex labels (path mode).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<Vec<String>>,
 }
 
 /// Echo of a resolved `extract` spec section.
@@ -827,6 +842,10 @@ pub struct CheckReport {
     /// The resolved `inductance` section with its edge-DOF counts, `null`
     /// unless an inductance spec (additive in v1, issue #714).
     pub inductance: Option<InductanceSettingsSummary>,
+    /// The periodic pairing, matched **before** any solve (additive in v1,
+    /// Epic #837 Phase 4a; present only with `boundary_conditions.periodic`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub periodic: Option<PeriodicSummary>,
     /// Up-front memory / cost estimate for the solve (additive in v1;
     /// order-of-magnitude only — see [`ResourceEstimate`]). `null` for a
     /// capacitance spec: the estimate is calibrated on the complex / real
@@ -1738,6 +1757,99 @@ pub struct ModeResult {
     pub field_file: Option<FileRef>,
 }
 
+/// One matched periodic pair (`check` / Bloch `eigen` reports; additive in
+/// v1, Epic #837 Phase 4a).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct PeriodicPairSummary {
+    /// Master surface group.
+    pub master: String,
+    /// Slave surface group.
+    pub slave: String,
+    /// Translation master → slave (mesh length units): the spec's, or the
+    /// one inferred from the mesh.
+    pub translation: [f64; 3],
+    /// `true` if `translation` was inferred (the spec omitted it).
+    pub translation_inferred: bool,
+    /// RMS residual of the inferred-translation fit (`0` for a given
+    /// translation).
+    pub translation_residual: f64,
+    /// Matched node pairs.
+    pub n_nodes: usize,
+    /// Matched edge pairs.
+    pub n_edges: usize,
+    /// Matched face (triangle) pairs.
+    pub n_faces: usize,
+    /// Slave nodes snapped onto the exact translated image of their
+    /// master (a warning when nonzero).
+    pub n_snapped: usize,
+    /// Largest snap displacement (mesh length units).
+    pub max_snap_displacement: f64,
+    /// Edge pairs whose orientation is reversed (`σ = −1`).
+    pub n_orientation_reversed: usize,
+}
+
+/// The periodic pairing report: what `geode check` shows **before** any
+/// solve, and the Bloch `eigen` report echoes (additive in v1, Epic #837
+/// Phase 4a).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct PeriodicSummary {
+    /// The matched pairs, in spec order.
+    pub pairs: Vec<PeriodicPairSummary>,
+    /// The periodic axes (`"x"`, `"y"`, `"z"`).
+    pub axes: Vec<&'static str>,
+    /// Entities chained through two or more pairs (corner nodes / edges).
+    pub n_chained_nodes: usize,
+    /// Edges chained through two or more pairs.
+    pub n_chained_edges: usize,
+    /// Snap / mismatch warnings of the matcher (also in `warnings` of the
+    /// report where it has one).
+    pub warnings: Vec<String>,
+}
+
+/// One row of a Bloch band table: all bands at one wave vector.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct BandRow {
+    /// Row index (k-point index along the path).
+    pub index: usize,
+    /// Wave vector `[kx, ky, kz]` (rad per mesh length unit).
+    pub k: [f64; 3],
+    /// Arc length along the k-path (rad per mesh length unit); `null` for
+    /// a single-`k` request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub s: Option<f64>,
+    /// The path vertex label at this row, if it is a vertex.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Frequency (Hz) of each band: ascending for a single `k`, the
+    /// overlap-tracked bands (band `b` starts as the `b`-th lowest at the
+    /// first point) along a path.
+    pub frequency_hz: Vec<f64>,
+    /// Relative eigen-residual `‖K x − λ M x‖ / (|λ| ‖M x‖)` of each band.
+    pub residual_rel: Vec<f64>,
+    /// Group velocity of each band along the path direction in units of
+    /// `c` (`∂ω/∂k`; `null` for a static `ω = 0` mode). Present for a
+    /// k-path only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v_g_over_c: Option<Vec<Option<f64>>>,
+}
+
+/// The Bloch band table of an `eigen.bloch` report.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct BlochBands {
+    /// `"point"` or `"path"`.
+    pub mode: &'static str,
+    /// Bands per row.
+    pub n_bands: usize,
+    /// Full DOFs of the unit cell.
+    pub n_full: usize,
+    /// DOFs after the periodic / PEC reduction (the pencil dimension).
+    pub n_reduced: usize,
+    /// One row per wave vector.
+    pub rows: Vec<BandRow>,
+    /// Solver and tracking warnings (also the periodic snap warnings).
+    pub warnings: Vec<String>,
+}
+
 /// `geode eigen` report (`kind = "eigen"`).
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct EigenReport {
@@ -1765,8 +1877,16 @@ pub struct EigenReport {
     pub absorbing_regions: Vec<UpmlSummary>,
     /// Solver statistics.
     pub solver: EigenSolverStats,
-    /// Physical modes, ascending in frequency.
+    /// Physical modes, ascending in frequency (empty for an
+    /// `eigen.bloch` spec: its result is [`EigenReport::bands`]).
     pub modes: Vec<ModeResult>,
+    /// The periodic pairing (`eigen.bloch` specs only; additive in v1,
+    /// Epic #837 Phase 4a).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub periodic: Option<PeriodicSummary>,
+    /// The Bloch band table (`eigen.bloch` specs only; additive in v1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bands: Option<BlochBands>,
     /// `∂f/∂ε_r` of the `sensitivity.modes` resonant frequencies (additive
     /// in v1, issue #707; present only with a spec `sensitivity` section,
     /// lossless pencil only).
