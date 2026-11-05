@@ -68,6 +68,7 @@
 //!    the Maxwell matrix by the energy method, with an independent
 //!    surface-flux cross-check.
 
+use crate::vec3::{cross3 as cross, dot3 as dot, sorted3, sub3 as sub};
 use std::collections::BTreeSet;
 
 use faer::Mat;
@@ -1257,12 +1258,6 @@ pub fn face_to_tet_map(
     map
 }
 
-#[inline]
-fn sorted3(mut t: [u32; 3]) -> [u32; 3] {
-    t.sort_unstable();
-    t
-}
-
 /// Node-adjacency sparsity pattern: every `(node_i, node_j)` pair that
 /// shares a tet, duplicates collapsed. Symmetric by construction.
 fn sparsity_from_tets(tets: &[[u32; 4]]) -> SparsityPattern {
@@ -2073,22 +2068,6 @@ pub fn tet_p1_local_tensor(
     (k, m, vol)
 }
 
-#[inline]
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-#[inline]
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-#[inline]
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
 #[inline]
 fn scale(a: [f64; 3], s: f64) -> [f64; 3] {
     [a[0] * s, a[1] * s, a[2] * s]
