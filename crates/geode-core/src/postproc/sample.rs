@@ -1,7 +1,7 @@
 //! Sampling of piecewise-constant / P1 tetrahedral fields onto a consumer's
 //! own cells and points.
 //!
-//! [`recover_e_field`](crate::assembly::electrostatic::recover_e_field)
+//! [`recover_e_field`]
 //! returns one constant `E` per tetrahedron. Near a convex conductor corner
 //! the P1 field is singular (`|E| ~ r^(-1/3)`), so a point sample or a
 //! per-tet maximum depends on the mesh, while a volume-weighted *cell
