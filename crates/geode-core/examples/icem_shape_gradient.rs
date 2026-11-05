@@ -435,16 +435,20 @@ fn main() {
             // 6. Cost.
             let fwd: f64 = base.grad.forward_seconds.iter().sum();
             let adjt: f64 = base.grad.adjoint_seconds.iter().sum();
+            let adj_lu: f64 = base.grad.adjoint_factor_seconds.iter().sum();
+            let adj_bs: f64 = base.grad.adjoint_backsolve_seconds.iter().sum();
             let cold = {
                 let t0 = Instant::now();
                 let s = p.solve(&ops[0], &torque, &cfg, None).expect("cold solve");
                 let f = t0.elapsed().as_secs_f64();
                 let t1 = Instant::now();
-                let _ = p.torque_gradient(&s, &torque).expect("grad");
+                let g = p.torque_gradient(&s, &torque).expect("grad");
                 (
                     f,
                     t1.elapsed().as_secs_f64(),
                     s.solution.solution.iterations,
+                    g.adjoint_factor_seconds,
+                    g.adjoint_backsolve_seconds,
                 )
             };
             let _ = writeln!(
@@ -458,12 +462,33 @@ fn main() {
                 cold.1,
                 cold.1 / cold.0
             );
+            let _ = writeln!(
+                md,
+                "Adjoint split (issue #1186), warm sweep: LU factor {adj_lu:.3} s ({:.0}%), \
+                 back-substitution {adj_bs:.3} s ({:.0}%), other {:.3} s ({:.0}%). Cold solve: \
+                 LU factor {:.3} s ({:.0}%), back-substitution {:.3} s ({:.0}%), other {:.3} s \
+                 ({:.0}%).\n",
+                100.0 * adj_lu / adjt,
+                100.0 * adj_bs / adjt,
+                adjt - adj_lu - adj_bs,
+                100.0 * (adjt - adj_lu - adj_bs) / adjt,
+                cold.3,
+                100.0 * cold.3 / cold.1,
+                cold.4,
+                100.0 * cold.4 / cold.1,
+                cold.1 - cold.3 - cold.4,
+                100.0 * (cold.1 - cold.3 - cold.4) / cold.1,
+            );
             crec["cost"] = json!({
                 "forward_seconds": base.grad.forward_seconds,
                 "adjoint_seconds": base.grad.adjoint_seconds,
                 "forward_total": fwd, "adjoint_total": adjt, "ratio": adjt / fwd,
                 "cold_forward": cold.0, "cold_adjoint": cold.1, "cold_newton_its": cold.2,
                 "cold_ratio": cold.1 / cold.0,
+                "adjoint_factor_seconds": base.grad.adjoint_factor_seconds,
+                "adjoint_backsolve_seconds": base.grad.adjoint_backsolve_seconds,
+                "adjoint_factor_total": adj_lu, "adjoint_backsolve_total": adj_bs,
+                "cold_adjoint_factor": cold.3, "cold_adjoint_backsolve": cold.4,
             });
             mrec["currents"][format!("{}", LEVELS[ci])] = crec;
             eprintln!("{} level {} done", mode.name(), LEVELS[ci]);

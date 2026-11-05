@@ -67,7 +67,57 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
         // system is a real Nédélec curl-curl, like the anchor's pencil.)
         resources: p.capacitance.is_none().then(|| resource_estimate(&p)),
         warnings,
+        adaptive_mesh: p
+            .spec
+            .adaptive_mesh
+            .as_ref()
+            .map(|a| adaptive_mesh_summary(&p, a)),
     })
+}
+
+/// What `adaptive_mesh` would cost, without solving or refining anything
+/// (issue #1267): the worst-case resources at `max_dofs` (the estimate of
+/// the loaded mesh scaled to that DOF count) and the initial mesh's `kh`
+/// and points per wavelength at the highest frequency (`eigen`: the
+/// shift), with the largest edge `h` and the largest `√ε_r`.
+fn adaptive_mesh_summary(
+    p: &Problem,
+    a: &crate::spec::AdaptiveMeshSpec,
+) -> crate::report::AdaptiveMeshCheck {
+    let n_dofs = p.edges.len();
+    let scale = a.max_dofs as f64 / n_dofs.max(1) as f64;
+    let nodes = &p.tagged.mesh.nodes;
+    let h_max = p
+        .edges
+        .iter()
+        .map(|e| {
+            let (a, b) = (nodes[e[0] as usize], nodes[e[1] as usize]);
+            ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+        })
+        .fold(0.0, f64::max);
+    let k0_max = match &p.eigen {
+        Some(t) => t.shift.k0,
+        None => p.frequencies.iter().map(|f| f.k0).fold(0.0, f64::max),
+    };
+    let n_max = p
+        .regions
+        .iter()
+        .map(|r| r.eps_r.re.max(1.0).sqrt())
+        .fold(1.0, f64::max);
+    let kh = k0_max * n_max * h_max;
+    crate::report::AdaptiveMeshCheck {
+        max_dofs: a.max_dofs,
+        initial_n_dofs: n_dofs,
+        initial_over_budget: n_dofs > a.max_dofs,
+        scale_to_max_dofs: scale,
+        resources_at_max_dofs: resource_estimate_scaled(p, scale),
+        initial_kh: kh,
+        initial_points_per_wavelength: if kh > 0.0 {
+            2.0 * std::f64::consts::PI / kh
+        } else {
+            f64::INFINITY
+        },
+    }
 }
 
 /// The warnings `check` reports ahead of the hybrid ports' face-sweep
@@ -243,16 +293,25 @@ pub const ITERATIVE_BASIS: &str = "vector count (no measured anchor), 2026-09-28
 /// memory on the spiral smoke mesh ~1.6× **low** (process and mesh
 /// overhead are not modelled). See `crates/geode-cli/README.md`.
 pub fn resource_estimate(p: &Problem) -> ResourceEstimate {
-    let nnz_p1 = nnz_p1(p);
-    let nnz = match &p.hcurl_space {
-        Some(space) => nnz_from_tet_dofs(space),
-        None => nnz_p1,
-    };
-    let mut est = resource_estimate_with_nnz(p, nnz);
+    let mut est = resource_estimate_scaled(p, 1.0);
     if let Some(space) = &p.hcurl_space {
-        est.order_comparison = Some(order_comparison(p, space, &est, nnz_p1));
+        est.order_comparison = Some(order_comparison(p, space, &est, nnz_p1(p)));
     }
     est
+}
+
+/// [`resource_estimate`] for the same problem with every size (`nnz(A)`,
+/// the linear-system size, tets, nodes) multiplied by `scale`: the
+/// worst case of an `adaptive_mesh` run at `max_dofs` is
+/// `scale = max_dofs / n_edges` of the initial mesh (issue #1267). Bisection
+/// keeps the edge-per-DOF connectivity of the mesh, so `nnz` scales with
+/// the DOF count. No order comparison is attached (see [`resource_estimate`]).
+pub fn resource_estimate_scaled(p: &Problem, scale_sizes: f64) -> ResourceEstimate {
+    let nnz = match &p.hcurl_space {
+        Some(space) => nnz_from_tet_dofs(space),
+        None => nnz_p1(p),
+    };
+    resource_estimate_with_nnz_n(p, nnz, p.n_interior(), scale_sizes)
 }
 
 /// Exact order-1 `nnz(A)` (full edge pattern, before PEC elimination).
@@ -308,7 +367,7 @@ fn order_comparison(
     let mask_p1 = geode_core::mesh::pec_interior_mask_from_triangles(&p.edges, &lists);
     let n_interior_p1 = mask_p1.iter().filter(|&&k| k).count();
     let n_interior_p2 = p.n_interior();
-    let est_p1 = resource_estimate_with_nnz_n(p, nnz_p1, n_interior_p1);
+    let est_p1 = resource_estimate_with_nnz_n(p, nnz_p1, n_interior_p1, 1.0);
     let fits = est.solver_mode == "direct" && n_interior_p2 < DIRECT_LU_DOF_LIMIT;
     let dof_ratio = n_interior_p2 as f64 / n_interior_p1 as f64;
     let verdict = if fits {
@@ -343,12 +402,14 @@ fn order_comparison(
     }
 }
 
-fn resource_estimate_with_nnz(p: &Problem, nnz: usize) -> ResourceEstimate {
-    resource_estimate_with_nnz_n(p, nnz, p.n_interior())
-}
-
-fn resource_estimate_with_nnz_n(p: &Problem, nnz: usize, n_interior: usize) -> ResourceEstimate {
-    let n = n_interior as f64;
+fn resource_estimate_with_nnz_n(
+    p: &Problem,
+    nnz: usize,
+    n_interior: usize,
+    scale_sizes: f64,
+) -> ResourceEstimate {
+    let nnz = (nnz as f64 * scale_sizes).round() as usize;
+    let n = n_interior as f64 * scale_sizes;
     let is_eigen = p.eigen.is_some();
     let n_paths = p.inductance.as_ref().map(|i| i.paths.len());
     // A lossless eigen pencil and inductance factor a real symmetric
@@ -403,7 +464,7 @@ fn resource_estimate_with_nnz_n(p: &Problem, nnz: usize, n_interior: usize) -> R
             // assembled pieces / preconditioner; 16 Krylov-class c64
             // vectors; eight 6×6 f64 per-tet element-matrix buffers
             // (assembly). A vector count, not an extrapolation.
-            let n_tets = p.tagged.mesh.n_tets() as f64;
+            let n_tets = p.tagged.mesh.n_tets() as f64 * scale_sizes;
             let mut bytes = nnz as f64 * 24.0 * 3.0 + 16.0 * n * 16.0 + n_tets * 36.0 * 8.0 * 8.0;
             // Complex SpMV (4 mul + 4 add per entry) + ~10 vector ops.
             let mut per_iter = 8.0 * nnz as f64 + 80.0 * n;
@@ -424,7 +485,7 @@ fn resource_estimate_with_nnz_n(p: &Problem, nnz: usize, n_interior: usize) -> R
             // Re and Im: 2 proxy SpMVs, one LU solve and 4 symmetric GS
             // sweeps over `ΠᵀPΠ` each. Order of magnitude only.
             if preconditioner == crate::spec::PreconditionerSpec::Ams {
-                let nodes = p.tagged.mesh.n_nodes() as f64;
+                let nodes = p.tagged.mesh.n_nodes() as f64 * scale_sizes;
                 let lu_fill = 15.0 * nodes * nodes.max(2.0).log2();
                 let pi_nnz = 450.0 * nodes;
                 bytes += nnz as f64 * 16.0

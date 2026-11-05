@@ -466,6 +466,125 @@ impl TransmonFixture {
         out
     }
 
+    /// Carve the **claw plus the resonator trace** out of the ground
+    /// component as a separate node set `S` (issue #1037, Phase C of #1034).
+    ///
+    /// The λ/4 readout resonator is shorted to the ground plane, so
+    /// [`TransmonFixture::split_metal_conductors`] returns the claw and the
+    /// trace inside the single ground component. `S` is the part of that
+    /// component on the *island side of the slot* that isolates the claw and
+    /// trace from the plane: a flood fill over the `z = 0` ground triangles
+    /// (adjacent iff they share an edge, so the slot, which has no metal,
+    /// cannot be crossed at a corner), started at the trace nodes in
+    /// `spec.seed_*` and stopped at `spec.y_cut`, a cut on the straight
+    /// trace far from the island. Triangles with a vertex above `y_cut` are
+    /// not visited.
+    ///
+    /// `S` is meant to be held at 0 V **as a fictitious electrode**: it is
+    /// still ground, so the physical island solution is unchanged, and the
+    /// island–`S` Maxwell entry is the coupling capacitance `C_g`.
+    ///
+    /// Coordinates are those of `self.mesh` (micrometres on the committed
+    /// fixture); `spec` must use the same units.
+    ///
+    /// # Errors
+    ///
+    /// A message if there is no ground / island component, no trace node in
+    /// the seed window, `y_cut` lies below the seed window, or the fill
+    /// escapes into the ground plane (it reaches a node whose `|x − axis|`
+    /// exceeds `spec.max_half_width`, or the ground box walls).
+    pub fn split_claw_resonator(&self, spec: &ClawSplitSpec) -> Result<ClawResonatorSplit, String> {
+        let comps = self.split_metal_conductors();
+        let ground = comps
+            .iter()
+            .find(|c| c.role == MetalRole::Ground)
+            .ok_or("split_claw_resonator: no ground component")?;
+        let island = comps
+            .iter()
+            .find(|c| c.role == MetalRole::Island)
+            .ok_or("split_claw_resonator: no island component")?;
+        let p = |n: u32| self.mesh.nodes[n as usize];
+        let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+        for &n in &island.nodes {
+            lo = lo.min(p(n)[0]);
+            hi = hi.max(p(n)[0]);
+        }
+        let x_axis = 0.5 * (lo + hi);
+        if spec.y_cut <= spec.seed_y.1 {
+            return Err(format!(
+                "split_claw_resonator: y_cut {} must lie above the seed window (ends at {})",
+                spec.y_cut, spec.seed_y.1
+            ));
+        }
+        let tol = 1e-9 * (spec.y_cut.abs() + 1.0);
+        let flat = |t: &[u32; 3]| t.iter().all(|&n| p(n)[2].abs() <= tol);
+        let tris: Vec<&[u32; 3]> = ground.triangles.iter().filter(|t| flat(t)).collect();
+        let mut by_edge: std::collections::HashMap<(u32, u32), Vec<usize>> =
+            std::collections::HashMap::new();
+        for (ti, t) in tris.iter().enumerate() {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                by_edge.entry((a.min(b), a.max(b))).or_default().push(ti);
+            }
+        }
+        let below_cut = |t: &[u32; 3]| t.iter().all(|&n| p(n)[1] <= spec.y_cut + tol);
+        let is_seed = |n: u32| {
+            let q = p(n);
+            (q[0] - x_axis).abs() <= spec.seed_half_width + tol
+                && q[1] >= spec.seed_y.0 - tol
+                && q[1] <= spec.seed_y.1 + tol
+        };
+        let mut seen = vec![false; tris.len()];
+        let mut stack: Vec<usize> = Vec::new();
+        for (ti, t) in tris.iter().enumerate() {
+            if below_cut(t) && t.iter().any(|&n| is_seed(n)) {
+                seen[ti] = true;
+                stack.push(ti);
+            }
+        }
+        if stack.is_empty() {
+            return Err("split_claw_resonator: no trace triangle in the seed window".to_string());
+        }
+        while let Some(ti) = stack.pop() {
+            let t = tris[ti];
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                for &tj in &by_edge[&(a.min(b), a.max(b))] {
+                    if !seen[tj] && below_cut(tris[tj]) {
+                        seen[tj] = true;
+                        stack.push(tj);
+                    }
+                }
+            }
+        }
+        let mut s: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        for (ti, t) in tris.iter().enumerate() {
+            if seen[ti] {
+                s.extend(t.iter().copied());
+            }
+        }
+        if let Some(&n) = s
+            .iter()
+            .find(|&&n| (p(n)[0] - x_axis).abs() > spec.max_half_width)
+        {
+            return Err(format!(
+                "split_claw_resonator: the fill escaped into the ground plane (node {n} at {:?})",
+                p(n)
+            ));
+        }
+        let ground_rest: Vec<u32> = ground
+            .nodes
+            .iter()
+            .copied()
+            .filter(|n| !s.contains(n))
+            .collect();
+        Ok(ClawResonatorSplit {
+            nodes: s.into_iter().collect(),
+            ground_rest,
+            y_cut: spec.y_cut,
+        })
+    }
+
     /// Build a lumped-port adapter from a tagged port face set with a
     /// given direction `ê`. The gap `length` (extent along `ê`) and
     /// effective `width` (area / length) are derived from the tagged
@@ -555,6 +674,49 @@ pub struct MetalComponent {
     pub bbox: [[f64; 3]; 2],
     /// The identified conductor role.
     pub role: MetalRole,
+}
+
+/// Where [`TransmonFixture::split_claw_resonator`] starts and stops its fill
+/// (mesh units).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClawSplitSpec {
+    /// The cut: triangles with a vertex above this `y` are not part of `S`.
+    pub y_cut: f64,
+    /// `y` window of the trace nodes the fill starts from.
+    pub seed_y: (f64, f64),
+    /// Half-width (`|x − axis| ≤`) of the seed window: the trace width.
+    pub seed_half_width: f64,
+    /// Sanity bound: `S` must stay within `|x − axis| ≤` this, or the fill
+    /// is judged to have leaked into the ground plane.
+    pub max_half_width: f64,
+}
+
+impl ClawSplitSpec {
+    /// The committed `transmon_smoke` fixture (micrometres, issue #1037): the
+    /// straight 10 μm trace runs from the claw top at `y = 704` to the first
+    /// meander bend at `y ≈ 1090`, so the seeds sit on it at `y ∈ [720, 740]`
+    /// and the claw spans `|x| ≤ 84`. `y_cut` is the cut (1000 μm: the
+    /// straight run, 370 μm above the island top at 632 μm).
+    pub fn fixture_default(y_cut: f64) -> Self {
+        Self {
+            y_cut,
+            seed_y: (720.0, 740.0),
+            seed_half_width: 5.0,
+            max_half_width: 320.0,
+        }
+    }
+}
+
+/// The claw plus resonator trace carved out of the ground component (see
+/// [`TransmonFixture::split_claw_resonator`]).
+#[derive(Clone, Debug)]
+pub struct ClawResonatorSplit {
+    /// Sorted node indices of `S`.
+    pub nodes: Vec<u32>,
+    /// The ground component without `S`, sorted.
+    pub ground_rest: Vec<u32>,
+    /// The cut that bounded the fill.
+    pub y_cut: f64,
 }
 
 /// Connected components of a triangle set by **shared nodes** (union-find):

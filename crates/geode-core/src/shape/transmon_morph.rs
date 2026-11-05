@@ -481,6 +481,12 @@ impl FieldAudit {
             && self.max_on_free > 0.0
             && (param != 2 || self.max_on_band > 0.0)
     }
+
+    /// [`FieldAudit::is_clean`] for `theta_C` ([`audit_claw_field`]): the
+    /// same conditions, and the released claw band must move.
+    pub fn is_clean_claw(&self) -> bool {
+        self.is_clean(2)
+    }
 }
 
 /// Audit field `param` against the parameterization's contract (exact zeros,
@@ -608,6 +614,308 @@ pub fn partial_charge_regions(
         buckets[b].1.push(n);
     }
     buckets
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// theta_C: the claw-gap parameter (issue #1037, Phase C of #1034).
+// ─────────────────────────────────────────────────────────────────────────
+
+/// The four parameter names of the claw family, in column order: Phase A's
+/// three followed by `theta_C`.
+pub const PARAM_NAMES_CLAW: [&str; 4] = ["theta_L", "theta_W", "theta_G", "theta_C"];
+
+/// Knobs of `theta_C`, in the units of the mesh the roles are identified on.
+#[derive(Clone, Copy, Debug)]
+pub struct ClawMorphSpec {
+    /// The straight claw-arm run `[y0, y1]` whose inner edge `theta_C` moves.
+    /// Both ends are exclusive: the arm's end corners stay fixed.
+    pub run: (f64, f64),
+    /// Length of the linear taper of `theta_C` at each end of the run.
+    pub taper: f64,
+    /// Width of the released claw-sheet band behind each inner edge. It must
+    /// stop short of the claw's outer edge, which is a conductor outline.
+    pub band_width: f64,
+}
+
+impl ClawMorphSpec {
+    /// The `transmon_smoke` fixture, for a mesh whose coordinates are the
+    /// fixture's micrometres times `m_per_unit` (see
+    /// [`TransmonMorphSpec::fixture_default`]). Probed in issue #1037: the
+    /// claw arms are the metal at `|x| ∈ [50, 84]` μm for `y ∈ [541, 704]`;
+    /// the inner edge `|x| = 50` runs from `y = 541` to the top bar's
+    /// underside at `y = 670`, 6 μm from the 2 μm ground strip at
+    /// `|x| ∈ [42, 44]`.
+    pub fn fixture_default(m_per_unit: f64) -> Self {
+        let u = m_per_unit;
+        Self {
+            run: (541.0 * u, 670.0 * u),
+            taper: 40.0 * u,
+            band_width: 20.0 * u,
+        }
+    }
+}
+
+/// Node sets of `theta_C`, identified once from the base geometry.
+///
+/// `theta_C` moves the **claw's inner edge** (the `|x| = x_in` sides of the
+/// two arms): `D = (sign(x)·claw_scale·τ(y), 0, 0)`, so `theta_C = +1` moves
+/// each inner edge outward by `claw_scale`, doubling the slot between the claw
+/// and the grounded strip. The claw sheet behind the edge is released as a
+/// band so the motion spreads in-plane, exactly as for `theta_G`; the node
+/// sets are ground nodes (the claw is part of the ground component), and
+/// every junction, island, feedline and far node is held at zero, so the field
+/// is pinned at the junction.
+#[derive(Clone, Debug)]
+pub struct ClawMorphRoles {
+    /// The knobs the roles were identified with.
+    pub spec: ClawMorphSpec,
+    /// The claw plus resonator trace `S` (see
+    /// [`TransmonFixture::split_claw_resonator`]).
+    pub claw: Vec<u32>,
+    /// The ground component without `S`.
+    pub ground_rest: Vec<u32>,
+    /// The moving Dirichlet set: claw-arm inner-edge nodes inside the run.
+    pub claw_edge: Vec<u32>,
+    /// Claw-sheet nodes released (free) behind the edge.
+    pub claw_band: Vec<u32>,
+    /// `|x − x_axis|` of the claw's inner edge.
+    pub x_in: f64,
+    /// The `theta_C` normalization unit: the slot between the claw's inner
+    /// edge and the grounded strip, `x_in − x_strip`.
+    pub claw_scale: f64,
+    zero: Vec<u32>,
+}
+
+impl ClawMorphRoles {
+    /// Identify the `theta_C` node sets on `mesh` (the fixture mesh, possibly
+    /// rescaled: it must share `fx.mesh`'s numbering). `split` is `S`.
+    ///
+    /// Checks: the inner edge exists on both sides of the island; every edge
+    /// node lies on the ground-sheet outline and no band node does; the edge,
+    /// the band and `theta_G`'s edge / band are disjoint; none touches the
+    /// junction or the far faces; the slot width is positive.
+    ///
+    /// # Errors
+    ///
+    /// [`ElectrostaticError::ShapeMismatch`] if any check fails.
+    pub fn identify(
+        fx: &TransmonFixture,
+        mesh: &TetMesh,
+        roles: &TransmonMorphRoles,
+        split: &crate::mesh::ClawResonatorSplit,
+        spec: ClawMorphSpec,
+    ) -> Result<Self, ElectrostaticError> {
+        let p = |n: u32| mesh.nodes[n as usize];
+        let (lo, hi) = bbox(mesh);
+        let extent = (0..3).map(|d| hi[d] - lo[d]).fold(0.0_f64, f64::max);
+        let tol = 1e-9 * extent.max(f64::MIN_POSITIVE);
+        let x_axis = island_axis(mesh, &roles.island);
+        let (y0, y1) = spec.run;
+        let sheet = |n: u32| p(n)[2].abs() <= tol;
+        let in_run = |n: u32| p(n)[1] > y0 + tol && p(n)[1] < y1 - tol;
+        let ax = |n: u32| (p(n)[0] - x_axis).abs();
+        let x_in = split
+            .nodes
+            .iter()
+            .copied()
+            .filter(|&n| sheet(n) && in_run(n))
+            .map(ax)
+            .fold(f64::INFINITY, f64::min);
+        if !x_in.is_finite() {
+            return Err(err("claw identify: no claw node inside the run".to_string()));
+        }
+        let claw_edge: Vec<u32> = split
+            .nodes
+            .iter()
+            .copied()
+            .filter(|&n| sheet(n) && in_run(n) && (ax(n) - x_in).abs() <= tol)
+            .collect();
+        let n_pos = claw_edge.iter().filter(|&&n| p(n)[0] > x_axis).count();
+        if n_pos == 0 || n_pos == claw_edge.len() {
+            return Err(err(
+                "claw identify: the inner edge must be found on both sides of the island"
+                    .to_string(),
+            ));
+        }
+        let x_strip = split
+            .ground_rest
+            .iter()
+            .copied()
+            .filter(|&n| sheet(n) && in_run(n) && ax(n) < x_in - tol)
+            .map(ax)
+            .fold(f64::NEG_INFINITY, f64::max);
+        if !x_strip.is_finite() || x_in - x_strip <= tol {
+            return Err(err(
+                "claw identify: no grounded strip inside the claw's inner edge".to_string(),
+            ));
+        }
+        let claw_band: Vec<u32> = split
+            .nodes
+            .iter()
+            .copied()
+            .filter(|&n| {
+                sheet(n) && in_run(n) && ax(n) > x_in + tol && ax(n) <= x_in + spec.band_width
+            })
+            .collect();
+
+        let comps = fx.split_metal_conductors();
+        let ground_c = comps
+            .iter()
+            .find(|c| c.role == MetalRole::Ground)
+            .ok_or_else(|| err("claw identify: no ground conductor".to_string()))?;
+        let mut edge_count: std::collections::BTreeMap<(u32, u32), u32> =
+            std::collections::BTreeMap::new();
+        for t in &ground_c.triangles {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                *edge_count.entry((a.min(b), a.max(b))).or_default() += 1;
+            }
+        }
+        let outline: BTreeSet<u32> = edge_count
+            .iter()
+            .filter(|(_, c)| **c == 1)
+            .flat_map(|((a, b), _)| [*a, *b])
+            .collect();
+        if let Some(&n) = claw_edge.iter().find(|n| !outline.contains(n)) {
+            return Err(err(format!(
+                "claw identify: inner-edge node {n} at {:?} is not on the ground outline",
+                p(n)
+            )));
+        }
+        if let Some(&n) = claw_band.iter().find(|n| outline.contains(n)) {
+            return Err(err(format!(
+                "claw identify: band node {n} at {:?} lies on the ground outline (it would \
+                 reshape the conductor); shrink band_width",
+                p(n)
+            )));
+        }
+        let guard: BTreeSet<u32> = roles
+            .junction
+            .iter()
+            .chain(&roles.far)
+            .chain(&roles.gap_edge)
+            .chain(&roles.gap_band)
+            .copied()
+            .collect();
+        if claw_edge
+            .iter()
+            .chain(&claw_band)
+            .any(|n| guard.contains(n))
+        {
+            return Err(err(
+                "claw identify: the theta_C edge/band touches the junction, the far faces or \
+                 theta_G's sets"
+                    .to_string(),
+            ));
+        }
+
+        let mut zero: BTreeSet<u32> = BTreeSet::new();
+        zero.extend(&roles.ground);
+        zero.extend(&roles.feedline);
+        zero.extend(&roles.junction);
+        zero.extend(&roles.far);
+        zero.extend(&roles.island);
+        for n in claw_edge.iter().chain(&claw_band) {
+            zero.remove(n);
+        }
+        Ok(Self {
+            spec,
+            claw: split.nodes.clone(),
+            ground_rest: split.ground_rest.clone(),
+            claw_edge,
+            claw_band,
+            x_in,
+            claw_scale: x_in - x_strip,
+            zero: zero.into_iter().collect(),
+        })
+    }
+
+    /// The nodes the `theta_C` field holds at exactly zero.
+    pub fn zero_set(&self) -> &[u32] {
+        &self.zero
+    }
+}
+
+/// Trapezoidal taper of `theta_C`: 0 at both run ends, 1 in the middle.
+fn claw_taper(y: f64, spec: &ClawMorphSpec) -> f64 {
+    let (y0, y1) = spec.run;
+    ((y - y0) / spec.taper)
+        .min((y1 - y) / spec.taper)
+        .clamp(0.0, 1.0)
+}
+
+/// The Dirichlet data of `theta_C`, evaluated from the coordinates of `mesh`.
+pub fn claw_prescribed_data(
+    mesh: &TetMesh,
+    roles: &TransmonMorphRoles,
+    claw: &ClawMorphRoles,
+) -> Vec<(u32, [f64; 3])> {
+    let x_axis = island_axis(mesh, &roles.island);
+    claw.claw_edge
+        .iter()
+        .map(|&n| {
+            let q = mesh.nodes[n as usize];
+            let sign = if q[0] > x_axis { 1.0 } else { -1.0 };
+            (
+                n,
+                [
+                    sign * claw.claw_scale * claw_taper(q[1], &claw.spec),
+                    0.0,
+                    0.0,
+                ],
+            )
+        })
+        .collect()
+}
+
+/// Audit the `theta_C` field the way [`audit_field`] audits Phase A's.
+/// `max_on_band` is the released claw band; check with
+/// [`FieldAudit::is_clean_claw`].
+pub fn audit_claw_field(
+    mesh: &TetMesh,
+    roles: &TransmonMorphRoles,
+    claw: &ClawMorphRoles,
+    field: &[[f64; 3]],
+) -> FieldAudit {
+    let inplane = |v: &[f64; 3]| (v[0] * v[0] + v[1] * v[1]).sqrt();
+    let zero = claw.zero_set();
+    let max_abs_on_zero_set = zero
+        .iter()
+        .flat_map(|&n| field[n as usize].map(f64::abs))
+        .fold(0.0_f64, f64::max);
+    let max_abs_z = field.iter().map(|v| v[2].abs()).fold(0.0_f64, f64::max);
+    let prescribed_max_err = claw_prescribed_data(mesh, roles, claw)
+        .iter()
+        .flat_map(|(n, v)| {
+            let f = field[*n as usize];
+            (0..3).map(move |d| (f[d] - v[d]).abs())
+        })
+        .fold(0.0_f64, f64::max);
+    let max_on_moving_set = claw
+        .claw_edge
+        .iter()
+        .map(|&n| inplane(&field[n as usize]))
+        .fold(0.0_f64, f64::max);
+    let pinned: BTreeSet<u32> = zero.iter().chain(&claw.claw_edge).copied().collect();
+    let max_on_free = field
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !pinned.contains(&(*i as u32)))
+        .map(|(_, v)| inplane(v))
+        .fold(0.0_f64, f64::max);
+    let max_on_band = claw
+        .claw_band
+        .iter()
+        .map(|&n| inplane(&field[n as usize]))
+        .fold(0.0_f64, f64::max);
+    FieldAudit {
+        max_abs_on_zero_set,
+        max_abs_z,
+        prescribed_max_err,
+        max_on_moving_set,
+        max_on_free,
+        max_on_band,
+    }
 }
 
 /// A one-sided mesh-validity budget along a node-motion field.

@@ -1027,7 +1027,157 @@ impl SurfaceRoughness {
     }
 }
 
+/// A differentiable parameter of a [`SurfaceImpedanceModel`] wall
+/// (Epic #841 Phase 2b, issue #1260): the `θ` of
+/// [`SurfaceImpedanceModel::d_weak_coefficient`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WallParam {
+    /// Conductivity `σ` of a [`SurfaceImpedanceModel::GoodConductor`] or
+    /// [`SurfaceImpedanceModel::RoughConductor`] wall (natural units).
+    Sigma,
+    /// Hammerstad–Jensen RMS roughness `Δ`.
+    RmsRoughness,
+    /// Huray sphere radius `a` (at fixed sphere density `N/A_tile`).
+    BallRadius,
+    /// Huray sphere density `ρ = N / A_tile` (`N = ρ·A_tile` at fixed tile).
+    BallDensity,
+    /// London penetration depth `λ_L`.
+    LondonDepth,
+}
+
+/// `∂c_Γ/∂θ` of one wall parameter ([`SurfaceImpedanceModel::d_weak_coefficient`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WeakCoefficientGradient {
+    /// `∂(iω/Z_s)/∂θ` at the given `ω`.
+    pub dc: c64,
+    /// `true` for a roughness parameter whose loss factor has reached its
+    /// plateau (`K → 2` for Hammerstad–Jensen, `K → 1 + (3/2)·N·4πa²/A_tile`
+    /// for Huray; within `10⁻³` of the plateau excess), so the gradient is
+    /// ≈ 0 by saturation rather than by an error. Always `false` for `σ`
+    /// and `λ_L`.
+    pub saturated: bool,
+}
+
+impl SurfaceRoughness {
+    /// `(K, δ·∂K/∂δ)` at skin depth `delta`.
+    fn k_and_delta_dk(&self, delta: f64) -> (f64, f64) {
+        match *self {
+            SurfaceRoughness::HammerstadJensen { rms } => {
+                let r = rms / delta;
+                let x = 1.4 * r * r;
+                let k = 1.0 + std::f64::consts::FRAC_2_PI * x.atan();
+                // dK/dx = (2/π)/(1+x²); δ·dx/dδ = −2x.
+                (k, -std::f64::consts::FRAC_2_PI * 2.0 * x / (1.0 + x * x))
+            }
+            SurfaceRoughness::Huray {
+                ball_radius: a,
+                n_balls,
+                tile_area,
+            } => {
+                let ratio = n_balls * 4.0 * std::f64::consts::PI * a * a / tile_area;
+                let d = delta / a;
+                let den = 1.0 + d + 0.5 * d * d;
+                (
+                    1.0 + 1.5 * ratio / den,
+                    -1.5 * ratio * d * (1.0 + d) / (den * den),
+                )
+            }
+        }
+    }
+
+    /// `(∂K/∂θ, saturated)` of the roughness parameter `param` at skin
+    /// depth `delta`, or `None` when `param` is not a parameter of this
+    /// model.
+    fn d_loss_factor(&self, delta: f64, param: WallParam) -> Option<(f64, bool)> {
+        const SAT: f64 = 1.0e-3;
+        match (*self, param) {
+            (SurfaceRoughness::HammerstadJensen { rms }, WallParam::RmsRoughness) => {
+                let r = rms / delta;
+                let x = 1.4 * r * r;
+                // dK/dΔ = (2/π)/(1+x²) · dx/dΔ,  dx/dΔ = 2x/Δ = 2.8 Δ/δ².
+                let dx = 2.8 * rms / (delta * delta);
+                let dk = std::f64::consts::FRAC_2_PI * dx / (1.0 + x * x);
+                // Fraction of the (K−1) plateau (=1) not yet reached.
+                let sat = 1.0 - std::f64::consts::FRAC_2_PI * x.atan() < SAT;
+                Some((dk, sat))
+            }
+            (
+                SurfaceRoughness::Huray {
+                    ball_radius: a,
+                    n_balls,
+                    tile_area,
+                },
+                WallParam::BallRadius | WallParam::BallDensity,
+            ) => {
+                let four_pi = 4.0 * std::f64::consts::PI;
+                let ratio = n_balls * four_pi * a * a / tile_area;
+                let d = delta / a;
+                let den = 1.0 + d + 0.5 * d * d;
+                // Fraction of the plateau excess not yet reached: 1 − 1/D.
+                let sat = (1.0 - 1.0 / den) < SAT && ratio > 0.0;
+                let dk = match param {
+                    WallParam::BallRadius => 1.5 * ratio / (a * den) * (2.0 + d * (1.0 + d) / den),
+                    _ => 1.5 * four_pi * a * a / den,
+                };
+                Some((dk, sat))
+            }
+            _ => None,
+        }
+    }
+}
+
 impl SurfaceImpedanceModel {
+    /// Closed-form `∂c_Γ/∂θ` of the weak-form coefficient
+    /// `c_Γ(ω) = iω/Z_s(ω)` ([`Self::weak_coefficient`]) with respect to
+    /// the wall parameter `param` (Epic #841 Phase 2b, issue #1260).
+    ///
+    /// With `c = c₀(σ)/K`, `c₀ = (1+i)/δ`, `δ = √(2/ωσ)`:
+    ///
+    /// ```text
+    /// ∂c/∂σ = c/(2σ) · (1 + δ ∂K/∂δ / K)      // the ∂K/∂δ term: K depends on σ through δ
+    /// ∂c/∂θ = −c · ∂K/∂θ / K                  // roughness parameters (Δ, a, ρ)
+    /// ∂c/∂λ_L = −1/λ_L²                       // London: c = 1/λ_L, ω-independent
+    /// ```
+    ///
+    /// Returns `None` when `param` is not a parameter of this model (e.g.
+    /// `Sigma` on `London`, `RmsRoughness` on a Huray wall).
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`Self::weak_coefficient`]'s singular-impedance error.
+    pub fn d_weak_coefficient(
+        &self,
+        omega: f64,
+        param: WallParam,
+    ) -> Result<Option<WeakCoefficientGradient>, DrivenError> {
+        let c = self.weak_coefficient(omega)?;
+        let g = |dc: c64, saturated: bool| Some(WeakCoefficientGradient { dc, saturated });
+        Ok(match (*self, param) {
+            (SurfaceImpedanceModel::GoodConductor { sigma }, WallParam::Sigma) => {
+                g(c / (2.0 * sigma), false)
+            }
+            (SurfaceImpedanceModel::RoughConductor { sigma, roughness }, WallParam::Sigma) => {
+                let delta = SurfaceRoughness::skin_depth(omega, sigma);
+                let (k, d_dk) = roughness.k_and_delta_dk(delta);
+                g(c / (2.0 * sigma) * (1.0 + d_dk / k), false)
+            }
+            (SurfaceImpedanceModel::RoughConductor { sigma, roughness }, p) => {
+                let delta = SurfaceRoughness::skin_depth(omega, sigma);
+                match roughness.d_loss_factor(delta, p) {
+                    Some((dk, sat)) => {
+                        let k = roughness.loss_factor_at_skin_depth(delta);
+                        g(-c * (dk / k), sat)
+                    }
+                    None => None,
+                }
+            }
+            (SurfaceImpedanceModel::London { lambda_l }, WallParam::LondonDepth) => {
+                g(c64::new(-1.0 / (lambda_l * lambda_l), 0.0), false)
+            }
+            _ => None,
+        })
+    }
+
     /// Evaluate `Z_s(ω)`.
     pub fn z_s(&self, omega: f64) -> c64 {
         match *self {
@@ -2039,6 +2189,43 @@ impl DrivenOperator {
                 space, mesh, materials, sigma_tet, bcs, ports, surfaces, source,
             ),
         }
+    }
+
+    /// Backend-free p=2 assembly for the order-generic gradient drivers
+    /// (issue #1264): the p=2 branch of
+    /// [`DrivenOperator::assemble_with_space`] without the (unused at p=2)
+    /// Burn backend parameter, so the host-side p=2 sensitivity cores need no
+    /// device.
+    ///
+    /// # Errors
+    ///
+    /// [`DrivenError::UnsupportedAtOrder`] for a non-p=2 space; otherwise the
+    /// errors of [`DrivenOperator::assemble_with_space`].
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn assemble_p2_host(
+        space: &crate::assembly::hcurl_space::HcurlSpace,
+        mesh: &TetMesh,
+        materials: DrivenMaterials<'_>,
+        bcs: &DrivenBcs<'_>,
+        ports: &[LumpedPort<'_>],
+        surfaces: &[SurfaceImpedanceBc<'_>],
+        source: DrivenSource<'_>,
+    ) -> Result<Self, DrivenError> {
+        if space.order() != ElementOrder::P2 {
+            return Err(DrivenError::UnsupportedAtOrder {
+                order: space.order(),
+                feature: "the host-side p=2 operator assembly",
+            });
+        }
+        if space.n_nodes() != mesh.n_nodes() || space.n_tets() != mesh.n_tets() {
+            return Err(DrivenError::SpaceMeshMismatch {
+                space_nodes: space.n_nodes(),
+                space_tets: space.n_tets(),
+                mesh_nodes: mesh.n_nodes(),
+                mesh_tets: mesh.n_tets(),
+            });
+        }
+        p2::assemble(space, mesh, materials, None, bcs, ports, surfaces, source)
     }
 
     /// Element order of the H(curl) space this operator was assembled on
@@ -5987,5 +6174,119 @@ mod tests {
             report_ilu.iters,
             report_jac.iters,
         );
+    }
+
+    // ---- ∂c_Γ/∂θ closed forms (Epic #841 Phase 2b, issue #1260) ----------
+
+    fn fd_dc(m: impl Fn(f64) -> SurfaceImpedanceModel, theta: f64, omega: f64) -> c64 {
+        let h = 1e-6 * theta.abs().max(1e-3);
+        (m(theta + h).weak_coefficient(omega).unwrap()
+            - m(theta - h).weak_coefficient(omega).unwrap())
+            / (2.0 * h)
+    }
+
+    fn close(a: c64, b: c64) -> bool {
+        (a - b).norm() <= 1e-6 * b.norm().max(1e-12)
+    }
+
+    #[test]
+    fn d_weak_coefficient_matches_finite_difference() {
+        use SurfaceRoughness as R;
+        let omega = 2.4;
+        let (sigma, rms, a, n, tile, lam) = (40.0, 0.15, 0.1, 3.0, 0.5, 0.1);
+        let hj = |s: f64, d: f64| SurfaceImpedanceModel::RoughConductor {
+            sigma: s,
+            roughness: R::HammerstadJensen { rms: d },
+        };
+        let hu = |s: f64, a: f64, n: f64| SurfaceImpedanceModel::RoughConductor {
+            sigma: s,
+            roughness: R::Huray {
+                ball_radius: a,
+                n_balls: n,
+                tile_area: tile,
+            },
+        };
+        let get = |m: SurfaceImpedanceModel, p| m.d_weak_coefficient(omega, p).unwrap().unwrap().dc;
+        let gc = |s: f64| SurfaceImpedanceModel::GoodConductor { sigma: s };
+        assert!(close(
+            get(gc(sigma), WallParam::Sigma),
+            fd_dc(gc, sigma, omega)
+        ));
+        assert!(close(
+            get(hj(sigma, rms), WallParam::Sigma),
+            fd_dc(|s| hj(s, rms), sigma, omega)
+        ));
+        assert!(close(
+            get(hj(sigma, rms), WallParam::RmsRoughness),
+            fd_dc(|d| hj(sigma, d), rms, omega)
+        ));
+        assert!(close(
+            get(hu(sigma, a, n), WallParam::Sigma),
+            fd_dc(|s| hu(s, a, n), sigma, omega)
+        ));
+        assert!(close(
+            get(hu(sigma, a, n), WallParam::BallRadius),
+            fd_dc(|x| hu(sigma, x, n), a, omega)
+        ));
+        // Density ρ = N/A_tile: ∂/∂ρ = A_tile ∂/∂N.
+        assert!(close(
+            get(hu(sigma, a, n), WallParam::BallDensity),
+            fd_dc(|r| hu(sigma, a, r * tile), n / tile, omega)
+        ));
+        let lon = |l: f64| SurfaceImpedanceModel::London { lambda_l: l };
+        assert!(close(
+            get(lon(lam), WallParam::LondonDepth),
+            fd_dc(lon, lam, omega)
+        ));
+        // A parameter the model does not carry is `None`, not an error.
+        assert!(
+            gc(sigma)
+                .d_weak_coefficient(omega, WallParam::RmsRoughness)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            lon(lam)
+                .d_weak_coefficient(omega, WallParam::Sigma)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    /// Tripwire: `∂c/∂σ` of a rough wall must carry the `∂K/∂δ` term. At
+    /// `Δ/δ ≈ 1` the `√σ`-only value `c/(2σ)` is off by well over 10 %.
+    #[test]
+    fn d_weak_coefficient_sigma_carries_dk_ddelta_term() {
+        let omega = 2.4;
+        let m = SurfaceImpedanceModel::RoughConductor {
+            sigma: 40.0,
+            roughness: SurfaceRoughness::HammerstadJensen { rms: 0.15 },
+        };
+        let full = m
+            .d_weak_coefficient(omega, WallParam::Sigma)
+            .unwrap()
+            .unwrap()
+            .dc;
+        let sqrt_only = m.weak_coefficient(omega).unwrap() / 80.0;
+        assert!((full - sqrt_only).norm() > 0.1 * full.norm());
+    }
+
+    /// Saturation: `K → 2` flags the roughness gradient; mid-range does not.
+    #[test]
+    fn d_weak_coefficient_flags_saturation() {
+        let mk = |rms| SurfaceImpedanceModel::RoughConductor {
+            sigma: 40.0,
+            roughness: SurfaceRoughness::HammerstadJensen { rms },
+        };
+        let sat = mk(10.0)
+            .d_weak_coefficient(2.4, WallParam::RmsRoughness)
+            .unwrap()
+            .unwrap();
+        assert!(sat.saturated && sat.dc.norm() < 1e-3);
+        let mid = mk(0.15)
+            .d_weak_coefficient(2.4, WallParam::RmsRoughness)
+            .unwrap()
+            .unwrap();
+        assert!(!mid.saturated);
     }
 }

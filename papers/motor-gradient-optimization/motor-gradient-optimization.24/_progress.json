@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "thread": "motor-gradient-optimization",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-25T00:00:00Z",
+      "completed": "2026-10-25T00:00:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 24,
+    "max_iterations": 10,
+    "revised_from": 23,
+    "note": "Published-paper v2 text revision (geode-fem#1231), after the Zenodo v1 release: the validation-anchor mean no longer shares the symbol mu_0 with vacuum permeability; SLSQP's BFGS curvature estimate joins the sentence naming the optimizers' fitted search models; the abstract's 45-of-50 pair count reads unambiguously and the four-start and five-start factor sets are labelled; the verifiers accept the v1 author footnote and run from later revisions of the evidence package. No number, figure, table, reference, title or DOI changed; no computation run.",
+    "evidence_snapshot": {
+      "brief_mtime": 1792638669.1807315,
+      "refs_mtime": 1792597193.803293
+    }
+  }
+}

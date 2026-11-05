@@ -494,7 +494,7 @@ fn check_at_order_two_reports_exact_counts_and_ratios() {
 #[test]
 fn element_order_two_rejects_unsupported_combinations() {
     type Edit = fn(&mut serde_json::Value);
-    let cases: [(&str, &str, Edit); 5] = [
+    let cases: [(&str, &str, Edit); 6] = [
         ("iterative", "iterative", |v| {
             v["solver"] = serde_json::json!({"mode": "iterative"});
         }),
@@ -513,6 +513,9 @@ fn element_order_two_rejects_unsupported_combinations() {
             v["capacitance"] = serde_json::json!({
                 "terminals": ["port"], "ground": ["outer_boundary"]
             });
+        }),
+        ("adaptive-mesh", "adaptive_mesh", |v| {
+            v["adaptive_mesh"] = serde_json::json!({"target_error": 0.1});
         }),
     ];
     for (name, needle, edit) in cases {

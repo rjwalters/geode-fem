@@ -55,7 +55,7 @@ use crate::check::{
 };
 use crate::error::CliError;
 use crate::export::{OutDir, eps_per_node, mode_file_name};
-use crate::problem::{self, EigenTarget, Problem};
+use crate::problem::{EigenTarget, Problem};
 use crate::report::{EigenReport, EigenSolverStats, ModeResult, Provenance};
 use crate::spec::Analysis;
 
@@ -210,7 +210,7 @@ pub fn run(
     provenance: Provenance,
     outdir: Option<&Path>,
 ) -> Result<EigenReport, CliError> {
-    let p = problem::load(spec_path, Some(Analysis::Eigen))?;
+    let (p, adaptive_mesh) = crate::adaptive::load(spec_path, Analysis::Eigen)?;
     if p.hcurl_space.is_some() && outdir.is_some() {
         return Err(CliError::InvalidSpec(
             "element_order = 2 is not supported with --outdir: the VTU field export is \
@@ -349,6 +349,7 @@ pub fn run(
         },
         modes,
         sensitivities,
+        adaptive_mesh,
     })
 }
 

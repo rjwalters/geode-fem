@@ -33,6 +33,7 @@ ENV GEODE_GIT_SHA=${GEODE_GIT_SHA} \
 
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
+COPY vendor ./vendor
 COPY crates ./crates
 COPY examples ./examples
 
