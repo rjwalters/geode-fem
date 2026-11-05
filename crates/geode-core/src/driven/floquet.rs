@@ -87,16 +87,20 @@
 //!
 //! # Channel set and rejections (operator rule, #804)
 //!
-//! Phase 3a carries the **specular** order `(0, 0)` (TE + TM, at both
-//! ports) as the reported channels. It also carries every order with
+//! The channels are every order that **propagates** at a port
+//! (`|κ_mn| < k`, TE + TM, Epic #837 Phase 3b: diffraction orders of a
+//! grating with period `> λ` are reported channels), plus every order with
 //! `max(|m|, |n|) ≤ n_evanescent` ([`FloquetSettings::n_evanescent`]) as
-//! evanescent **terminations**. The following are typed errors, never a
-//! silently wrong S:
+//! evanescent **terminations**. The set is enumerated in one exhaustive pass
+//! per port and frequency, so orders switch on and off with `(ω, k_t)`;
+//! [`FloquetSolution::s_on_labels`] maps `S` onto a fixed
+//! caller-supplied label list for a sweep. The following are typed errors,
+//! never a silently wrong S:
 //!
-//! - **A non-specular order that propagates** at either port, or sits
-//!   exactly at cutoff (a Rayleigh anomaly), at the requested frequency
-//!   and `k_t`: [`FloquetError::HigherOrderPropagates`]. Gratings and
-//!   diffraction orders are Epic #837 Phase 3b.
+//! - **A non-specular order exactly at cutoff** (`|k_z|` at the numerical
+//!   floor, [`CUTOFF_TOL`]; a Rayleigh / Wood anomaly) at either port:
+//!   [`FloquetError::RayleighAnomaly`], with a hint to step the frequency
+//!   or angle off the anomaly. It maps to `solve_failed`.
 //! - **A port medium that is not homogeneous and isotropic.** Every tet on
 //!   a port face must have the port's real `ε_r`, no conductivity and no
 //!   PEC: [`FloquetError::InvalidSpec`].
@@ -108,10 +112,12 @@
 //!
 //! - an order near cutoff (`|k_z|/k < rayleigh_warn`, near a Rayleigh /
 //!   Wood anomaly);
+//! - a specular angle above [`GRAZING_WARN_DEG`] (85°) in a port medium;
 //! - a termination order the port-face mesh under-resolves
 //!   (`|κ| h > π`);
-//! - a first **excluded** evanescent ring that has not decayed below `1e-3`
-//!   at the nearest inhomogeneity (raise `n_evanescent` or move the port);
+//! - a first **excluded** evanescent ring (the ring beyond the largest
+//!   included order) that has not decayed below `1e-3` at the nearest
+//!   inhomogeneity (raise `n_evanescent` or move the port);
 //! - a specular order whose estimated p=1 discretization floor exceeds
 //!   [`SPECULAR_FLOOR_WARN`] (see [Accuracy](#accuracy)).
 //!
@@ -212,7 +218,8 @@
 //! allowed inside the cell, not on the port faces), optional `σ`, and
 //! optional PEC (e.g. a metal FSS patch) off the port faces. Lumped feed
 //! ports inside the cell (scan impedance) are Phase 5. The CLI is Phase
-//! 4b.
+//! 4b. The 1-D RCWA oracle the diffraction goldens use is test-only
+//! (`tests/common/rcwa1d.rs`).
 
 use std::collections::HashMap;
 use std::f64::consts::PI;
@@ -271,31 +278,33 @@ pub const SPECULAR_FLOOR_WARN: f64 = 1e-2;
 /// admittance.
 pub const CUTOFF_TOL: f64 = 1e-12;
 
+/// Specular incidence angle (in the port medium) above which a solve warns
+/// that the cell is near grazing: the specular floor grows as `k/k_z`
+/// (see the [module docs](self#accuracy)).
+pub const GRAZING_WARN_DEG: f64 = 85.0;
+
 /// Errors of the Floquet unit cell. The CLI (Phase 4b) maps
-/// [`Self::InvalidSpec`] and [`Self::HigherOrderPropagates`] to
-/// `invalid_spec`, and the rest to `solve_failed`.
+/// [`Self::InvalidSpec`] to `invalid_spec`, and the rest (including
+/// [`Self::RayleighAnomaly`]) to `solve_failed`.
 #[derive(Debug, thiserror::Error)]
 pub enum FloquetError {
     /// The cell, lattice, ports, materials or drive are inconsistent.
     #[error("invalid Floquet spec: {0}")]
     InvalidSpec(String),
-    /// A non-specular diffraction order propagates (or sits exactly at
-    /// cutoff) at a port. Phase 3a reports the specular order only.
+    /// A non-specular diffraction order sits at cutoff to the numerical
+    /// floor ([`CUTOFF_TOL`]) at a port: `k_z = 0`, so its TM admittance is
+    /// infinite and the S-matrix has a Rayleigh / Wood singularity there.
+    /// Propagating and evanescent orders away from cutoff are not errors.
     #[error(
-        "diffraction order ({m}, {n}) {state} at Floquet port {port} (k₀ = {k0}, |κ_mn| = \
-         {kappa:.6}, k = k₀√ε_r = {k:.6}); higher propagating orders (gratings, Rayleigh \
-         anomalies) are Epic #837 Phase 3b. Reduce the lattice period below λ/(√ε_r (1 + \
-         sin θ)), or lower the frequency or the angle"
+        "diffraction order ({m}, {n}) is at cutoff (Rayleigh/Wood anomaly, k_z = 0 to round-off)          at Floquet port {port} (k₀ = {k0}, |κ_mn| = {kappa:.6}, k = k₀√ε_r = {k:.6}); S is          singular here. Step the frequency or the incidence angle off the anomaly (a relative          shift of 1e-6 in k₀ is enough to leave the numerical floor, and a warning still marks          the neighbourhood |k_z|/k < rayleigh_warn)"
     )]
-    HigherOrderPropagates {
+    RayleighAnomaly {
         /// Port index.
         port: usize,
         /// Order index along `b₁`.
         m: i32,
         /// Order index along `b₂`.
         n: i32,
-        /// `"propagates"` or `"is at cutoff (Rayleigh anomaly)"`.
-        state: &'static str,
         /// Free-space wavenumber.
         k0: f64,
         /// `|κ_mn|`.
@@ -583,6 +592,11 @@ pub struct FloquetChannel {
     pub propagating: bool,
 }
 
+/// A stable channel label `(port, order, polarization)`: the row / column
+/// key of an S-matrix that must keep its shape across a sweep, where the
+/// propagating set changes with frequency.
+pub type FloquetLabel = (usize, FloquetOrder, FloquetPolarization);
+
 /// A solved Floquet unit cell at one `(ω, k_t)`: the S-matrix over the
 /// propagating channels.
 #[derive(Debug, Clone)]
@@ -632,6 +646,40 @@ impl FloquetSolution {
         let i = self.specular_index(out_port, out_pol)?;
         let j = self.specular_index(in_port, in_pol)?;
         Some(self.s[i][j])
+    }
+
+    /// The labels of the rows / columns of [`Self::s`], in order.
+    pub fn propagating_labels(&self) -> Vec<FloquetLabel> {
+        self.propagating
+            .iter()
+            .map(|&c| {
+                let ch = &self.channels[c];
+                (ch.port, ch.order, ch.pol)
+            })
+            .collect()
+    }
+
+    /// `S` re-indexed onto a caller-supplied ordered label list: entry
+    /// `[i][j]` is the outgoing amplitude on `labels[i]` for unit incidence
+    /// on `labels[j]`, and is **zero** when either channel is not
+    /// propagating at this `(ω, k_t)`. A sweep whose propagating set changes
+    /// with frequency (orders switching on) therefore gets a fixed-shape S
+    /// by passing the union of the per-frequency
+    /// [`Self::propagating_labels`].
+    pub fn s_on_labels(&self, labels: &[FloquetLabel]) -> Vec<Vec<c64>> {
+        let idx = self.propagating_labels();
+        let at = |l: &FloquetLabel| idx.iter().position(|x| x == l);
+        let pos: Vec<Option<usize>> = labels.iter().map(at).collect();
+        pos.iter()
+            .map(|&i| {
+                pos.iter()
+                    .map(|&j| match (i, j) {
+                        (Some(i), Some(j)) => self.s[i][j],
+                        _ => c64::new(0.0, 0.0),
+                    })
+                    .collect()
+            })
+            .collect()
     }
 
     /// `Σ_i |S_ij|²` of column `j` (`1` for a lossless cell).
@@ -852,10 +900,10 @@ impl FloquetCell {
     ///
     /// # Errors
     ///
-    /// [`FloquetError::HigherOrderPropagates`] if any non-specular order
-    /// propagates at either port; [`FloquetError::InvalidSpec`] for a
-    /// non-positive `omega`, an out-of-plane or non-finite `k_t`, or a
-    /// specular order at cutoff.
+    /// [`FloquetError::RayleighAnomaly`] if any non-specular order is at
+    /// cutoff to the numerical floor ([`CUTOFF_TOL`]) at either port;
+    /// [`FloquetError::InvalidSpec`] for a non-positive `omega`, an
+    /// out-of-plane or non-finite `k_t`, or a specular order at cutoff.
     pub fn channels_at(
         &self,
         omega: f64,
@@ -880,39 +928,43 @@ impl FloquetCell {
             )));
         }
         let mut warnings = Vec::new();
-        // Exhaustive propagation check over every order that could propagate.
+        let r = self.settings.n_evanescent as i32;
+        let azim = self.lattice.azimuth(phi);
+        let mut channels = Vec::new();
         for (p, port) in self.ports.iter().enumerate() {
             let k = omega * port.eps_r.sqrt();
-            let span = |a: [f64; 3]| ((k + kt_abs) * norm(a) / (2.0 * PI)).ceil() as i32 + 1;
-            let (mm, nn) = (span(self.lattice.a1), span(self.lattice.a2));
+            // One exhaustive pass over every order that could propagate (and
+            // the evanescent rings): the channel set is the propagating
+            // orders ∪ the rings `max(|m|, |n|) ≤ n_evanescent`.
+            let span = |a: [f64; 3], mn: i32| {
+                (((k + kt_abs) * norm(a) / (2.0 * PI)).ceil() as i32 + 1).max(mn)
+            };
+            let (mm, nn) = (span(self.lattice.a1, r), span(self.lattice.a2, r));
+            let mut included: Vec<(FloquetOrder, [f64; 3], f64, f64)> = Vec::new();
             for m in -mm..=mm {
                 for nq in -nn..=nn {
                     let order = FloquetOrder { m, n: nq };
-                    let kappa = norm(self.lattice.kappa(k_t, order));
-                    let arg = (k - kappa) * (k + kappa);
+                    let kappa = self.lattice.kappa(k_t, order);
+                    let ka = norm(kappa);
+                    let arg = (k - ka) * (k + ka);
                     let rel = arg.abs().sqrt() / k;
                     // Within round-off of cutoff: k_z ≈ 0, y_TM → ∞.
-                    let at_cutoff = arg.abs() <= CUTOFF_TOL * k * k;
-                    if order != FloquetOrder::SPECULAR && (arg > 0.0 || at_cutoff) {
-                        return Err(FloquetError::HigherOrderPropagates {
-                            port: p,
-                            m,
-                            n: nq,
-                            state: if at_cutoff {
-                                "is at cutoff (Rayleigh anomaly)"
-                            } else {
-                                "propagates"
-                            },
-                            k0: omega,
-                            kappa,
-                            k,
+                    if arg.abs() <= CUTOFF_TOL * k * k {
+                        return Err(if order == FloquetOrder::SPECULAR {
+                            FloquetError::InvalidSpec(format!(
+                                "the specular order is exactly at cutoff at port {p} (grazing, \
+                                 k_z = 0)"
+                            ))
+                        } else {
+                            FloquetError::RayleighAnomaly {
+                                port: p,
+                                m,
+                                n: nq,
+                                k0: omega,
+                                kappa: ka,
+                                k,
+                            }
                         });
-                    }
-                    if order == FloquetOrder::SPECULAR && at_cutoff {
-                        return Err(FloquetError::InvalidSpec(format!(
-                            "the specular order is exactly at cutoff at port {p} (grazing, k_z = \
-                             0)"
-                        )));
                     }
                     if rel < self.settings.rayleigh_warn {
                         warnings.push(format!(
@@ -921,67 +973,80 @@ impl FloquetCell {
                              or angle off the anomaly"
                         ));
                     }
+                    if arg > 0.0 || m.abs().max(nq.abs()) <= r {
+                        included.push((order, kappa, ka, arg));
+                    }
                 }
             }
-        }
-        let r = self.settings.n_evanescent as i32;
-        let azim = self.lattice.azimuth(phi);
-        let mut channels = Vec::new();
-        for (p, port) in self.ports.iter().enumerate() {
-            let k = omega * port.eps_r.sqrt();
-            for m in -r..=r {
-                for nq in -r..=r {
-                    let order = FloquetOrder { m, n: nq };
-                    let kappa = self.lattice.kappa(k_t, order);
-                    let ka = norm(kappa);
-                    let khat = if ka > 1e-12 * (omega + norm(self.lattice.b1)) {
-                        scale_v(kappa, 1.0 / ka)
-                    } else {
-                        azim
-                    };
-                    let arg = (k - ka) * (k + ka);
-                    let k_z = if arg > 0.0 {
-                        c64::new(arg.sqrt(), 0.0)
-                    } else {
-                        c64::new(0.0, -(-arg).sqrt())
-                    };
-                    let propagating = arg > 0.0;
-                    if order != FloquetOrder::SPECULAR && ka * port.h_max > PI {
-                        warnings.push(format!(
-                            "evanescent termination order ({m}, {nq}) at port {p} is \
-                             under-resolved by the port-face mesh (|κ|·h = {:.2} > π); refine \
-                             the port face or lower n_evanescent",
-                            ka * port.h_max
-                        ));
-                    }
-                    for pol in [FloquetPolarization::Te, FloquetPolarization::Tm] {
-                        if pol == FloquetPolarization::Tm && self.settings.tripwire_drop_tm {
-                            continue;
+            // Grazing warning, from the specular angle in this port medium.
+            if kt_abs < k {
+                let theta = (kt_abs / k).asin().to_degrees();
+                if theta > GRAZING_WARN_DEG {
+                    warnings.push(format!(
+                        "the specular wave at port {p} is at θ = {theta:.2}° > \
+                         {GRAZING_WARN_DEG}° (near grazing): the p=1 specular floor grows as \
+                         k/k_z towards grazing (see the accuracy table), so refine the port \
+                         face or reduce the angle"
+                    ));
+                }
+            }
+            let mut ring = r;
+            for &(order, kappa, ka, arg) in &included {
+                ring = ring.max(order.m.abs()).max(order.n.abs());
+                let (m, nq) = (order.m, order.n);
+                let khat = if ka > 1e-12 * (omega + norm(self.lattice.b1)) {
+                    scale_v(kappa, 1.0 / ka)
+                } else {
+                    azim
+                };
+                let k_z = if arg > 0.0 {
+                    c64::new(arg.sqrt(), 0.0)
+                } else {
+                    c64::new(0.0, -(-arg).sqrt())
+                };
+                let propagating = arg > 0.0;
+                if order != FloquetOrder::SPECULAR && ka * port.h_max > PI {
+                    warnings.push(format!(
+                        "{} order ({m}, {nq}) at port {p} is under-resolved by the port-face \
+                         mesh (|κ|·h = {:.2} > π); refine the port face{}",
+                        if propagating {
+                            "propagating diffraction"
+                        } else {
+                            "evanescent termination"
+                        },
+                        ka * port.h_max,
+                        if propagating {
+                            ""
+                        } else {
+                            " or lower n_evanescent"
                         }
-                        let (e_hat, y) = match pol {
-                            FloquetPolarization::Te => (cross(n, khat), k_z / omega),
-                            FloquetPolarization::Tm => {
-                                (khat, c64::new(omega * port.eps_r, 0.0) / k_z)
-                            }
-                        };
-                        channels.push(FloquetChannel {
-                            port: p,
-                            order,
-                            pol,
-                            kappa,
-                            e_hat,
-                            k_z,
-                            admittance: y,
-                            propagating,
-                        });
+                    ));
+                }
+                for pol in [FloquetPolarization::Te, FloquetPolarization::Tm] {
+                    if pol == FloquetPolarization::Tm && self.settings.tripwire_drop_tm {
+                        continue;
                     }
+                    let (e_hat, y) = match pol {
+                        FloquetPolarization::Te => (cross(n, khat), k_z / omega),
+                        FloquetPolarization::Tm => (khat, c64::new(omega * port.eps_r, 0.0) / k_z),
+                    };
+                    channels.push(FloquetChannel {
+                        port: p,
+                        order,
+                        pol,
+                        kappa,
+                        e_hat,
+                        k_z,
+                        admittance: y,
+                        propagating,
+                    });
                 }
             }
             // Decay of the first excluded ring at the nearest inhomogeneity.
             if port.clearance.is_finite() {
                 let mut worst: f64 = 0.0;
                 let mut worst_order = FloquetOrder::SPECULAR;
-                let re = r + 1;
+                let re = ring + 1;
                 for m in -re..=re {
                     for nq in -re..=re {
                         if m.abs().max(nq.abs()) != re {
