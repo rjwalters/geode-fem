@@ -192,6 +192,19 @@ impl SParamGoal {
     }
 }
 
+impl SParamGoal {
+    /// An affine S-parameter goal `J(x) = offset + Σ wᵢ xᵢ` from explicit
+    /// weights, e.g. the wave-port goal of
+    /// [`crate::adapt::dwr_wave::WavePortOperator::s_goal`].
+    pub fn from_weights(name: String, weights: Vec<c64>, offset: c64) -> Self {
+        Self {
+            name,
+            weights,
+            offset,
+        }
+    }
+}
+
 impl GoalFunctional for SParamGoal {
     fn name(&self) -> &str {
         &self.name
