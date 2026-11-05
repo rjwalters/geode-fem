@@ -215,7 +215,7 @@ pub fn run(
     check_gradient: bool,
     dataset: Option<&Path>,
 ) -> Result<DrivenReport, CliError> {
-    let mut p = problem::load(spec_path, Some(Analysis::Driven))?;
+    let (mut p, adaptive_mesh) = crate::adaptive::load(spec_path, Analysis::Driven)?;
     // `--check-gradient` (issue #883): the FD self-check, with the spec's
     // `fd_check` settings or the defaults.
     if check_gradient {
@@ -331,6 +331,7 @@ pub fn run(
         touchstone_file,
         sensitivities,
         warnings,
+        adaptive_mesh,
     })
 }
 
