@@ -1281,7 +1281,7 @@ consumed by that subcommand.
 | `inductance` | every `L_ij` (H) | `nu_r` (= `1/μ_r`), `mu_r` | self-adjoint energy form (`inductance_adjoint_sensitivity`), `∂L/∂μ_r = −ν_r² ∂L/∂ν_r` | the forward solves again on one factorization; no adjoint solve |
 | `eigen`, **lossless** (real `eps_r`, no `absorbing_regions`) | `frequency_hz` of each `modes[]` entry | `eps_r` | Hellmann–Feynman (`EigenSensitivity::deigenvalue_deps`), `∂f/∂ε = (f/2λ) ∂λ/∂ε` | a local contraction; no solve |
 | `driven`, **exactly one** lumped port, no `wave_ports` / `absorbing_regions`, direct solver, dense sweep (issue #739) | `s11_mag_sq` = `\|S11\|²` at **every** swept frequency (dimensionless) | `eps_r` | port-loaded discrete adjoint (`driven_material_adjoint_gradient_ports` + `s11_sq_objective`) | per frequency: one assembly + LU of the port-loaded `A(ω)`, one forward + one adjoint back-solve |
-| `driven` with `observables`, `frequencies`, a non-`eps_r` kind or any other port set — lumped, wave (geometric, filled), mixed, walled, hybrid (issue #883) | `driven_observables`: any `S_ij` (`mag` / `mag_sq` / `db` / `phase_deg` / `real` / `imag`), `Σ\|S_ij\|²`, a hybrid port's `z0` / `eps_eff` | `eps_r`, `eps_r_imag`, `tan_delta`, `shape` | N-port S-matrix adjoint (`s_matrix_sensitivity_sweep`; reciprocity) | per frequency: one LU (the forward's own excitation solves, **zero** extra solves) — see [N-port driven sensitivities](#n-port-driven-sensitivities-issue-883) |
+| `driven` with `observables`, `frequencies`, a non-`eps_r` kind or any other port set — lumped, wave (geometric, filled), mixed, walled, hybrid (issue #883) | `driven_observables`: any `S_ij` (`mag` / `mag_sq` / `db` / `phase_deg` / `real` / `imag`), `Σ\|S_ij\|²`, a hybrid port's `z0` / `eps_eff` | `eps_r`, `eps_r_imag`, `tan_delta`, `shape`, `wall_sigma`, `wall_rms_roughness`, `wall_ball_radius`, `wall_ball_density` | N-port S-matrix adjoint (`s_matrix_sensitivity_sweep`; reciprocity) | per frequency: one LU (the forward's own excitation solves, **zero** extra solves) — see [N-port driven sensitivities](#n-port-driven-sensitivities-issue-883) |
 
 - **Parameters.** `physical_group` is any dimension-3 group (listed in
   `materials` or not — an unlisted group is differentiated at its vacuum
@@ -1402,7 +1402,9 @@ lumped-port spec whose parameters are all `eps_r` and that has no
     { "kind": "shape", "name": "strip_width", "physical_group": "strip",
       "motion": "stretch", "axis": [1, 0, 0], "pinned": ["shield"] },
     { "kind": "shape", "name": "iris_x", "physical_groups": ["iris_l", "iris_r"],
-      "motion": "translate", "axis": [1, 0, 0], "pinned": ["walls", "port_in", "port_out"] }
+      "motion": "translate", "axis": [1, 0, 0], "pinned": ["walls", "port_in", "port_out"] },
+    { "kind": "wall_sigma", "physical_group": "conductor_surface" },           // σ of a Leontovich wall (S/m)
+    { "kind": "wall_rms_roughness", "physical_group": "conductor_surface" }   // Hammerstad Δ (m)
   ],
   "observables": [                                   // default: every |S_ij|²
     { "quantity": "s", "entry": [0, 0], "form": "db" },          // S11 in dB
@@ -1423,6 +1425,20 @@ lumped-port spec whose parameters are all `eps_r` and that has no
   A geometric wave port filled by a differentiated region follows it
   (its `β`, drive and power weights, #777); a hybrid port's face modes
   follow the face triangles' tets.
+- **Wall parameters** (issue #1330) bind to a `boundary_conditions.leontovich`
+  wall by its dimension-2 `physical_group` and are reported per **SI**
+  parameter (the library's natural-unit derivative is chain-ruled):
+  `wall_sigma` (conductivity, S/m), `wall_rms_roughness` (Hammerstad `Δ`,
+  m), `wall_ball_radius` (Huray sphere radius `a`, m, at fixed density)
+  and `wall_ball_density` (Huray `N/A_tile`, 1/m², at fixed radius). The
+  roughness kinds must match the wall's `roughness` model (a smooth wall
+  has none; Hammerstad and Huray kinds do not mix), and a roughness
+  value must be positive (the FD scale). Columns follow the material and
+  shape columns' report order (spec order). Where a roughness loss factor
+  sits on its plateau (`K → 2`, or the Huray plateau) the column is ≈ 0 by
+  saturation and the report carries a `sensitivity_wall_saturated`
+  warning for that parameter. Driven N-port path only (`LondonDepth` has
+  no CLI wall model).
 - **Shape parameters** (`kind = "shape"`) bind to **group names**, never
   node ids, so a design survives re-meshing: the nodes of
   `physical_group` / `physical_groups` (2-D or 3-D groups) move as `motion`
@@ -1515,7 +1531,8 @@ lumped-port spec whose parameters are all `eps_r` and that has no
   each entry is compared to the central difference. `h = relative_step ×`
   the parameter's natural scale: `|ε′|` (`eps_r`), `|ε_r|` (`eps_r_imag`),
   `1` (`tan_delta`), the motion's length (`shape`: the stretch extent,
-  else the moving groups' bounding-box size). A loss parameter within one
+  else the moving groups' bounding-box size), the parameter's own value
+  (`wall_*`). A loss parameter within one
   step of `0` uses the one-sided second-order difference
   `(−3f(0) + 4f(h) − f(2h))/(2h)` (`ε″ < 0` is gain). `fd_rel_error =
   |g − g_FD| / max(|g|, |g_FD|, floor)`, the floor the larger of 1 % of
