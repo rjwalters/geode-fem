@@ -148,13 +148,14 @@ fn lib_error(e: SSensitivityError) -> CliError {
 /// per shape parameter.
 fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
     let mut regions: Vec<usize> = Vec::new();
-    let (mut need_prime, mut need_dprime) = (false, false);
+    let (mut need_prime, mut need_dprime, mut need_sigma) = (false, false, false);
     for prm in sens.parameters.iter().filter(|q| q.kind.is_material()) {
         if !regions.contains(&prm.region) {
             regions.push(prm.region);
         }
         match prm.kind {
             SensitivityParameterKind::EpsR => need_prime = true,
+            SensitivityParameterKind::Sigma => need_sigma = true,
             _ => need_dprime = true,
         }
     }
@@ -170,7 +171,8 @@ fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
         Some(
             MaterialDesign::from_regions(labels, names)
                 .map_err(lib_error)?
-                .with_components(need_prime, need_dprime),
+                .with_components(need_prime, need_dprime)
+                .with_sigma(need_sigma),
         )
     };
     // A geometric port filled by a design region follows it (#777): bind it.
@@ -229,7 +231,8 @@ fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
     // then the shape columns, then the wall columns.
     let n_reg = regions.len();
     let dprime_base = if need_prime { n_reg } else { 0 };
-    let shape_base = dprime_base + if need_dprime { n_reg } else { 0 };
+    let sigma_base = dprime_base + if need_dprime { n_reg } else { 0 };
+    let shape_base = sigma_base + if need_sigma { n_reg } else { 0 };
     let wall_base = shape_base + n_shape;
     let mut next_shape = 0;
     let mut next_wall = 0;
@@ -250,6 +253,12 @@ fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
                 SensitivityParameterKind::TanDelta => ParamMap {
                     index: dprime_base + slot(prm.region),
                     factor: p.regions[prm.region].eps_r.re,
+                },
+                // The library differentiates the natural-unit σ_nat = σ·η₀·L:
+                // ∂/∂σ[S/m] = η₀·L · ∂/∂σ_nat.
+                SensitivityParameterKind::Sigma => ParamMap {
+                    index: sigma_base + slot(prm.region),
+                    factor: geode_core::constants::ETA_0_OHM * p.length_unit_m(),
                 },
                 SensitivityParameterKind::Shape => {
                     let m = ParamMap {
@@ -333,7 +342,7 @@ fn library_sweep(
         space: &space,
         mesh,
         materials: DrivenMaterials::Scalar(&p.eps),
-        sigma_tet: None,
+        sigma_tet: p.sigma(),
         bcs: &bcs,
         lumped: &lumped,
         wave: &wave,
@@ -1157,6 +1166,10 @@ fn parameter_scale(p: &Problem, prm: &SensitivityParameter) -> f64 {
         (Some(sh), _) => sh.fd_length * p.length_unit_m(),
         (None, SensitivityParameterKind::EpsRImag) => p.regions[prm.region].eps_r.norm(),
         (None, SensitivityParameterKind::TanDelta) => 1.0,
+        // σ = 0 at the design point has no relative scale: a step of 1 S/m
+        // (a lossy-silicon scale) is tiny against the 10 S/m cookbook value
+        // and keeps the FD above round-off; a σ > 0 steps relative to itself.
+        (None, SensitivityParameterKind::Sigma) => prm.value.abs().max(1.0),
         _ => prm.value.abs(),
     }
 }
@@ -1188,6 +1201,19 @@ fn perturbed(
                      sensitivity.fd_check.relative_step",
                     prm.physical_group
                 )));
+            }
+        }
+        (SensitivityParameterKind::Sigma, _) => {
+            // The region's σ (S/m) moved by `delta`; σ_nat = σ·η₀·L.
+            let tags = &p.sensitivity.as_ref().expect("a target").region_of_tet;
+            if q.sigma_tet.is_empty() {
+                q.sigma_tet = vec![0.0; tags.len()];
+            }
+            let nat = geode_core::constants::ETA_0_OHM * p.length_unit_m();
+            for (s, &r) in q.sigma_tet.iter_mut().zip(tags) {
+                if r == prm.region {
+                    *s = (prm.value + delta) * nat;
+                }
             }
         }
         (kind, _) if kind.is_wall() => {
@@ -1475,7 +1501,9 @@ pub fn driven(
                 let one_sided = prm.value < h
                     && matches!(
                         prm.kind,
-                        SensitivityParameterKind::EpsRImag | SensitivityParameterKind::TanDelta
+                        SensitivityParameterKind::EpsRImag
+                            | SensitivityParameterKind::TanDelta
+                            | SensitivityParameterKind::Sigma
                     );
                 let run = |delta: f64| -> Result<Vec<FrequencyResult>, CliError> {
                     let mut q = perturbed(p, prm, col, delta)?;

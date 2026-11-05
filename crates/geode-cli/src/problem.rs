@@ -94,6 +94,8 @@ pub struct Region {
     pub eps_r_diag: Option<[c64; 3]>,
     /// Diagonal anisotropic `μ_r` `[xx, yy, zz]` (issue #760), if given.
     pub mu_r_diag: Option<[f64; 3]>,
+    /// Volumetric conductivity in S/m (issue #1254; `0` unless listed).
+    pub sigma_s_m: f64,
 }
 
 /// A resolved surface group (PEC).
@@ -606,6 +608,10 @@ pub struct Problem {
     /// Per-tet complex relative permittivity (dispersive regions at their
     /// reference frequency; the solve uses [`Problem::eps_at`]).
     pub eps: Vec<c64>,
+    /// Per-tet volumetric conductivity in natural units `σ·η₀·L_unit`
+    /// (1/length; issue #1254). **Empty** when no material lists a
+    /// positive `conductivity_s_m` — see [`Problem::sigma`].
+    pub sigma_tet: Vec<f64>,
     /// Dispersive regions, in spec order (issue #757; empty when every
     /// material is constant).
     pub dispersion: Vec<DispersiveRegion>,
@@ -759,6 +765,13 @@ impl Problem {
     /// material (issue #757) — so the sweep re-assembles it per frequency.
     pub fn is_frequency_dependent(&self) -> bool {
         !self.upml.is_empty() || !self.dispersion.is_empty()
+    }
+
+    /// The per-tet natural-unit conductivity the driven operator takes
+    /// (`None` when no material is conducting, so a σ-free spec calls the
+    /// library exactly as before).
+    pub fn sigma(&self) -> Option<&[f64]> {
+        (!self.sigma_tet.is_empty()).then_some(self.sigma_tet.as_slice())
     }
 
     /// Per-tet complex relative permittivity at `hz` (Hz): borrows
@@ -1244,6 +1257,23 @@ pub fn load_parsed(
             )));
         }
         validate_diagonal_material(m, analysis)?;
+        if let Some(sigma) = m.conductivity_s_m {
+            if !(sigma.is_finite() && sigma >= 0.0) {
+                return Err(invalid(format!(
+                    "materials[{}].conductivity_s_m must be finite and >= 0 (got {sigma})",
+                    m.physical_group
+                )));
+            }
+            if sigma != 0.0 && !matches!(analysis, Analysis::Driven | Analysis::Extract) {
+                return Err(invalid(format!(
+                    "materials[{}].conductivity_s_m is only supported by `geode driven` and \
+                     `geode extract` in schema v1; the {} solver has no conduction term and \
+                     would silently ignore it",
+                    m.physical_group,
+                    analysis.name()
+                )));
+            }
+        }
         if let Some(d) = &m.dispersion {
             validate_dispersion(&m.physical_group, m.eps_r, d, &spec, analysis)?;
         }
@@ -1541,9 +1571,13 @@ pub fn load_parsed(
     let mut mu_by_tag: BTreeMap<i32, f64> = BTreeMap::new();
     let mut eps_diag_by_tag: BTreeMap<i32, [c64; 3]> = BTreeMap::new();
     let mut mu_diag_by_tag: BTreeMap<i32, [f64; 3]> = BTreeMap::new();
+    let mut sigma_by_tag: BTreeMap<i32, f64> = BTreeMap::new();
     let mut dispersion: Vec<DispersiveRegion> = Vec::new();
     for (m, tag) in spec.materials.iter().zip(&material_tags) {
         let tag = tag.expect("resolved above");
+        if let Some(s) = m.conductivity_s_m.filter(|&s| s > 0.0) {
+            sigma_by_tag.insert(tag, s);
+        }
         if let Some(d) = &m.eps_r_diag {
             eps_diag_by_tag.insert(tag, d.components().map(|[re, im]| c64::new(re, im)));
         }
@@ -1595,6 +1629,17 @@ pub fn load_parsed(
         .map(|t| eps_by_tag.get(t).copied().unwrap_or(vacuum))
         .collect();
     let mu_r = build_mu_r(&tagged.tet_physical_tags, &mu_by_tag);
+    // Natural-unit σ per tet (σ_SI·η₀·L_unit, like the Leontovich walls);
+    // empty when no region conducts, so σ-free specs are untouched.
+    let sigma_tet: Vec<f64> = if sigma_by_tag.is_empty() {
+        Vec::new()
+    } else {
+        tagged
+            .tet_physical_tags
+            .iter()
+            .map(|t| sigma_by_tag.get(t).map_or(0.0, |s| s * ETA_0_OHM * lu))
+            .collect()
+    };
     // Per-tet diagonal tensors, empty when no material is anisotropic.
     fn per_tet<T: Copy>(tags: &[i32], by_tag: &BTreeMap<i32, T>) -> Vec<Option<T>> {
         if by_tag.is_empty() {
@@ -1633,6 +1678,7 @@ pub fn load_parsed(
                 source,
                 eps_r_diag: eps_diag_by_tag.get(&tag).copied(),
                 mu_r_diag: mu_diag_by_tag.get(&tag).copied(),
+                sigma_s_m: sigma_by_tag.get(&tag).copied().unwrap_or(0.0),
             }
         })
         .collect();
@@ -1863,6 +1909,7 @@ pub fn load_parsed(
         element_order,
         hcurl_space,
         eps,
+        sigma_tet,
         dispersion,
         mu_r,
         eps_diag,
@@ -2691,6 +2738,7 @@ fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), Cl
                 K::EpsR,
                 K::EpsRImag,
                 K::TanDelta,
+                K::Sigma,
                 K::Shape,
                 K::WallSigma,
                 K::WallRmsRoughness,
@@ -2702,14 +2750,15 @@ fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), Cl
         let label = parameter_label(prm);
         if !allowed.contains(&prm.kind) {
             let names: Vec<&str> = allowed.iter().map(|k| k.name()).collect();
-            let why =
-                if analysis != Analysis::Driven && !matches!(prm.kind, K::EpsR | K::NuR | K::MuR) {
-                    " (`eps_r_imag`, `tan_delta`, `shape` and the `wall_*` kinds are driven-spec \
+            let why = if analysis != Analysis::Driven
+                && !matches!(prm.kind, K::EpsR | K::NuR | K::MuR)
+            {
+                " (`eps_r_imag`, `tan_delta`, `sigma`, `shape` and the `wall_*` kinds are driven-spec \
                  parameters of the N-port S-matrix adjoint, Epic #841 Phase 5a; this analysis's \
                  adjoint has no loss, shape or wall gradient in the CLI yet)"
-                } else {
-                    ""
-                };
+            } else {
+                ""
+            };
             return Err(invalid(format!(
                 "sensitivity.parameters[{i}] ({label}): kind `{}` is not a parameter of the {} \
                  observable; supported kinds: `{}`{why}",
@@ -2814,6 +2863,12 @@ pub fn is_n_port_sensitivity(spec: &ProblemSpec) -> bool {
             .any(|p| p.kind != SensitivityParameterKind::EpsR)
         || spec.ports.len() != 1
         || !spec.wave_ports.is_empty()
+        // The legacy one-port adjoint has no σ term: a conducting material
+        // needs the N-port adjoint (issue #1254).
+        || spec
+            .materials
+            .iter()
+            .any(|m| m.conductivity_s_m.is_some_and(|s| s > 0.0))
 }
 
 /// The report / message label of a sensitivity parameter: its volume group
@@ -3057,6 +3112,7 @@ fn resolve_sensitivity(
                 SensitivityParameterKind::TanDelta => -r.eps_r.im / r.eps_r.re,
                 SensitivityParameterKind::NuR => 1.0 / r.mu_r,
                 SensitivityParameterKind::MuR => r.mu_r,
+                SensitivityParameterKind::Sigma => r.sigma_s_m,
                 _ => unreachable!("handled above"),
             };
             Ok(SensitivityParameter {

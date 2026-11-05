@@ -3630,6 +3630,14 @@
       "additionalProperties": false,
       "description": "Material of one volume physical group: complex permittivity and\n(additive in v1, issue #714) real relative permeability.",
       "properties": {
+        "conductivity_s_m": {
+          "description": "Volumetric electrical conductivity `σ` in S/m (additive in v1, issue\n#1254; finite, `≥ 0`). Omit (or `null`) for a non-conducting region —\nexisting specs are unchanged. It adds the conduction term `jωσM` to\nthe driven operator (`exp(+jωt)`: `Im ε_eff = −σ/ω`), in `driven`,\n`extract` and a `driven` `sensitivity` (a `kind: \"sigma\"` parameter).\nRejected by `eigen`, `capacitance` and `inductance`, which have no\nconduction term.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "dispersion": {
           "anyOf": [
             {
@@ -5178,6 +5186,11 @@
         {
           "const": "tan_delta",
           "description": "Loss tangent `tan δ = ε″/ε′`, `ε′` held (driven, issue #883):\n`∂/∂tan δ = ε′·∂/∂ε″`.",
+          "type": "string"
+        },
+        {
+          "const": "sigma",
+          "description": "Volumetric conductivity `σ` in S/m (driven N-port S sensitivity,\nissue #1254): `∂A/∂σ = jωM`. The region's `conductivity_s_m` is the\ndesign point (absent = 0).",
           "type": "string"
         },
         {

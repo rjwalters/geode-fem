@@ -80,6 +80,13 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         Some("spiral_drude_smoke.json"),
         Input::Spec("driven"),
     ),
+    // The Drude spiral with explicit `conductivity_s_m = 10` silicon
+    // (issue #1254); `spiral_sigma_agrees_with_the_drude_spiral` pins the band.
+    (
+        "driven/spiral_inductor_sigma.json",
+        None,
+        Input::Spec("driven"),
+    ),
     // A TE₁₀ wave port feeding a full-face lumped resistive sheet: a mixed
     // lumped + wave-port spec (issue #759); `tests/wave_port_driven.rs`
     // pins it against the sheet's closed form.
@@ -349,6 +356,40 @@ const MICROSTRIP: &str = "driven/microstrip_line.json";
 /// `geode driven --check-gradient` runs in the release tier of
 /// `tests/sensitivity_nport.rs`).
 const MICROSTRIP_SENSITIVITY: &str = "sensitivity/microstrip_strip_width.json";
+
+/// The explicit-σ spiral (issue #1254) reproduces the Drude spiral it
+/// re-expresses: 10 Ω·cm silicon as `conductivity_s_m = 10` S/m against the
+/// finite-γ Drude model (`ω_p² = σγ/ε₀`, γ = 5e12 rad/s). They differ by the
+/// carrier inertia only (`Re ε` drops by `ω_p²/γ² = 0.23`, `Im ε` by `ω²/γ²`),
+/// so `|Z_σ − Z_Drude|/|Z_Drude|` stays within the band stated in
+/// `examples/driven/README.md` (≤ 2e-3, measured 7.4e-4 at 20 GHz). Release
+/// tier: two spiral solves (~35 s each in debug).
+#[test]
+#[ignore = "release tier (minutes in debug): run with --release -- --ignored"]
+fn spiral_sigma_agrees_with_the_drude_spiral() {
+    let z = |name: &str| -> Vec<(f64, f64)> {
+        let spec = examples().join(name);
+        let v = ok(geode(&["driven", s(&spec)]), name);
+        v["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                let z = &row["z_ohm"][0][0];
+                (z[0].as_f64().unwrap(), z[1].as_f64().unwrap())
+            })
+            .collect()
+    };
+    let drude = z("driven/spiral_inductor_drude.json");
+    let sigma = z("driven/spiral_inductor_sigma.json");
+    assert_eq!(drude.len(), sigma.len());
+    for (i, (a, b)) in drude.iter().zip(&sigma).enumerate() {
+        let d = ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
+        let rel = d / a.0.hypot(a.1);
+        eprintln!("SIGMA vs DRUDE | f[{i}] | rel = {rel:.2e}");
+        assert!(rel <= 2e-3, "f[{i}]: |Z_σ − Z_Drude|/|Z| = {rel:e}");
+    }
+}
 
 /// `geode check` on the microstrip cookbook. Release tier: its face is
 /// graded finely toward the strip edges, and the accuracy estimate's `h/4`

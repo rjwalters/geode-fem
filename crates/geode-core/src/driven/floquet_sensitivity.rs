@@ -617,6 +617,14 @@ impl<'a> Prepared<'a> {
                             *o = zz * c64::new(0.0, omega2);
                         }
                     }
+                    // ∂A/∂σ_k = jω M_k (the forward is A = K − ω²εM + jωσM).
+                    // Not enumerated by this builder; kept exact so a future
+                    // σ column cannot silently get a zero gradient.
+                    SParam::Sigma { region } => {
+                        for (o, &zz) in out[i].iter_mut().zip(&z[region]) {
+                            *o = zz * c64::new(0.0, omega);
+                        }
+                    }
                     // Shape is handled below; Floquet never builds direction or wall
                     // columns (only ε′/ε″/shape above), so these contribute nothing here.
                     SParam::Shape { .. } | SParam::EpsDirection { .. } | SParam::Wall { .. } => {}
