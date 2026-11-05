@@ -346,13 +346,6 @@ fn validate_dataset(p: &Problem) -> Result<(), CliError> {
                 .to_string(),
         ));
     }
-    if p.element_order == ElementOrder::P2 {
-        return Err(CliError::InvalidSpec(
-            "element_order = 2 is not supported with --dataset: the sample schema stores an \
-             order-1 (Whitney edge-DOF) field; drop --dataset or use element_order = 1"
-                .to_string(),
-        ));
-    }
     if !p.wave_ports.is_empty() {
         return Err(CliError::InvalidSpec(
             "--dataset: wave-port specs have no exportable edge-DOF field yet; use an all-lumped \

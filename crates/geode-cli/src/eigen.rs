@@ -219,13 +219,6 @@ pub fn run(
                 .to_string(),
         ));
     }
-    if p.hcurl_space.is_some() && dataset.is_some() {
-        return Err(CliError::InvalidSpec(
-            "element_order = 2 is not supported with --dataset: the sample schema stores an \
-             order-1 (Whitney edge-DOF) field; drop --dataset or use element_order = 1"
-                .into(),
-        ));
-    }
     if p.hcurl_space.is_some() && outdir.is_some() {
         return Err(CliError::InvalidSpec(
             "element_order = 2 is not supported with --outdir: the VTU field export is \

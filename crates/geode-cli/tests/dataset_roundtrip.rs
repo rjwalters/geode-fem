@@ -366,8 +366,9 @@ fn dataset_needs_a_sensitivity_section_and_writes_nothing() {
     assert!(!ds.exists(), "nothing may be written on rejection");
 }
 
-/// The sample schema is order-1 (Whitney edge DOFs), so `element_order = 2`
-/// is rejected like `--outdir` is, before anything is written.
+/// The sample schema is order-1 (Whitney edge DOFs). `--dataset` needs a
+/// `sensitivity` section and `sensitivity` rejects `element_order = 2` at
+/// spec load, so an order-2 spec never reaches the sample writer: pin that.
 #[test]
 fn dataset_rejects_element_order_two_and_writes_nothing() {
     for (sub, name) in [
@@ -396,7 +397,7 @@ fn dataset_rejects_element_order_two_and_writes_nothing() {
         assert_eq!(v["error"]["code"], "invalid_spec", "{sub}: {v:#}");
         let msg = v["error"]["message"].as_str().unwrap();
         assert!(
-            msg.contains("element_order = 2") && msg.contains("--dataset"),
+            msg.contains("element_order = 2") && msg.contains("sensitivity"),
             "{sub}: {msg}"
         );
         assert!(!ds.exists(), "{sub}: nothing may be written on rejection");
