@@ -2750,14 +2750,15 @@ fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), Cl
         let label = parameter_label(prm);
         if !allowed.contains(&prm.kind) {
             let names: Vec<&str> = allowed.iter().map(|k| k.name()).collect();
-            let why =
-                if analysis != Analysis::Driven && !matches!(prm.kind, K::EpsR | K::NuR | K::MuR) {
-                    " (`eps_r_imag`, `tan_delta`, `sigma`, `shape` and the `wall_*` kinds are driven-spec \
+            let why = if analysis != Analysis::Driven
+                && !matches!(prm.kind, K::EpsR | K::NuR | K::MuR)
+            {
+                " (`eps_r_imag`, `tan_delta`, `sigma`, `shape` and the `wall_*` kinds are driven-spec \
                  parameters of the N-port S-matrix adjoint, Epic #841 Phase 5a; this analysis's \
                  adjoint has no loss, shape or wall gradient in the CLI yet)"
-                } else {
-                    ""
-                };
+            } else {
+                ""
+            };
             return Err(invalid(format!(
                 "sensitivity.parameters[{i}] ({label}): kind `{}` is not a parameter of the {} \
                  observable; supported kinds: `{}`{why}",
