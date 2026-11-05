@@ -37,7 +37,7 @@ use geode_core::driven::ports::{
     solve_wave_port_spec_sweep_with_mode, solve_wave_port_sweep_with_mode,
 };
 use geode_core::driven::s_sensitivity::{
-    MaterialDesign, OperatorSymmetry, SDesign, SNetwork, SParam, SSensitivityError,
+    EpsDirection, MaterialDesign, OperatorSymmetry, SDesign, SNetwork, SParam, SSensitivityError,
     SSensitivityOptions, SSensitivitySweep, SensitivityFault, ShapeDesign,
     s_matrix_sensitivity_sweep, s_matrix_vjp,
 };
@@ -182,6 +182,7 @@ fn label(sw: &SSensitivitySweep, i: usize) -> String {
     match sw.params[i] {
         SParam::EpsPrime { region } => format!("eps'[{region}]"),
         SParam::EpsDoublePrime { region } => format!("eps''[{region}]"),
+        SParam::EpsDirection { column } => format!("dir[{column}]"),
         SParam::Shape { column } => format!("shape[{column}]"),
         SParam::Wall { wall, param } => format!("wall[{wall}].{param:?}"),
     }
@@ -250,6 +251,7 @@ fn shift_eps(eps: &[c64], regions: &[Option<usize>], prm: SParam, h: f64) -> Vec
         SParam::EpsPrime { region } => (region, c64::new(h, 0.0)),
         SParam::EpsDoublePrime { region } => (region, c64::new(0.0, -h)),
         SParam::Shape { .. } | SParam::Wall { .. } => return eps.to_vec(),
+        SParam::EpsDirection { .. } => unreachable!("direction parameters shift ε in their test"),
     };
     eps.iter()
         .zip(regions)
@@ -901,6 +903,99 @@ fn filled_port_material_matches_fd() {
         assert!(e <= TOL, "rel_err {e}");
     }
     assert!(gradient_reciprocity(&sw) < 1e-8);
+}
+
+/// **Phase 2a (#1259): `tan δ` and complex directions.** The filled-port
+/// fixture with only complex-direction parameters: `tan δ` at fixed `ε′`
+/// (`∂ε = −jε′`), `ε′` at fixed `tan δ` (`∂ε = 1 − j tan δ`, including the
+/// `tan δ·∂/∂ε″` term a bare `ε′` column omits), both against a central FD
+/// of the forward; and an ω-dependent direction `c(ω) = ω` against its
+/// exact linearity identity `∂S/∂θ = ω·∂S/∂ε′`.
+#[test]
+fn tan_delta_and_complex_directions_match_fd() {
+    let f = filled_fixture();
+    let (ep, tand) = (FILLED_EPS.re, -FILLED_EPS.im / FILLED_EPS.re);
+    let mat = || MaterialDesign::from_regions(f.regions.clone(), vec!["fill".into()]).unwrap();
+    let mask = f.g.pec_interior_mask();
+    let bcs = DrivenBcs {
+        pec_interior_mask: &mask,
+    };
+    let space = HcurlSpace::build(&f.g.mesh, ElementOrder::P1);
+    let specs: Vec<WavePortSpec> = f.ports.iter().cloned().map(WavePortSpec::from).collect();
+    let net = SNetwork {
+        space: &space,
+        mesh: &f.g.mesh,
+        materials: DrivenMaterials::Scalar(&f.eps),
+        sigma_tet: None,
+        bcs: &bcs,
+        lumped: &[],
+        wave: &specs,
+        surfaces: &[],
+    };
+    let run = |m: MaterialDesign| {
+        let design = SDesign {
+            material: Some(m),
+            shape: None,
+            port_fill: vec![Some(0), None],
+            wall_params: vec![],
+        };
+        s_matrix_sensitivity_sweep::<B>(&net, &[1.9, 2.3], &design, &opts(), &device()).unwrap()
+    };
+    let dirs = mat()
+        .with_components(false, false)
+        .with_directions(vec![
+            EpsDirection::tan_delta(0, "tan_delta", ep),
+            EpsDirection::eps_prime_at_fixed_tan_delta(0, "eps_prime|tand", tand),
+        ])
+        .unwrap();
+    let sw = run(dirs);
+    assert_eq!(sw.params.len(), 2);
+    let errs = fd_check("tan δ / ε′|tanδ (filled port)", &sw, |prm, h| {
+        let d = match prm {
+            SParam::EpsDirection { column: 0 } => c64::new(0.0, -ep * h),
+            SParam::EpsDirection { column: 1 } => c64::new(h, -tand * h),
+            other => panic!("unexpected {other:?}"),
+        };
+        let e: Vec<c64> = f
+            .eps
+            .iter()
+            .zip(&f.regions)
+            .map(|(&e, r)| if r.is_some() { e + d } else { e })
+            .collect();
+        let fill = e[f.regions.iter().position(Option::is_some).unwrap()];
+        let ports = [
+            f.ports[0]
+                .clone()
+                .with_medium(PortMedium::isotropic(fill, 1.0)),
+            f.ports[1].clone(),
+        ];
+        wave_forward(&f.g, &e, &ports, &[1.9, 2.3], &[], None, &f.g.mesh)
+    });
+    for e in errs {
+        assert!(e <= TOL, "rel_err {e}");
+    }
+    // Linearity: tan δ column = ε′·(ε″ column); ω-dependent direction = ω·(ε′ column).
+    let base = run(mat());
+    let w_dir = run(mat()
+        .with_components(false, false)
+        .with_directions(vec![EpsDirection::new(0, "omega_eps", |w| {
+            c64::new(w, 0.0)
+        })])
+        .unwrap());
+    for ((pt, pw), ps) in base.points.iter().zip(&w_dir.points).zip(&sw.points) {
+        let scaled: Vec<c64> = pt.ds[0].iter().map(|v| v * pt.omega).collect();
+        assert!(rel_err(&pw.ds[0], &scaled) < 1e-12);
+        // ∂/∂tan δ = ε′ · ∂/∂ε″ (the issue's identity).
+        let chain: Vec<c64> = pt.ds[1].iter().map(|v| v * ep).collect();
+        assert!(rel_err(&ps.ds[0], &chain) < 1e-9);
+        // ∂/∂ε′|tanδ = ∂/∂ε′ + tanδ·∂/∂ε″ (the easy-to-forget second term).
+        let comb: Vec<c64> = pt.ds[0]
+            .iter()
+            .zip(&pt.ds[1])
+            .map(|(a, b)| a + b * tand)
+            .collect();
+        assert!(rel_err(&ps.ds[1], &comb) < 1e-9);
+    }
 }
 
 /// Mutation tripwires (a) drop `∂y_c`, (c) drop `∂d_p`, (d) drop `∂w_qp`:

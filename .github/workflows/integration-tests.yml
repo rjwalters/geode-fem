@@ -128,6 +128,7 @@ jobs:
               --test driven_p2_sensitivity_ports \
               --test driven_p2_surface \
               --test driven_upml \
+              --test dwr_goals \
               --test eigensolver \
               --test electrostatic_capacitance \
               --test extraction \
@@ -219,6 +220,7 @@ jobs:
               --test driven_p2_sensitivity_ports \
               --test driven_p2_surface \
               --test driven_upml \
+              --test dwr_goals \
               --test eigen_p2_tagged \
               --test eigensolver \
               --test electrostatic_capacitance \

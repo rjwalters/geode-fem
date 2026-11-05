@@ -279,6 +279,9 @@ fn fd(s: &Setup, param: SParam, k_t: [f64; 3]) -> Vec<Vec<c64>> {
                     }
                 }
             }
+            SParam::EpsDirection { .. } | SParam::Wall { .. } => {
+                unreachable!("Floquet sensitivity has no direction or wall columns")
+            }
         }
         s_of(&s.c, &mesh, &eps, k_t)
     };
