@@ -14,7 +14,7 @@
 use std::f64::consts::PI;
 
 use geode_core::analytic::waveguide::TriMesh;
-use geode_core::assembly::electrostatic::{EPS_0, Electrode, ElectrostaticError};
+use geode_core::assembly::electrostatic::{Electrode, ElectrostaticError, EPS_0};
 use geode_core::assembly::electrostatic_2d::{
     assemble_electrostatic_2d, extract_capacitance_2d, recover_e_field_2d,
 };
@@ -250,7 +250,8 @@ fn bad_input_returns_err_without_panicking() {
     let e = assemble_electrostatic_2d(&mesh, &ones, &zeros, &[], &[999]).unwrap_err();
     assert!(matches!(e, ElectrostaticError::ShapeMismatch(_)), "{e}");
     let bad = electrode("bad", vec![999], 1.0);
-    let e = assemble_electrostatic_2d(&mesh, &ones, &zeros, &[bad.clone()], &ground).unwrap_err();
+    let e = assemble_electrostatic_2d(&mesh, &ones, &zeros, std::slice::from_ref(&bad), &ground)
+        .unwrap_err();
     assert!(matches!(e, ElectrostaticError::ShapeMismatch(_)), "{e}");
 
     let mut broken = mesh.clone();
@@ -260,7 +261,8 @@ fn bad_input_returns_err_without_panicking() {
 
     // recover_e_field_2d / extract_capacitance_2d error paths.
     assert!(recover_e_field_2d(&mesh, &[0.0; 3]).is_err());
-    let sys = assemble_electrostatic_2d(&mesh, &ones, &zeros, &[top.clone()], &ground).unwrap();
+    let sys = assemble_electrostatic_2d(&mesh, &ones, &zeros, std::slice::from_ref(&top), &ground)
+        .unwrap();
     assert!(extract_capacitance_2d(&sys, &[bad], &ground).is_err());
     assert!(extract_capacitance_2d(&sys, &[top], &[999]).is_err());
 }
