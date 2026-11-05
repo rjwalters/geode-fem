@@ -39,8 +39,6 @@ use sha2::{Digest, Sha256};
 
 pub mod geo;
 pub mod layout;
-// Importer only so far (issue #1288); the `--stackup` wiring is a follow-up.
-#[allow(dead_code)]
 pub mod stackup;
 
 use self::geo::{GeoScript, GroupRole};
@@ -95,6 +93,12 @@ impl MeshAnalysis {
 pub struct MeshArgs {
     /// Layout file (`.toml` → TOML, anything else → JSON), schema v1.
     layout: PathBuf,
+    /// XML layer stackup (see `mesh_cmd::stackup`) that fills what the
+    /// layout omits: `dielectrics` (when absent or empty) and, for
+    /// conductors matched by name, `z_bottom`, `thickness` and
+    /// `conductivity_s_m`. Values the layout states win.
+    #[arg(long, value_name = "XML")]
+    stackup: Option<PathBuf>,
     /// Output mesh (Gmsh MSH 4.1 ASCII). The generated `.geo` script is
     /// written next to it with the same stem. Default: the layout path
     /// with a `.msh` extension.
@@ -229,17 +233,34 @@ fn io(path: &Path) -> impl FnOnce(std::io::Error) -> CliError + '_ {
     }
 }
 
-/// Parse a layout file: `.toml` → TOML, anything else → JSON.
-pub fn read_layout(path: &Path) -> Result<(Layout, Vec<u8>), CliError> {
+/// Parse a layout file: `.toml` → TOML, anything else → JSON. With
+/// `stackup`, the layout's gaps are first filled from that XML stackup
+/// (`geode mesh --stackup`, issue #1288).
+pub fn read_layout(path: &Path, stackup: Option<&Path>) -> Result<(Layout, Vec<u8>), CliError> {
     let raw = std::fs::read(path).map_err(io(path))?;
     let text = String::from_utf8_lossy(&raw);
     let is_toml = path
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("toml"));
-    let parsed: Result<Layout, String> = if is_toml {
-        toml::from_str(&text).map_err(|e| e.to_string())
-    } else {
-        serde_json::from_str(&text).map_err(|e| e.to_string())
+    let parsed: Result<Layout, String> = match stackup {
+        None if is_toml => toml::from_str(&text).map_err(|e| e.to_string()),
+        None => serde_json::from_str(&text).map_err(|e| e.to_string()),
+        Some(xml_path) => {
+            let xml = std::fs::read_to_string(xml_path).map_err(io(xml_path))?;
+            let st = stackup::parse(&xml).map_err(|e| CliError::LayoutParse {
+                path: xml_path.to_path_buf(),
+                message: e.to_string(),
+            })?;
+            let value: Result<serde_json::Value, String> = if is_toml {
+                toml::from_str(&text).map_err(|e| e.to_string())
+            } else {
+                serde_json::from_str(&text).map_err(|e| e.to_string())
+            };
+            value.and_then(|mut v| {
+                st.fill_layout(&mut v);
+                serde_json::from_value(v).map_err(|e| e.to_string())
+            })
+        }
     };
     let layout = parsed.map_err(|message| CliError::LayoutParse {
         path: path.to_path_buf(),
@@ -352,7 +373,7 @@ fn tail(text: &str, n: usize) -> String {
 }
 
 fn run(a: &MeshArgs, provenance: Provenance) -> Result<MeshReport, CliError> {
-    let (layout, layout_bytes) = read_layout(&a.layout)?;
+    let (layout, layout_bytes) = read_layout(&a.layout, a.stackup.as_deref())?;
     let resolved = layout
         .resolve_for(a.analysis)
         .map_err(CliError::InvalidLayout)?;
