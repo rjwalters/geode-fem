@@ -1,5 +1,111 @@
 {
   "$defs": {
+    "AdaptiveGoal": {
+      "description": "The goal of an [`AdaptiveMeshSpec`].",
+      "oneOf": [
+        {
+          "const": "energy",
+          "description": "The residual energy-norm estimate (Phase 3).",
+          "type": "string"
+        },
+        {
+          "const": "eigenfrequency",
+          "description": "The tracked eigenfrequency (`eigen` specs).",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "S-parameter entry `[i, j]` (goal-oriented DWR, Epic #835 Phase 4;\nnot yet available).",
+          "properties": {
+            "s_param": {
+              "items": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "s_param"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Line impedance of a port (Epic #835 Phase 5; not yet available).",
+          "properties": {
+            "z0": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "z0"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AdaptiveMeshSpec": {
+      "additionalProperties": false,
+      "description": "Adaptive **mesh** refinement of a `driven` or `eigen` spec (issue\n#1267). Distinct from [`AdaptiveSweepSpec`] (`sweep.adaptive`, the\nreduced-order *frequency* sweep).\n\nThe loop is [`geode_core::adapt::driver`]: residual a-posteriori\nestimate, Dörfler bulk marking, conforming bisection. It stops when the\nrelative estimate reaches `target_error`, after `max_iterations`\nlevels, or when the next refinement would exceed `max_dofs`; the\nreport's `adaptive_mesh.stop_reason` says which and a warning is\nraised unless it is `target_met`. The reported S-parameters /\neigenvalues are those of an ordinary run on the final mesh.",
+      "properties": {
+        "adapt_frequencies": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrequencySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Frequencies the driven estimate is maximised over. Omitted: every\nfrequency of `frequencies`. Driven specs only."
+        },
+        "export_mesh": {
+          "description": "Write the final mesh here as Gmsh MSH 4.1 ASCII (relative to the\nspec's directory). Re-solving it without `adaptive_mesh`\nreproduces the reported result.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "goal": {
+          "$ref": "#/$defs/AdaptiveGoal",
+          "default": "energy",
+          "description": "What the refinement is steered by. `\"energy\"` (the residual\nenergy-norm estimate; default) and `\"eigenfrequency\"` (`eigen`\nspecs) are available; `{\"s_param\": [i, j]}` arrives with Epic #835\nPhase 4 and `{\"z0\": port}` with Phase 5."
+        },
+        "marking_fraction": {
+          "default": 0.5,
+          "description": "Dörfler bulk-marking fraction θ in `(0, 1]` (default `0.5`).",
+          "format": "double",
+          "type": "number"
+        },
+        "max_dofs": {
+          "default": 1000000,
+          "description": "DOF budget (full H(curl) space, PEC edges included; default\n`1000000`). No level exceeds it; `geode check` reports the\nworst-case resources at this size.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_iterations": {
+          "default": 12,
+          "description": "Maximum number of levels solved, the initial mesh being level 0\n(default `12`, `≥ 1`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target_error": {
+          "description": "Target relative error estimate `η_rel` (finite, `≥ 0`; `0` never\nstops on the target).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "target_error"
+      ],
+      "type": "object"
+    },
     "AdaptiveSweepSpec": {
       "additionalProperties": false,
       "description": "Adaptive frequency sweep (issue #708): a Galerkin projection\nreduced-order model with greedy snapshot sampling\n([`geode_core::driven::rom`]; Palace's adaptive fast sweep).\n\nA few **snapshot** frequencies get a full-order direct solve (one LU\nfactorization each, one back-solve per port); every other frequency\nis **interpolated** through a small dense reduced system. The greedy\nloop adds the frequency with the worst residual indicator\n`η(ω) = ‖A(ω)·x_rom − b(ω)‖ / ‖b(ω)‖` (the true full-order relative\nresidual of the reduced solution, worst over the port excitations)\nuntil `η ≤ tolerance` everywhere or `max_snapshots` is spent. Any\nfrequency still above `tolerance` then gets a full-order fallback\nsolve, so every reported point is either a full-order solve or\ncertified at `η ≤ tolerance`.\n\nNeeds `solver.mode = \"direct\"`; rejected with `absorbing_regions`\n(the matched UPML is re-assembled per frequency) and with dispersive\nmaterials. Lumped `ports`, `wave_ports` and mixed port sets (issue\n#774; the residual is then worst over every channel excitation) and\nLeontovich / Silver-Müller walls are supported.",
@@ -1470,6 +1576,17 @@
         "$ref": "#/$defs/UpmlSpec"
       },
       "type": "array"
+    },
+    "adaptive_mesh": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AdaptiveMeshSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Adaptive mesh refinement (additive in v1, issue #1267, Epic #835\nPhase 6): solve → estimate → mark → bisect until `target_error`,\nthen run the normal analysis on the refined mesh. `driven` (lumped\nports) and lossless `eigen` specs only. Not the frequency-sweep\n`sweep.adaptive`."
     },
     "boundary_conditions": {
       "$ref": "#/$defs/BoundaryConditionsSpec",

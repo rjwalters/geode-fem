@@ -545,6 +545,38 @@ class AblationSelectionTests(unittest.TestCase):
             g = Fixture(self.base / name, self); g.queue = queue; g.build()
             with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'registered 40 FD-ablation jobs'):g.load()
 
+    def test_two_attempts_sharing_one_trace_refused(self):
+        # A contaminated attempt and its rerun both claim the same published trace file.
+        g = Fixture(self.base / 'shared', self)
+        for i, job in enumerate(g.jobs):g.attempt(job, contaminated=i == 3, validations=i in g.validations)
+        g.attempt(g.jobs[3], suffix='_rerun1', validations=True)
+        g.build()
+        shared = g.jobs[3]['name'] + '.json'
+        events = [json.loads(l) for l in (g.root / 'events.jsonl').read_text().splitlines()]
+        first = next(e for e in events if e['kind'] == 'attempt_finished' and e['result']['trace'] == shared)
+        rerun = max((e for e in events if e['kind'] == 'attempt_dispatched'), key=lambda e: e['attempt_id'])
+        rerun_finished = next(e for e in events if e['kind'] == 'attempt_finished'
+                              and e['attempt_id'] == rerun['attempt_id'])
+        (g.root / rerun['trace']).unlink()
+        rerun['trace'] = rerun_finished['result']['trace'] = shared
+        rerun_finished['result']['trace_sha256'] = first['result']['trace_sha256']
+        (g.root / 'events.jsonl').write_text(''.join(json.dumps(e) + '\n' for e in events))
+        g.seal()
+        with self.assertRaisesRegex(ValueError, 'duplicate trace binding'):g.load()
+
+    def test_unbound_start_preflight_refused(self):
+        f = self.fixture().build()
+        self.accept(f)
+        bindings = json.loads((f.root / 'bindings.json').read_text())
+        del bindings['files']['start_preflight.json']
+        raw = dump(bindings)
+        (f.root / 'bindings.json').write_bytes(raw)
+        events = [json.loads(l) for l in (f.root / 'events.jsonl').read_text().splitlines()]
+        next(e for e in events if e['kind'] == 'session_ready')['bindings_sha256'] = digest(raw)
+        (f.root / 'events.jsonl').write_text(''.join(json.dumps(e) + '\n' for e in events))
+        f.seal()
+        with self.assertRaisesRegex(ValueError, 'missing frozen FD-ablation inputs'):f.load()
+
     def test_contaminated_attempt_is_retained_and_its_rerun_selected(self):
         g = Fixture(self.base / 'rerun', self)
         for i, job in enumerate(g.jobs):g.attempt(job, contaminated=i == 1, validations=i in g.validations)

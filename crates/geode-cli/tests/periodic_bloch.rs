@@ -391,7 +391,7 @@ fn check_rejects_bad_periodic_specs() {
     assert!(m.contains("at least one"), "{m}");
 
     // A lossy material (the Bloch pencil is lossless) and a bad path.
-    let mut v = spec(k);
+    let mut v = spec(k.clone());
     v["materials"] = json!([{"physical_group": "cell", "eps_r": [2.0, -0.1]}]);
     let m = error_of(
         &geode(&["check", &write_spec(&dir, "i.json", &v)]),
@@ -404,6 +404,19 @@ fn check_rejects_bad_periodic_specs() {
         "invalid_spec",
     );
     assert!(m.contains("unknown vertex label `Q`"), "{m}");
+
+    // `adaptive_mesh` with periodic pairs: refinement would not preserve
+    // the load-time pairing, so it is rejected, not silently ignored.
+    let mut v = spec(k.clone());
+    v["adaptive_mesh"] = json!({"target_error": 0.01, "goal": "eigenfrequency"});
+    let m = error_of(
+        &geode(&["check", &write_spec(&dir, "adaptive.json", &v)]),
+        "invalid_spec",
+    );
+    assert!(
+        m.contains("adaptive_mesh") && m.contains("boundary_conditions.periodic"),
+        "{m}"
+    );
 
     // Periodic boundaries are not available to a driven spec yet (Phase 4b).
     let driven = json!({

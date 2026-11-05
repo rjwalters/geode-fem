@@ -1,0 +1,61 @@
+{
+ "_lookup": {
+  "date": "2026-10-21",
+  "services": [
+   "api.crossref.org/works/{doi}",
+   "api.openalex.org/works/{doi}"
+  ],
+  "request_identity": "User-Agent \"litcheck/1.0\"; no email, mailto or user identifier sent",
+  "abstracts": {
+   "10.1016/j.ast.2018.01.016": "none on Crossref or OpenAlex; OpenAlex machine keywords include gradient-based optimization and derivative-free optimization; cited only for what its title states. Whether it includes an adjoint-versus-finite-difference arm could not be confirmed."
+  }
+ },
+ "10.1016/j.ast.2018.01.016": {
+  "DOI": "10.1016/j.ast.2018.01.016",
+  "title": [
+   "On the influence of optimization algorithm and initial design on wing aerodynamic shape optimization"
+  ],
+  "container-title": [
+   "Aerospace Science and Technology"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2018,
+     4
+    ]
+   ]
+  },
+  "volume": "75",
+  "page": "183-199",
+  "publisher": "Elsevier BV",
+  "type": "journal-article",
+  "author": [
+   {
+    "given": "Yin",
+    "family": "Yu"
+   },
+   {
+    "given": "Zhoujie",
+    "family": "Lyu"
+   },
+   {
+    "given": "Zelu",
+    "family": "Xu"
+   },
+   {
+    "given": "Joaquim R.R.A.",
+    "family": "Martins"
+   }
+  ],
+  "openalex_keywords": [
+   "aerodynamic shape optimization",
+   "wing design",
+   "gradient-based optimization",
+   "derivative-free optimization",
+   "drag minimization",
+   "NACA 0012 airfoil",
+   "computational cost"
+  ]
+ }
+}

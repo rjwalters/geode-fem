@@ -1,0 +1,427 @@
+{
+ "_lookup": {
+  "date": "2026-10-20",
+  "services": [
+   "api.crossref.org/works/{doi}",
+   "api.openalex.org (abstracts)"
+  ],
+  "request_identity": "User-Agent \"litcheck/1.0\"; no email, mailto or user identifier sent",
+  "not_found": {
+   "Lyu, Xu & Martins (2014), Benchmarking optimization algorithms for wing aerodynamic design optimization, ICCFD8": "no Crossref or OpenAlex record with a DOI; not cited"
+  }
+ },
+ "10.1137/15100477x": {
+  "DOI": "10.1137/15100477x",
+  "title": [
+   "Shape Optimization of an Electric Motor Subject to Nonlinear Magnetostatics"
+  ],
+  "author": [
+   {
+    "given": "P.",
+    "family": "Gangl"
+   },
+   {
+    "given": "U.",
+    "family": "Langer"
+   },
+   {
+    "given": "A.",
+    "family": "Laurain"
+   },
+   {
+    "given": "H.",
+    "family": "Meftahi"
+   },
+   {
+    "given": "K.",
+    "family": "Sturm"
+   }
+  ],
+  "container-title": [
+   "SIAM Journal on Scientific Computing"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2015,
+     1
+    ]
+   ]
+  },
+  "volume": "37",
+  "issue": "6",
+  "page": "B1002-B1025",
+  "publisher": "Society for Industrial & Applied Mathematics (SIAM)",
+  "type": "journal-article"
+ },
+ "10.1109/tia.2013.2252597": {
+  "DOI": "10.1109/tia.2013.2252597",
+  "title": [
+   "A Review of Recent Developments in Electrical Machine Design Optimization Methods With a Permanent-Magnet Synchronous Motor Benchmark Study"
+  ],
+  "author": [
+   {
+    "given": "Yao",
+    "family": "Duan"
+   },
+   {
+    "given": "Dan M.",
+    "family": "Ionel"
+   }
+  ],
+  "container-title": [
+   "IEEE Transactions on Industry Applications"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2013,
+     5
+    ]
+   ]
+  },
+  "volume": "49",
+  "issue": "3",
+  "page": "1268-1275",
+  "publisher": "Institute of Electrical and Electronics Engineers (IEEE)",
+  "type": "journal-article"
+ },
+ "10.1109/tie.2018.2801805": {
+  "DOI": "10.1109/tie.2018.2801805",
+  "title": [
+   "Modern Electrical Machine Design Optimization: Techniques, Trends, and Best Practices"
+  ],
+  "author": [
+   {
+    "given": "Gerd",
+    "family": "Bramerdorfer"
+   },
+   {
+    "given": "Juan A.",
+    "family": "Tapia"
+   },
+   {
+    "given": "Juha J.",
+    "family": "Pyrhonen"
+   },
+   {
+    "given": "Andrea",
+    "family": "Cavagnino"
+   }
+  ],
+  "container-title": [
+   "IEEE Transactions on Industrial Electronics"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2018,
+     10
+    ]
+   ]
+  },
+  "volume": "65",
+  "issue": "10",
+  "page": "7672-7684",
+  "publisher": "Institute of Electrical and Electronics Engineers (IEEE)",
+  "type": "journal-article"
+ },
+ "10.3166/remn.17.103-126": {
+  "DOI": "10.3166/remn.17.103-126",
+  "title": [
+   "A comparative evaluation of genetic and gradient-based algorithms applied to aerodynamic optimization"
+  ],
+  "author": [
+   {
+    "given": "David W.",
+    "family": "Zingg"
+   },
+   {
+    "given": "Marian",
+    "family": "Nemec"
+   },
+   {
+    "given": "Thomas H.",
+    "family": "Pulliam"
+   }
+  ],
+  "container-title": [
+   "European Journal of Computational Mechanics"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2008,
+     1
+    ]
+   ]
+  },
+  "volume": "17",
+  "issue": "1-2",
+  "page": "103-126",
+  "publisher": "River Publishers",
+  "type": "journal-article"
+ },
+ "10.1002/nme.2579": {
+  "DOI": "10.1002/nme.2579",
+  "title": [
+   "Gmsh: A 3‐D finite element mesh generator with built‐in pre‐ and post‐processing facilities"
+  ],
+  "author": [
+   {
+    "given": "Christophe",
+    "family": "Geuzaine"
+   },
+   {
+    "given": "Jean‐François",
+    "family": "Remacle"
+   }
+  ],
+  "container-title": [
+   "International Journal for Numerical Methods in Engineering"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2009,
+     5,
+     7
+    ]
+   ]
+  },
+  "volume": "79",
+  "issue": "11",
+  "page": "1309-1331",
+  "publisher": "Wiley",
+  "type": "journal-article"
+ },
+ "10.1016/j.advengsoft.2011.06.010": {
+  "DOI": "10.1016/j.advengsoft.2011.06.010",
+  "title": [
+   "GeoPDEs: A research tool for Isogeometric Analysis of PDEs"
+  ],
+  "author": [
+   {
+    "given": "C.",
+    "family": "de Falco"
+   },
+   {
+    "given": "A.",
+    "family": "Reali"
+   },
+   {
+    "given": "R.",
+    "family": "Vázquez"
+   }
+  ],
+  "container-title": [
+   "Advances in Engineering Software"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2011,
+     12
+    ]
+   ]
+  },
+  "volume": "42",
+  "issue": "12",
+  "page": "1020-1034",
+  "publisher": "Elsevier BV",
+  "type": "journal-article"
+ },
+ "10.1016/j.camwa.2016.05.010": {
+  "DOI": "10.1016/j.camwa.2016.05.010",
+  "title": [
+   "A new design for the implementation of isogeometric analysis in Octave and Matlab: GeoPDEs 3.0"
+  ],
+  "author": [
+   {
+    "given": "R.",
+    "family": "Vázquez"
+   }
+  ],
+  "container-title": [
+   "Computers &amp; Mathematics with Applications"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2016,
+     8
+    ]
+   ]
+  },
+  "volume": "72",
+  "issue": "3",
+  "page": "523-554",
+  "publisher": "Elsevier BV",
+  "type": "journal-article"
+ },
+ "10.1038/s41586-020-2649-2": {
+  "DOI": "10.1038/s41586-020-2649-2",
+  "title": [
+   "Array programming with NumPy"
+  ],
+  "author": [
+   {
+    "given": "Charles R.",
+    "family": "Harris"
+   },
+   {
+    "given": "K. Jarrod",
+    "family": "Millman"
+   },
+   {
+    "given": "Stéfan J.",
+    "family": "van der Walt"
+   },
+   {
+    "given": "Ralf",
+    "family": "Gommers"
+   },
+   {
+    "given": "Pauli",
+    "family": "Virtanen"
+   },
+   {
+    "given": "David",
+    "family": "Cournapeau"
+   },
+   {
+    "given": "Eric",
+    "family": "Wieser"
+   },
+   {
+    "given": "Julian",
+    "family": "Taylor"
+   },
+   {
+    "given": "Sebastian",
+    "family": "Berg"
+   },
+   {
+    "given": "Nathaniel J.",
+    "family": "Smith"
+   },
+   {
+    "given": "Robert",
+    "family": "Kern"
+   },
+   {
+    "given": "Matti",
+    "family": "Picus"
+   },
+   {
+    "given": "Stephan",
+    "family": "Hoyer"
+   },
+   {
+    "given": "Marten H.",
+    "family": "van Kerkwijk"
+   },
+   {
+    "given": "Matthew",
+    "family": "Brett"
+   },
+   {
+    "given": "Allan",
+    "family": "Haldane"
+   },
+   {
+    "given": "Jaime Fernández",
+    "family": "del Río"
+   },
+   {
+    "given": "Mark",
+    "family": "Wiebe"
+   },
+   {
+    "given": "Pearu",
+    "family": "Peterson"
+   },
+   {
+    "given": "Pierre",
+    "family": "Gérard-Marchant"
+   },
+   {
+    "given": "Kevin",
+    "family": "Sheppard"
+   },
+   {
+    "given": "Tyler",
+    "family": "Reddy"
+   },
+   {
+    "given": "Warren",
+    "family": "Weckesser"
+   },
+   {
+    "given": "Hameer",
+    "family": "Abbasi"
+   },
+   {
+    "given": "Christoph",
+    "family": "Gohlke"
+   },
+   {
+    "given": "Travis E.",
+    "family": "Oliphant"
+   }
+  ],
+  "container-title": [
+   "Nature"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     2020,
+     9,
+     16
+    ]
+   ]
+  },
+  "volume": "585",
+  "issue": "7825",
+  "page": "357-362",
+  "publisher": "Springer Science and Business Media LLC",
+  "type": "journal-article"
+ },
+ "10.1080/00401706.1979.10489755": {
+  "DOI": "10.1080/00401706.1979.10489755",
+  "title": [
+   "Comparison of Three Methods for Selecting Values of Input Variables in the Analysis of Output from a Computer Code"
+  ],
+  "author": [
+   {
+    "given": "M. D.",
+    "family": "McKay"
+   },
+   {
+    "given": "R. J.",
+    "family": "Beckman"
+   },
+   {
+    "given": "W. J.",
+    "family": "Conover"
+   }
+  ],
+  "container-title": [
+   "Technometrics"
+  ],
+  "issued": {
+   "date-parts": [
+    [
+     1979,
+     5
+    ]
+   ]
+  },
+  "volume": "21",
+  "issue": "2",
+  "page": "239-245",
+  "publisher": "Informa UK Limited",
+  "type": "journal-article"
+ }
+}

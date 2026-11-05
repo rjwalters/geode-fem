@@ -849,6 +849,35 @@ pub struct CheckReport {
     /// driven run reports.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<WarningResult>,
+    /// What the spec's `adaptive_mesh` would cost (additive in v1, issue
+    /// #1267; present only with that section). `check` never solves or
+    /// refines.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive_mesh: Option<AdaptiveMeshCheck>,
+}
+
+/// `geode check` view of an `adaptive_mesh` section (issue #1267).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct AdaptiveMeshCheck {
+    /// The DOF budget.
+    pub max_dofs: usize,
+    /// Edge DOFs of the initial mesh (before PEC elimination).
+    pub initial_n_dofs: usize,
+    /// `true` when the initial mesh already exceeds `max_dofs` (the run
+    /// would fail).
+    pub initial_over_budget: bool,
+    /// `max_dofs / initial_n_dofs`: the factor `resources_at_max_dofs`
+    /// scales the loaded mesh by.
+    pub scale_to_max_dofs: f64,
+    /// Worst-case resources at `max_dofs`: the loaded mesh's
+    /// [`ResourceEstimate`] with `nnz`, system size, tets and nodes scaled
+    /// to that DOF count (no level of the loop is larger).
+    pub resources_at_max_dofs: ResourceEstimate,
+    /// `k₀·√ε_r·h` at the highest frequency (`eigen`: the shift) with the
+    /// largest edge `h` and largest `√ε_r` of the initial mesh.
+    pub initial_kh: f64,
+    /// `2π / initial_kh`: points per wavelength at the coarsest resolution.
+    pub initial_points_per_wavelength: f64,
 }
 
 /// One conductor of a capacitance spec (terminal or ground surface).
@@ -1459,6 +1488,64 @@ pub struct DrivenReport {
     /// geometric wave ports' degeneracy notes (issue #923).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<WarningResult>,
+    /// Adaptive mesh refinement record (additive in v1, issue #1267;
+    /// present only with a spec `adaptive_mesh` section).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive_mesh: Option<AdaptiveMeshReport>,
+}
+
+/// Adaptive mesh refinement record of a `driven` / `eigen` report (additive
+/// in v1, issue #1267; present only with a spec `adaptive_mesh` section).
+/// The report's S-parameters / modes are those of an ordinary run on the
+/// final mesh.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct AdaptiveMeshReport {
+    /// The goal that steered the refinement (`"energy"` or
+    /// `"eigenfrequency"`).
+    pub goal: &'static str,
+    /// One entry per solved level, level 0 being the initial mesh.
+    pub history: Vec<AdaptiveIteration>,
+    /// Why the loop stopped: `target_met`, `max_iterations`, `max_dofs`,
+    /// `nothing_to_mark`, `target_met_incomplete` or `mode_lost`.
+    pub stop_reason: &'static str,
+    /// Tets of the final mesh (the mesh the report's results belong to).
+    pub final_n_tets: usize,
+    /// Edge DOFs of the final mesh before PEC elimination.
+    pub final_n_dofs: usize,
+    /// The final mesh as MSH 4.1 ASCII (`adaptive_mesh.export_mesh`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mesh_file: Option<FileRef>,
+    /// Warnings of the loop; always includes one when `stop_reason` is not
+    /// `target_met` (the target was not verified).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+/// One level of the adaptive mesh loop.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct AdaptiveIteration {
+    /// Level (0 = the initial mesh).
+    pub level: usize,
+    /// Tets of the level's mesh.
+    pub n_tets: usize,
+    /// Edge DOFs of the level's mesh before PEC elimination.
+    pub n_dofs: usize,
+    /// Relative residual error estimate `η_rel` (max over the adaptation
+    /// frequencies / tracked modes).
+    pub estimate: f64,
+    /// The goal's value: `η_rel` for `"energy"`, the tracked
+    /// eigenfrequency in Hz for `"eigenfrequency"`.
+    pub goal_value: f64,
+    /// Fraction of tets marked for refinement after this level (`null` on
+    /// the last level, which is not refined).
+    pub marked_fraction: Option<f64>,
+    /// Smallest dihedral angle of the level's mesh (degrees).
+    pub min_dihedral_deg: f64,
+    /// Whether the estimate was pre-asymptotic (under-resolved: not yet a
+    /// reliable error bound).
+    pub pre_asymptotic: bool,
+    /// Wall time of the level (solve + estimate + refine), seconds.
+    pub wall_s: f64,
 }
 
 /// Per-port extraction results of a `geode extract` sweep.
@@ -1755,6 +1842,10 @@ pub struct EigenReport {
     /// lossless pencil only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sensitivities: Option<SensitivityReport>,
+    /// Adaptive mesh refinement record (additive in v1, issue #1267;
+    /// present only with a spec `adaptive_mesh` section).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adaptive_mesh: Option<AdaptiveMeshReport>,
 }
 
 /// Material design sensitivities of a report's observable (additive in

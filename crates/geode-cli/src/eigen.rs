@@ -53,7 +53,7 @@ use crate::check::{
 };
 use crate::error::CliError;
 use crate::export::{OutDir, eps_per_node, mode_file_name};
-use crate::problem::{self, EigenTarget, Problem};
+use crate::problem::{EigenTarget, Problem};
 use crate::report::{EigenReport, EigenSolverStats, ModeResult, Provenance};
 use crate::spec::Analysis;
 
@@ -176,7 +176,7 @@ pub fn run(
     provenance: Provenance,
     outdir: Option<&Path>,
 ) -> Result<EigenReport, CliError> {
-    let p = problem::load(spec_path, Some(Analysis::Eigen))?;
+    let (p, adaptive_mesh) = crate::adaptive::load(spec_path, Analysis::Eigen)?;
     let out = OutDir::create_opt(outdir)?;
     let target = p.eigen.expect("eigen spec has a resolved eigen section");
 
@@ -314,6 +314,7 @@ pub fn run(
         periodic: None,
         bands: None,
         sensitivities,
+        adaptive_mesh,
     })
 }
 
@@ -322,8 +323,8 @@ pub fn run(
 /// before this point; the report echoes it next to the band table.
 fn run_bloch(
     p: &Problem,
-    target: &problem::EigenTarget,
-    bloch: &problem::BlochTarget,
+    target: &EigenTarget,
+    bloch: &crate::problem::BlochTarget,
     provenance: Provenance,
 ) -> Result<EigenReport, CliError> {
     let t0 = Instant::now();
@@ -354,6 +355,8 @@ fn run_bloch(
         },
         modes: Vec::new(),
         periodic: crate::check::periodic_summary(p),
+        // `adaptive_mesh` is rejected together with `periodic` at load.
+        adaptive_mesh: None,
         bands: Some(solved.bands),
         sensitivities: None,
     })
