@@ -47,8 +47,19 @@ pub(crate) fn parse_header_section<'a>(
         ),
     )(input)?;
     // TODO: Check for all allowed data sizes
-    let (input, data_size) = context("data size", delimited(sp, map(digit1, from_u8), br))(input)?;
+    let (input, data_size) = context(
+        "data size",
+        verify_or(
+            delimited(sp, map(digit1, from_u8), br),
+            |data_size| data_size.is_ok(),
+            context(
+                "Invalid data size (not representable as an integer)",
+                always_error(MshParserErrorKind::InvalidFileHeader),
+            ),
+        ),
+    )(input)?;
 
+    // Both fields were validated above (`Ok`), so these cannot fail.
     // TODO: Replace these unwraps
     let file_type = file_type.unwrap();
     let data_size = data_size.unwrap();
@@ -95,5 +106,32 @@ pub(crate) fn num_parsers_from_header<'a, U: MshUsizeT, I: MshIntT, F: MshFloatT
         size_t_parser,
         int_parser,
         float_parser: double_parser,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn header_is_err(input: &[u8]) -> bool {
+        parse_header_section(input).is_err()
+    }
+
+    #[test]
+    fn overflowing_data_size_returns_err_not_panic() {
+        assert!(header_is_err(b"4.1 0 99999999999999999999999999\n"));
+        assert!(header_is_err(b"4.1 1 99999999999999999999999999\n"));
+    }
+
+    #[test]
+    fn overflowing_file_type_still_returns_err() {
+        assert!(header_is_err(b"4.1 99999999999999999999999999 8\n"));
+    }
+
+    #[test]
+    fn valid_ascii_header_parses() {
+        let (_, (header, _)) = parse_header_section(b"4.1 0 8\n").ok().unwrap();
+        assert_eq!(header.file_type, 0);
+        assert_eq!(header.size_t_size, 8);
     }
 }
