@@ -47,9 +47,7 @@
 use std::fmt::Write as _;
 
 pub use crate::mesh_cmd::layout::ConductorBody;
-use crate::mesh_cmd::layout::{
-    Axis, BoundaryDef, OUTER_BOUNDARY, PolyShape, Rect, ResolvedLayout,
-};
+use crate::mesh_cmd::layout::{Axis, BoundaryDef, OUTER_BOUNDARY, PolyShape, Rect, ResolvedLayout};
 
 /// What a generated physical group is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
