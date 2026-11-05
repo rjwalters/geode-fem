@@ -1,5 +1,290 @@
 {
   "$defs": {
+    "AdaptiveGoal": {
+      "description": "The goal of an [`AdaptiveMeshSpec`].",
+      "oneOf": [
+        {
+          "const": "energy",
+          "description": "The residual energy-norm estimate (Phase 3).",
+          "type": "string"
+        },
+        {
+          "const": "eigenfrequency",
+          "description": "The tracked eigenfrequency (`eigen` specs).",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "S-parameter entry `[i, j]` (goal-oriented DWR, Epic #835 Phase 4;\nnot yet available).",
+          "properties": {
+            "s_param": {
+              "items": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "s_param"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Line impedance of a port (Epic #835 Phase 5; not yet available).",
+          "properties": {
+            "z0": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "z0"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AdaptiveIteration": {
+      "description": "One level of the adaptive mesh loop.",
+      "properties": {
+        "estimate": {
+          "description": "Relative residual error estimate `η_rel` (max over the adaptation\nfrequencies / tracked modes).",
+          "format": "double",
+          "type": "number"
+        },
+        "goal_value": {
+          "description": "The goal's value: `η_rel` for `\"energy\"`, the tracked\neigenfrequency in Hz for `\"eigenfrequency\"`.",
+          "format": "double",
+          "type": "number"
+        },
+        "level": {
+          "description": "Level (0 = the initial mesh).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "marked_fraction": {
+          "description": "Fraction of tets marked for refinement after this level (`null` on\nthe last level, which is not refined).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "min_dihedral_deg": {
+          "description": "Smallest dihedral angle of the level's mesh (degrees).",
+          "format": "double",
+          "type": "number"
+        },
+        "n_dofs": {
+          "description": "Edge DOFs of the level's mesh before PEC elimination.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_tets": {
+          "description": "Tets of the level's mesh.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pre_asymptotic": {
+          "description": "Whether the estimate was pre-asymptotic (under-resolved: not yet a\nreliable error bound).",
+          "type": "boolean"
+        },
+        "wall_s": {
+          "description": "Wall time of the level (solve + estimate + refine), seconds.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "level",
+        "n_tets",
+        "n_dofs",
+        "estimate",
+        "goal_value",
+        "marked_fraction",
+        "min_dihedral_deg",
+        "pre_asymptotic",
+        "wall_s"
+      ],
+      "type": "object"
+    },
+    "AdaptiveMeshCheck": {
+      "description": "`geode check` view of an `adaptive_mesh` section (issue #1267).",
+      "properties": {
+        "initial_kh": {
+          "description": "`k₀·√ε_r·h` at the highest frequency (`eigen`: the shift) with the\nlargest edge `h` and largest `√ε_r` of the initial mesh.",
+          "format": "double",
+          "type": "number"
+        },
+        "initial_n_dofs": {
+          "description": "Edge DOFs of the initial mesh (before PEC elimination).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "initial_over_budget": {
+          "description": "`true` when the initial mesh already exceeds `max_dofs` (the run\nwould fail).",
+          "type": "boolean"
+        },
+        "initial_points_per_wavelength": {
+          "description": "`2π / initial_kh`: points per wavelength at the coarsest resolution.",
+          "format": "double",
+          "type": "number"
+        },
+        "max_dofs": {
+          "description": "The DOF budget.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "resources_at_max_dofs": {
+          "$ref": "#/$defs/ResourceEstimate",
+          "description": "Worst-case resources at `max_dofs`: the loaded mesh's\n[`ResourceEstimate`] with `nnz`, system size, tets and nodes scaled\nto that DOF count (no level of the loop is larger)."
+        },
+        "scale_to_max_dofs": {
+          "description": "`max_dofs / initial_n_dofs`: the factor `resources_at_max_dofs`\nscales the loaded mesh by.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "max_dofs",
+        "initial_n_dofs",
+        "initial_over_budget",
+        "scale_to_max_dofs",
+        "resources_at_max_dofs",
+        "initial_kh",
+        "initial_points_per_wavelength"
+      ],
+      "type": "object"
+    },
+    "AdaptiveMeshReport": {
+      "description": "Adaptive mesh refinement record of a `driven` / `eigen` report (additive\nin v1, issue #1267; present only with a spec `adaptive_mesh` section).\nThe report's S-parameters / modes are those of an ordinary run on the\nfinal mesh.",
+      "properties": {
+        "final_n_dofs": {
+          "description": "Edge DOFs of the final mesh before PEC elimination.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "final_n_tets": {
+          "description": "Tets of the final mesh (the mesh the report's results belong to).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "goal": {
+          "description": "The goal that steered the refinement (`\"energy\"` or\n`\"eigenfrequency\"`).",
+          "type": "string"
+        },
+        "history": {
+          "description": "One entry per solved level, level 0 being the initial mesh.",
+          "items": {
+            "$ref": "#/$defs/AdaptiveIteration"
+          },
+          "type": "array"
+        },
+        "mesh_file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The final mesh as MSH 4.1 ASCII (`adaptive_mesh.export_mesh`)."
+        },
+        "stop_reason": {
+          "description": "Why the loop stopped: `target_met`, `max_iterations`, `max_dofs`,\n`nothing_to_mark`, `target_met_incomplete` or `mode_lost`.",
+          "type": "string"
+        },
+        "warnings": {
+          "description": "Warnings of the loop; always includes one when `stop_reason` is not\n`target_met` (the target was not verified).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "goal",
+        "history",
+        "stop_reason",
+        "final_n_tets",
+        "final_n_dofs"
+      ],
+      "type": "object"
+    },
+    "AdaptiveMeshSpec": {
+      "additionalProperties": false,
+      "description": "Adaptive **mesh** refinement of a `driven` or `eigen` spec (issue\n#1267). Distinct from [`AdaptiveSweepSpec`] (`sweep.adaptive`, the\nreduced-order *frequency* sweep).\n\nThe loop is [`geode_core::adapt::driver`]: residual a-posteriori\nestimate, Dörfler bulk marking, conforming bisection. It stops when the\nrelative estimate reaches `target_error`, after `max_iterations`\nlevels, or when the next refinement would exceed `max_dofs`; the\nreport's `adaptive_mesh.stop_reason` says which and a warning is\nraised unless it is `target_met`. The reported S-parameters /\neigenvalues are those of an ordinary run on the final mesh.",
+      "properties": {
+        "adapt_frequencies": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrequencySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Frequencies the driven estimate is maximised over. Omitted: every\nfrequency of `frequencies`. Driven specs only."
+        },
+        "export_mesh": {
+          "description": "Write the final mesh here as Gmsh MSH 4.1 ASCII (relative to the\nspec's directory). Re-solving it without `adaptive_mesh`\nreproduces the reported result.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "goal": {
+          "$ref": "#/$defs/AdaptiveGoal",
+          "default": "energy",
+          "description": "What the refinement is steered by. `\"energy\"` (the residual\nenergy-norm estimate; default) and `\"eigenfrequency\"` (`eigen`\nspecs) are available; `{\"s_param\": [i, j]}` arrives with Epic #835\nPhase 4 and `{\"z0\": port}` with Phase 5."
+        },
+        "marking_fraction": {
+          "default": 0.5,
+          "description": "Dörfler bulk-marking fraction θ in `(0, 1]` (default `0.5`).",
+          "format": "double",
+          "type": "number"
+        },
+        "max_dofs": {
+          "default": 1000000,
+          "description": "DOF budget (full H(curl) space, PEC edges included; default\n`1000000`). No level exceeds it; `geode check` reports the\nworst-case resources at this size.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_iterations": {
+          "default": 12,
+          "description": "Maximum number of levels solved, the initial mesh being level 0\n(default `12`, `≥ 1`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target_error": {
+          "description": "Target relative error estimate `η_rel` (finite, `≥ 0`; `0` never\nstops on the target).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "target_error",
+        "max_iterations",
+        "max_dofs",
+        "marking_fraction",
+        "goal"
+      ],
+      "type": "object"
+    },
     "AdaptiveSweepSpec": {
       "additionalProperties": false,
       "description": "Adaptive frequency sweep (issue #708): a Galerkin projection\nreduced-order model with greedy snapshot sampling\n([`geode_core::driven::rom`]; Palace's adaptive fast sweep).\n\nA few **snapshot** frequencies get a full-order direct solve (one LU\nfactorization each, one back-solve per port); every other frequency\nis **interpolated** through a small dense reduced system. The greedy\nloop adds the frequency with the worst residual indicator\n`η(ω) = ‖A(ω)·x_rom − b(ω)‖ / ‖b(ω)‖` (the true full-order relative\nresidual of the reduced solution, worst over the port excitations)\nuntil `η ≤ tolerance` everywhere or `max_snapshots` is spent. Any\nfrequency still above `tolerance` then gets a full-order fallback\nsolve, so every reported point is either a full-order solve or\ncertified at `η ≤ tolerance`.\n\nNeeds `solver.mode = \"direct\"`; rejected with `absorbing_regions`\n(the matched UPML is re-assembled per frequency) and with dispersive\nmaterials. Lumped `ports`, `wave_ports` and mixed port sets (issue\n#774; the residual is then worst over every channel excitation) and\nLeontovich / Silver-Müller walls are supported.",
@@ -414,6 +699,17 @@
             "$ref": "#/$defs/UpmlSummary"
           },
           "type": "array"
+        },
+        "adaptive_mesh": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AdaptiveMeshCheck"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the spec's `adaptive_mesh` would cost (additive in v1, issue\n#1267; present only with that section). `check` never solves or\nrefines."
         },
         "analysis": {
           "description": "`\"driven\"`, `\"eigen\"`, `\"extract\"` or `\"capacitance\"` — the\nanalysis the spec describes (additive in v1).",
@@ -1069,6 +1365,17 @@
           },
           "type": "array"
         },
+        "adaptive_mesh": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AdaptiveMeshReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Adaptive mesh refinement record (additive in v1, issue #1267;\npresent only with a spec `adaptive_mesh` section)."
+        },
         "backend": {
           "description": "Compiled-in Burn backend: `ndarray`, `wgpu`, `cuda` or `metal`.",
           "type": "string"
@@ -1202,6 +1509,17 @@
             "$ref": "#/$defs/UpmlSummary"
           },
           "type": "array"
+        },
+        "adaptive_mesh": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AdaptiveMeshReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Adaptive mesh refinement record (additive in v1, issue #1267;\npresent only with a spec `adaptive_mesh` section)."
         },
         "backend": {
           "description": "Compiled-in Burn backend: `ndarray`, `wgpu`, `cuda` or `metal`.",
@@ -4526,6 +4844,17 @@
             "$ref": "#/$defs/UpmlSpec"
           },
           "type": "array"
+        },
+        "adaptive_mesh": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AdaptiveMeshSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Adaptive mesh refinement (additive in v1, issue #1267, Epic #835\nPhase 6): solve → estimate → mark → bisect until `target_error`,\nthen run the normal analysis on the refined mesh. `driven` (lumped\nports) and lossless `eigen` specs only. Not the frequency-sweep\n`sweep.adaptive`."
         },
         "boundary_conditions": {
           "$ref": "#/$defs/BoundaryConditionsSpec",

@@ -29,6 +29,7 @@
 
 #![deny(missing_docs)]
 
+mod adaptive;
 mod backend;
 mod capacitance;
 mod check;

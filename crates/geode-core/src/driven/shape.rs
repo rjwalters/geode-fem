@@ -88,13 +88,22 @@ use faer::linalg::solvers::Solve;
 use faer::sparse::{SparseColMat, Triplet};
 use faer::{Mat, c64};
 
+use crate::assembly::hcurl_space::{HcurlSpace, TetOrientation};
 use crate::assembly::nedelec::{
     NedelecScatterMap, assemble_global_nedelec_with_complex_epsilon_sparse,
     assemble_global_nedelec_with_full_tensors_sparse, assemble_nedelec_current_rhs,
 };
 use crate::assembly::p1::upload_mesh;
+use crate::assembly::surface_p2::{
+    p2_trace_dofs, tri_nedelec2_surface_flux_dual, tri_nedelec2_surface_mass_dual,
+};
+use crate::driven::adjoint::DrivenGradientProblem;
 use crate::driven::ports::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
-use crate::driven::solve::{CurrentSource, DrivenBcs, DrivenError, validate_driven_surfaces};
+use crate::driven::solve::{
+    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator,
+    validate_driven_surfaces,
+};
+use crate::elements::ElementOrder;
 use crate::elements::nedelec_p2::{TET_NEDELEC2_DOFS, TET_NEDELEC2_FACE_DOF_BASE, tet_quad_deg4};
 use crate::mesh::{TET_LOCAL_EDGES, TET_LOCAL_FACES, TetMesh};
 
@@ -133,28 +142,28 @@ impl Dual {
         Self { re, du: 1.0 }
     }
     #[inline]
-    fn add(self, o: Self) -> Self {
+    pub(crate) fn add(self, o: Self) -> Self {
         Self {
             re: self.re + o.re,
             du: self.du + o.du,
         }
     }
     #[inline]
-    fn sub(self, o: Self) -> Self {
+    pub(crate) fn sub(self, o: Self) -> Self {
         Self {
             re: self.re - o.re,
             du: self.du - o.du,
         }
     }
     #[inline]
-    fn mul(self, o: Self) -> Self {
+    pub(crate) fn mul(self, o: Self) -> Self {
         Self {
             re: self.re * o.re,
             du: self.du * o.re + self.re * o.du,
         }
     }
     #[inline]
-    fn div(self, o: Self) -> Self {
+    pub(crate) fn div(self, o: Self) -> Self {
         let inv = 1.0 / o.re;
         Self {
             re: self.re * inv,
@@ -162,7 +171,7 @@ impl Dual {
         }
     }
     #[inline]
-    fn neg(self) -> Self {
+    pub(crate) fn neg(self) -> Self {
         Self {
             re: -self.re,
             du: -self.du,
@@ -172,7 +181,7 @@ impl Dual {
     /// derivative. The element determinant is bounded away from zero on any
     /// valid mesh, so the kink is never hit here.
     #[inline]
-    fn abs(self) -> Self {
+    pub(crate) fn abs(self) -> Self {
         if self.re >= 0.0 { self } else { self.neg() }
     }
     /// `√x`, `du = x.du / (2√x.re)`. Used by the surface-Whitney twin
@@ -182,7 +191,7 @@ impl Dual {
     /// area is bounded away from zero on any valid boundary mesh, so the
     /// `x.re = 0` singularity is never hit.
     #[inline]
-    fn sqrt(self) -> Self {
+    pub(crate) fn sqrt(self) -> Self {
         let r = self.re.sqrt();
         Self {
             re: r,
@@ -191,7 +200,7 @@ impl Dual {
     }
     /// Multiply by an `f64` constant (a lifted scalar with zero tangent).
     #[inline]
-    fn scale(self, c: f64) -> Self {
+    pub(crate) fn scale(self, c: f64) -> Self {
         Self {
             re: self.re * c,
             du: self.du * c,
@@ -200,11 +209,11 @@ impl Dual {
 }
 
 #[inline]
-fn dsub3(a: [Dual; 3], b: [Dual; 3]) -> [Dual; 3] {
+pub(crate) fn dsub3(a: [Dual; 3], b: [Dual; 3]) -> [Dual; 3] {
     [a[0].sub(b[0]), a[1].sub(b[1]), a[2].sub(b[2])]
 }
 #[inline]
-fn dcross3(a: [Dual; 3], b: [Dual; 3]) -> [Dual; 3] {
+pub(crate) fn dcross3(a: [Dual; 3], b: [Dual; 3]) -> [Dual; 3] {
     [
         a[1].mul(b[2]).sub(a[2].mul(b[1])),
         a[2].mul(b[0]).sub(a[0].mul(b[2])),
@@ -212,12 +221,12 @@ fn dcross3(a: [Dual; 3], b: [Dual; 3]) -> [Dual; 3] {
     ]
 }
 #[inline]
-fn ddot3(a: [Dual; 3], b: [Dual; 3]) -> Dual {
+pub(crate) fn ddot3(a: [Dual; 3], b: [Dual; 3]) -> Dual {
     a[0].mul(b[0]).add(a[1].mul(b[1])).add(a[2].mul(b[2]))
 }
 /// Scale a dual 3-vector by an `f64` constant (a lifted scalar, zero tangent).
 #[inline]
-fn dscale3(s: f64, a: [Dual; 3]) -> [Dual; 3] {
+pub(crate) fn dscale3(s: f64, a: [Dual; 3]) -> [Dual; 3] {
     [a[0].scale(s), a[1].scale(s), a[2].scale(s)]
 }
 /// Scale a dual 3-vector by a **dual** scalar (both carry tangents).
@@ -228,7 +237,7 @@ fn dvscale(s: Dual, a: [Dual; 3]) -> [Dual; 3] {
 /// The `f64`-scalar linear combination `s·a + t·b` of two dual 3-vectors
 /// (`s`, `t` are fixed reference barycentric weights with zero tangent).
 #[inline]
-fn dlc3(s: f64, a: [Dual; 3], t: f64, b: [Dual; 3]) -> [Dual; 3] {
+pub(crate) fn dlc3(s: f64, a: [Dual; 3], t: f64, b: [Dual; 3]) -> [Dual; 3] {
     [
         a[0].scale(s).add(b[0].scale(t)),
         a[1].scale(s).add(b[1].scale(t)),
@@ -2441,216 +2450,417 @@ pub fn driven_shape_gradient_p2_complex<G>(
 where
     G: Fn(&[c64]) -> (f64, Vec<c64>),
 {
-    use crate::assembly::nedelec_p2::{P2DofMap, assemble_p2_rhs_constant, p2_interior_km_complex};
-    use faer::linalg::solvers::Solve;
+    let space = HcurlSpace::build(mesh, ElementOrder::P2);
+    let bcs = DrivenBcs {
+        pec_interior_mask: interior_dof_mask,
+    };
+    let problem = DrivenGradientProblem {
+        space: &space,
+        mesh,
+        materials: DrivenMaterials::Scalar(eps_r),
+        bcs: &bcs,
+        source,
+        ports: &[],
+        surfaces: &[],
+        wave_ports: &[],
+        omega,
+        excited: None,
+    };
+    // Thin wrapper (issue #1264): the port-less, wall-less, scalar-ε case of
+    // the order-generic p=2 core.
+    let op = problem.assemble_p2_operator()?;
+    let g = shape_gradient_p2_core(&problem, &op, None, objective, SurfaceTermMutation::None)?;
+    Ok(P2DrivenShapeGradient {
+        objective: g.objective,
+        grad_node: g.grad_node,
+        x: g.e_edges,
+        residual_rel: g.residual_rel,
+        n_factorizations: g.n_factorizations,
+    })
+}
 
+// ─────────────────────────────────────────────────────────────────────────
+// ORDER-GENERIC shape gradient on a `DrivenOperator` (issue #1264, Epic #836
+// Phase 4).
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Tensor-material Dual twin of the **second-order** Nédélec element
+/// ([`nedelec2_local_dual`] for a fixed real 3×3 weight): the local ν-weighted
+/// curl-curl `K(W_k)`, the ε-weighted mass `M(W_m)` (both `20×20`) and the
+/// current-RHS moments `∫ N_i dV` (`20×3`), in dual arithmetic — so each `.du`
+/// is the exact `∂/∂X` at **fixed** weights (the pinned-UPML-shell
+/// convention of the p=1 [`nedelec_local_dual_tensor`]).
+///
+/// Mirrors [`crate::assembly::nedelec_p2::p2_local_curl_tensor`] /
+/// [`crate::assembly::nedelec_p2::p2_local_mass_tensor`] (`Σ_q w_q u_iᵀ W
+/// u_j`) over the same fixed [`tet_quad_deg4`] rule. A complex weight runs as
+/// two calls (real-part weights, imaginary-part weights); the caller
+/// recombines `∂K = ∂K_re + i·∂K_im`.
+#[allow(clippy::type_complexity)]
+pub(crate) fn nedelec2_local_dual_tensor(
+    coords: &[[Dual; 3]; 4],
+    w_k: &[[f64; 3]; 3],
+    w_m: &[[f64; 3]; 3],
+) -> (
+    [[Dual; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS],
+    [[Dual; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS],
+    [[Dual; 3]; TET_NEDELEC2_DOFS],
+) {
+    // W · a for a dual 3-vector and a fixed real weight.
+    let apply = |w: &[[f64; 3]; 3], a: [Dual; 3]| -> [Dual; 3] {
+        std::array::from_fn(|p| {
+            a[0].scale(w[p][0])
+                .add(a[1].scale(w[p][1]))
+                .add(a[2].scale(w[p][2]))
+        })
+    };
+    let (bary, signed_vol) = tet_barycentric_gradients_dual(coords);
+    let vol_abs = signed_vol.abs();
+    let zero = Dual::cst(0.0);
+    let mut k = [[zero; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS];
+    let mut m = [[zero; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS];
+    let mut nint = [[zero; 3]; TET_NEDELEC2_DOFS];
+    for (lam, frac) in tet_quad_deg4() {
+        let w = vol_abs.scale(frac);
+        let (n, c) = tet_nedelec2_shapes_dual(&lam, &bary);
+        let wn: [[Dual; 3]; TET_NEDELEC2_DOFS] = std::array::from_fn(|j| apply(w_m, n[j]));
+        let wc: [[Dual; 3]; TET_NEDELEC2_DOFS] = std::array::from_fn(|j| apply(w_k, c[j]));
+        for i in 0..TET_NEDELEC2_DOFS {
+            for j in 0..TET_NEDELEC2_DOFS {
+                m[i][j] = m[i][j].add(ddot3(n[i], wn[j]).mul(w));
+                k[i][j] = k[i][j].add(ddot3(c[i], wc[j]).mul(w));
+            }
+            for d in 0..3 {
+                nint[i][d] = nint[i][d].add(n[i][d].mul(w));
+            }
+        }
+    }
+    (k, m, nint)
+}
+
+/// A fault injected into one p=2 surface Dual-twin term of the shape
+/// gradient — **test-only** (the mutation gate of issue #1264): every public
+/// entry point passes [`SurfaceTermMutation::None`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SurfaceTermMutation {
+    /// The real gradient.
+    None,
+    /// Drop the impedance-wall `∂S_Γ/∂X` contribution.
+    DropWallMass,
+    /// Drop the lumped-port `∂S_p/∂X` contribution.
+    DropPortMass,
+    /// Drop the lumped-port `∂f_p/∂X` (drive) contribution.
+    DropPortFlux,
+}
+
+/// Nodal-coordinate gradient `∂g/∂X_{n,d}` of the driven solve described by
+/// `problem`, at **either element order** — the order-generic successor of
+/// the cube-only [`driven_shape_gradient_p2`] / [`driven_shape_gradient_p2_complex`]
+/// (issue #1264, Epic #836 Phase 4).
+///
+/// - **p=1:** delegates bit-for-bit to
+///   [`driven_shape_gradient_ports_complex`] (scalar ε, no walls) or
+///   [`driven_shape_gradient_matched_upml_ports`] (matched UPML, no walls);
+///   anything else (walls, diagonal tensors, `excited = Some(_)`) is
+///   [`DrivenError::UnsupportedAtOrder`] — the p=1 shape drivers have no
+///   wall term.
+/// - **p=2:** assembles the p=2 [`DrivenOperator`] from `problem`, factors
+///   `A(ω)` once (`n_factorizations == 1`), and contracts, per tet and per
+///   seeded vertex coordinate through exact forward-mode AD,
+///
+///   ```text
+///   ∂g/∂X = 2 Re[ λᵀ ∂b/∂X − λᵀ (∂A/∂X) x ],         Aᵀ λ = ∂g/∂x,
+///   ∂A = ∂K(ν) − ω² ∂M(ε) + Σ_Γ (iω/Z_Γ) ∂S_Γ + Σ_p (iω/Z_p) ∂S_p,
+///   ∂b = iω ∂∫N·J + Σ_p (2iω/Z_p)(V_inc,p/l_p) ∂f_p.
+///   ```
+///
+///   The volume terms use `nedelec2_local_dual` (scalar ε) or
+///   `nedelec2_local_dual_tensor` (diagonal / matched-UPML tensors, held
+///   **fixed** under the motion: the node-motion map must pin every UPML-shell
+///   node, as in the p=1 matched-UPML driver); the surface terms use the p=2
+///   trace Dual twins of [`crate::assembly::surface_p2`]
+///   (`∂S/∂X`, `∂f/∂X`). The surface coefficients `Z_Γ(ω)`, `Z_p = R w / l`
+///   and the incident drive are **parameters** of the forward operator, so
+///   they are held fixed (exactly what the forward operator does when the
+///   mesh moves); a pinned-feed port or wall simply sees zero node motion on
+///   its faces and contributes nothing. An objective that reads the geometry
+///   explicitly (e.g. through the port voltage `(1/w) Σ f_i E_i`) owns that
+///   `∂g/∂X|_x` term.
+///
+/// # Errors
+///
+/// [`DrivenError::UnsupportedAtOrder`] for `problem.wave_ports` ≠ ∅ (names
+/// `#836 P3b`), plus the assembly / factorization errors of the forward
+/// operator.
+pub fn driven_shape_gradient_on_space<B, G>(
+    problem: &DrivenGradientProblem<'_>,
+    objective: G,
+    device: &B::Device,
+) -> Result<DrivenShapeGradient, DrivenError>
+where
+    B: Backend,
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    problem.check_supported()?;
+    if problem.space.order() == ElementOrder::P1 {
+        let unsupported = |feature: &'static str| DrivenError::UnsupportedAtOrder {
+            order: ElementOrder::P1,
+            feature,
+        };
+        if !problem.surfaces.is_empty() {
+            return Err(unsupported("the shape gradient of impedance-surface walls"));
+        }
+        if problem.excited.is_some() {
+            return Err(unsupported(
+                "the excited-port selector of the shape gradient",
+            ));
+        }
+        return match problem.materials {
+            DrivenMaterials::Scalar(eps) => driven_shape_gradient_ports_complex::<B, G>(
+                problem.mesh,
+                eps,
+                problem.bcs,
+                problem.omega,
+                problem.source,
+                problem.ports,
+                objective,
+                device,
+            ),
+            DrivenMaterials::MatchedUpml {
+                epsilon_tensor,
+                nu_tensor,
+            } => driven_shape_gradient_matched_upml_ports::<B, G>(
+                problem.mesh,
+                epsilon_tensor,
+                nu_tensor,
+                problem.bcs,
+                problem.ports,
+                problem.omega,
+                problem.source,
+                objective,
+                device,
+            ),
+            DrivenMaterials::DiagTensor(_) => Err(unsupported(
+                "the shape gradient of diagonal-tensor materials",
+            )),
+        };
+    }
+    let op = problem.assemble_p2_operator()?;
+    shape_gradient_p2_core(problem, &op, None, objective, SurfaceTermMutation::None)
+}
+
+/// The p=2 shape-gradient core on an assembled operator (see
+/// [`driven_shape_gradient_on_space`]). `b_override` replaces the operator's
+/// own RHS (the legacy raw-RHS entry points); `mutation` is the test-only
+/// fault injection.
+pub(crate) fn shape_gradient_p2_core<G>(
+    problem: &DrivenGradientProblem<'_>,
+    op: &DrivenOperator,
+    b_override: Option<&[c64]>,
+    objective: G,
+    mutation: SurfaceTermMutation,
+) -> Result<DrivenShapeGradient, DrivenError>
+where
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    let mesh = problem.mesh;
+    let space = problem.space;
+    let omega = problem.omega;
+    let omega2 = omega * omega;
+    let iomega = c64::new(0.0, omega);
+    let zero_c = c64::new(0.0, 0.0);
     let n_tets = mesh.n_tets();
     let n_nodes = mesh.n_nodes();
 
-    // --- Input validation (mirrors driven_material_adjoint_gradient_p2). -----
-    if eps_r.len() != n_tets {
-        return Err(DrivenError::MaterialDimMismatch {
-            got: eps_r.len(),
-            want: n_tets,
-        });
-    }
-    if source.j_tet.len() != n_tets {
-        return Err(DrivenError::SourceDimMismatch {
-            got: source.j_tet.len(),
-            want: n_tets,
-        });
-    }
-    let dofs = P2DofMap::build(mesh);
-    if interior_dof_mask.len() != dofs.n_dofs {
-        return Err(DrivenError::MaskDimMismatch {
-            got: interior_dof_mask.len(),
-            want: dofs.n_dofs,
-        });
-    }
-
-    // --- Current-source RHS: b = iωμ₀ ∫ N · J dV with μ₀ = 1. ----------------
-    // Assemble the real p=2 moments for Re[J] and Im[J] separately (the element
-    // RHS kernel is real-valued), then combine b = iω(re + i·im) = ω(−im + i·re).
-    let j_re: Vec<[f64; 3]> = source
-        .j_tet
+    // Wall coefficients iω/Z_Γ(ω) (an error on a singular impedance, exactly
+    // like the forward operator).
+    let wall_coeffs: Vec<c64> = problem
+        .surfaces
         .iter()
-        .map(|j| [j[0].re, j[1].re, j[2].re])
-        .collect();
-    let j_im: Vec<[f64; 3]> = source
-        .j_tet
-        .iter()
-        .map(|j| [j[0].im, j[1].im, j[2].im])
-        .collect();
-    let b_re = assemble_p2_rhs_constant(mesh, &dofs, &j_re);
-    let b_im = assemble_p2_rhs_constant(mesh, &dofs, &j_im);
-    let rhs_full: Vec<c64> = b_re
-        .iter()
-        .zip(b_im.iter())
-        .map(|(&re, &im)| c64::new(-omega * im, omega * re))
-        .collect();
+        .map(|bc| bc.model.weak_coefficient(omega))
+        .collect::<Result<_, _>>()?;
 
-    // --- Interior pencil A(ω) = K − ω² M(ε) via the shared substrate. --------
-    // Complex ε folds into the mass term `m` (which is thus c64), keeping the
-    // pencil complex-symmetric so the adjoint reuses the forward LU.
-    let (remap, n_interior, kept) = p2_interior_km_complex(mesh, &dofs, eps_r, interior_dof_mask);
-    if n_interior == 0 {
-        return Err(DrivenError::EmptyInterior);
-    }
-    let omega2 = omega * omega;
-    let triplets: Vec<Triplet<usize, usize, c64>> = kept
-        .iter()
-        .map(|&(r, c, k, m)| Triplet::new(r, c, k - m * omega2))
-        .collect();
-    let a_int =
-        SparseColMat::<usize, c64>::try_new_from_triplets(n_interior, n_interior, &triplets)
-            .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
-
-    // --- Factor ONCE. Serves both the forward and adjoint solves. -----------
-    let lu = a_int
-        .as_ref()
-        .sp_lu()
-        .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
-    let n_factorizations = 1;
-
-    // Interior-filtered RHS.
-    let mut b_int = vec![c64::new(0.0, 0.0); n_interior];
-    for (g, &ri) in remap.iter().enumerate() {
-        if ri >= 0 {
-            b_int[ri as usize] = rhs_full[g];
-        }
-    }
-
-    // --- Forward solve A x = b. ---------------------------------------------
-    let mut fwd: Mat<c64> = Mat::from_fn(n_interior, 1, |i, _| b_int[i]);
-    lu.solve_in_place(fwd.as_mut());
-    let x_int: Vec<c64> = (0..n_interior).map(|i| fwd[(i, 0)]).collect();
-
-    // Post-solve residual health check ‖A x − b‖ / ‖b‖.
-    let residual_rel = {
-        let mut ax = vec![c64::new(0.0, 0.0); n_interior];
-        for &(r, c, k, m) in &kept {
-            ax[r] += (k - m * omega2) * x_int[c];
-        }
-        let mut res2 = 0.0_f64;
-        let mut b2 = 0.0_f64;
-        for i in 0..n_interior {
-            let d = ax[i] - b_int[i];
-            res2 += d.re * d.re + d.im * d.im;
-            b2 += b_int[i].re * b_int[i].re + b_int[i].im * b_int[i].im;
-        }
-        if b2 > 0.0 {
-            (res2 / b2).sqrt()
-        } else {
-            res2.sqrt()
-        }
-    };
-
-    // Scatter x to full length for the objective + contraction (PEC DOFs = 0).
-    let mut x = vec![c64::new(0.0, 0.0); dofs.n_dofs];
-    for (g, &ri) in remap.iter().enumerate() {
-        if ri >= 0 {
-            x[g] = x_int[ri as usize];
-        }
-    }
-
-    // --- Objective and its Wirtinger cotangent ∂g/∂x. -----------------------
-    let (objective_value, dg_dx) = objective(&x);
-    if dg_dx.len() != dofs.n_dofs {
-        return Err(DrivenError::SparseAssembly(format!(
-            "objective cotangent length {} != DOF count {}",
-            dg_dx.len(),
-            dofs.n_dofs
-        )));
-    }
-    let mut g_x_int = vec![c64::new(0.0, 0.0); n_interior];
-    for (g, &ri) in remap.iter().enumerate() {
-        if ri >= 0 {
-            g_x_int[ri as usize] = dg_dx[g];
-        }
-    }
-
-    // --- Adjoint solve Aᵀ λ = ∂g/∂x, REUSING the forward factorization. -----
-    // A is complex-symmetric (Aᵀ = A), so the transpose solve equals the
-    // forward solve; written as the transpose to keep the pattern explicit and
-    // to fail loudly under a symmetry-breaking mutation. No refactorization.
-    let mut adj: Mat<c64> = Mat::from_fn(n_interior, 1, |i, _| g_x_int[i]);
-    lu.solve_transpose_in_place(adj.as_mut());
-    let lambda_int: Vec<c64> = (0..n_interior).map(|i| adj[(i, 0)]).collect();
-
-    // λ scattered to full DOF length, zero on PEC DOFs.
-    let mut lambda_full = vec![c64::new(0.0, 0.0); dofs.n_dofs];
-    for (g, &ri) in remap.iter().enumerate() {
-        if ri >= 0 {
-            lambda_full[g] = lambda_int[ri as usize];
-        }
-    }
-
-    // --- Nodal-coordinate gradient (the 20-DOF geometry contraction). --------
-    // ∂g/∂X_{n,d} = 2 Re[ λᵀ ∂b/∂X ] − 2 Re[ λᵀ (∂A/∂X) x ], one local per-tet
-    // sweep. Local λ / x gather with UNIT sign from `tet_dofs[t]` (orientation
-    // absorbed by the ascending-vertex sort). Seed each of the 12 SORTED-local
-    // coordinates through the Dual p=2 element twin; sorted-local vertex `a`
-    // corresponds to global node `tet[perm[a]]`.
+    let fa = crate::driven::adjoint::p2_forward_adjoint(problem, op, b_override, objective)?;
+    let (x, lam) = (&fa.x_full, &fa.lam_full);
     let mut grad_node = vec![[0.0_f64; 3]; n_nodes];
-    let iomega = c64::new(0.0, omega);
-    for (t, tet) in mesh.tets.iter().enumerate() {
-        let gdofs = &dofs.tet_dofs[t];
-        let perm = &dofs.tet_perm[t];
 
-        // Unit-sign local adjoint λ and forward x over the 20 sorted DOFs.
-        let lam_loc: [c64; TET_NEDELEC2_DOFS] = std::array::from_fn(|i| lambda_full[gdofs[i]]);
-        // Skip a tet whose adjoint vanishes on all 20 local DOFs (its local
-        // A/b never couples into the objective).
+    // --- Volume terms (K, M, ∂b of the volumetric source). -------------------
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        let dofs = space.tet_dofs(t);
+        let lam_loc: [c64; TET_NEDELEC2_DOFS] = std::array::from_fn(|i| lam[dofs[i] as usize]);
         if lam_loc.iter().all(|z| z.re == 0.0 && z.im == 0.0) {
             continue;
         }
-        let x_loc: [c64; TET_NEDELEC2_DOFS] = std::array::from_fn(|i| x[gdofs[i]]);
-
-        // Base coords in ASCENDING-VERTEX-SORTED order (matches the local DOF
-        // layout of the Dual twin, hence of lam_loc / x_loc).
-        let sorted = dofs.sorted_coords(mesh, t);
-        let eps_t = eps_r[t];
-        let jt = source.j_tet[t]; // [c64; 3], held fixed as the mesh morphs
+        let x_loc: [c64; TET_NEDELEC2_DOFS] = std::array::from_fn(|i| x[dofs[i] as usize]);
+        let TetOrientation::AscendingPerm(perm) = space.tet_orientation(t) else {
+            return Err(DrivenError::UnsupportedAtOrder {
+                order: space.order(),
+                feature: "the p=2 shape gradient on a non-p=2 space",
+            });
+        };
+        let sorted = space.tet_local_coords(mesh, t);
+        let jt = problem.source.j_tet[t];
+        // Per-tet material: scalar ε, or the fixed complex (ε, ν) tensors.
+        #[allow(clippy::type_complexity)]
+        let tensors: Option<([[c64; 3]; 3], [[c64; 3]; 3])> = match problem.materials {
+            DrivenMaterials::Scalar(_) => None,
+            DrivenMaterials::DiagTensor(eps) => {
+                let d = eps[t];
+                let z = zero_c;
+                let one = c64::new(1.0, 0.0);
+                Some((
+                    [[d[0], z, z], [z, d[1], z], [z, z, d[2]]],
+                    [[one, z, z], [z, one, z], [z, z, one]],
+                ))
+            }
+            DrivenMaterials::MatchedUpml {
+                epsilon_tensor,
+                nu_tensor,
+            } => Some((epsilon_tensor[t], nu_tensor[t])),
+        };
+        let eps_scalar = match problem.materials {
+            DrivenMaterials::Scalar(eps) => eps[t],
+            _ => zero_c,
+        };
 
         for a in 0..4 {
-            let node = tet[perm[a]] as usize; // sorted-local a → global node
+            let node = tet[perm[a]] as usize;
             for c_axis in 0..3 {
                 let mut dc = sorted.map(|v| v.map(Dual::cst));
                 dc[a][c_axis] = Dual::var(sorted[a][c_axis]);
-                let (dk, dm, dnint) = nedelec2_local_dual(&dc);
 
-                // −λᵀ (∂A/∂X) x, ∂A_ij = ∂K_ij − ω² ε_t ∂M_ij. ε_t is the
-                // complex per-tet permittivity; the element tangents are real,
-                // so the mass factor carries the loss and `d_a` is complex.
-                let mut term_a = c64::new(0.0, 0.0);
+                // ∂A_ij (complex) and the source-moment tangents.
+                let (d_a, dnint): ([[c64; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS], _) =
+                    if let Some((eps_t, nu_t)) = &tensors {
+                        let (k_re, m_re, dn) =
+                            nedelec2_local_dual_tensor(&dc, &tensor_re(nu_t), &tensor_re(eps_t));
+                        let (k_im, m_im, _) =
+                            nedelec2_local_dual_tensor(&dc, &tensor_im(nu_t), &tensor_im(eps_t));
+                        (
+                            std::array::from_fn(|i| {
+                                std::array::from_fn(|j| {
+                                    c64::new(k_re[i][j].du, k_im[i][j].du)
+                                        - c64::new(m_re[i][j].du, m_im[i][j].du) * omega2
+                                })
+                            }),
+                            dn,
+                        )
+                    } else {
+                        let (dk, dm, dn) = nedelec2_local_dual(&dc);
+                        (
+                            std::array::from_fn(|i| {
+                                std::array::from_fn(|j| {
+                                    c64::new(dk[i][j].du, 0.0) - eps_scalar * (omega2 * dm[i][j].du)
+                                })
+                            }),
+                            dn,
+                        )
+                    };
+
+                // −λᵀ (∂A/∂X) x.
+                let mut term_a = zero_c;
                 for i in 0..TET_NEDELEC2_DOFS {
                     for j in 0..TET_NEDELEC2_DOFS {
-                        let d_a = c64::new(dk[i][j].du, 0.0) - eps_t * (omega2 * dm[i][j].du);
-                        term_a += lam_loc[i] * x_loc[j] * d_a;
+                        term_a += lam_loc[i] * x_loc[j] * d_a[i][j];
                     }
                 }
-
-                // +λᵀ ∂b/∂X, ∂b_i = iω · (∂(∫N_i)·J), J = jt held fixed.
-                let mut term_b = c64::new(0.0, 0.0);
+                // +λᵀ ∂b/∂X, ∂b_i = iω (∂(∫N_i)·J), J held fixed per element.
+                let mut term_b = zero_c;
                 for i in 0..TET_NEDELEC2_DOFS {
-                    let mut dnj = c64::new(0.0, 0.0);
+                    let mut dnj = zero_c;
                     for d in 0..3 {
                         dnj += jt[d] * dnint[i][d].du;
                     }
                     term_b += lam_loc[i] * (iomega * dnj);
                 }
-
                 grad_node[node][c_axis] += 2.0 * (term_b - term_a).re;
             }
         }
     }
+    let _ = n_tets;
 
-    Ok(P2DrivenShapeGradient {
-        objective: objective_value,
+    // --- Surface terms on the p=2 trace Dual twins. ---------------------------
+    // For one boundary triangle: ∂(coeff·S)/∂X contracted with λ, x, and (for
+    // a driven port) the flux tangent.
+    let tri_geometry = |tri: &[u32; 3]| -> Result<([u32; 8], [u32; 3]), DrivenError> {
+        p2_trace_dofs(space, tri).ok_or(DrivenError::SurfaceNotOnMesh {
+            surface: "gradient surface".to_string(),
+            triangle: *tri,
+            dangling: 1,
+            total: 1,
+        })
+    };
+    let accumulate_mass =
+        |tris: &[[u32; 3]], coeff: c64, grad: &mut Vec<[f64; 3]>| -> Result<(), DrivenError> {
+            for tri in tris {
+                let (tdofs, s) = tri_geometry(tri)?;
+                let lam_t: [c64; 8] = std::array::from_fn(|i| lam[tdofs[i] as usize]);
+                let x_t: [c64; 8] = std::array::from_fn(|i| x[tdofs[i] as usize]);
+                if lam_t.iter().all(|z| z.re == 0.0 && z.im == 0.0) {
+                    continue;
+                }
+                let base: [[f64; 3]; 3] = std::array::from_fn(|i| mesh.nodes[s[i] as usize]);
+                for a in 0..3 {
+                    for c_axis in 0..3 {
+                        let mut dv = base.map(|p| p.map(Dual::cst));
+                        dv[a][c_axis] = Dual::var(base[a][c_axis]);
+                        let ds = tri_nedelec2_surface_mass_dual(&dv);
+                        let mut acc = zero_c;
+                        for i in 0..8 {
+                            for j in 0..8 {
+                                acc += lam_t[i] * x_t[j] * ds[i][j].du;
+                            }
+                        }
+                        // A += coeff·S ⇒ −λᵀ(coeff ∂S)x.
+                        grad[s[a] as usize][c_axis] += 2.0 * (-(coeff * acc)).re;
+                    }
+                }
+            }
+            Ok(())
+        };
+    if mutation != SurfaceTermMutation::DropWallMass {
+        for (bc, &coeff) in problem.surfaces.iter().zip(&wall_coeffs) {
+            accumulate_mass(bc.triangles, coeff, &mut grad_node)?;
+        }
+    }
+    for (p, port) in problem.ports.iter().enumerate() {
+        let z_s = port.surface_impedance();
+        if mutation != SurfaceTermMutation::DropPortMass {
+            accumulate_mass(port.faces, c64::new(0.0, omega / z_s), &mut grad_node)?;
+        }
+        // Drive b_port = (2iω/Z_s)(V_inc/l) f (restricted to the excited port).
+        let driven = port.v_inc != zero_c && problem.excited.is_none_or(|j| j == p);
+        if driven && mutation != SurfaceTermMutation::DropPortFlux {
+            let drive = c64::new(0.0, 2.0 * omega / z_s) * (port.v_inc * (1.0 / port.length));
+            for tri in port.faces {
+                let (tdofs, s) = tri_geometry(tri)?;
+                let lam_t: [c64; 8] = std::array::from_fn(|i| lam[tdofs[i] as usize]);
+                if lam_t.iter().all(|z| z.re == 0.0 && z.im == 0.0) {
+                    continue;
+                }
+                let base: [[f64; 3]; 3] = std::array::from_fn(|i| mesh.nodes[s[i] as usize]);
+                for a in 0..3 {
+                    for c_axis in 0..3 {
+                        let mut dv = base.map(|q| q.map(Dual::cst));
+                        dv[a][c_axis] = Dual::var(base[a][c_axis]);
+                        let df = tri_nedelec2_surface_flux_dual(&dv, port.e_hat);
+                        let mut acc = zero_c;
+                        for i in 0..8 {
+                            acc += lam_t[i] * df[i].du;
+                        }
+                        grad_node[s[a] as usize][c_axis] += 2.0 * (drive * acc).re;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(DrivenShapeGradient {
+        objective: fa.objective,
         grad_node,
-        x,
-        residual_rel,
-        n_factorizations,
+        e_edges: fa.x_full,
+        residual_rel: fa.residual_rel,
+        n_factorizations: 1,
     })
 }
 
@@ -5602,5 +5812,124 @@ mod tests {
             "single-column morph != PML-pinned single-DOF chain bit-for-bit"
         );
         assert!(dg[0].abs() > 0.0, "degenerate zero gradient");
+    }
+
+    /// Mutation gate (issue #1264): dropping any one p=2 surface Dual-twin
+    /// term (`∂S_Γ/∂X`, `∂S_p/∂X`, `∂f_p/∂X`) makes the central-FD gate FAIL,
+    /// while the unmutated gradient passes it.
+    #[test]
+    fn p2_surface_dual_twin_mutations_fail_the_fd_gate() {
+        use crate::assembly::hcurl_space::HcurlSpace;
+        use crate::driven::solve::{DrivenSource, SurfaceImpedanceBc, SurfaceImpedanceModel};
+        let mesh = cube_tet_mesh(2, 1.0);
+        let face_nodes = |axis: usize, v: f64| -> Vec<[u32; 3]> {
+            mesh.boundary_faces()
+                .into_iter()
+                .filter(|f| {
+                    f.iter()
+                        .all(|&n| (mesh.nodes[n as usize][axis] - v).abs() < 1e-12)
+                })
+                .collect()
+        };
+        let port_faces = face_nodes(2, 0.0);
+        let cap_faces = face_nodes(2, 1.0);
+        let plates = [face_nodes(1, 0.0), face_nodes(1, 1.0)];
+        let walls: Vec<&[[u32; 3]]> = plates.iter().map(Vec::as_slice).collect();
+        let space = HcurlSpace::build(&mesh, ElementOrder::P2);
+        let mask = space.pec_interior_mask(&mesh, &walls).expect("mask");
+        let eps = vec![c64::new(2.0, -0.1); mesh.n_tets()];
+        let source = CurrentSource::from_centroids(&mesh, |c| {
+            [
+                c64::new(0.0, c[2]),
+                c64::new(0.4 * c[1], 0.2),
+                c64::new(c[0], 0.0),
+            ]
+        });
+        let port = LumpedPort {
+            faces: &port_faces,
+            e_hat: [0.0, 1.0, 0.0],
+            resistance: 1.3,
+            width: 1.0,
+            length: 1.0,
+            v_inc: c64::new(1.0, 0.2),
+        };
+        let cap = SurfaceImpedanceBc {
+            triangles: &cap_faces,
+            model: SurfaceImpedanceModel::GoodConductor { sigma: 40.0 },
+        };
+        let omega = 1.3;
+        let g_of = |m: &TetMesh| -> f64 {
+            let sp = HcurlSpace::build(m, ElementOrder::P2);
+            let op = DrivenOperator::assemble_p2_host(
+                &sp,
+                m,
+                DrivenMaterials::Scalar(&eps),
+                &DrivenBcs {
+                    pec_interior_mask: &mask,
+                },
+                std::slice::from_ref(&port),
+                std::slice::from_ref(&cap),
+                DrivenSource::Constant(&source),
+            )
+            .unwrap();
+            l2_objective(&op.solve_at(omega).unwrap().e_edges).0
+        };
+        let bcs = DrivenBcs {
+            pec_interior_mask: &mask,
+        };
+        let problem = DrivenGradientProblem {
+            space: &space,
+            mesh: &mesh,
+            materials: DrivenMaterials::Scalar(&eps),
+            bcs: &bcs,
+            source: &source,
+            ports: std::slice::from_ref(&port),
+            surfaces: std::slice::from_ref(&cap),
+            wave_ports: &[],
+            omega,
+            excited: None,
+        };
+        let op = problem.assemble_p2_operator().unwrap();
+        // Worst normalised FD mismatch over port-face and cap-face nodes.
+        let worst = |mutation: SurfaceTermMutation| -> f64 {
+            let grad = shape_gradient_p2_core(&problem, &op, None, l2_objective, mutation)
+                .unwrap()
+                .grad_node;
+            let scale = grad.iter().flatten().fold(0.0_f64, |m, v| m.max(v.abs()));
+            let mut worst = 0.0_f64;
+            #[allow(clippy::needless_range_loop)]
+            for n in 0..mesh.n_nodes() {
+                let z = mesh.nodes[n][2];
+                if !(z.abs() < 1e-12 || (z - 1.0).abs() < 1e-12) {
+                    continue;
+                }
+                #[allow(clippy::needless_range_loop)]
+                for axis in 0..3 {
+                    let at = |d: f64| {
+                        let mut m = mesh.clone();
+                        m.nodes[n][axis] += d;
+                        g_of(&m)
+                    };
+                    let fd = (at(1e-6) - at(-1e-6)) / 2e-6;
+                    worst = worst.max((grad[n][axis] - fd).abs() / (fd.abs() + 1e-3 * scale));
+                }
+            }
+            worst
+        };
+        let clean = worst(SurfaceTermMutation::None);
+        eprintln!("unmutated: worst rel-err = {clean:.3e}");
+        assert!(
+            clean < 1e-4,
+            "unmutated gradient must pass the FD gate: {clean:e}"
+        );
+        for m in [
+            SurfaceTermMutation::DropWallMass,
+            SurfaceTermMutation::DropPortMass,
+            SurfaceTermMutation::DropPortFlux,
+        ] {
+            let w = worst(m);
+            eprintln!("{m:?}: worst rel-err = {w:.3e} (FD gate FAILS if > 1e-4)");
+            assert!(w > 1e-2, "{m:?} must fail the FD gate, worst rel-err {w:e}");
+        }
     }
 }

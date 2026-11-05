@@ -1,0 +1,32 @@
+warning: non-local `impl` definition, `impl` blocks should be written at the same level as their item
+   --> vendor/mshio/src/mshfile.rs:437:45
+    |
+437 | #[derive(Copy, Clone, Debug, PartialEq, Eq, FromPrimitive, Hash)]
+    |                                             ^------------
+    |                                             |
+    |                                             `FromPrimitive` is not local
+    |                                             move the `impl` block outside of this constant `_IMPL_NUM_FromPrimitive_FOR_ElementType`
+438 | pub enum ElementType {
+    |          ----------- `ElementType` is not local
+    |
+    = note: the derive macro `FromPrimitive` defines the non-local `impl`, and may need to be changed
+    = note: the derive macro `FromPrimitive` may come from an old version of the `num_derive` crate, try updating your dependency with `cargo update -p num_derive`
+    = note: an `impl` is never scoped, even when it is nested inside an item, as it may impact type checking outside of that item, which can be the case if neither the trait or the self type are at the same nesting level as the `impl`
+    = note: items in an anonymous const item (`const _: () = { ... }`) are treated as in the same scope as the anonymous const's declaration for the purpose of this lint
+    = note: `#[warn(non_local_definitions)]` on by default
+    = note: this warning originates in the derive macro `FromPrimitive` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `mshio` (lib) generated 1 warning
+   Compiling geode-core v0.9.0 (/home/ubuntu/GitHub/geode-fem/.loom/worktrees/geode-fem/issue-1264/crates/geode-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.14s
+     Running unittests src/lib.rs (/home/ubuntu/GitHub/geode-fem/.loom/targets/builder-686216-1793815631/debug/deps/geode_core-f4950967c681166e)
+
+running 1 test
+unmutated: worst rel-err = 6.340e-7
+DropWallMass: worst rel-err = 2.626e1 (FD gate FAILS if > 1e-4)
+DropPortMass: worst rel-err = 6.913e0 (FD gate FAILS if > 1e-4)
+DropPortFlux: worst rel-err = 1.251e1 (FD gate FAILS if > 1e-4)
+test driven::shape::tests::p2_surface_dual_twin_mutations_fail_the_fd_gate ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 854 filtered out; finished in 36.49s
+
