@@ -25,6 +25,7 @@ pub mod icem_domain;
 pub mod icem_parametric;
 pub mod magnetostatic_fixtures;
 pub mod msh_tags;
+pub mod msh_write;
 pub mod partition;
 pub mod patch;
 pub mod periodic;
@@ -36,6 +37,7 @@ pub mod tagged_tri;
 pub mod transmon;
 
 pub use extrude::{ExtrudedEdge, ExtrudedTriMesh, extrude_tri_mesh, extrude_tri_mesh_layers};
+pub use msh_write::write_tagged_tet_mesh;
 #[allow(deprecated)]
 pub use sphere::PHYS_VACUUM_BUFFER;
 pub use sphere::{

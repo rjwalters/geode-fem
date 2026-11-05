@@ -71,6 +71,10 @@ pub enum CliError {
         /// Compiled-in backend.
         compiled: &'static str,
     },
+    /// The adaptive mesh loop failed (issue #1267): a solve, estimate or
+    /// refinement step.
+    #[error("adaptive mesh refinement failed: {0}")]
+    AdaptiveMesh(String),
     /// The driven solve itself failed (factorization, non-convergence, …).
     #[error("driven solve failed: {0}")]
     Solve(DrivenError),
@@ -296,6 +300,7 @@ impl CliError {
             CliError::BackendMismatch { .. } => "backend_mismatch",
             CliError::Solve(_)
             | CliError::AdaptiveSweep(_)
+            | CliError::AdaptiveMesh(_)
             | CliError::WavePort { .. }
             | CliError::EigenSolve(_)
             | CliError::LossyEigenSolve(_)

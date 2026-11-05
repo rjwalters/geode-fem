@@ -25,6 +25,16 @@
 //! distance/threshold size field, and pinned output options (MSH 4.1
 //! ASCII, linear elements, single-threaded meshing for determinism).
 //!
+//! A polygon with holes or 45° edges (issue #1287) is a single part
+//! emitted as `Point` / `Line` / `Curve Loop` / `Plane Surface` (outer
+//! loop first, holes after) and, on a thick layer, `Extrude`d; the
+//! hollow / fragment pipeline consumes it like a `Box`. Rectilinear
+//! polygons without holes still decompose into `Box` / `Rectangle`
+//! parts, so v1 scripts are byte-identical. Bounding-box selection can
+//! enclose another group's faces or a hole's enclosed interface face, so
+//! polygon groups are tagged after the groups nested in them and a hole's
+//! flat bottom / top faces are dropped from the part's selection.
+//!
 //! The analysis ([`ResolvedLayout::analysis`], issue #720) only filters
 //! this pipeline: ports are meshed for the driven analysis only; for the
 //! inductance analysis the current-path conductors
@@ -37,7 +47,7 @@
 use std::fmt::Write as _;
 
 pub use crate::mesh_cmd::layout::ConductorBody;
-use crate::mesh_cmd::layout::{BoundaryDef, OUTER_BOUNDARY, Rect, ResolvedLayout};
+use crate::mesh_cmd::layout::{BoundaryDef, OUTER_BOUNDARY, PolyShape, Rect, ResolvedLayout};
 
 /// What a generated physical group is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,6 +187,50 @@ fn bbox_lohi(kind: &str, lo: [f64; 3], hi: [f64; 3], eps: f64) -> String {
         num(hi[1] + eps),
         num(hi[2] + eps)
     )
+}
+
+/// Emit `shape` at height `z` as `Point` / `Line` / `Curve Loop` /
+/// `Plane Surface` (outer loop first, hole loops after) and bind the
+/// surface to the variable `s`.
+fn plane_surface(w: &mut String, s: &str, shape: &PolyShape, z: f64) {
+    let mut loops = Vec::new();
+    for (k, ring) in std::iter::once(&shape.outer)
+        .chain(&shape.holes)
+        .enumerate()
+    {
+        let n = ring.len();
+        let (p, l, ll) = (
+            format!("{s}_p{k}"),
+            format!("{s}_l{k}"),
+            format!("{s}_ll{k}"),
+        );
+        let _ = writeln!(w, "{p} = newp;");
+        for (i, q) in ring.iter().enumerate() {
+            let _ = writeln!(
+                w,
+                "Point({p}+{i}) = {{{}, {}, {}}};",
+                num(q[0]),
+                num(q[1]),
+                num(z)
+            );
+        }
+        let _ = writeln!(w, "{l} = newl;");
+        for i in 0..n {
+            let _ = writeln!(w, "Line({l}+{i}) = {{{p}+{i}, {p}+{}}};", (i + 1) % n);
+        }
+        let ids: Vec<String> = (0..n).map(|i| format!("{l}+{i}")).collect();
+        let _ = writeln!(
+            w,
+            "{ll} = newll; Curve Loop({ll}) = {{{}}};",
+            ids.join(", ")
+        );
+        loops.push(ll);
+    }
+    let _ = writeln!(
+        w,
+        "{s} = news; Plane Surface({s}) = {{{}}};",
+        loops.join(", ")
+    );
 }
 
 /// Generate the script for a validated layout.
@@ -366,6 +420,18 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
                 for &j in list {
                     let q = &rects[j];
                     let v = format!("v_c{i}_{j}");
+                    if let Some(shape) = &r.rect_poly[i][j] {
+                        let base = format!("sb_c{i}_{j}");
+                        plane_surface(w, &base, shape, c.z_bottom);
+                        let _ = writeln!(
+                            w,
+                            "e_c{i}_{j}[] = Extrude {{0, 0, {}}} {{ Surface{{{base}}}; }}; \
+                             {v} = e_c{i}_{j}[1];",
+                            num(c.thickness)
+                        );
+                        out.push(v);
+                        continue;
+                    }
                     let _ = writeln!(
                         w,
                         "{v} = newv; Box({v}) = {{{}, {}, {}, {}, {}, {}}};",
@@ -383,6 +449,11 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
             let _ = writeln!(w, "// Conductor `{}`: PEC sheets.", c.name);
             for (j, q) in rects.iter().enumerate() {
                 let s = format!("s_c{i}_{j}");
+                if let Some(shape) = &r.rect_poly[i][j] {
+                    plane_surface(w, &s, shape, c.z_bottom);
+                    sheets.push(s);
+                    continue;
+                }
                 let _ = writeln!(
                     w,
                     "{s} = news; Rectangle({s}) = {{{}, {}, {}, {}, {}}};",
@@ -496,9 +567,31 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
     // contact face also lies in its return conductor's box).
     let _ = writeln!(w, "assigned() = {{}};");
     let by_role = |f: fn(&GroupRole) -> bool| groups.iter().filter(move |g| f(&g.role));
+    // A polygon part's bounding box can enclose another group's faces
+    // (a pad inside a ring's hole): groups with polygon parts are
+    // selected last, the smaller first, so `assigned()` hands the inner
+    // faces to their own group. Groups without them keep their order.
+    let mut conductors: Vec<&GroupDef> =
+        by_role(|r| matches!(r, GroupRole::Conductor(_))).collect();
+    let poly_rank = |gd: &GroupDef| -> (bool, f64) {
+        let GroupRole::Conductor(gi) = gd.role else {
+            unreachable!()
+        };
+        let area = r.groups[gi]
+            .parts
+            .iter()
+            .filter(|p| p.poly.is_some())
+            .map(|p| (p.rect.x1 - p.rect.x0) * (p.rect.y1 - p.rect.y0))
+            .fold(None, |a: Option<f64>, v| Some(a.map_or(v, |a| a.max(v))));
+        (area.is_some(), area.unwrap_or(0.0))
+    };
+    conductors.sort_by(|a, b| {
+        let (ka, kb) = (poly_rank(a), poly_rank(b));
+        ka.0.cmp(&kb.0).then(ka.1.total_cmp(&kb.1))
+    });
     let ordered = by_role(|r| matches!(r, GroupRole::Contact(_)))
         .chain(by_role(|r| matches!(r, GroupRole::Port(_))))
-        .chain(by_role(|r| matches!(r, GroupRole::Conductor(_))));
+        .chain(conductors);
     for gd in ordered {
         let body = match gd.role {
             GroupRole::Contact(i) => r.contacts[i]
@@ -519,8 +612,40 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
         };
         let t = gd.tag;
         let _ = writeln!(w, "g_{t}() = {{}};");
-        for sel in body {
-            let _ = writeln!(w, "g_{t}() += {sel};");
+        let parts: &[_] = match gd.role {
+            GroupRole::Conductor(gi) => &r.groups[gi].parts,
+            _ => &[],
+        };
+        for (k, sel) in body.into_iter().enumerate() {
+            let holes = parts.get(k).and_then(|p| p.poly.as_ref().map(|s| (p, s)));
+            match holes {
+                Some((p, shape)) if !shape.holes.is_empty() => {
+                    // The void of a hole is enclosed, so a slab-interface
+                    // face inside it lies wholly in the part's box: drop
+                    // the flat faces at the part's bottom / top over each
+                    // hole before they join the group.
+                    let _ = writeln!(w, "h_{t}() = {sel};");
+                    for hole in &shape.holes {
+                        let hb = PolyShape {
+                            outer: hole.clone(),
+                            holes: Vec::new(),
+                        }
+                        .bbox();
+                        let mut zs = vec![p.z0];
+                        if p.z1 > p.z0 {
+                            zs.push(p.z1);
+                        }
+                        for z in zs {
+                            let _ =
+                                writeln!(w, "h_{t}() -= {};", bbox_sel("Surface", &hb, z, z, eps));
+                        }
+                    }
+                    let _ = writeln!(w, "g_{t}() += {{h_{t}()}};");
+                }
+                _ => {
+                    let _ = writeln!(w, "g_{t}() += {sel};");
+                }
+            }
         }
         let _ = writeln!(w, "g_{t}() = Unique(g_{t}());");
         let _ = writeln!(w, "g_{t}() -= {{assigned()}};");
@@ -881,5 +1006,74 @@ mod tests {
         assert!(!s.text.contains("Port rectangles"));
         assert!(s.text.contains("v_cond() = {v_c1_0, v_c1_1, v_c2_0};"));
         assert!(!s.text.contains("v_solid"));
+    }
+
+    fn polygon_layout() -> Layout {
+        serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [{"name": "air", "z_bottom": -1, "thickness": 12}],
+            "ground": ["pad"],
+            "conductors": [
+                {"name": "ring", "z_bottom": 1, "thickness": 0.5, "polygons": [
+                    {"outer": [[2.5, -4], [4, -2.5], [4, 2.5], [2.5, 4],
+                               [-2.5, 4], [-4, 2.5], [-4, -2.5], [-2.5, -4]],
+                     "holes": [[[-2, -2], [2, -2], [2, 2], [-2, 2]]]}]},
+                {"name": "pad", "z_bottom": 1, "thickness": 0.5, "polygons": [
+                    {"outer": [[-1, -1], [1, -1], [1, 1], [-1, 1]]}]},
+                {"name": "sheet", "z_bottom": 4, "polygons": [
+                    {"outer": [[0, 0], [3, 0], [3, 3]]}]}
+            ],
+            "ports": [],
+            "margin": 3,
+            "mesh": {"size_max": 3, "size_conductor": 1}
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn polygons_with_holes_and_45_degree_edges_emit_surfaces_and_extrusions() {
+        let r = polygon_layout()
+            .resolve_for(crate::mesh_cmd::layout::MeshAnalysis::Capacitance)
+            .unwrap();
+        let g = generate(&r, "test").text;
+        // Ring: outer loop first, then the hole loop; extruded by t.
+        assert!(
+            g.contains("Plane Surface(sb_c0_0) = {sb_c0_0_ll0, sb_c0_0_ll1};"),
+            "{g}"
+        );
+        assert!(
+            g.contains("e_c0_0[] = Extrude {0, 0, 0.5} { Surface{sb_c0_0}; }; v_c0_0 = e_c0_0[1];")
+        );
+        // The pad stays a v1 box; the triangular sheet is a plane surface.
+        assert!(g.contains("Box(v_c1_0)"));
+        assert!(g.contains("Plane Surface(s_c2_0) = {s_c2_0_ll0};"));
+        // Hole void faces are dropped from the ring's selection, and the
+        // ring (polygon parts with holes) is tagged after the pad inside it.
+        assert!(g.contains("h_101() -="), "{g}");
+        let (ring, pad) = (
+            g.find("Physical Surface(\"ring\""),
+            g.find("Physical Surface(\"pad\""),
+        );
+        assert!(pad < ring, "inner group first:\n{g}");
+    }
+
+    #[test]
+    fn rectilinear_layouts_emit_no_polygon_surfaces() {
+        let l: Layout = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [{"name": "air", "z_bottom": -1, "thickness": 12}],
+            "conductors": [{"name": "m1", "z_bottom": 1, "thickness": 0.5, "polygons": [
+                {"net": "a", "outer": [[0, 0], [4, 0], [4, 2], [2, 2], [2, 4], [0, 4]]}]}],
+            "ports": [{"name": "p", "layer": "m1", "rect": [5, 0, 6, 1], "direction": "x"}],
+            "margin": 3,
+            "mesh": {"size_max": 3, "size_conductor": 1}
+        }))
+        .unwrap();
+        let g = generate(&l.resolve().unwrap(), "test").text;
+        for word in ["Plane Surface", "Extrude", "Curve Loop", "h_1"] {
+            assert!(!g.contains(word), "{word} in v1 script:\n{g}");
+        }
     }
 }
