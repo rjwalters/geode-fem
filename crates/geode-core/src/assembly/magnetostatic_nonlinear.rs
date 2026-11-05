@@ -2676,4 +2676,119 @@ mod tests {
             assert!((exact - sampled).abs() < 1e-6, "{exact} vs {sampled}");
         }
     }
+
+    /// Issue #1326: when iterative refinement against the retained
+    /// factorization gives up (`refine_transpose` -> `None`), the adjoint
+    /// solve must discard the half-refined iterate and fall back to a fresh
+    /// LU of the tangent. Only `tangent`, `previous_lu` and `n_free` are read
+    /// by the code under test, so the solution is built around a small
+    /// synthetic non-symmetric tangent and a deliberately poor `previous_lu`.
+    #[test]
+    fn adjoint_refinement_failure_falls_back_to_fresh_lu() {
+        use faer::linalg::solvers::Solve;
+
+        let n = 40;
+        let tridiag = |diag_scale: f64| {
+            let mut t = Vec::new();
+            for i in 0..n {
+                t.push(Triplet::new(i, i, 2.5 * diag_scale));
+                if i > 0 {
+                    t.push(Triplet::new(i, i - 1, -0.7));
+                }
+                if i + 1 < n {
+                    t.push(Triplet::new(i, i + 1, -1.3));
+                }
+            }
+            SparseColMat::<usize, f64>::try_new_from_triplets(n, n, &t).unwrap()
+        };
+        let tangent = tridiag(1.0);
+        // A strongly perturbed copy of the tangent: a poor preconditioner.
+        let poor_lu: Arc<TangentLu> = Arc::new(tridiag(0.3).as_ref().sp_lu().unwrap());
+        let good_lu: Arc<TangentLu> = Arc::new(tangent.as_ref().sp_lu().unwrap());
+        let solution = |lu: Arc<TangentLu>| NonlinearMagnetostaticSolution {
+            a_z: vec![0.0; n],
+            residual_norms: vec![0.0],
+            step_norms: vec![],
+            step_lengths: vec![],
+            iterations: 1,
+            tolerance: 0.0,
+            status: ConvergenceStatus::Tolerance,
+            reference_residual: 0.0,
+            floor_estimate: 0.0,
+            tangent: tangent.clone(),
+            free_of_global: (0..n).map(Some).collect(),
+            sign_of_global: vec![1.0; n],
+            n_free: n,
+            previous_lu: Some(lu),
+        };
+        let rhs: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.37).sin() + 0.1).collect();
+        let fresh = {
+            let lu = tangent.as_ref().sp_lu().unwrap();
+            let mut x: Mat<f64> = Mat::from_fn(n, 1, |i, _| rhs[i]);
+            lu.solve_transpose_in_place(x.as_mut());
+            (0..n).map(|i| x[(i, 0)]).collect::<Vec<f64>>()
+        };
+        let rel_diff = |got: &[f64]| {
+            let d: Vec<f64> = got.iter().zip(&fresh).map(|(a, b)| a - b).collect();
+            norm2(&d) / norm2(&fresh)
+        };
+
+        // Control: a good retained factorization refines successfully.
+        let good = solution(good_lu);
+        let x = good
+            .refine_transpose(good.previous_lu.as_ref().unwrap(), &rhs)
+            .expect("exact preconditioner must converge");
+        assert!(rel_diff(&x) < 1e-10);
+
+        // Stagnation branch: reproduce the first two refinement steps by hand
+        // and check the residual fails to halve (`rn > 0.5 * prev`) before the
+        // residual reaches round-off, so that branch is what returns `None`.
+        let bad = solution(poor_lu);
+        let lu = bad.previous_lu.as_ref().unwrap();
+        let precondition = |v: &[f64]| {
+            let mut m: Mat<f64> = Mat::from_fn(n, 1, |i, _| v[i]);
+            lu.solve_transpose_in_place(m.as_mut());
+            (0..n).map(|i| m[(i, 0)]).collect::<Vec<f64>>()
+        };
+        let residual = |x: &[f64]| {
+            let mut r = rhs.clone();
+            let k = tangent.as_ref();
+            for (j, rj) in r.iter_mut().enumerate() {
+                for p in k.col_ptr()[j]..k.col_ptr()[j + 1] {
+                    *rj -= k.val()[p] * x[k.row_idx()[p]];
+                }
+            }
+            r
+        };
+        let x0 = precondition(&rhs);
+        let r0 = residual(&x0);
+        let x1: Vec<f64> = x0
+            .iter()
+            .zip(precondition(&r0))
+            .map(|(a, d)| a + d)
+            .collect();
+        let r1 = residual(&x1);
+        assert!(norm2(&r0) > 1e-8, "setup: first residual already tiny");
+        assert!(
+            norm2(&r1) > 0.5 * norm2(&r0),
+            "setup: perturbation does not stagnate ({} vs {})",
+            norm2(&r1),
+            norm2(&r0)
+        );
+        assert!(
+            bad.refine_transpose(lu, &rhs).is_none(),
+            "stagnating refinement must return None"
+        );
+
+        // The public solve must then agree with a fresh LU, not the
+        // half-refined iterate.
+        let got = bad.solve_tangent_transpose(&rhs).unwrap();
+        let err = rel_diff(&got);
+        assert!(err < 1e-10, "fallback differs from fresh LU: {err:e}");
+
+        // Non-finite residual branch.
+        let mut nan_rhs = rhs.clone();
+        nan_rhs[3] = f64::NAN;
+        assert!(bad.refine_transpose(lu, &nan_rhs).is_none());
+    }
 }
