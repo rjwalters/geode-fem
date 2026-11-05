@@ -53,7 +53,7 @@ use crate::check::{
 };
 use crate::error::CliError;
 use crate::export::{OutDir, eps_per_node, mode_file_name};
-use crate::problem::{self, EigenTarget, Problem};
+use crate::problem::{EigenTarget, Problem};
 use crate::report::{EigenReport, EigenSolverStats, ModeResult, Provenance};
 use crate::spec::Analysis;
 
@@ -176,7 +176,7 @@ pub fn run(
     provenance: Provenance,
     outdir: Option<&Path>,
 ) -> Result<EigenReport, CliError> {
-    let p = problem::load(spec_path, Some(Analysis::Eigen))?;
+    let (p, adaptive_mesh) = crate::adaptive::load(spec_path, Analysis::Eigen)?;
     let out = OutDir::create_opt(outdir)?;
     let target = p.eigen.expect("eigen spec has a resolved eigen section");
 
@@ -308,6 +308,7 @@ pub fn run(
         },
         modes,
         sensitivities,
+        adaptive_mesh,
     })
 }
 
