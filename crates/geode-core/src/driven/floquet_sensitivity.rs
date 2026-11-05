@@ -617,7 +617,9 @@ impl<'a> Prepared<'a> {
                             *o = zz * c64::new(0.0, omega2);
                         }
                     }
-                    SParam::Shape { .. } => {}
+                    // Floquet builds only material and shape params (above); wall
+                    // params belong to the driven N-port path.
+                    SParam::Shape { .. } | SParam::Wall { .. } => {}
                 }
             }
         }
