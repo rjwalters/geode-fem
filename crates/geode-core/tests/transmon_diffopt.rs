@@ -4424,3 +4424,486 @@ fn c_sigma_bracket_grounded_box_coarse_level_release() {
         tf(&r, "grounded_upper_ff")
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Issue #1037 (Phase C of #1034): a second design target beta = C_g / C_Sigma
+// and a fourth parameter theta_C.
+// ─────────────────────────────────────────────────────────────────────────
+
+fn claw_beta_toml() -> toml::Value {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../benchmarks/transmon_diffopt/claw_beta.toml");
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    toml::from_str(&text).expect("parse claw_beta.toml")
+}
+
+fn claw_run<'a>(doc: &'a toml::Value, mode: &str) -> &'a toml::Value {
+    doc["run"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["mode"].as_str() == Some(mode))
+        .unwrap_or_else(|| panic!("no committed run for mode {mode}"))
+}
+
+/// Pin the committed `benchmarks/transmon_diffopt/claw_beta.toml` (issue
+/// #1037) without solving anything:
+///
+/// 1. carving `S` out of the ground leaves the island solution and `C_Σ`
+///    unchanged to round-off, in one factorization;
+/// 2. `β = C_g/C_Σ`, `C_g = −(claw + trace)` reaction charge, and the cut
+///    sensitivity table (the primary cut is in it, `C_g` moves < 1 % across
+///    the straight-trace cuts);
+/// 3. every `∂C_g/∂θ_i` (four parameters) is FD-validated: ≤ 1e-3 at every
+///    step and second order (error halves or better per halving of `h`, or
+///    sits below the 1e-8 round-off floor), and `dβ` is the committed chain
+///    rule of `dC_g` and `dC_Σ`;
+/// 4. `θ_C` has its own two-sided measured mesh-safety budget;
+/// 5. the targets are the anchor read from `TransmonAnchor::devicelayout()`,
+///    not a hard-coded number; the headline is the first converged run in
+///    sweep order and meets BOTH tolerances; the `fixed` / `unit` runs that
+///    stalled are committed as stalled, never as converged; every run keeps
+///    the mesh floor and every accepted step was confirmed by a fresh solve.
+#[test]
+fn committed_claw_beta_toml_pins_two_target_outcome() {
+    use geode_core::quantum::transmon::{TransmonAnchor, e_c_hz_from_c_sigma};
+    let doc = claw_beta_toml();
+    assert_eq!(doc["meta"]["issue"].as_integer(), Some(1037));
+
+    // --- 1. Equivalence. ---
+    let eq = &doc["equivalence"];
+    assert!(tf(eq, "phi_island_max_rel_diff") <= 1e-12);
+    assert!(tf(eq, "c_sigma_rel_diff") <= 1e-12);
+    assert!(tf(eq, "c_ii_rel_diff") <= 1e-12);
+    assert_eq!(eq["n_factorizations_gradient"].as_integer(), Some(1));
+    for k in ["c_sigma_fresh_unsplit_ff", "c_sigma_fresh_split_ff"] {
+        assert!(
+            (tf(eq, k) - tf(eq, "c_sigma_unsplit_ff")).abs() <= 1e-9 * tf(eq, "c_sigma_unsplit_ff")
+        );
+    }
+
+    // --- 2. C_g, beta, partial charges, cut sensitivity. ---
+    let st = &doc["start"];
+    let (c_sigma0, c_g0, beta0) = (tf(st, "c_sigma_ff"), tf(st, "c_g_ff"), tf(st, "beta"));
+    assert!(c_g0 > 0.0 && (beta0 - c_g0 / c_sigma0).abs() <= 1e-9 * beta0);
+    assert!((tf(eq, "c_g_fresh_ff") - c_g0).abs() <= 1e-9 * c_g0);
+    let pc = &doc["partial_charges"];
+    let q = |k: &str| tf(&pc[k], "charge_ff");
+    assert!(
+        ((q("claw") + q("resonator_trace")) + c_g0).abs() <= 1e-9 * c_g0,
+        "C_g must be minus the charge on S"
+    );
+    let total = tf(pc, "self_charge_ff");
+    let all = q("claw") + q("resonator_trace") + q("feedline") + q("rest_of_ground");
+    assert!(
+        (all + total).abs() <= 1e-9 * total,
+        "partition must sum to -C_ii"
+    );
+    let cuts = doc["cut_sensitivity"].as_array().unwrap();
+    let y_primary = tf(&doc["cut"], "y_cut_um");
+    let primary = cuts
+        .iter()
+        .find(|c| tf(c, "y_cut_um") == y_primary)
+        .expect("the primary cut is in the sensitivity table");
+    assert!((tf(primary, "c_g_ff") - c_g0).abs() <= 1e-9 * c_g0);
+    for c in cuts.iter().filter(|c| tf(c, "y_cut_um") <= 1089.0) {
+        assert!(
+            tf(c, "c_g_rel_to_primary").abs() < 0.01,
+            "straight-trace cut {} moves C_g by {:.3e}",
+            tf(c, "y_cut_um"),
+            tf(c, "c_g_rel_to_primary")
+        );
+        assert!((tf(c, "c_sigma_ff") - c_sigma0).abs() <= 1e-9 * c_sigma0);
+    }
+    assert!(cuts.len() >= 5, "a sensitivity table, not a point");
+
+    // --- 3. Gradients. ---
+    let grads = doc["gradient"].as_array().unwrap();
+    assert_eq!(grads.len(), 4);
+    for (p, g) in grads.iter().enumerate() {
+        assert_eq!(
+            g["name"].as_str(),
+            Some(geode_core::shape::transmon_morph::PARAM_NAMES_CLAW[p])
+        );
+        assert_eq!(g["audit_clean"].as_bool(), Some(true));
+        assert!(tf(g, "max_on_moving_set") > 0.0 && tf(g, "max_on_band") >= 0.0);
+        let beta_chain = (tf(g, "dc_g_dtheta_ff") - beta0 * tf(g, "dc_sigma_dtheta_ff")) / c_sigma0;
+        assert!(
+            (tf(g, "dbeta_dtheta") - beta_chain).abs() <= 1e-6 * beta_chain.abs().max(1e-12),
+            "{}: dβ is the chain rule of dC_g and dC_Σ",
+            g["name"]
+        );
+        let sweep = g["sweep"].as_array().unwrap();
+        let errs: Vec<f64> = sweep.iter().map(|s| tf(s, "dc_g_rel_err")).collect();
+        assert_eq!(errs.len(), 3);
+        for (k, e) in errs.iter().enumerate() {
+            assert!(*e <= 1e-3, "{}: FD rel {e:.3e} at sweep {k}", g["name"]);
+            if k > 0 {
+                assert!(
+                    *e <= (0.5 * errs[k - 1]).max(1e-8),
+                    "{}: not second order, errors {errs:?}",
+                    g["name"]
+                );
+            }
+        }
+        // The committed analytic value agrees with every FD value.
+        for s in sweep {
+            let fd = tf(s, "dc_g_fd_ff");
+            assert!((fd - tf(g, "dc_g_dtheta_ff")).abs() <= 1e-3 * fd.abs());
+        }
+    }
+
+    // --- 4. theta_C's own budget. ---
+    let b = &doc["theta_c_budget"];
+    assert_eq!(tf(b, "ratio_floor"), 0.25);
+    assert!(tf(b, "safe_pos") > 0.0 && tf(b, "safe_neg") < 0.0);
+    assert!(tf(b, "inversion_pos") > tf(b, "safe_pos"));
+    assert!(tf(b, "inversion_neg") < tf(b, "safe_neg"));
+    assert_eq!(b["safe_pos_unbounded"].as_bool(), Some(false));
+    assert_eq!(b["safe_neg_unbounded"].as_bool(), Some(false));
+    let want = if tf(b, "sign_that_lowers_c_sigma") > 0.0 {
+        tf(b, "safe_pos").abs()
+    } else {
+        tf(b, "safe_neg").abs()
+    };
+    assert!((tf(b, "optimizer_scaling") - want).abs() < 1e-9);
+
+    // --- 5. Targets and outcome. ---
+    let a = &doc["anchor"];
+    let anchor = TransmonAnchor::devicelayout();
+    assert!(
+        (tf(a, "c_sigma_target_ff") - anchor.c_sigma_farad * 1e15).abs() < 1e-6,
+        "the target is the TransmonAnchor::devicelayout() C_Sigma"
+    );
+    assert!((tf(a, "e_c_target_hz") - anchor.e_c_hz).abs() < 1e-2);
+    assert!((tf(a, "beta_target") - beta0).abs() <= 1e-9 * beta0);
+    let (e_tol, b_tol) = (tf(a, "e_c_tol_hz"), tf(a, "beta_tol_rel"));
+    let runs = doc["run"].as_array().unwrap();
+    assert_eq!(runs.len(), 6);
+    let mut first_converged = None;
+    for r in runs {
+        let converged = r["converged"].as_bool().unwrap();
+        let outcome = r["outcome"].as_str().unwrap();
+        assert_eq!(converged, outcome == "converged");
+        if !converged {
+            assert!(outcome.starts_with("stalled"), "{outcome}");
+            assert!(
+                tf(r, "e_c_residual_hz").abs() > e_tol || tf(r, "beta_residual_rel").abs() > b_tol,
+                "a stalled run must carry a measured gap"
+            );
+            assert!(tf(r, "remaining_c_sigma_gap_ff").abs() > 0.0);
+        } else if first_converged.is_none() {
+            first_converged = r["mode"].as_str();
+        }
+        assert!(
+            tf(r, "min_ratio_vs_x0") >= 0.25 - 1e-9,
+            "{} mesh floor",
+            r["mode"]
+        );
+        assert!(
+            tf(r, "max_fresh_confirm_rel") <= 1e-9,
+            "{} confirm",
+            r["mode"]
+        );
+        let th = tf_arr(r, "theta_trace");
+        assert_eq!(th.len(), 4);
+        let bounds = [(-1.0, 1.0), (-2.0, 2.0), (-1.0, 3.0), (-1.0, 3.0)];
+        for (t, (lo, hi)) in th.iter().zip(bounds) {
+            assert!((lo..=hi).contains(t), "{} theta outside its box", r["mode"]);
+        }
+        let curve = tf_arr(r, "c_sigma_curve_ff");
+        assert_eq!(curve.len(), r["n_steps"].as_integer().unwrap() as usize + 1);
+        assert!((curve[0] - c_sigma0).abs() <= 1e-7 * c_sigma0);
+        assert_eq!(tf_arr(r, "beta_curve").len(), curve.len());
+    }
+    let h = &doc["headline"];
+    assert_eq!(h["converged"].as_bool(), Some(true));
+    assert_eq!(
+        h["mode"].as_str(),
+        first_converged,
+        "headline is the first converged run"
+    );
+    let r = claw_run(&doc, h["mode"].as_str().unwrap());
+    assert!(tf(r, "e_c_residual_hz").abs() <= e_tol);
+    assert!(tf(r, "beta_residual_rel").abs() <= b_tol);
+    // The residuals are what the final values imply (both in the problem's
+    // own convention, C_J = 5.5 fF).
+    let c_j = geode_core::mesh::transmon::JUNCTION_CAPACITANCE_F;
+    let e_c = e_c_hz_from_c_sigma(tf(h, "c_sigma_ff") * 1e-15, c_j);
+    assert!((e_c - tf(a, "e_c_target_hz") - tf(r, "e_c_residual_hz")).abs() < 1.0);
+    assert!((tf(h, "beta") / beta0 - 1.0 - tf(r, "beta_residual_rel")).abs() < 1e-6);
+    assert!((tf(h, "c_g_ff") / tf(h, "c_sigma_ff") - tf(h, "beta")).abs() <= 1e-9 * beta0);
+}
+
+/// Re-derive the committed `claw_beta.toml` from the mesh (issue #1037):
+/// the `S` split, the unsplit-vs-split equivalence, `C_g`, `β`, the four
+/// analytic `∂C_g/∂θ_i` against an independent central difference, `θ_C`'s
+/// two-sided budget, and the headline two-target run step by step.
+#[test]
+#[ignore = "release-tier: ~10 gradient/extraction solves + 8 FD extractions + a 10-step two-target run on the 133k-tet fixture (~60 s in release)"]
+fn claw_beta_release() {
+    use geode_core::mesh::ClawSplitSpec;
+    use geode_core::quantum::transmon::TransmonAnchor;
+    use geode_core::shape::transmon_morph::{
+        ClawMorphRoles, ClawMorphSpec, TransmonMorphRoles, TransmonMorphSpec, audit_claw_field,
+        bisect_budget,
+    };
+    use geode_core::shape::transmon_remorph::{
+        MorphFamily, RemorphMode, TransmonCSigmaProblem, fresh_c_sigma, fresh_c_sigma_and_c_g,
+    };
+    use geode_core::shape::{FreeformBoundaryMorph, capacitance_matrix_shape_gradient};
+
+    let doc = claw_beta_toml();
+    let fx = read_transmon_smoke_fixture().expect("load transmon fixture");
+    let base = scaled_mesh(&fx.mesh, M_PER_UNIT);
+    let eps_r = fx.epsilon_r_scalar();
+    let roles =
+        TransmonMorphRoles::identify(&fx, &base, TransmonMorphSpec::fixture_default(M_PER_UNIT))
+            .unwrap();
+
+    // --- 1. The split. ---
+    let split = fx
+        .split_claw_resonator(&ClawSplitSpec::fixture_default(tf(&doc["cut"], "y_cut_um")))
+        .unwrap();
+    assert_eq!(
+        split.nodes.len() as i64,
+        doc["cut"]["n_nodes_s"].as_integer().unwrap()
+    );
+    assert_eq!(
+        split.ground_rest.len() as i64,
+        doc["cut"]["n_nodes_ground_rest"].as_integer().unwrap()
+    );
+    assert_eq!(
+        split.nodes.len() + split.ground_rest.len(),
+        roles.ground.len()
+    );
+    assert!(
+        split
+            .nodes
+            .iter()
+            .all(|n| split.ground_rest.binary_search(n).is_err()),
+        "S and the rest of the ground are disjoint"
+    );
+    assert!(
+        split
+            .nodes
+            .iter()
+            .all(|n| roles.ground.binary_search(n).is_ok()),
+        "S is carved out of the ground"
+    );
+    // S does not hold the island's neighbours: no cutout-edge node of theta_G.
+    assert!(
+        roles
+            .gap_edge
+            .iter()
+            .all(|n| split.nodes.binary_search(n).is_err())
+    );
+    // A cut at or below the seed window is refused rather than silently empty.
+    assert!(
+        fx.split_claw_resonator(&ClawSplitSpec::fixture_default(700.0))
+            .is_err(),
+        "a cut inside the seed window must error"
+    );
+
+    let claw = ClawMorphRoles::identify(
+        &fx,
+        &base,
+        &roles,
+        &split,
+        ClawMorphSpec::fixture_default(M_PER_UNIT),
+    )
+    .unwrap();
+    let pm = &doc["parameterization"];
+    assert_eq!(
+        pm["theta_c_edge_nodes"].as_integer(),
+        Some(claw.claw_edge.len() as i64)
+    );
+    assert_eq!(
+        pm["theta_c_band_nodes"].as_integer(),
+        Some(claw.claw_band.len() as i64)
+    );
+    assert!((tf(pm, "claw_scale_um") - claw.claw_scale / M_PER_UNIT).abs() < 1e-6);
+
+    let island = Electrode {
+        name: "island".into(),
+        nodes: roles.island.clone(),
+        voltage: 1.0,
+    };
+    let feedline = Electrode {
+        name: "feedline".into(),
+        nodes: roles.feedline.clone(),
+        voltage: 0.0,
+    };
+    let c2 = vec![island.clone(), feedline.clone()];
+    let c3 = vec![
+        island,
+        feedline,
+        Electrode {
+            name: "claw".into(),
+            nodes: split.nodes.clone(),
+            voltage: 0.0,
+        },
+    ];
+
+    // --- 2. Equivalence, C_g, beta. ---
+    let g2 = capacitance_matrix_shape_gradient(&base, &eps_r, &c2, &roles.ground).unwrap();
+    let g3 = capacitance_matrix_shape_gradient(&base, &eps_r, &c3, &split.ground_rest).unwrap();
+    assert_eq!(g3.n_factorizations, 1);
+    let (r2, r3) = (
+        g2.floating_reduction(0, &[1]).unwrap(),
+        g3.floating_reduction(0, &[1]).unwrap(),
+    );
+    assert!(
+        (r3.c_sigma - r2.c_sigma).abs() <= 1e-12 * r2.c_sigma,
+        "C_Σ changed by the split"
+    );
+    let phi_scale = g2.phis[0].iter().fold(0.0_f64, |m, x| m.max(x.abs()));
+    let phi_err = g2.phis[0]
+        .iter()
+        .zip(&g3.phis[0])
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0_f64, f64::max);
+    assert!(
+        phi_err <= 1e-12 * phi_scale,
+        "island solution changed by the split"
+    );
+    let fresh2 = fresh_c_sigma(&base, &eps_r, &c2, &roles.ground).unwrap();
+    assert!((fresh2 - r3.c_sigma).abs() <= 1e-9 * fresh2);
+    let st = &doc["start"];
+    let c_g0 = -g3.c[0][2];
+    let beta0 = c_g0 / r3.c_sigma;
+    assert!(
+        (c_g0 * 1e15 - tf(st, "c_g_ff")).abs() < 1e-6,
+        "C_g {}",
+        c_g0 * 1e15
+    );
+    assert!((beta0 - tf(st, "beta")).abs() <= 1e-8 * beta0);
+
+    // --- 3. Fields, gradient, FD. ---
+    let family = MorphFamily::transmon_claw(&roles, &claw);
+    let ff = family.fields(&base, &base, RemorphMode::Fixed).unwrap();
+    assert_eq!(ff.groups, vec![vec![0, 1], vec![2], vec![3]]);
+    let audit = audit_claw_field(&base, &roles, &claw, &ff.fields[3]);
+    assert!(audit.is_clean_claw(), "{audit:?}");
+    let morph = FreeformBoundaryMorph::from_columns(ff.fields.clone()).unwrap();
+    let neg: Vec<[f64; 3]> = g3
+        .grad_node(0, 2)
+        .iter()
+        .map(|g| [-g[0], -g[1], -g[2]])
+        .collect();
+    let dc_g = morph.design_gradient(&neg);
+    let committed = doc["gradient"].as_array().unwrap();
+    for p in 0..4 {
+        let want = tf(&committed[p], "dc_g_dtheta_ff");
+        assert!(
+            (dc_g[p] * 1e15 - want).abs() <= 1e-6 * want.abs(),
+            "param {p}: dC_g {} vs committed {want}",
+            dc_g[p] * 1e15
+        );
+    }
+    let h = 1e-4;
+    for (p, field) in ff.fields.iter().enumerate() {
+        let at = |th: f64| {
+            let moved = apply_node_motion(&base, field, th);
+            assert!(min_tet_volume_ratio(&base, &moved) > 0.0);
+            fresh_c_sigma_and_c_g(&moved, &eps_r, &c3, &split.ground_rest, 2)
+                .unwrap()
+                .1
+        };
+        let fd = (at(h) - at(-h)) / (2.0 * h);
+        let rel = (dc_g[p] - fd).abs() / fd.abs();
+        assert!(rel <= 1e-3, "param {p}: FD rel {rel:.3e}");
+    }
+
+    // --- 4. theta_C's budget. ---
+    let b = &doc["theta_c_budget"];
+    let pos = bisect_budget(&base, &ff.fields[3], 0.25, 1.0, 10.0);
+    let neg = bisect_budget(&base, &ff.fields[3], 0.25, -1.0, 10.0);
+    assert!((pos.theta - tf(b, "safe_pos")).abs() < 1e-5);
+    assert!((neg.theta - tf(b, "safe_neg")).abs() < 1e-5);
+
+    // --- 5. The headline run, step by step. ---
+    let h_doc = &doc["headline"];
+    let mode_label = h_doc["mode"].as_str().unwrap();
+    let mode = match mode_label {
+        "alpha_1" => RemorphMode::Stiffened { alpha: 1.0 },
+        "alpha_2" => RemorphMode::Stiffened { alpha: 2.0 },
+        "alpha_3" => RemorphMode::Stiffened { alpha: 3.0 },
+        "alpha_4" => RemorphMode::Stiffened { alpha: 4.0 },
+        "unit_remorph" => RemorphMode::Unit,
+        "fixed" => RemorphMode::Fixed,
+        other => panic!("unknown mode {other}"),
+    };
+    let o = &doc["optimizer"];
+    let a = &doc["anchor"];
+    let mut prob = TransmonCSigmaProblem::new_with_claw(
+        MorphFamily::transmon_claw(&roles, &claw),
+        mode,
+        base.clone(),
+        eps_r.clone(),
+        c3.clone(),
+        split.ground_rest.clone(),
+        tf(o, "ratio_floor"),
+        tf(o, "ratio_margin"),
+    )
+    .unwrap();
+    let anchor = TransmonAnchor::devicelayout();
+    let e_target = prob.e_c_hz(anchor.c_sigma_farad);
+    assert!((e_target - tf(a, "e_c_target_hz")).abs() < 1e-2);
+    let opts = MultiParamOptions {
+        targets: vec![e_target, beta0],
+        tolerances: vec![tf(a, "e_c_tol_hz"), tf(a, "beta_tol_rel") * beta0],
+        scaling: tf_arr(o, "scaling"),
+        theta0: vec![0.0; 4],
+        theta_bounds: o["theta_bounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| {
+                let b = b.as_array().unwrap();
+                (b[0].as_float().unwrap(), b[1].as_float().unwrap())
+            })
+            .collect(),
+        max_scaled_step: tf(o, "max_scaled_step"),
+        max_steps: o["max_steps"].as_integer().unwrap() as usize,
+        max_constraint_rounds: 12,
+        max_backtracks: 12,
+        min_progress: 1e-4,
+    };
+    let res = optimize_multiparam_bounded(&mut prob, &opts);
+    assert!(res.converged(), "{:?}", res.outcome);
+    let run = claw_run(&doc, mode_label);
+    assert_eq!(
+        res.trajectory.len() as i64,
+        run["n_steps"].as_integer().unwrap() + 1
+    );
+    let curve = tf_arr(run, "c_sigma_curve_ff");
+    for (k, (s, l)) in res.trajectory.iter().zip(&prob.log).enumerate() {
+        assert!(
+            (l.c_sigma * 1e15 - curve[k]).abs() < 1e-5,
+            "step {k}: C_Σ {} vs committed {}",
+            l.c_sigma * 1e15,
+            curve[k]
+        );
+        let fresh = l.c_sigma_fresh.expect("every step confirmed");
+        assert!(
+            (fresh - l.c_sigma).abs() <= 1e-9 * fresh,
+            "step {k} C_Σ fresh"
+        );
+        let fresh_g = l.c_g_fresh.expect("every step confirmed (C_g)");
+        assert!(
+            (fresh_g - l.c_g.unwrap()).abs() <= 1e-9 * fresh_g,
+            "step {k} C_g fresh"
+        );
+        if k > 0 {
+            assert!(s.min_quality_base >= 0.25, "step {k} ratio");
+        }
+    }
+    let last = res.last();
+    assert!(last.residuals[0].abs() <= tf(a, "e_c_tol_hz"));
+    assert!(last.residuals[1].abs() <= tf(a, "beta_tol_rel") * beta0);
+    for (t, c) in last.theta.iter().zip(tf_arr(run, "theta_trace")) {
+        assert!((t - c).abs() < 1e-6, "theta {t} vs committed {c}");
+    }
+}

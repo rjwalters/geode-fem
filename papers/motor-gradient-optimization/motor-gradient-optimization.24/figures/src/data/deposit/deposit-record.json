@@ -1,0 +1,18 @@
+{
+ "archive": "motor-paper-raw-traces.tar.zst",
+ "bytes": 2790582024,
+ "sha256": "1dfbf3883a9f1f3d8ddc44f67ce594b88291ec235a154337d24efa07a1b98b07",
+ "files": {
+  "exp2-main": 5453,
+  "exp2-fd-ablation": 2118,
+  "exp2-fd-warm": 1180,
+  "refinement/exp2-main": 1075,
+  "refinement/exp2-fd-ablation": 451,
+  "refinement/exp2-fd-warm": 427,
+  "refinement/binary-equivalence": 58
+ },
+ "members": 10782,
+ "manifest_sha256": "cc6ac676ac1735d3b32d2a19abbfea03729fcb7eabc927897a829519f5c03417",
+ "uploaded": false,
+ "note": "Deposit-ready; not uploaded. The operator controls deposits."
+}

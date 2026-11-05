@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
 - **Differentiable EDA (Epic #841):** `geode optimize <spec>`, a gradient-based design loop (L-BFGS-B, or MMA with constraints) over the spec's `optimize` section, with a JSONL history, resumable checkpoints, best-so-far spec and mesh, a passivity tripwire, a mesh-quality guard and a final Phase 5a gradient check (#1261, Phase 6b part A). Re-meshing and the waveguide iris golden follow separately.
+- **Floquet ports: higher orders and diffraction** (#1262, Epic #837 Phase 3b). Library only.
+  - Every order that propagates at a port is now a reported TE + TM channel, so a grating with period `> λ` solves and `S` is power-normalized over all propagating orders (`Σ|S_pq|² = 1` for a lossless cell). Evanescent terminations are the rings `max(|m|,|n|) ≤ n_evanescent` beyond that set, and the excluded-ring decay warning is measured from the largest included ring.
+  - New grazing warning above 85° ([`GRAZING_WARN_DEG`]).
+  - `FloquetSolution::propagating_labels` and `FloquetSolution::s_on_labels` map `S` onto a fixed `(port, order, polarization)` label list, with zeros for channels that are not propagating at that frequency, for a fixed-shape S across a sweep.
+  - Goldens in `tests/floquet_ports.rs`: an empty cell with a propagating non-specular order (the Hermitian-pairing pin), a lamellar dielectric grating (orders −1, 0, +1, TE and TM) against a new test-only 1-D RCWA oracle (`tests/common/rcwa1d.rs`, agreement 4e-3), an inductive strip grating against Marcuvitz, the warning thresholds and the fixed-label accessor.
+
+### Changed
+
+- **Breaking (`geode-core` library):** `FloquetError::HigherOrderPropagates` is removed. A non-specular order at cutoff to the numerical floor (`CUTOFF_TOL`) is now `FloquetError::RayleighAnomaly`, with a hint to step the frequency or angle off the anomaly, and maps to `solve_failed`. Propagating orders and orders near cutoff (which only warn, `|k_z|/k < rayleigh_warn`) no longer error.
 
 ## [0.9.0] - 2026-10-26
 
