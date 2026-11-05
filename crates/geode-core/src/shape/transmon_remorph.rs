@@ -50,7 +50,8 @@
 use std::collections::BTreeSet;
 
 use super::transmon_morph::{
-    DirectionalBudget, PARAM_NAMES, TransmonMorphRoles, bisect_budget, prescribed_data,
+    ClawMorphRoles, DirectionalBudget, PARAM_NAMES, PARAM_NAMES_CLAW, TransmonMorphRoles,
+    bisect_budget, claw_prescribed_data, prescribed_data,
 };
 use super::{
     apply_node_motion, capacitance_matrix_shape_gradient, harmonic_dirichlet_velocities,
@@ -160,6 +161,28 @@ impl MorphFamily {
             PARAM_NAMES.iter().map(|s| (*s).to_string()).collect(),
             (0..3).map(|p| roles.zero_set(p)).collect(),
             move |mesh, p| prescribed_data(mesh, &r, p),
+        )
+    }
+
+    /// Phase C's four parameters (issue #1037): Phase A's `theta_L`,
+    /// `theta_W`, `theta_G` and the claw-gap `theta_C`
+    /// ([`super::transmon_morph::ClawMorphRoles`]). `theta_C` has its own
+    /// pinned set, so it costs one more Laplace factorization per iterate.
+    pub fn transmon_claw(roles: &TransmonMorphRoles, claw: &ClawMorphRoles) -> Self {
+        let r = roles.clone();
+        let c = claw.clone();
+        let mut fixed: Vec<Vec<u32>> = (0..3).map(|p| roles.zero_set(p)).collect();
+        fixed.push(claw.zero_set().to_vec());
+        Self::new(
+            PARAM_NAMES_CLAW.iter().map(|s| (*s).to_string()).collect(),
+            fixed,
+            move |mesh, p| {
+                if p < 3 {
+                    prescribed_data(mesh, &r, p)
+                } else {
+                    claw_prescribed_data(mesh, &r, &c)
+                }
+            },
         )
     }
 
@@ -448,6 +471,9 @@ struct Point {
     n_laplace_factorizations: usize,
     c_sigma: f64,
     dc_sigma: Vec<f64>,
+    /// `C_g` (F) and `∂C_g/∂Δθ_i`; `(0, [])` without a claw electrode.
+    c_g: f64,
+    dc_g: Vec<f64>,
 }
 
 /// What [`TransmonCSigmaProblem`] recorded for one accepted iterate.
@@ -461,6 +487,13 @@ pub struct IterateLog {
     pub c_sigma_fresh: Option<f64>,
     /// Laplace factorizations spent building this iterate's fields.
     pub n_laplace_factorizations: usize,
+    /// `C_g = −C_{island,claw}` (F) from the gradient driver's LU, with a
+    /// claw electrode ([`TransmonCSigmaProblem::new_with_claw`]).
+    pub c_g: Option<f64>,
+    /// `∂C_g/∂Δθ_i` (F) at this iterate (empty without a claw electrode).
+    pub dc_g: Vec<f64>,
+    /// `C_g` (F) from the independent fresh extraction, once confirmed.
+    pub c_g_fresh: Option<f64>,
 }
 
 /// The transmon `E_C` design problem: Phase A's three parameters, re-morphed
@@ -480,6 +513,17 @@ pub struct IterateLog {
 ///   `ratio_floor + margin`).
 /// * **Confirmation:** an independent [`assemble_electrostatic`] +
 ///   [`extract_capacitance`] on the accepted mesh.
+///
+/// # Two targets (issue #1037)
+///
+/// [`TransmonCSigmaProblem::new_with_claw`] takes a third, **fictitious**
+/// conductor `S` (the claw plus resonator trace, carved out of the ground
+/// set and held at 0 V like it). The physical island solution is unchanged,
+/// `C_Σ` is unchanged, and the island–`S` Maxwell entry gives
+/// `C_g = −C_{island,S} = −ψ_Sᵀ K φ_island`. The problem then reports two
+/// values, `[E_C/h, β]` with `β = C_g/C_Σ`, and the Jacobian of both, with
+/// `∂C_g/∂Δθ_i = −⟨∇_X C_{island,S}, D_i⟩` exact by the same stationarity
+/// argument as the rest of the matrix (both fields are discrete-harmonic).
 pub struct TransmonCSigmaProblem {
     family: MorphFamily,
     mode: RemorphMode,
@@ -491,6 +535,8 @@ pub struct TransmonCSigmaProblem {
     margin: f64,
     max_violated: usize,
     junction_capacitance: f64,
+    /// Index into `conductors` of the fictitious claw electrode, if any.
+    claw: Option<usize>,
     current: Point,
     pending: Option<(Vec<f64>, Point)>,
     /// One entry per accepted iterate (index 0 is the start).
@@ -525,6 +571,69 @@ impl TransmonCSigmaProblem {
         ratio_floor: f64,
         margin: f64,
     ) -> Result<Self, ElectrostaticError> {
+        Self::new_inner(
+            family,
+            mode,
+            base,
+            eps_r,
+            conductors,
+            ground,
+            ratio_floor,
+            margin,
+            None,
+        )
+    }
+
+    /// The two-target variant: `conductors` is `[island, feedline, claw]`
+    /// (the claw `S` is the **last** conductor, held at 0 V), and `ground` is
+    /// the ground set **without** `S`. Values are `[E_C/h, β = C_g/C_Σ]`.
+    ///
+    /// # Errors
+    ///
+    /// [`ElectrostaticError::ShapeMismatch`] with fewer than two conductors,
+    /// else as [`TransmonCSigmaProblem::new`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_claw(
+        family: MorphFamily,
+        mode: RemorphMode,
+        base: TetMesh,
+        eps_r: Vec<f64>,
+        conductors: Vec<Electrode>,
+        ground: Vec<u32>,
+        ratio_floor: f64,
+        margin: f64,
+    ) -> Result<Self, ElectrostaticError> {
+        if conductors.len() < 2 {
+            return Err(ElectrostaticError::ShapeMismatch(
+                "new_with_claw: conductors must be [island, (feedline,) claw]".to_string(),
+            ));
+        }
+        let claw = Some(conductors.len() - 1);
+        Self::new_inner(
+            family,
+            mode,
+            base,
+            eps_r,
+            conductors,
+            ground,
+            ratio_floor,
+            margin,
+            claw,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_inner(
+        family: MorphFamily,
+        mode: RemorphMode,
+        base: TetMesh,
+        eps_r: Vec<f64>,
+        conductors: Vec<Electrode>,
+        ground: Vec<u32>,
+        ratio_floor: f64,
+        margin: f64,
+        claw: Option<usize>,
+    ) -> Result<Self, ElectrostaticError> {
         let mut s = Self {
             family,
             mode,
@@ -534,6 +643,8 @@ impl TransmonCSigmaProblem {
                 n_laplace_factorizations: 0,
                 c_sigma: 0.0,
                 dc_sigma: Vec::new(),
+                c_g: 0.0,
+                dc_g: Vec::new(),
             },
             base,
             eps_r,
@@ -543,16 +654,12 @@ impl TransmonCSigmaProblem {
             margin,
             max_violated: 6,
             junction_capacitance: crate::mesh::transmon::JUNCTION_CAPACITANCE_F,
+            claw,
             pending: None,
             log: Vec::new(),
         };
         let start = s.point(s.base.clone(), None)?;
-        s.log.push(IterateLog {
-            c_sigma: start.c_sigma,
-            dc_sigma: start.dc_sigma.clone(),
-            c_sigma_fresh: None,
-            n_laplace_factorizations: start.n_laplace_factorizations,
-        });
+        s.log.push(s.log_of(&start));
         s.current = start;
         Ok(s)
     }
@@ -573,16 +680,39 @@ impl TransmonCSigmaProblem {
         };
         let grad =
             capacitance_matrix_shape_gradient(&mesh, &self.eps_r, &self.conductors, &self.ground)?;
-        let floating: Vec<usize> = (1..self.conductors.len()).collect();
+        let floating: Vec<usize> = (1..self.conductors.len())
+            .filter(|&k| Some(k) != self.claw)
+            .collect();
         let red = grad.floating_reduction(0, &floating)?;
         let dc_sigma = fields.iter().map(|d| red.dc_dtheta(d)).collect();
+        let (c_g, dc_g) = match self.claw {
+            Some(k) => (
+                -grad.c[0][k],
+                fields.iter().map(|d| -grad.dc_dtheta(0, k, d)).collect(),
+            ),
+            None => (0.0, Vec::new()),
+        };
         Ok(Point {
             mesh,
             fields,
             n_laplace_factorizations: n_fact,
             c_sigma: red.c_sigma,
             dc_sigma,
+            c_g,
+            dc_g,
         })
+    }
+
+    fn log_of(&self, p: &Point) -> IterateLog {
+        IterateLog {
+            c_sigma: p.c_sigma,
+            dc_sigma: p.dc_sigma.clone(),
+            c_sigma_fresh: None,
+            n_laplace_factorizations: p.n_laplace_factorizations,
+            c_g: self.claw.map(|_| p.c_g),
+            dc_g: p.dc_g.clone(),
+            c_g_fresh: None,
+        }
     }
 
     /// Set the junction self-capacitance `C_J` (F) added to `C_Σ` in
@@ -619,10 +749,21 @@ impl TransmonCSigmaProblem {
 
     fn eval_of(&self, p: &Point) -> MultiEval {
         let de = d_e_c_hz_from_c_sigma_d_c_sigma(p.c_sigma, self.junction_capacitance);
-        MultiEval {
-            values: vec![self.e_c_hz(p.c_sigma)],
-            jacobian: vec![p.dc_sigma.iter().map(|g| de * g).collect()],
+        let mut values = vec![self.e_c_hz(p.c_sigma)];
+        let mut jacobian = vec![p.dc_sigma.iter().map(|g| de * g).collect::<Vec<f64>>()];
+        if self.claw.is_some() {
+            // β = C_g / C_Σ,  dβ = (dC_g − β dC_Σ) / C_Σ.
+            let beta = p.c_g / p.c_sigma;
+            values.push(beta);
+            jacobian.push(
+                p.dc_g
+                    .iter()
+                    .zip(&p.dc_sigma)
+                    .map(|(dg, ds)| (dg - beta * ds) / p.c_sigma)
+                    .collect(),
+            );
         }
+        MultiEval { values, jacobian }
     }
 
     fn trial_mesh(&self, dtheta: &[f64]) -> TetMesh {
@@ -653,6 +794,17 @@ impl TransmonCSigmaProblem {
     /// The scalar-ε `C_Σ` (F) at the current iterate.
     pub fn c_sigma(&self) -> f64 {
         self.current.c_sigma
+    }
+
+    /// `C_g` (F) at the current iterate; `None` without a claw electrode.
+    pub fn c_g(&self) -> Option<f64> {
+        self.claw.map(|_| self.current.c_g)
+    }
+
+    /// `β = C_g / C_Σ` at the current iterate; `None` without a claw
+    /// electrode.
+    pub fn beta(&self) -> Option<f64> {
+        self.claw.map(|_| self.current.c_g / self.current.c_sigma)
     }
 
     /// The re-morph mode.
@@ -732,28 +884,91 @@ impl MultiParamProblem for TransmonCSigmaProblem {
             d, dtheta,
             "accept_step: step differs from the evaluated one"
         );
-        self.log.push(IterateLog {
-            c_sigma: p.c_sigma,
-            dc_sigma: p.dc_sigma.clone(),
-            c_sigma_fresh: None,
-            n_laplace_factorizations: p.n_laplace_factorizations,
-        });
+        let entry = self.log_of(&p);
+        self.log.push(entry);
         self.current = p;
     }
 
     fn confirm(&mut self) -> Option<Vec<f64>> {
-        let c = fresh_c_sigma(
+        let Some(k) = self.claw else {
+            let c = fresh_c_sigma(
+                &self.current.mesh,
+                &self.eps_r,
+                &self.conductors,
+                &self.ground,
+            )
+            .ok()?;
+            if let Some(l) = self.log.last_mut() {
+                l.c_sigma_fresh = Some(c);
+            }
+            return Some(vec![self.e_c_hz(c)]);
+        };
+        let (c, g) = fresh_c_sigma_and_c_g(
             &self.current.mesh,
             &self.eps_r,
             &self.conductors,
             &self.ground,
+            k,
         )
         .ok()?;
         if let Some(l) = self.log.last_mut() {
             l.c_sigma_fresh = Some(c);
+            l.c_g_fresh = Some(g);
         }
-        Some(vec![self.e_c_hz(c)])
+        Some(vec![self.e_c_hz(c), g / c])
     }
+}
+
+/// An independent `(C_Σ, C_g)` on `mesh` for a conductor list
+/// `[island, (feedline,) claw]` with the claw at index `claw` held at 0 V:
+/// re-assemble, [`extract_capacitance`] (its own per-excitation solves),
+/// `C_Σ = C_ii − C_if²/C_ff` over the (at most one) floating feedline and
+/// `C_g = −C_{island,claw}`.
+///
+/// # Errors
+///
+/// Propagates assembly / extraction errors, and
+/// [`ElectrostaticError::ShapeMismatch`] for more than one floating conductor
+/// or a claw index outside `1..conductors.len()`.
+pub fn fresh_c_sigma_and_c_g(
+    mesh: &TetMesh,
+    eps_r: &[f64],
+    conductors: &[Electrode],
+    ground: &[u32],
+    claw: usize,
+) -> Result<(f64, f64), ElectrostaticError> {
+    if claw == 0 || claw >= conductors.len() {
+        return Err(ElectrostaticError::ShapeMismatch(format!(
+            "fresh_c_sigma_and_c_g: claw index {claw} outside 1..{}",
+            conductors.len()
+        )));
+    }
+    let rho = vec![0.0; mesh.n_tets()];
+    let sys = assemble_electrostatic(mesh, eps_r, &rho, conductors, ground)?;
+    let cm = extract_capacitance(&sys, mesh, eps_r, conductors, ground, &[])?;
+    let get = |a: &str, b: &str| {
+        cm.get(a, b).ok_or_else(|| {
+            ElectrostaticError::ShapeMismatch(format!("no capacitance entry ({a}, {b})"))
+        })
+    };
+    let island = &conductors[0].name;
+    let rest: Vec<&Electrode> = conductors
+        .iter()
+        .enumerate()
+        .filter(|(k, _)| *k != 0 && *k != claw)
+        .map(|(_, e)| e)
+        .collect();
+    let c_sigma = match rest.as_slice() {
+        [] => get(island, island)?,
+        [f] => get(island, island)? - get(island, &f.name)?.powi(2) / get(&f.name, &f.name)?,
+        n => {
+            return Err(ElectrostaticError::ShapeMismatch(format!(
+                "fresh_c_sigma_and_c_g: {} floating conductors; only one is supported",
+                n.len()
+            )));
+        }
+    };
+    Ok((c_sigma, -get(island, &conductors[claw].name)?))
 }
 
 /// An independent scalar-ε `C_Σ` on `mesh`: re-assemble, then

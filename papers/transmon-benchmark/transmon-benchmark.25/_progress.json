@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "thread": "transmon-benchmark",
+  "phases": {
+    "revise": {
+      "state": "done",
+      "started": "2026-10-25T00:00:00Z",
+      "completed": "2026-10-25T00:00:00Z"
+    }
+  },
+  "metadata": {
+    "iteration": 25,
+    "max_iterations": 20,
+    "revised_from": 24,
+    "status": "DRAFT",
+    "authorization": "Published-paper v2 text revision (geode-fem#1231): Figure 4 legend and panel (b) title. No number, result, claim scope, title, author, DOI or reference changed and no computation run. No review score or audit is claimed or carried forward.",
+    "source_paper_commit": "8a9d7db2 (main, transmon-benchmark.24 as published)",
+    "scope": "v25 = v24 with Figure 4 relabelled (p = 1 and p = 2 in the legend; panel (b) title 'tensor - scalar' instead of 'gap') and the caption worded to match. main.pdf not built on the revising host (no TeX).",
+    "pending_dependencies": [
+      "independent v23 paper reviews (release gate: both >= 40/44)"
+    ],
+    "evidence_snapshot": {
+      "brief_mtime": null,
+      "refs_mtime": null
+    },
+    "note": "Corresponding-author footnote added to the author block (Robb Walters, robb@2amlogic.com), at the operator's request before the Zenodo v1 publish (geode-fem#1231). The footnote is the only text change; title, authors, affiliations, DOI, numbers, figures, tables and bibliography are unchanged from v23; no computation run."
+  }
+}

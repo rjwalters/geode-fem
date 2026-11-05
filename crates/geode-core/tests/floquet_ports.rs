@@ -19,7 +19,14 @@
 //! 5. **Cross-check against an absorber-terminated cell** at normal
 //!    incidence: matched z-UPML backed by PEC, scattered-field source, an
 //!    independent truncation.
-//! 6. **Rejection** of propagating higher orders (P3b) and of bad specs.
+//! 6. **Propagating higher orders** are solved (P3b, #1262: see the golden 8
+//!    section), the Rayleigh anomaly and bad specs are typed errors.
+//! 8. **Higher orders and diffraction** (issue #1262, Epic #837 Phase 3b):
+//!    the Hermitian-pairing pin (empty cell with a propagating non-specular
+//!    order, before any grating), a lamellar dielectric grating against the
+//!    in-tree 1-D RCWA oracle (`common/rcwa1d.rs`), an inductive strip
+//!    grating against Marcuvitz, the warning thresholds, and the fixed-label
+//!    S accessor.
 //! 7. **Accuracy indicator** (issue #885): the estimated p=1 specular floor
 //!    `C (k h)² k/k_z` against the measured reflection of an empty cell, and
 //!    the resolution warning it raises.
@@ -33,8 +40,9 @@ use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::driven::floquet::{
-    FloquetCell, FloquetCellSpec, FloquetError, FloquetIncidence, FloquetPolarization,
-    FloquetPortSpec, FloquetSettings, FloquetSolution, SPECULAR_FLOOR_COEFF, SPECULAR_FLOOR_WARN,
+    FloquetCell, FloquetCellSpec, FloquetError, FloquetIncidence, FloquetOrder,
+    FloquetPolarization, FloquetPortSpec, FloquetSettings, FloquetSolution, SPECULAR_FLOOR_COEFF,
+    SPECULAR_FLOOR_WARN,
 };
 use geode_core::mesh::TetMesh;
 use geode_core::mesh::periodic::{
@@ -42,7 +50,11 @@ use geode_core::mesh::periodic::{
 };
 use geode_core::testing::TestBackend;
 
+#[path = "common/rcwa1d.rs"]
+mod rcwa1d;
+
 use fixtures::{box_tet_mesh, renumber};
+use rcwa1d::{Rcwa1d, RcwaPol};
 
 type B = TestBackend;
 use FloquetPolarization::{Te, Tm};
@@ -1094,23 +1106,33 @@ fn propagating_higher_orders_and_bad_specs_are_typed_errors() {
         fc.solve_incidence(K0, &FloquetIncidence::degrees(0.0, 0.0, 0))
             .is_ok()
     );
-    match fc.solve_incidence(K0, &FloquetIncidence::degrees(75.0, 0.0, 0)) {
-        Err(e @ FloquetError::HigherOrderPropagates { m: -1, n: 0, .. }) => {
-            let msg = e.to_string();
-            eprintln!("{msg}");
-            assert!(msg.contains("Phase 3b"), "{msg}");
+    // Phase 3b: the (−1, 0) order is a reported channel, not an error, and
+    // the cell stays lossless over all propagating channels.
+    let sol = fc
+        .solve_incidence(K0, &FloquetIncidence::degrees(75.0, 0.0, 0))
+        .expect("a propagating diffraction order is solved");
+    let labels = sol.propagating_labels();
+    for pol in [Te, Tm] {
+        for port in [0, 1] {
+            assert!(
+                labels.contains(&(port, FloquetOrder { m: -1, n: 0 }, pol)),
+                "(−1, 0) {pol:?} at port {port} is a reported channel: {labels:?}"
+            );
         }
-        other => panic!("want HigherOrderPropagates (−1, 0), got {:?}", other.err()),
+    }
+    for j in 0..sol.propagating.len() {
+        assert!((sol.column_power(j) - 1.0).abs() < 1e-9, "column {j}");
     }
     // At the Rayleigh anomaly: |k_t − b₁| = k₀ with the specular order
-    // well inside the light cone.
+    // well inside the light cone. The numerical-floor case is the one hard
+    // failure, with the step-off hint.
     let b1 = 2.0 * PI / 1.5;
     let (kt, k_ray) = (0.5, b1 - 0.5);
     match fc.solve_k_t(k_ray, [kt, 0.0, 0.0]) {
-        Err(FloquetError::HigherOrderPropagates {
-            m: -1, n: 0, state, ..
-        }) => {
-            assert!(state.contains("cutoff"), "{state}");
+        Err(e @ FloquetError::RayleighAnomaly { m: -1, n: 0, .. }) => {
+            let msg = e.to_string();
+            eprintln!("{msg}");
+            assert!(msg.contains("Step the frequency"), "{msg}");
         }
         other => panic!("want the (−1, 0) Rayleigh anomaly, got {:?}", other.err()),
     }
@@ -1353,4 +1375,485 @@ fn bloch_phase_periodic_driven_solve_converges_and_its_adjoint_is_the_transpose(
         }
         prev = e_k;
     }
+}
+
+// --- Golden 8: higher orders and diffraction (#1262, Epic #837 Phase 3b) -----
+
+/// `S` between two labelled propagating channels `(port, m, pol)` (order
+/// `(m, 0)`, the 1-D gratings of this section).
+fn s_lab(
+    sol: &FloquetSolution,
+    out: (usize, i32, FloquetPolarization),
+    inn: (usize, i32, FloquetPolarization),
+) -> c64 {
+    let labels = sol.propagating_labels();
+    let find = |l: (usize, i32, FloquetPolarization)| {
+        labels
+            .iter()
+            .position(|x| *x == (l.0, FloquetOrder { m: l.1, n: 0 }, l.2))
+            .unwrap_or_else(|| panic!("channel {l:?} does not propagate: {labels:?}"))
+    };
+    sol.s[find(out)][find(inn)]
+}
+
+/// The RCWA oracle against itself: energy conservation, the
+/// zero-modulation limit and the `fill = 1` slab against the exact Airy
+/// transfer matrix. (The published Moharam–Gaylord tables were not
+/// reproduced: no copy of them is in the tree, so these three are the
+/// oracle's cross-checks.)
+#[test]
+fn rcwa_oracle_is_self_consistent() {
+    let (k0, d) = (2.0 * PI, 1.5);
+    for (pol, rp) in [(Te, RcwaPol::Te), (Tm, RcwaPol::Tm)] {
+        for theta in [0.0_f64, 25.0] {
+            let th = theta.to_radians();
+            let g = Rcwa1d {
+                period: d,
+                eps_ridge: 2.25,
+                fill: 0.5,
+                x0: 0.375,
+                thickness: 0.4,
+                n_orders: 20,
+            };
+            let res = g.solve(k0, th, rp);
+            assert!(
+                (res.total() - 1.0).abs() < 1e-9,
+                "{pol:?} θ={theta}: Σ(R+T) = {}",
+                res.total()
+            );
+            // No modulation: everything transmits in order 0.
+            let flat = Rcwa1d {
+                eps_ridge: 1.0,
+                ..g
+            }
+            .solve(k0, th, rp);
+            assert!((flat.trans(0) - 1.0).abs() < 1e-9, "{pol:?} flat");
+            // fill = 1: a uniform slab, exact Airy.
+            let slab = Rcwa1d {
+                eps_ridge: 4.0,
+                fill: 1.0,
+                ..g
+            }
+            .solve(k0, th, rp);
+            let (r, t) = tmm(k0, k0 * th.sin(), &[(4.0, 0.4)], pol);
+            assert!((slab.refl(0) - r.norm_sqr()).abs() < 1e-9, "{pol:?} slab R");
+            assert!(
+                (slab.trans(0) - t.norm_sqr()).abs() < 1e-9,
+                "{pol:?} slab T"
+            );
+        }
+    }
+}
+
+/// An empty cell of a lamellar-grating geometry (period `d > λ(1 +
+/// sin θ)⁻¹`): **the Hermitian-port-pairing pin**. With propagating
+/// non-specular orders present, `S₂₁ = e^{−jk_zL}` on the specular order
+/// and every other element is zero. A sign or factor bug in the pairing of
+/// the extra channels shows up here, on the simplest geometry, before any
+/// grating.
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "direct solves are slow in debug; runs in release CI"
+)]
+fn empty_cell_with_propagating_diffraction_orders_is_transparent() {
+    let c = cell([15, 2, 20], [1.5, 0.1, 1.0], 11);
+    let eps = vec![ONE; c.mesh.n_tets()];
+    let fc = floquet(&c, &eps, FloquetSettings::default());
+    for (theta, phi) in [(75.0, 0.0), (75.0, 20.0), (0.0, 0.0)] {
+        let sol = fc
+            .solve_incidence(K0, &FloquetIncidence::degrees(theta, phi, 0))
+            .unwrap();
+        let labels = sol.propagating_labels();
+        let n_prop = labels.len();
+        let want = c64::new(0.0, -K0 * f64::to_radians(theta).cos() * L_CELL).exp();
+        let mut worst_other = 0.0_f64;
+        let mut worst_spec = 0.0_f64;
+        for (i, li) in labels.iter().enumerate() {
+            for (j, lj) in labels.iter().enumerate() {
+                if lj.1 != FloquetOrder::SPECULAR || lj.0 != 0 || lj.2 != Te {
+                    continue; // one incident column: port 0, specular, TE
+                }
+                let s = sol.s[i][j];
+                if li.1 == FloquetOrder::SPECULAR && li.2 == Te && li.0 == 1 {
+                    worst_spec = worst_spec.max((s - want).norm());
+                } else {
+                    worst_other = worst_other.max(s.norm());
+                }
+            }
+        }
+        eprintln!(
+            "empty cell θ={theta}° φ={phi}°: {n_prop} propagating channels, |S21 − e^(−jk_zL)| \
+             {worst_spec:.2e}, worst other element {worst_other:.2e}"
+        );
+        if theta > 60.0 && phi == 0.0 {
+            assert!(
+                labels.iter().any(|l| l.1 == FloquetOrder { m: -1, n: 0 }),
+                "the (−1, 0) order propagates: {labels:?}"
+            );
+        }
+        for j in 0..n_prop {
+            assert!(
+                (sol.column_power(j) - 1.0).abs() < 1e-9,
+                "energy, column {j}"
+            );
+        }
+        assert!(
+            worst_other < EMPTY_OTHER_BAND,
+            "other elements {worst_other}"
+        );
+        assert!(worst_spec < EMPTY_S21_BAND, "S21 {worst_spec}");
+    }
+}
+
+/// Measured in this test's log (λ/25 lateral mesh, `k h` = 0.35): worst
+/// leakage into any other element 3.7e-3, worst `|S₂₁ − e^{−jk_zL}|` 7.5e-3
+/// (75°, φ = 20°), against the p=1 floor `C (k h)² k/k_z` (up to ≈ 0.02 at
+/// 75°). The bands are 2–3× the measurements.
+const EMPTY_OTHER_BAND: f64 = 1e-2;
+const EMPTY_S21_BAND: f64 = 2e-2;
+
+// Lamellar dielectric grating: λ = 1, period 1.5 (orders 0, ±1 propagate at
+// normal incidence, ±2 do not), a ridge of ε = 2.25 over half the period,
+// 0.4 thick, centred in a cell of height 2 (0.8 of vacuum to each port).
+const LAM_K0: f64 = 2.0 * PI;
+const G_PERIOD: f64 = 1.5;
+const G_FILL: f64 = 0.5;
+const G_X0: f64 = 0.375;
+const G_EPS: f64 = 2.25;
+const G_Z1: f64 = 0.8;
+const G_Z2: f64 = 1.2;
+const G_L: f64 = 2.0;
+
+fn grating_eps(c: &Cell) -> Vec<c64> {
+    (0..c.mesh.n_tets())
+        .map(|t| {
+            let p = centroid(&c.mesh, t);
+            let ridge =
+                p[0] > G_X0 && p[0] < G_X0 + G_FILL * G_PERIOD && p[2] > G_Z1 && p[2] < G_Z2;
+            c64::new(if ridge { G_EPS } else { 1.0 }, 0.0)
+        })
+        .collect()
+}
+
+/// `max |η_FEM − η_RCWA|` over orders −1, 0, +1, reflection and
+/// transmission, TE and TM, at one mesh level; also checks energy.
+fn grating_vs_rcwa(nx: usize, nz: usize, verbose: bool) -> f64 {
+    let c = cell([nx, 2, nz], [G_PERIOD, 0.1, G_L], 5);
+    let eps = grating_eps(&c);
+    let fc = floquet(
+        &c,
+        &eps,
+        FloquetSettings {
+            n_evanescent: 2,
+            ..FloquetSettings::default()
+        },
+    );
+    let sol = fc
+        .solve_incidence(LAM_K0, &FloquetIncidence::degrees(0.0, 0.0, 0))
+        .unwrap();
+    assert_eq!(sol.propagating.len(), 12, "3 orders × 2 pol × 2 ports");
+    let oracle = Rcwa1d {
+        period: G_PERIOD,
+        eps_ridge: G_EPS,
+        fill: G_FILL,
+        x0: G_X0,
+        thickness: G_Z2 - G_Z1,
+        n_orders: 20,
+    };
+    let mut worst = 0.0_f64;
+    if verbose {
+        eprintln!("grating nx = {nx}, nz = {nz}: efficiencies FEM / RCWA");
+    }
+    for (pol, rp) in [(Te, RcwaPol::Te), (Tm, RcwaPol::Tm)] {
+        let res = oracle.solve(LAM_K0, 0.0, rp);
+        let mut sum = 0.0;
+        for m in -1..=1 {
+            for (port, name, eta_rcwa) in [(0, "R", res.refl(m)), (1, "T", res.trans(m))] {
+                let eta = s_lab(&sol, (port, m, pol), (0, 0, pol)).norm_sqr();
+                sum += eta;
+                worst = worst.max((eta - eta_rcwa).abs());
+                if verbose {
+                    eprintln!("  {pol:?} {name}[{m:+}]  {eta:.5}  {eta_rcwa:.5}");
+                }
+            }
+        }
+        // Co-polarized orders carry all but the p=1 cross-polarization leak
+        // (2.6e-4 measured at the coarse level) ...
+        assert!((sum - 1.0).abs() < 2e-3, "{pol:?}: Σ over orders {sum}");
+        // ... and the whole column, cross-polarization included, is exact.
+        let j = sol.specular_index(0, pol).unwrap();
+        assert!((sol.column_power(j) - 1.0).abs() < 1e-9);
+    }
+    worst
+}
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "direct solves are slow in debug; runs in release CI"
+)]
+fn lamellar_dielectric_grating_efficiencies_match_the_rcwa_oracle() {
+    let coarse = grating_vs_rcwa(32, 40, true);
+    let fine = grating_vs_rcwa(48, 60, true);
+    eprintln!("max |Δη|: coarse {coarse:.3e}, fine {fine:.3e}");
+    assert!(coarse < GRATING_BAND, "coarse mesh |Δη| {coarse}");
+    assert!(fine < GRATING_BAND, "fine mesh |Δη| {fine}");
+}
+
+/// Band for the grating efficiencies. Measured (see the log): worst
+/// |Δη| 2.7e-3 at λ/16 laterally and 4.1e-3 at λ/24; it does not fall
+/// with `h` here because the error sits at the p=1 floor and moves with
+/// how the two meshes sample the ridge edge. The floor at this mesh is
+/// `C (k h)² k/k_z` with `k h` = 0.44 (the longest port-face edge at the
+/// coarse level), i.e. 0.05·0.19 = 1.0e-2 for an amplitude, so 1e-2 is the
+/// band: 2.4× the measurement and exactly the formula's value.
+const GRATING_BAND: f64 = 1e-2;
+
+// --- Inductive strip grating vs Marcuvitz ------------------------------------
+
+/// Triangles of the mesh in the plane `z = zs` whose centroid has
+/// `x ∈ [xa, xb]`: the PEC strip surface.
+fn strip_triangles(mesh: &TetMesh, zs: f64, xa: f64, xb: f64) -> Vec<[u32; 3]> {
+    let mut out = Vec::new();
+    for tet in &mesh.tets {
+        for skip in 0..4 {
+            let f: Vec<u32> = (0..4).filter(|&i| i != skip).map(|i| tet[i]).collect();
+            let p: Vec<[f64; 3]> = f.iter().map(|&v| mesh.nodes[v as usize]).collect();
+            let cx = (p[0][0] + p[1][0] + p[2][0]) / 3.0;
+            if p.iter().all(|q| (q[2] - zs).abs() < 1e-9) && cx > xa && cx < xb {
+                out.push([f[0], f[1], f[2]]);
+            }
+        }
+    }
+    out
+}
+
+/// Normalized shunt reactance `X/Z₀` of a PEC strip grating (strips of
+/// width `w` along `y`, period `a`, `E ∥ y`, normal incidence), from the
+/// FEM transmission: `|S₂₁|² = 4x²/(1 + 4x²)` for a shunt `jx`.
+fn strip_reactance(n: [usize; 3], a: f64, w: f64, k0: f64) -> (f64, f64) {
+    let c = cell(n, [a, 0.1, 1.0], 9);
+    let tris = strip_triangles(&c.mesh, 0.5, 0.5 * (a - w), 0.5 * (a + w));
+    assert!(!tris.is_empty());
+    let space = geode_core::assembly::hcurl_space::HcurlSpace::build(
+        &c.mesh,
+        geode_core::elements::ElementOrder::P1,
+    );
+    let mask = space.pec_interior_mask(&c.mesh, &[&tris]).unwrap();
+    let eps = vec![ONE; c.mesh.n_tets()];
+    let spec = FloquetCellSpec {
+        eps_r: &eps,
+        sigma: None,
+        pec_interior_mask: Some(&mask),
+        ports: [
+            FloquetPortSpec {
+                triangles: &c.bottom,
+                eps_r: 1.0,
+            },
+            FloquetPortSpec {
+                triangles: &c.top,
+                eps_r: 1.0,
+            },
+        ],
+        settings: FloquetSettings::default(),
+    };
+    let fc = FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).unwrap();
+    let sol = fc
+        .solve_incidence(k0, &FloquetIncidence::degrees(0.0, 0.0, 0))
+        .unwrap();
+    assert_eq!(sol.propagating.len(), 4, "only the specular order (a < λ)");
+    let j = sol.specular_index(0, Te).unwrap();
+    assert!((sol.column_power(j) - 1.0).abs() < 1e-9, "energy");
+    let t = s_spec(&sol, 1, Te, Te).norm();
+    let g = s_spec(&sol, 0, Te, Te).norm();
+    // Two independent reads of the same reactance.
+    let x_t = t / (2.0 * (1.0 - t * t).sqrt());
+    let x_g = (1.0 / (g * g) - 1.0).sqrt() / 2.0;
+    (x_t, x_g)
+}
+
+/// Marcuvitz, Waveguide Handbook §5.21: `X/Z₀ = (a/λ) ln csc(π w/2a)` for
+/// strips of width `w`, period `a`, `E` parallel to the strips. It is a
+/// quasi-static formula (`a ≪ λ`, here `a/λ = 0.2`), so it is expected to
+/// hold within a few percent for `w/a ≲ 0.5` and to degrade as the strips
+/// get wide (`w/a → 1`).
+fn marcuvitz(a: f64, w: f64, k0: f64) -> f64 {
+    let lam = 2.0 * PI / k0;
+    (a / lam) * (1.0 / (PI * w / (2.0 * a)).sin()).ln()
+}
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "direct solves are slow in debug; runs in release CI"
+)]
+fn inductive_strip_grating_matches_marcuvitz() {
+    // a/λ = 0.2 (k₀ = 2.5): quasi-static, only the specular order
+    // propagates. Two levels of the same family: the coarse level is
+    // anisotropic (h_y = 0.05, h_z = 0.042 against h_x = 0.021); the fine
+    // level halves the y and z steps.
+    let a = 0.5;
+    for w in [0.125, 0.25] {
+        let x_m = marcuvitz(a, w, K0);
+        let mut diff = [0.0_f64; 2];
+        for (lvl, n) in [[24, 2, 24], [24, 4, 48]].into_iter().enumerate() {
+            let (x_t, x_g) = strip_reactance(n, a, w, K0);
+            diff[lvl] = x_t / x_m - 1.0;
+            eprintln!(
+                "w/a = {:.2}, mesh {n:?}: X/Z0 FEM {x_t:.4} (S21) {x_g:.4} (S11), Marcuvitz \
+                 {x_m:.4}, rel. diff {:+.1}%",
+                w / a,
+                100.0 * diff[lvl]
+            );
+            assert!(
+                (x_t / x_g - 1.0).abs() < 1e-2,
+                "S21 and S11 must give the same reactance: {x_t} vs {x_g}"
+            );
+        }
+        assert!(
+            diff[1].abs() < STRIP_BAND,
+            "w/a = {}: {:+.3} against Marcuvitz",
+            w / a,
+            diff[1]
+        );
+        assert!(
+            diff[1].abs() < diff[0].abs(),
+            "refining must move the FEM towards Marcuvitz: {diff:?}"
+        );
+    }
+}
+
+/// Relative band against Marcuvitz. Measured (see the log; w/a = 0.25,
+/// a/λ = 0.2): FEM/Marcuvitz − 1 is −12.7% on the anisotropic level,
+/// −7.5% on the fine one, and −5.3% on a third level (8×96 in y and z,
+/// 44 s, not run here), i.e. the reactance converges from below at about
+/// O(h) because the p=1 field cannot resolve the 1/√r current singularity
+/// at the strip edge. Richardson on those three points extrapolates to
+/// ≈ −4%. The band is therefore 10% on the fine level here; the formula
+/// itself is only the leading quasi-static term. It is a few-% match, not a
+/// 1%-match, at affordable meshes.
+const STRIP_BAND: f64 = 0.10;
+
+// --- Warnings: each fires, and stays silent just outside its threshold -------
+
+fn warns(w: &[String], needle: &str) -> bool {
+    w.iter().any(|x| x.contains(needle))
+}
+
+#[test]
+fn rayleigh_grazing_and_decay_warnings_have_sharp_thresholds() {
+    // Rayleigh / Wood: the (−1, 0) order at |κ| = b₁ − k_t, k from the
+    // requested |k_z|/k on both sides of cutoff.
+    let c = cell([4, 4, 4], [1.5, 1.5, 0.5], 3);
+    let eps = vec![ONE; c.mesh.n_tets()];
+    let fc = floquet(&c, &eps, FloquetSettings::default());
+    let (kt, ka) = (0.5, 2.0 * PI / 1.5 - 0.5);
+    for sign in [-1.0_f64, 1.0] {
+        for (rel, want) in [(0.9e-3, true), (1.1e-3, false)] {
+            let k = ka / (1.0 + sign * rel * rel).sqrt();
+            let (_, w) = fc.channels_at(k, [kt, 0.0, 0.0], 0.0).unwrap();
+            assert_eq!(
+                warns(&w, "Rayleigh"),
+                want,
+                "|k_z|/k = {rel:e} (side {sign}): {w:?}"
+            );
+        }
+    }
+    // The hard floor: |k_z|/k = 5e-7 is at the numerical floor, 2e-6 is not.
+    for (rel, floor) in [(5e-7_f64, true), (2e-6, false)] {
+        let r = fc.channels_at(ka / (1.0 - rel * rel).sqrt(), [kt, 0.0, 0.0], 0.0);
+        assert_eq!(
+            matches!(r, Err(FloquetError::RayleighAnomaly { .. })),
+            floor,
+            "|k_z|/k = {rel:e}"
+        );
+    }
+
+    // Grazing: 84.9° is silent, 85.1° warns.
+    for (theta, want) in [(84.9_f64, false), (85.1, true)] {
+        let kt = K0 * theta.to_radians().sin();
+        let (_, w) = fc.channels_at(K0, [kt, 0.0, 0.0], 0.0).unwrap();
+        assert_eq!(warns(&w, "grazing"), want, "θ = {theta}°: {w:?}");
+    }
+
+    // Evanescent decay of the first excluded ring: a dielectric layer 0.4
+    // from each port, period 0.3 (|b| = 2π/0.3), no evanescent ring, so the
+    // excluded orders (±1, 0), (0, ±1) decay as e^{−α·0.4}. Pick k₀ so that
+    // the decay is 0.9e-3 and 1.1e-3.
+    let c = cell([4, 4, 20], [0.3, 0.3, 1.0], 4);
+    let eps: Vec<c64> = (0..c.mesh.n_tets())
+        .map(|t| {
+            let z = centroid(&c.mesh, t)[2];
+            c64::new(if z > 0.4 && z < 0.6 { 2.0 } else { 1.0 }, 0.0)
+        })
+        .collect();
+    let fc = floquet(
+        &c,
+        &eps,
+        FloquetSettings {
+            n_evanescent: 0,
+            ..FloquetSettings::default()
+        },
+    );
+    let b = 2.0 * PI / 0.3;
+    for (decay, want) in [(0.9e-3_f64, false), (1.1e-3, true)] {
+        let alpha = -decay.ln() / 0.4;
+        let k0 = (b * b - alpha * alpha).sqrt();
+        let (_, w) = fc.channels_at(k0, [0.0; 3], 0.0).unwrap();
+        assert_eq!(warns(&w, "first excluded"), want, "decay {decay:e}: {w:?}");
+    }
+}
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "direct solves are slow in debug; runs in release CI"
+)]
+fn fixed_label_s_has_the_same_shape_when_orders_switch_on() {
+    // Period 1.5, normal incidence: only the specular order propagates at
+    // k₀ = 2.5 (λ = 2.51 > 1.5); ±1 switch on by k₀ = 5 (λ = 1.26 < 1.5).
+    let c = cell([8, 2, 8], [1.5, 0.1, 0.5], 3);
+    let eps = vec![ONE; c.mesh.n_tets()];
+    let fc = floquet(&c, &eps, FloquetSettings::default());
+    let inc = FloquetIncidence::degrees(0.0, 0.0, 0);
+    let lo = fc.solve_incidence(2.5, &inc).unwrap();
+    let hi = fc.solve_incidence(5.0, &inc).unwrap();
+    assert_eq!(lo.propagating.len(), 4);
+    assert_eq!(hi.propagating.len(), 12);
+    let mut labels = hi.propagating_labels();
+    for l in lo.propagating_labels() {
+        if !labels.contains(&l) {
+            labels.push(l);
+        }
+    }
+    let (s_lo, s_hi) = (lo.s_on_labels(&labels), hi.s_on_labels(&labels));
+    for s in [&s_lo, &s_hi] {
+        assert_eq!(s.len(), 12);
+        assert!(s.iter().all(|row| row.len() == 12));
+    }
+    let lo_labels = lo.propagating_labels();
+    for (i, li) in labels.iter().enumerate() {
+        for (j, lj) in labels.iter().enumerate() {
+            let on = lo_labels.contains(li) && lo_labels.contains(lj);
+            if !on {
+                assert_eq!(
+                    s_lo[i][j],
+                    c64::new(0.0, 0.0),
+                    "{li:?} ← {lj:?} is off at k₀ = 2.5"
+                );
+            }
+            assert_eq!(s_hi[i][j], hi.s[i][j], "same order of rows");
+        }
+    }
+    // The specular transmission is carried over unchanged.
+    let spec = labels
+        .iter()
+        .position(|l| *l == (1, FloquetOrder::SPECULAR, Te))
+        .unwrap();
+    let inn = labels
+        .iter()
+        .position(|l| *l == (0, FloquetOrder::SPECULAR, Te))
+        .unwrap();
+    assert_eq!(s_lo[spec][inn], lo.s_specular(1, Te, 0, Te).unwrap());
 }

@@ -250,6 +250,44 @@ How these compare:
   harness version (`bccbd309…`). They were re-run with `af907349…` and reproduced the
   oracle errors exactly. Only the re-runs are committed.
 
+## 7. Cost to accuracy and the forward-solve verdict (#1088, increment 2)
+
+`benchmarks/fdtd_density_baseline/meep_s11_vs_resolution.json` indexes every Meep S11 curve
+(v1 and v2, flat and bent) with wall-clock, RSS, ranks, host and a pointer into `meep_runs/`.
+`meep_v2_verify.py --write-index` regenerates it; the default mode recomputes it and requires
+an exact match. No spectrum is copied and no AWS run was made for this section.
+
+Same host type (r8g.8xlarge), initial geometry, bent board. Palace p3 is 2.36597 GHz. The
+GEODE rim extrapolations put the converged dip at 2.37235 to 2.37951 GHz, so Palace p3 is a
+finite-mesh value, not a converged one.
+
+| Solver | Dip (GHz) | vs Palace p3 | Wall-clock | Peak memory | Returns |
+|---|---|---|---|---|---|
+| Meep v2 R2.5 | 2.36673 | +0.76 MHz | 6,903 s | 19.1 GiB | full 1.6-3.0 GHz spectrum |
+| Meep v2 R5 | 2.36111 | -4.86 MHz | 52,858 s | 134.2 GiB | full spectrum |
+| GEODE P1 X1 combined rung (1.74M DOFs, 19 solves) | 2.36595 | -0.02 MHz | 11,019 s | 208.1 GiB | one dip plus the shape gradient |
+
+- **Within 1 MHz of Palace p3:** Meep R2.5 and GEODE X1. Meep R2.5 took 0.63x the time and 0.09x the memory.
+- **Within 5 MHz:** also Meep R5, at 7.7x the time of Meep R2.5.
+- **Against the extrapolated band:** every row is 5.6 MHz (best case) to 18 MHz (worst case) away, so no tolerance
+  of 10 MHz or tighter is established for either solver.
+- **Convergence is not established.** Meep has two bent resolutions, and R5 is farther from Palace p3 than R2.5.
+  GEODE has one cost rung. Two points give no order.
+
+**Verdict (forward solve only; the optimizer comparison is #1090).** The committed data do not show GEODE
+cheaper than Meep for this forward solve. At the one rung with a GEODE cost, Meep R2.5 matches the same
+reference in less time and far less memory, and returns the whole spectrum. The title hypothesis is therefore
+not supported on this evidence, and it is not decided either: the GEODE cost curve has one point, Meep's
+agreement at R2.5 may be partly fortuitous, and the optimized-geometry pair has not been run.
+
+**Optimized geometry: not run.** The E4 dumps are committed under
+`benchmarks/patch_antenna_conformal/geometry/` (`L0_combined_64.json`, `L1_combined_64.json`; the headline
+manufacturable design is `rbD_L1_copper_38_sm45.json`; hashes are pinned in the index). They hold free-form
+outlines (32 outline, 4 corner and 2 feed DOFs). Harness v2 builds a Yee-aligned rectangle from
+`patch_w`, `patch_l` and `probe_inset`, so loading a dump needs a polygon-to-sheet loader and a
+re-verified harness. That is a harness change, which #1088 rules out, and the R5 run alone is about 18 h.
+Running it needs an operator ruling on a harness v3.
+
 ## Spend and teardown
 
 One r8g.8xlarge in us-east-1a (`geode-worker-meep-1146`). us-east-2's 32-vCPU quota was in

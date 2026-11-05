@@ -138,7 +138,9 @@ use geode_core::driven::solve::{
     driven_solve_with_ports,
 };
 use geode_core::elements::ElementOrder;
-use geode_core::mesh::patch::{FR4_MATERIALS, ISM_2G4_BAND_GHZ, PHYS_SUBSTRATE, bend_axis_z};
+use geode_core::mesh::patch::{
+    FR4_MATERIALS, ISM_2G4_BAND_GHZ, PHYS_SUBSTRATE, PatchMaterials, bend_axis_z,
+};
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_fixture_path};
 use geode_core::postproc::ntff::{broadside_directivity, directivity, ntff_far_field};
 use geode_core::shape::conformal_basis::{
@@ -273,6 +275,10 @@ struct Cli {
     /// substrate dielectric loss, radiation efficiency, NTFF directivity and
     /// realized gain.
     radiation: Vec<f64>,
+    /// `--radiation-tan-delta T` (issue #1086, E3 lossless ablation): override the
+    /// substrate loss tangent in the `--radiation` solves and in `p_diel`
+    /// (default: the FR-4 value of [`FR4_MATERIALS`]). `0` is the lossless ablation.
+    radiation_tan_delta: Option<f64>,
     /// `--verify-only` (issue #1126, X1): write the moved mesh (with the
     /// fixture's physical tags) as MSH 2.2 ASCII for the Palace reference.
     write_mesh: Option<PathBuf>,
@@ -350,6 +356,7 @@ fn parse_cli() -> Cli {
         rect4: false,
         freeze_feed_width: false,
         radiation: Vec::new(),
+        radiation_tan_delta: None,
         write_mesh: None,
         gradient_free: None,
         cma_sigma0: 0.5,
@@ -409,6 +416,29 @@ fn parse_cli() -> Cli {
                     .split(',')
                     .map(|v| v.trim().parse().expect("--radiation f1,f2,... (GHz)"))
                     .collect();
+            }
+            "--radiation-dense" => {
+                // LO:HI:N (GHz, N >= 2 evenly spaced points, endpoints included).
+                let v = next(&mut i);
+                let p: Vec<&str> = v.split(':').collect();
+                assert_eq!(p.len(), 3, "--radiation-dense LO:HI:N");
+                let (lo, hi, n): (f64, f64, usize) = (
+                    p[0].parse().expect("LO"),
+                    p[1].parse().expect("HI"),
+                    p[2].parse().expect("N"),
+                );
+                assert!(
+                    n >= 2 && hi > lo,
+                    "--radiation-dense needs N >= 2 and HI > LO"
+                );
+                cli.radiation = (0..n)
+                    .map(|k| lo + (hi - lo) * k as f64 / (n - 1) as f64)
+                    .collect();
+            }
+            "--radiation-tan-delta" => {
+                let t: f64 = next(&mut i).parse().expect("--radiation-tan-delta T");
+                assert!(t >= 0.0, "tan delta must be >= 0");
+                cli.radiation_tan_delta = Some(t);
             }
             "--write-mesh" => cli.write_mesh = Some(PathBuf::from(next(&mut i))),
             "--gradient-free" => {
@@ -1230,7 +1260,7 @@ const NTFF_N_PHI: usize = 72;
 
 impl Model {
     /// P1 power balance and broadside gain at `x` (issue #1126, X3).
-    fn radiation(&self, x: &[f64], freqs: &[f64]) -> Vec<RadRow> {
+    fn radiation(&self, x: &[f64], freqs: &[f64], tan_delta: Option<f64>) -> Vec<RadRow> {
         let mesh = self.moved_mesh(x);
         let bcs = DrivenBcs {
             pec_interior_mask: &self.mask,
@@ -1241,13 +1271,17 @@ impl Model {
         let half: [f64; 3] = std::array::from_fn(|k| 0.5 * (self.air_hi[k] - self.air_lo[k]));
         let flux_lo: [f64; 3] = std::array::from_fn(|k| center[k] - (1.0 - FLUX_SHRINK) * half[k]);
         let flux_hi: [f64; 3] = std::array::from_fn(|k| center[k] + (1.0 - FLUX_SHRINK) * half[k]);
-        let eps_im = FR4_MATERIALS.eps_r_substrate * FR4_MATERIALS.tan_delta_substrate;
+        let materials = PatchMaterials {
+            tan_delta_substrate: tan_delta.unwrap_or(FR4_MATERIALS.tan_delta_substrate),
+            ..FR4_MATERIALS
+        };
+        let eps_im = materials.eps_r_substrate * materials.tan_delta_substrate;
         freqs
             .iter()
             .map(|&f| {
                 let omega = ghz_to_omega_mm(f);
                 let (eps, nu) = self.base.matched_upml_materials(
-                    &FR4_MATERIALS,
+                    &materials,
                     self.air_lo,
                     self.air_hi,
                     self.pml_thick,
@@ -2402,7 +2436,7 @@ fn run_verify(
         Vec::new()
     } else {
         eprintln!("  radiation (P1) at {:?} GHz:", cli.radiation);
-        model.radiation(&x, &cli.radiation)
+        model.radiation(&x, &cli.radiation, cli.radiation_tan_delta)
     };
     let mesh_sha = cli.write_mesh.as_ref().map(|p| {
         write_msh22(p, &model.base, &model.moved_mesh(&x));
@@ -2673,7 +2707,9 @@ fn run_verify(
         let _ = writeln!(
             t,
             "substrate_eps_r = {}\nsubstrate_tan_delta = {}",
-            FR4_MATERIALS.eps_r_substrate, FR4_MATERIALS.tan_delta_substrate
+            FR4_MATERIALS.eps_r_substrate,
+            cli.radiation_tan_delta
+                .unwrap_or(FR4_MATERIALS.tan_delta_substrate)
         );
         t.push('\n');
         for r in &rad {
