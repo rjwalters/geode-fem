@@ -71,6 +71,12 @@
 //!   `∂A_base = −ω²(∂ε)M_R` and the same filled-port chain
 //!   `∂y = k₀²∂ε/(2β)`, with zero extra solves. A direction on a region a
 //!   hybrid port face reads is a typed `Unsupported`.
+//! * **Anisotropic diagonal** ([`EpsDirection::axis`], Phase 2a): `ε_xx`,
+//!   `ε_yy`, `ε_zz` of a region are separate columns, `∂A_base =
+//!   −ω²(∂ε_aa)M_R^{aa}` with `M_R^{aa}` the region mass routed into one
+//!   slot of a [`DrivenMaterials::DiagTensor`] material. The forward may be
+//!   `Scalar` (the isotropic point) or `DiagTensor`; shape columns on a
+//!   `DiagTensor` volume use the tensor Dual kernel (`ν = I`).
 //! * **Filled port** ([`SDesign::port_fill`]): a geometric wave port whose
 //!   [`crate::driven::ports::PortMedium`] follows a design region. With
 //!   `β² = k₀²ε_tμ_t − (μ_t/μ_n)k_c²` and `y = β/μ_t`,
@@ -181,9 +187,13 @@
 //!   and a `port_fill` binding on a hybrid port are
 //!   [`SSensitivityError::InvalidDesign`] (Phase 3b, issue #872; every other
 //!   touched hybrid face is differentiated);
-//! * non-scalar materials ([`DrivenMaterials::DiagTensor`] /
-//!   [`DrivenMaterials::MatchedUpml`]) and anisotropic (`μ ≠ 1`) fills of a
-//!   bound port (Phase 2a); `∂/∂σ` is Phase 2a (σ is allowed in the forward);
+//! * [`DrivenMaterials::MatchedUpml`] volumes (and `μ_xx/yy/zz` columns, which
+//!   need its curl-weight tensor), a [`DrivenMaterials::DiagTensor`] volume
+//!   with a port fill bound to a region, a diagonal-component
+//!   [`EpsDirection::axis`] on a region that fills a port, and anisotropic
+//!   (`μ ≠ 1`) fills of a bound port (Phase 2a; a `DiagTensor` volume with
+//!   `ε_xx/yy/zz` columns and shape columns is differentiated since #1259);
+//!   `∂/∂σ` is Phase 2a (σ is allowed in the forward);
 //!   a dispersive (per-ω `ε(ω)`) volume is not an input here (the network
 //!   takes one fixed scalar `ε`): Phase 2a;
 //! * an element order other than p=1 (the p=2 forward has lumped ports and
@@ -214,7 +224,9 @@ use crate::driven::ports::{
     ChanAt, ChanOrigin, FaceModeSet, HybridWavePort, LumpedPort, WavePort, WavePortSpec,
     assemble_modal_flux, assemble_port_flux, hybrid_port_channel_sweep,
 };
-use crate::driven::shape::{Dual, nedelec_local_dual, wall_face_mass_dual};
+use crate::driven::shape::{
+    Dual, nedelec_local_dual, nedelec_local_dual_tensor, wall_face_mass_dual,
+};
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, DrivenSource,
     ElementOrder, SolverMode, SurfaceImpedanceBc, WallParam, validate_driven_surfaces,
@@ -354,6 +366,11 @@ pub struct EpsDirection {
     pub region: usize,
     /// Display name.
     pub name: String,
+    /// `Some(a)`: the direction acts on the single diagonal component
+    /// `ε_aa` (`a` = 0, 1, 2 for x, y, z) of the region's permittivity
+    /// tensor (anisotropic diagonal, Phase 2a); `None`: isotropic, all
+    /// three components move together.
+    axis: Option<usize>,
     d_eps: std::sync::Arc<dyn Fn(f64) -> c64 + Send + Sync>,
 }
 
@@ -362,6 +379,7 @@ impl std::fmt::Debug for EpsDirection {
         f.debug_struct("EpsDirection")
             .field("region", &self.region)
             .field("name", &self.name)
+            .field("axis", &self.axis)
             .finish_non_exhaustive()
     }
 }
@@ -376,8 +394,34 @@ impl EpsDirection {
         Self {
             region,
             name: name.into(),
+            axis: None,
             d_eps: std::sync::Arc::new(d_eps),
         }
+    }
+
+    /// A direction on the single diagonal component `ε_aa` of a region's
+    /// permittivity tensor (`axis` = 0, 1, 2 for x, y, z; Epic #841 Phase 2a).
+    /// `ε_xx/yy/zz` of the region are separate parameters: the contraction is
+    /// `−ω²·(∂ε_aa/∂θ)·M_R^{aa}` with `M_R^{aa}` the region mass of the
+    /// `a`-th Cartesian component, still zero extra solves. The forward
+    /// materials must be [`DrivenMaterials::Scalar`] (the isotropic point) or
+    /// [`DrivenMaterials::DiagTensor`]; the derivative is taken at the
+    /// forward's own ε.
+    pub fn axis(
+        region: usize,
+        name: impl Into<String>,
+        axis: usize,
+        d_eps: impl Fn(f64) -> c64 + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            axis: Some(axis),
+            ..Self::new(region, name, d_eps)
+        }
+    }
+
+    /// The diagonal component this direction acts on (`None`: isotropic).
+    pub fn axis_index(&self) -> Option<usize> {
+        self.axis
     }
 
     /// `tan δ` of a region at **fixed `ε′`**: `ε = ε′(1 − j tan δ)`, so
@@ -511,6 +555,12 @@ impl MaterialDesign {
                 d.name,
                 d.region,
                 self.names.len()
+            )));
+        }
+        if let Some(d) = directions.iter().find(|d| d.axis.is_some_and(|a| a > 2)) {
+            return Err(SSensitivityError::InvalidDesign(format!(
+                "material parameter `{}` names diagonal component {:?}; expected 0, 1 or 2",
+                d.name, d.axis
             )));
         }
         self.directions = directions;
@@ -1520,7 +1570,13 @@ struct Prepared<'n> {
     port_mode_counts: Vec<usize>,
     params: Vec<SParam>,
     eps: Vec<c64>,
+    /// Per-tet diagonal ε of a [`DrivenMaterials::DiagTensor`] forward
+    /// (`eps` is then empty and every scalar-ε use is fenced).
+    eps_diag: Option<Vec<[c64; 3]>>,
     region_masses: Vec<RegionMass>,
+    /// `[region][axis]` masses of the single-component directions
+    /// (empty when no direction names an axis).
+    axis_masses: Vec<[Option<RegionMass>; 3]>,
     directions: Vec<EpsDirection>,
     /// Interior-remapped `S_Γ` triplets of every impedance wall that has a
     /// wall-parameter column (`None` for the others).
@@ -1869,12 +1925,16 @@ impl<'n> Prepared<'n> {
                 "use an ElementOrder::P1 space",
             ));
         }
-        let DrivenMaterials::Scalar(eps) = net.materials else {
-            return Err(unsupported(
-                "non-scalar (DiagTensor / MatchedUpml) volume materials",
-                PHASE_2A,
-                "use DrivenMaterials::Scalar",
-            ));
+        let (eps, eps_diag): (&[c64], Option<&[[c64; 3]]>) = match net.materials {
+            DrivenMaterials::Scalar(eps) => (eps, None),
+            DrivenMaterials::DiagTensor(d) => (&[], Some(d)),
+            DrivenMaterials::MatchedUpml { .. } => {
+                return Err(unsupported(
+                    "MatchedUpml volume materials",
+                    PHASE_2A,
+                    "use DrivenMaterials::Scalar or DiagTensor",
+                ));
+            }
         };
         if net.lumped.is_empty() && net.wave.is_empty() {
             return Err(DrivenError::InvalidPort {
@@ -2159,6 +2219,30 @@ impl<'n> Prepared<'n> {
                                     m.n_regions()
                                 )));
                             }
+                            if let Some(d) = m
+                                .directions
+                                .iter()
+                                .find(|d| d.region == r && d.axis.is_some())
+                            {
+                                return Err(unsupported(
+                                    format!(
+                                        "diagonal-component direction `{}` on the region bound \
+                                         to wave port {p}",
+                                        d.name
+                                    ),
+                                    PHASE_2A,
+                                    "the port medium is a scalar ε_t; use an isotropic \
+                                     direction for a region that fills a port",
+                                ));
+                            }
+                            if eps_diag.is_some() {
+                                return Err(unsupported(
+                                    format!("bound wave port {p} on a DiagTensor volume"),
+                                    PHASE_2A,
+                                    "the bound port medium is a scalar ε; use \
+                                     DrivenMaterials::Scalar when binding a port fill",
+                                ));
+                            }
                             if port.medium.mu_t != 1.0 || port.medium.mu_n != 1.0 {
                                 return Err(unsupported(
                                     format!(
@@ -2256,6 +2340,53 @@ impl<'n> Prepared<'n> {
             }
         }
 
+        // Single-component (ε_xx / ε_yy / ε_zz) masses: the region indicator
+        // routed into one slot of a DiagTensor material, assembled through
+        // the same operator path as the isotropic region mass.
+        let mut axis_masses: Vec<[Option<RegionMass>; 3]> = Vec::new();
+        if let Some(m) = material
+            && m.directions.iter().any(|d| d.axis.is_some())
+        {
+            axis_masses = (0..m.n_regions()).map(|_| [None, None, None]).collect();
+            let mut wanted = vec![[false; 3]; m.n_regions()];
+            for d in &m.directions {
+                if let Some(a) = d.axis {
+                    wanted[d.region][a] = true;
+                }
+            }
+            for (r, want) in wanted.iter().enumerate() {
+                for (a, _) in want.iter().enumerate().filter(|(_, w)| **w) {
+                    let ind: Vec<[c64; 3]> = m
+                        .region_of_tet
+                        .iter()
+                        .map(|&t| {
+                            let mut v = [zero; 3];
+                            if t == Some(r) {
+                                v[a] = c64::new(1.0, 0.0);
+                            }
+                            v
+                        })
+                        .collect();
+                    let op_r = DrivenOperator::assemble_with_space::<B>(
+                        net.space,
+                        mesh,
+                        DrivenMaterials::DiagTensor(&ind),
+                        None,
+                        net.bcs,
+                        &[],
+                        &[],
+                        DrivenSource::Constant(&zero_source),
+                        device,
+                    )?;
+                    axis_masses[r][a] = Some(RegionMass {
+                        rows: op_r.rows().to_vec(),
+                        cols: op_r.cols().to_vec(),
+                        vals: op_r.m_vals().to_vec(),
+                    });
+                }
+            }
+        }
+
         let mut wall_masses: Vec<Option<Vec<(usize, usize, f64)>>> = vec![None; net.surfaces.len()];
         for &(wall, _) in &design.wall_params {
             if wall_masses[wall].is_none() {
@@ -2311,7 +2442,9 @@ impl<'n> Prepared<'n> {
             port_mode_counts,
             params,
             eps: eps.to_vec(),
+            eps_diag: eps_diag.map(<[_]>::to_vec),
             region_masses,
+            axis_masses,
             directions: material.map(|m| m.directions.clone()).unwrap_or_default(),
             wall_masses,
             shape,
@@ -3069,6 +3202,28 @@ impl<'n> Prepared<'n> {
             }
             mass_z.push(z);
         }
+        let mut axis_z: HashMap<(usize, usize), Vec<c64>> = HashMap::new();
+        for d in &self.directions {
+            let Some(a) = d.axis else { continue };
+            if axis_z.contains_key(&(d.region, a)) {
+                continue;
+            }
+            let rm = self.axis_masses[d.region][a]
+                .as_ref()
+                .expect("axis mass prepared for every axis direction");
+            let z = lefts
+                .iter()
+                .zip(rights)
+                .map(|(l, r)| {
+                    let mut mr = vec![zero; n_int];
+                    for ((&row, &col), &v) in rm.rows.iter().zip(&rm.cols).zip(&rm.vals) {
+                        mr[row] += v * r[col];
+                    }
+                    dot_t(l, &mr)
+                })
+                .collect();
+            axis_z.insert((d.region, a), z);
+        }
         for (i, prm) in self.params.iter().enumerate() {
             match *prm {
                 SParam::EpsPrime { region } => {
@@ -3095,7 +3250,11 @@ impl<'n> Prepared<'n> {
                 SParam::EpsDirection { column } => {
                     let d = &self.directions[column];
                     let scale = d.at(omega) * (-omega2);
-                    for (o, &z) in out[i].iter_mut().zip(&mass_z[d.region]) {
+                    let zs = match d.axis {
+                        Some(a) => &axis_z[&(d.region, a)],
+                        None => &mass_z[d.region],
+                    };
+                    for (o, &z) in out[i].iter_mut().zip(zs) {
                         *o = z * scale;
                     }
                 }
@@ -3158,9 +3317,11 @@ impl<'n> Prepared<'n> {
                     .map(|r| std::array::from_fn(|i| r[gidx[i] as usize] * (gsign[i] as f64)))
                     .collect();
                 let base: [[f64; 3]; 4] = std::array::from_fn(|v| mesh.nodes[tet[v] as usize]);
-                let eps_t = self.eps[t];
                 let sig_t = sigma.map_or(0.0, |s| s[t]);
+                let eps_t = self.eps.get(t).copied().unwrap_or(zero);
                 let mass_coeff = eps_t * (-omega2) + iomega * sig_t;
+                // DiagTensor forward: ε = diag(ε_x, ε_y, ε_z), ν = I.
+                let diag_t = self.eps_diag.as_ref().map(|d| d[t]);
                 for a in 0..4 {
                     let node = tet[a] as usize;
                     if !sh.moving[node] {
@@ -3173,11 +3334,37 @@ impl<'n> Prepared<'n> {
                         let mut dc = base.map(|v| v.map(Dual::cst));
                         dc[a][axis] = Dual::var(base[a][axis]);
                         let (dk, dm, _) = nedelec_local_dual(&dc);
-                        let da: [[c64; 6]; 6] = std::array::from_fn(|i| {
-                            std::array::from_fn(|jj| {
-                                c64::new(dk[i][jj].du, 0.0) + mass_coeff * dm[i][jj].du
+                        let da: [[c64; 6]; 6] = if let Some(d) = diag_t {
+                            // ε-mass from the tensor Dual kernel (ν = I, so
+                            // the curl-curl part is the scalar one); the σ
+                            // damping keeps the unit mass.
+                            let w_nu = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+                            let zero_w = [[0.0; 3]; 3];
+                            let diag = |f: fn(c64) -> f64| {
+                                [
+                                    [f(d[0]), 0.0, 0.0],
+                                    [0.0, f(d[1]), 0.0],
+                                    [0.0, 0.0, f(d[2])],
+                                ]
+                            };
+                            let (_, dm_re) = nedelec_local_dual_tensor(&dc, &w_nu, &diag(|z| z.re));
+                            let (_, dm_im) =
+                                nedelec_local_dual_tensor(&dc, &zero_w, &diag(|z| z.im));
+                            std::array::from_fn(|i| {
+                                std::array::from_fn(|jj| {
+                                    let dme = c64::new(dm_re[i][jj].du, dm_im[i][jj].du);
+                                    c64::new(dk[i][jj].du, 0.0)
+                                        + dme * (-omega2)
+                                        + iomega * sig_t * dm[i][jj].du
+                                })
                             })
-                        });
+                        } else {
+                            std::array::from_fn(|i| {
+                                std::array::from_fn(|jj| {
+                                    c64::new(dk[i][jj].du, 0.0) + mass_coeff * dm[i][jj].du
+                                })
+                            })
+                        };
                         let vals: Vec<c64> = (0..n_pairs)
                             .map(|q| {
                                 let (l, r) = (&l_loc[q], &r_loc[q]);

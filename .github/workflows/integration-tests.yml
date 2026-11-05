@@ -122,6 +122,7 @@ jobs:
               --test derham_gradient_kernel \
               --test driven_manufactured \
               --test driven_p1_bit_identity \
+              --test driven_p1_diag_tensor_shape \
               --test driven_p2_adjoint \
               --test driven_p2_convergence \
               --test driven_p2_operator \
@@ -214,6 +215,7 @@ jobs:
               --test derham_gradient_kernel \
               --test driven_manufactured \
               --test driven_p1_bit_identity \
+              --test driven_p1_diag_tensor_shape \
               --test driven_p2_adjoint \
               --test driven_p2_convergence \
               --test driven_p2_operator \

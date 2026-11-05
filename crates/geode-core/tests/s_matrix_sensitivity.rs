@@ -999,6 +999,125 @@ fn tan_delta_and_complex_directions_match_fd() {
     }
 }
 
+/// **Phase 2a (#1259): anisotropic diagonal `ε_xx/yy/zz`.** The mixed
+/// fixture (lumped sheet + two-mode lossy wave port) on a genuinely
+/// anisotropic [`DrivenMaterials::DiagTensor`] block: the per-component
+/// direction columns, the isotropic `ε′`/`ε″` columns (sum of the three
+/// components) and both shape columns (the tensor Dual kernel) against a
+/// central FD of the public mixed forward with the same DiagTensor.
+#[test]
+fn anisotropic_diagonal_components_match_fd() {
+    let m = mixed_fixture();
+    let aniso = [c64::new(0.0, 0.0), c64::new(0.4, 0.0), c64::new(-0.3, 0.0)];
+    let diag0: Vec<[c64; 3]> = m
+        .eps
+        .iter()
+        .zip(&m.regions)
+        .map(|(&e, r)| {
+            if r.is_some() {
+                [e + aniso[0], e + aniso[1], e + aniso[2]]
+            } else {
+                [e; 3]
+            }
+        })
+        .collect();
+    let mask = m.g.pec_interior_mask();
+    let bcs = DrivenBcs {
+        pec_interior_mask: &mask,
+    };
+    let space = HcurlSpace::build(&m.g.mesh, ElementOrder::P1);
+    let lumped = [sheet(&m.g.port2_faces, 0.3, c64::new(0.5, 0.5))];
+    let wave = [WavePortSpec::from(m.wave.clone())];
+    let net = SNetwork {
+        space: &space,
+        mesh: &m.g.mesh,
+        materials: DrivenMaterials::DiagTensor(&diag0),
+        sigma_tet: None,
+        bcs: &bcs,
+        lumped: &lumped,
+        wave: &wave,
+        surfaces: &[],
+    };
+    let dirs = vec![
+        EpsDirection::axis(0, "eps_xx", 0, |_| c64::new(1.0, 0.0)),
+        EpsDirection::axis(0, "eps_yy", 1, |_| c64::new(1.0, 0.0)),
+        EpsDirection::axis(0, "eps_zz", 2, |_| c64::new(1.0, 0.0)),
+        EpsDirection::axis(0, "eps_zz_loss", 2, |_| c64::new(0.0, -1.0)),
+    ];
+    let design = SDesign {
+        material: Some(
+            MaterialDesign::from_regions(m.regions.clone(), vec!["block".into()])
+                .unwrap()
+                .with_directions(dirs)
+                .unwrap(),
+        ),
+        shape: Some(m.shape.clone()),
+        port_fill: vec![None],
+        wall_params: vec![],
+    };
+    let omegas = [2.1, 2.5];
+    let sw = s_matrix_sensitivity_sweep::<B>(&net, &omegas, &design, &opts(), &device())
+        .expect("anisotropic sensitivity");
+    assert_eq!(sw.params.len(), 2 + 4 + 2);
+    let errs = fd_check("anisotropic DiagTensor block", &sw, |prm, h| {
+        let mesh = shift_mesh(&m.g.mesh, Some(&m.shape), prm, h);
+        let d: [c64; 3] = match prm {
+            SParam::EpsPrime { .. } => [c64::new(h, 0.0); 3],
+            SParam::EpsDoublePrime { .. } => [c64::new(0.0, -h); 3],
+            SParam::EpsDirection { column } => {
+                let mut d = [c64::new(0.0, 0.0); 3];
+                match column {
+                    0 => d[0] = c64::new(h, 0.0),
+                    1 => d[1] = c64::new(h, 0.0),
+                    2 => d[2] = c64::new(h, 0.0),
+                    _ => d[2] = c64::new(0.0, -h),
+                }
+                d
+            }
+            _ => [c64::new(0.0, 0.0); 3],
+        };
+        let diag: Vec<[c64; 3]> = diag0
+            .iter()
+            .zip(&m.regions)
+            .map(|(&e, r)| {
+                if r.is_some() {
+                    [e[0] + d[0], e[1] + d[1], e[2] + d[2]]
+                } else {
+                    e
+                }
+            })
+            .collect();
+        solve_mixed_port_sweep_with_mode::<B>(
+            &mesh,
+            DrivenMaterials::DiagTensor(&diag),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &mask,
+            },
+            &lumped,
+            std::slice::from_ref(&m.wave),
+            &[],
+            &omegas,
+            SolverMode::Direct,
+            &device(),
+        )
+        .expect("anisotropic forward")
+        .into_iter()
+        .map(|p| p.s)
+        .collect()
+    });
+    for e in errs {
+        assert!(e <= TOL, "rel_err {e}");
+    }
+    // The isotropic ε′ column is the sum of the three component columns.
+    for pt in &sw.points {
+        let sum: Vec<c64> = (0..pt.ds[0].len())
+            .map(|k| pt.ds[2][k] + pt.ds[3][k] + pt.ds[4][k])
+            .collect();
+        assert!(rel_err(&pt.ds[0], &sum) < 1e-9);
+    }
+}
+
 /// Mutation tripwires (a) drop `∂y_c`, (c) drop `∂d_p`, (d) drop `∂w_qp`:
 /// each must miss FD by at least 10× the tolerance.
 #[test]
@@ -1765,13 +1884,32 @@ fn scope_fences_are_loud_typed_errors() {
     // Moving an impedance-wall node is supported since Epic #841 Phase 2b
     // (issue #1328): see `moving_leontovich_wall_matches_fd`.
 
-    // Non-scalar materials: Phase 2a.
+    // DiagTensor volumes are differentiated since #1259, but a port medium
+    // bound to a region is a scalar ε_t: that stays fenced. MatchedUpml too.
     let diag = vec![[c64::new(1.0, 0.0); 3]; mesh.n_tets()];
     let net_d = SNetwork {
         materials: DrivenMaterials::DiagTensor(&diag),
         ..net
     };
-    expect_unsupported(run(&net_d, &material, &opts()), "Phase 2a");
+    let bound_diag = SDesign {
+        material: Some(
+            MaterialDesign::from_regions(vec![Some(0); mesh.n_tets()], vec!["all".into()]).unwrap(),
+        ),
+        shape: None,
+        port_fill: vec![Some(0), None],
+        wall_params: vec![],
+    };
+    expect_unsupported(run(&net_d, &bound_diag, &opts()), "Phase 2a");
+    let eye = [[c64::new(1.0, 0.0), c64::new(0.0, 0.0), c64::new(0.0, 0.0)]; 3];
+    let upml = vec![eye; mesh.n_tets()];
+    let net_u = SNetwork {
+        materials: DrivenMaterials::MatchedUpml {
+            epsilon_tensor: &upml,
+            nu_tensor: &upml,
+        },
+        ..net
+    };
+    expect_unsupported(run(&net_u, &material, &opts()), "Phase 2a");
 
     // A bound port with a magnetic fill: Phase 2a.
     let fill_regions: Vec<Option<usize>> = (0..mesh.n_tets())
