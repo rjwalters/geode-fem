@@ -2707,6 +2707,20 @@ impl DrivenOperator {
         v * (1.0 / p.width)
     }
 
+    /// The linear functional of [`DrivenOperator::port_voltage`] as a
+    /// weight vector: `V_port = wᵀ E` with `w = flux / width`, full-length
+    /// (`n_dofs`). This is `∂V/∂E`, the right-hand side of the adjoint
+    /// problem of a port-voltage / S-parameter goal
+    /// ([`crate::adapt::goal::SParamGoal`]).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `port ≥ self.n_ports()`.
+    pub fn port_voltage_weights(&self, port: usize) -> Vec<c64> {
+        let p = &self.ports[port];
+        p.flux.iter().map(|&f| c64::new(f / p.width, 0.0)).collect()
+    }
+
     /// Port current from the Thevenin admittance relation
     /// `I = (2 V_inc − V) / R` of port `port` — identical to
     /// [`crate::driven::ports::port_current`], using the port's **baked**
