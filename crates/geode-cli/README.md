@@ -2961,10 +2961,16 @@ geode mesh layout.json --analysis capacitance --mesh-out m.msh --spec-out s.json
 `mesh_cmd::stackup::parse` reads an XML layer stackup (named materials plus a
 z-ordered layer list; see `tests/fixtures/stackup_example.xml` and the module
 docs) into dielectric layers (z, thickness, ε) and conductor layers (z,
-thickness, σ), with one named `StackupError` per failure class. It is a
-library function for now; wiring it into `geode mesh` is a follow-up. The
-element names are this crate's own, written from the shape of the public
-gds2palace stackup format; no gds2palace file or code is vendored (GPL-3.0).
+thickness, σ), with one named `StackupError` per failure class.
+`geode mesh layout.json --stackup stackup.xml` fills what the layout omits
+from it (values the layout states win): `dielectrics` when absent or empty,
+and for conductors matched by `name` the `z_bottom`, `thickness` and
+`conductivity_s_m`. Stackup z values are converted to the layout's
+`length_unit_m`. The element names are this crate's own, written from the
+shape of the public gds2palace stackup format and only partly cross-checked
+against it (a separate `Dielectrics` block, `ELayers` and `schemaVersion`
+appear in public examples and are not read); no gds2palace file or code is
+vendored (GPL-3.0).
 
 
 ## Report, schema v1
