@@ -279,6 +279,7 @@ fn fd(s: &Setup, param: SParam, k_t: [f64; 3]) -> Vec<Vec<c64>> {
                     }
                 }
             }
+            SParam::Wall { .. } => unreachable!("Floquet cells have no impedance walls"),
         }
         s_of(&s.c, &mesh, &eps, k_t)
     };

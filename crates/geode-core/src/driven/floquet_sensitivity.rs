@@ -617,7 +617,9 @@ impl<'a> Prepared<'a> {
                             *o = zz * c64::new(0.0, omega2);
                         }
                     }
-                    SParam::Shape { .. } => {}
+                    // Floquet cells have no impedance walls; shape derivatives are
+                    // handled elsewhere.
+                    SParam::Shape { .. } | SParam::Wall { .. } => {}
                 }
             }
         }
