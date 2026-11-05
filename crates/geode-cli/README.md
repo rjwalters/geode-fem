@@ -1527,8 +1527,8 @@ lumped-port spec whose parameters are all `eps_r` and that has no
 - **Typed rejections.** Besides the section rules above, the library's
   fences surface as `invalid_spec` naming what would lift them: a shape
   parameter moving a geometric wave-port face (its modes are fixed
-  profiles), a lumped-port face (N-port moving feeds) or an impedance wall
-  (Phase 2b); a hybrid face bent out of its plane; an exactly degenerate
+  profiles) or a lumped-port face (N-port moving feeds) — an impedance
+  wall (Leontovich) may move since Epic #841 Phase 2b; a hybrid face bent out of its plane; an exactly degenerate
   face-mode cluster (e.g. the even / odd TEM pair of a symmetric coupled
   line) whose face a parameter touches — a per-channel gradient is
   basis-dependent there; a mesh-induced complex-pair channel. The CLI has
@@ -2582,6 +2582,31 @@ the layouts above. Both require `--spice`.
   Within each group of coupled paths the lowest-numbered path is never
   flipped, so the choice is deterministic.
 
+## Element order (`element_order`, issue #1265)
+
+`element_order` selects the Nédélec space: `1` (default, `n_edges` DOFs) or
+`2` (`2·n_edges + 2·n_faces` DOFs; hierarchical, more accurate on a coarser
+mesh). Omitting it or writing `1` gives output identical to before. Any
+other value (`3`, `"2"`) is a `spec_parse` error naming the field.
+
+Order 2 runs for **`eigen`** specs (lossless and lossy, isotropic or
+diagonal-anisotropic) and **`driven`** specs with lumped ports, the direct
+solver and a dense sweep. Everything else is rejected with `invalid_spec`
+naming the feature, never solved at order 1: `extract`, `capacitance`,
+`inductance`, `wave_ports` (hybrid ports need #836 Phase 3b), `sensitivity`
+(Phase 4), `absorbing_regions`, dispersive materials, `solver.mode =
+"iterative"` (matrix-free / AMS), `sweep.adaptive` and `--outdir`. The
+single support table is `problem::p2_support` / `validate_element_order`.
+
+The report's `mesh` block records `element_order` and `n_dofs` (global DOFs
+before PEC elimination); `n_interior` is the order-2 system size. At order 2
+`geode check` adds `resources.order_comparison`: exact order-2 `n_dofs` and
+`nnz` (from the DOF tables, no assembly), the DOF / nnz / memory ratios
+against order 1 on the same mesh, and `fits_direct_lu` with a plain verdict
+(direct LU runs out of memory near 1M DOF). Memory reuses the order-1
+anchor linear in `nnz`; there is **no order-2 anchor measurement yet**, so
+`peak_memory_confidence` stays `"order_of_magnitude"`.
+
 ## Resource estimate (`geode check`, issue #703)
 
 `geode check` reports a `resources` block so an agent can pick mesh and
@@ -2672,7 +2697,7 @@ operator, plus two V-cycles (Re / Im) per iteration.
 geode mesh <layout.json|layout.toml> [--analysis driven|capacitance|inductance] [--mesh-out mesh.msh] [--spec-out spec.json] [--gmsh PATH] [--gmsh-timeout SECONDS] [-o report.json]
 ```
 
-`geode mesh` turns a **layout** — 2-D rectilinear polygons per conductor
+`geode mesh` turns a **layout** — 2-D polygons (axis-parallel and ±45° edges, holes allowed) per conductor
 layer plus a layer stack — into a solver-ready tagged mesh, so an EDA
 flow (e.g. klayout-tools reading GDS, which geode deliberately does not
 parse) does not need a hand-built `.msh`:
@@ -2895,8 +2920,8 @@ the m1 underpass and the vias):
 | `conductors[].polygons[]` | ≥ 1 | shapes of the layer |
 | `….polygons[].name` | name, optional | unique within the layer; referenced by `ports[].between` |
 | `….polygons[].net` | name, optional | puts the polygon in the conductor group named after the net (any layer) instead of the layer's group; net names share the group namespace |
-| `….polygons[].outer` | `[[x, y], …]` | simple **rectilinear** ring (every edge parallel to x or y), ≥ 4 vertices, either orientation, closing vertex optional |
-| `….polygons[].holes` | must be empty | accepted by the schema, rejected in v1 |
+| `….polygons[].outer` | `[[x, y], …]` | simple ring, ≥ 3 vertices, every edge parallel to x or y or at ±45°, either orientation, closing vertex optional. A rectilinear ring without holes is decomposed into rectangles exactly as before; any other polygon is meshed as one polygon extrusion (sheet: one planar surface) |
+| `….polygons[].holes` | list of rings, default `[]` | interior rings with the same edge rules; each must lie strictly inside `outer` and clear of the other holes, and must not meet the footprint of a same-net polygon on a layer whose z-range touches the polygon's (a via must land on metal). Errors name the conductor and polygon |
 | `conductors[].mesh_size` | length > 0, optional | per-layer target size (default `mesh.size_conductor`) |
 | `ports[]` | ≥ 1 for `--analysis driven`, else optional (not meshed) | lumped **gap** ports, horizontal, at the layer's mid-height |
 | `ports[].name` | name | surface group name |
@@ -2919,8 +2944,12 @@ the m1 underpass and the vias):
 | `mesh.near_distance` | length > 0, default: the target size | distance from a conductor over which its target size holds (ports: their gap length) |
 | `mesh.far_distance` | length > 0, default `margin` | distance at which the size reaches `size_max` |
 
-**Not in v1** (natural follow-ups): polygons with holes and
-non-rectilinear polygons; Leontovich / finite-conductivity conductor
+Polygons with holes or 45° edges are not supported in `--analysis
+inductance` path conductors or their contacts' return groups (a contact
+face is only defined for rectangles); other analyses accept them.
+
+**Not in v1** (natural follow-ups): edges at angles other than
+axis-parallel and ±45°, curved edges; Leontovich / finite-conductivity conductor
 models in the starter spec; wave ports and non-horizontal
 ports; per-layer curvature / sloped sidewalls; GDS ingestion (owned by
 klayout-tools, by design).
@@ -2932,6 +2961,30 @@ The report (`kind = "mesh"`) carries the provenance fields plus `layout`
 `pec_sheet` \| `pec_shell` \| `conductor_volume` \| `port` \| `contact`
 \| `outer_boundary`, `n_elements`), `analysis` (`driven` \|
 `capacitance` \| `inductance`), `starter_spec_path` and `starter_spec`.
+
+### GDS → layout and XML stackup (issue #1288)
+
+`scripts/gds2geode-layout.py` flattens a GDS cell with KLayout's batch
+interpreter into layout JSON v1 (outer rings and holes per layer, hierarchy
+and arrays flattened, coordinates in microns). A small layer-map JSON gives
+each `layer/datatype` a conductor name, `z_bottom` and `thickness`, and may
+carry a `template` (dielectrics, `margin`, `mesh`, ports) merged into the
+output:
+
+```sh
+klayout -b -r scripts/gds2geode-layout.py -rd gds=cell.gds -rd cell=TOP \
+    -rd layermap=layers.layermap -rd out=layout.json
+geode mesh layout.json --analysis capacitance --mesh-out m.msh --spec-out s.json
+```
+
+`mesh_cmd::stackup::parse` reads an XML layer stackup (named materials plus a
+z-ordered layer list; see `tests/fixtures/stackup_example.xml` and the module
+docs) into dielectric layers (z, thickness, ε) and conductor layers (z,
+thickness, σ), with one named `StackupError` per failure class. It is a
+library function for now; wiring it into `geode mesh` is a follow-up. The
+element names are this crate's own, written from the shape of the public
+gds2palace stackup format; no gds2palace file or code is vendored (GPL-3.0).
+
 
 ## Report, schema v1
 

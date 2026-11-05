@@ -135,6 +135,7 @@ jobs:
               --test fe_assemble \
               --test fiber_dispersion_benchmark \
               --test floquet_ports \
+              --test floquet_sensitivity \
               --test formulation_audit_graddiv \
               --test hcurl_error_estimator \
               --test hcurl_space_p2 \
@@ -226,6 +227,7 @@ jobs:
               --test fe_assemble \
               --test fiber_dispersion_benchmark \
               --test floquet_ports \
+              --test floquet_sensitivity \
               --test formulation_audit_graddiv \
               --test hcurl_error_estimator \
               --test hcurl_space_p2 \
@@ -315,6 +317,7 @@ jobs:
               --test nedelec_matrix_free_equivalence \
               --test nedelec_nu_wrapper \
               --test nedelec_sparse \
+              --test ntff_fom_shape_gradient \
               --test p1_local_matrices \
               --test palace_ingestion \
               --test patch_antenna_benchmark \
@@ -413,6 +416,7 @@ jobs:
               --test nedelec_matrix_free_equivalence \
               --test nedelec_nu_wrapper \
               --test nedelec_sparse \
+              --test ntff_fom_shape_gradient \
               --test p1_local_matrices \
               --test palace_ingestion \
               --test patch_antenna_benchmark \

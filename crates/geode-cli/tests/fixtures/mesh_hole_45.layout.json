@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "description": "octagonal guard ring with an octagonal hole around a floating-net core pad, on a slab interface (layout v2 geometry: 45-degree edges + holes)",
+  "length_unit_m": 1e-06,
+  "dielectrics": [
+    {
+      "name": "substrate",
+      "z_bottom": -10,
+      "thickness": 10,
+      "eps_r": [
+        11.9,
+        0
+      ]
+    },
+    {
+      "name": "air",
+      "z_bottom": 0,
+      "thickness": 20
+    }
+  ],
+  "conductors": [
+    {
+      "name": "m1",
+      "z_bottom": 0,
+      "polygons": [
+        {
+          "name": "ring",
+          "outer": [
+            [
+              6,
+              -10
+            ],
+            [
+              10,
+              -6
+            ],
+            [
+              10,
+              6
+            ],
+            [
+              6,
+              10
+            ],
+            [
+              -6,
+              10
+            ],
+            [
+              -10,
+              6
+            ],
+            [
+              -10,
+              -6
+            ],
+            [
+              -6,
+              -10
+            ]
+          ],
+          "holes": [
+            [
+              [
+                3,
+                -5
+              ],
+              [
+                5,
+                -3
+              ],
+              [
+                5,
+                3
+              ],
+              [
+                3,
+                5
+              ],
+              [
+                -3,
+                5
+              ],
+              [
+                -5,
+                3
+              ],
+              [
+                -5,
+                -3
+              ],
+              [
+                -3,
+                -5
+              ]
+            ]
+          ]
+        },
+        {
+          "name": "core",
+          "net": "core",
+          "outer": [
+            [
+              -2,
+              -2
+            ],
+            [
+              2,
+              -2
+            ],
+            [
+              2,
+              2
+            ],
+            [
+              -2,
+              2
+            ]
+          ]
+        },
+        {
+          "name": "feed",
+          "outer": [
+            [
+              13,
+              -4
+            ],
+            [
+              23,
+              -4
+            ],
+            [
+              23,
+              4
+            ],
+            [
+              13,
+              4
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "ports": [
+    {
+      "name": "p1",
+      "layer": "m1",
+      "between": [
+        "ring",
+        "feed"
+      ]
+    }
+  ],
+  "margin": 8,
+  "mesh": {
+    "size_max": 8,
+    "size_conductor": 3
+  }
+}

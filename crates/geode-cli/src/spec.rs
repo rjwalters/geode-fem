@@ -155,6 +155,15 @@ pub struct ProblemSpec {
     /// `sensitivities` block to that report. Extract specs reject it in v1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sensitivity: Option<SensitivitySpec>,
+    /// Nédélec element order of the H(curl) space (additive in v1, issue
+    /// #1265, Epic #836 Phase 5a): `1` (default, lowest-order edge
+    /// elements) or `2` (second-order, `2·n_edges + 2·n_faces` DOFs).
+    /// Order 2 is supported by lossless / lossy `eigen` specs and by `driven`
+    /// specs with lumped ports, a direct solver and a dense sweep; every
+    /// other combination is rejected with `invalid_spec` naming the feature
+    /// (never solved at order 1 and reported as order 2).
+    #[serde(default, skip_serializing_if = "ElementOrderSpec::is_default")]
+    pub element_order: ElementOrderSpec,
     /// Adaptive mesh refinement (additive in v1, issue #1267, Epic #835
     /// Phase 6): solve → estimate → mark → bisect until `target_error`,
     /// then run the normal analysis on the refined mesh. `driven` (lumped
@@ -162,6 +171,77 @@ pub struct ProblemSpec {
     /// `sweep.adaptive`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adaptive_mesh: Option<AdaptiveMeshSpec>,
+}
+
+/// `element_order`: `1` or `2` (any other value is a `spec_parse` error).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(into = "u8")]
+pub enum ElementOrderSpec {
+    /// Order 1 (default).
+    #[default]
+    P1,
+    /// Order 2.
+    P2,
+}
+
+impl ElementOrderSpec {
+    /// `true` for the default (order 1), so it is not serialized.
+    pub fn is_default(&self) -> bool {
+        *self == Self::P1
+    }
+
+    /// The order as an integer (`1` / `2`).
+    pub fn as_u8(self) -> u8 {
+        self.into()
+    }
+}
+
+impl<'de> Deserialize<'de> for ElementOrderSpec {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl serde::de::Visitor<'_> for V {
+            type Value = ElementOrderSpec;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("element_order: the integer 1 or 2")
+            }
+            fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Self::Value, E> {
+                match v {
+                    1 => Ok(ElementOrderSpec::P1),
+                    2 => Ok(ElementOrderSpec::P2),
+                    _ => Err(E::custom(format!("element_order must be 1 or 2 (got {v})"))),
+                }
+            }
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Self::Value, E> {
+                i64::try_from(v)
+                    .map_err(|_| E::custom(format!("element_order must be 1 or 2 (got {v})")))
+                    .and_then(|v| self.visit_i64(v))
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
+
+impl From<ElementOrderSpec> for u8 {
+    fn from(o: ElementOrderSpec) -> u8 {
+        match o {
+            ElementOrderSpec::P1 => 1,
+            ElementOrderSpec::P2 => 2,
+        }
+    }
+}
+
+impl JsonSchema for ElementOrderSpec {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "ElementOrderSpec".into()
+    }
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "Nédélec element order: 1 (default) or 2.",
+            "type": "integer",
+            "enum": [1, 2],
+            "default": 1
+        })
+    }
 }
 
 /// Adaptive **mesh** refinement of a `driven` or `eigen` spec (issue

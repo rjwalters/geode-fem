@@ -366,6 +366,43 @@ fn dataset_needs_a_sensitivity_section_and_writes_nothing() {
     assert!(!ds.exists(), "nothing may be written on rejection");
 }
 
+/// The sample schema is order-1 (Whitney edge DOFs), so `element_order = 2`
+/// is rejected like `--outdir` is, before anything is written.
+#[test]
+fn dataset_rejects_element_order_two_and_writes_nothing() {
+    for (sub, name) in [
+        ("eigen", "sensitivity/eigen_box_cavity.json"),
+        ("driven", "sensitivity/driven_spiral.json"),
+    ] {
+        let tmp = Scratch::new("geode-dataset-", &format!("p2-{sub}"));
+        let ds = tmp.join("sample");
+        let src = example(name);
+        let mut spec: Value = json_file(&src);
+        spec["element_order"] = serde_json::json!(2);
+        if let Some(path) = spec["mesh"]["path"].as_str() {
+            let abs = src.parent().unwrap().join(path);
+            spec["mesh"]["path"] = abs.canonicalize().unwrap().to_str().unwrap().into();
+        }
+        let spec_path = tmp.join("spec.json");
+        std::fs::write(&spec_path, serde_json::to_string(&spec).unwrap()).unwrap();
+        let out = geode(&[
+            sub,
+            spec_path.to_str().unwrap(),
+            "--dataset",
+            ds.to_str().unwrap(),
+        ]);
+        assert!(!out.status.success(), "{sub}");
+        let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["error"]["code"], "invalid_spec", "{sub}: {v:#}");
+        let msg = v["error"]["message"].as_str().unwrap();
+        assert!(
+            msg.contains("element_order = 2") && msg.contains("--dataset"),
+            "{sub}: {msg}"
+        );
+        assert!(!ds.exists(), "{sub}: nothing may be written on rejection");
+    }
+}
+
 #[test]
 fn extract_rejects_the_flag() {
     let tmp = Scratch::new("geode-dataset-", "extract");
