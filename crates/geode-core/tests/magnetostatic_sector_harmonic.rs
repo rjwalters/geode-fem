@@ -432,6 +432,42 @@ fn saddle_tangent_fd_check() {
 // 4. Coupling torque vs the energy derivative and Arkkio
 // ─────────────────────────────────────────────────────────────────────
 
+/// The sparse-column constraint path in `solve_constrained` must agree with
+/// the dense formulation `C = Pᵀ G` (`reduced_constraints`) to round-off: the
+/// converged state satisfies the dense KKT conditions `R + C λ = 0`,
+/// `Cᵀ a + d = 0`, and `C` is exactly the sparse columns' dense expansion.
+#[test]
+fn sparse_constraints_match_dense_kkt() {
+    let n = 24usize;
+    let k = n as i64 + 5;
+    let m = sector_mesh(n, 1);
+    let ords = orders(45);
+    let hp = problem(&m, CouplingMode::Harmonic(ords.clone()));
+    let sol = hp.solve_at(k, &tight(), None).unwrap();
+    let (_mesh, sys) = hp.system_at(k).unwrap();
+    let g = hp.band().harmonic_constraints(k, &ords, false).unwrap();
+    let (c, d) = sys.reduced_constraints(&g).unwrap();
+    let a = sys.restrict(sol.a_z());
+    let mut r = sys.residual(&sys.lift(&a));
+    let r_scale = norm(&r);
+    for j in 0..c.ncols() {
+        for i in 0..r.len() {
+            r[i] += c[(i, j)] * sol.multipliers[j];
+        }
+    }
+    let stationarity = norm(&r) / r_scale.max(1e-300);
+    let viol = (0..c.ncols())
+        .map(|j| ((0..a.len()).map(|i| c[(i, j)] * a[i]).sum::<f64>() + d[j]).abs())
+        .fold(0.0_f64, f64::max);
+    let a_scale = a.iter().fold(0.0_f64, |m, x| m.max(x.abs()));
+    println!("\n[sparse C] KKT stationarity {stationarity:.3e}, constraint violation {viol:.3e}");
+    assert!(stationarity < 1e-8, "dense stationarity {stationarity:e}");
+    assert!(
+        viol <= 1e-10 * a_scale.max(1e-300),
+        "dense violation {viol:e}"
+    );
+}
+
 #[test]
 fn coupling_torque_matches_energy_derivative() {
     println!(

@@ -954,6 +954,110 @@ pub fn read_spec(path: &Path) -> Result<ProblemSpec, CliError> {
     Ok(spec)
 }
 
+/// Validate the `adaptive_mesh` section (issue #1267, Epic #835 Phase 6).
+/// Scalar and structural checks only; nothing here reads the mesh.
+fn validate_adaptive_mesh(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliError> {
+    use crate::spec::AdaptiveGoal;
+    let Some(a) = &spec.adaptive_mesh else {
+        return Ok(());
+    };
+    if !matches!(analysis, Analysis::Driven | Analysis::Eigen) {
+        return Err(invalid(format!(
+            "`adaptive_mesh` is not supported for a `{}` spec: adaptive meshing is available \
+             for `driven` and `eigen` specs only (the capacitance, inductance and extract \
+             analyses need H¹ / scalar estimators, a follow-on of Epic #835)",
+            analysis.name()
+        )));
+    }
+    if !(a.target_error.is_finite() && a.target_error >= 0.0) {
+        return Err(invalid(format!(
+            "adaptive_mesh.target_error must be finite and >= 0 (got {})",
+            a.target_error
+        )));
+    }
+    if a.max_iterations == 0 {
+        return Err(invalid(
+            "adaptive_mesh.max_iterations must be >= 1 (level 0 is the initial mesh)",
+        ));
+    }
+    if a.max_dofs == 0 {
+        return Err(invalid("adaptive_mesh.max_dofs must be >= 1"));
+    }
+    if !(a.marking_fraction.is_finite() && a.marking_fraction > 0.0 && a.marking_fraction <= 1.0) {
+        return Err(invalid(format!(
+            "adaptive_mesh.marking_fraction (Dörfler θ) must be in (0, 1] (got {})",
+            a.marking_fraction
+        )));
+    }
+    match (&a.goal, analysis) {
+        (AdaptiveGoal::SParam(_), _) => {
+            return Err(invalid(
+                "adaptive_mesh.goal `s_param` needs goal-oriented error estimation, which \
+                 arrives with Epic #835 Phase 4; use \"energy\" for now",
+            ));
+        }
+        (AdaptiveGoal::Z0(_), _) => {
+            return Err(invalid(
+                "adaptive_mesh.goal `z0` needs goal-oriented error estimation, which arrives \
+                 with Epic #835 Phase 5; use \"energy\" for now",
+            ));
+        }
+        (AdaptiveGoal::Eigenfrequency, Analysis::Driven) => {
+            return Err(invalid(
+                "adaptive_mesh.goal \"eigenfrequency\" applies to `eigen` specs; a `driven` \
+                 spec uses \"energy\"",
+            ));
+        }
+        _ => {}
+    }
+    if a.adapt_frequencies.is_some() && analysis != Analysis::Driven {
+        return Err(invalid(
+            "adaptive_mesh.adapt_frequencies applies to `driven` specs only (an `eigen` spec \
+             adapts to its modes)",
+        ));
+    }
+    if let Some(f) = &a.adapt_frequencies {
+        f.expand().map_err(invalid)?;
+    }
+    let unsupported = |what: &str| {
+        Err(invalid(format!(
+            "`adaptive_mesh` does not support {what} yet: the adaptive loop models PEC, \
+             natural, impedance-wall and lumped-port boundaries and constant isotropic \
+             materials"
+        )))
+    };
+    if !spec.wave_ports.is_empty() {
+        return unsupported("`wave_ports`");
+    }
+    if !spec.absorbing_regions.is_empty() {
+        return unsupported("`absorbing_regions` (UPML)");
+    }
+    if spec.sensitivity.is_some() {
+        return unsupported("a `sensitivity` section");
+    }
+    if spec.sweep.as_ref().is_some_and(|s| s.adaptive.is_some()) {
+        return unsupported("`sweep.adaptive` together with it");
+    }
+    if spec
+        .materials
+        .iter()
+        .any(|m| m.dispersion.is_some() || m.eps_r_diag.is_some() || m.mu_r_diag.is_some())
+    {
+        return unsupported("dispersive or anisotropic materials");
+    }
+    if analysis == Analysis::Eigen {
+        if spec.materials.iter().any(|m| m.eps_r[1] != 0.0) {
+            return unsupported("a lossy `eigen` problem (complex `eps_r`)");
+        }
+        if !spec.boundary_conditions.leontovich.is_empty()
+            || !spec.boundary_conditions.silver_muller.is_empty()
+        {
+            return unsupported("impedance walls in an `eigen` spec");
+        }
+    }
+    Ok(())
+}
+
 fn invalid(msg: impl Into<String>) -> CliError {
     CliError::InvalidSpec(msg.into())
 }
@@ -1003,6 +1107,10 @@ pub fn load_parsed(
     {
         return Err(invalid(wrong_subcommand(want, analysis)));
     }
+
+    // `adaptive_mesh` is rejected on the wrong analysis before any mesh
+    // work (issue #1267).
+    validate_adaptive_mesh(&spec, analysis)?;
 
     // ---- scalar validation (before touching the mesh) ----------------
     let lu = spec.mesh.length_unit_m;

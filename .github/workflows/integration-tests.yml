@@ -125,6 +125,7 @@ jobs:
               --test driven_p2_adjoint \
               --test driven_p2_convergence \
               --test driven_p2_operator \
+              --test driven_p2_sensitivity_ports \
               --test driven_p2_surface \
               --test driven_upml \
               --test eigensolver \
@@ -148,6 +149,7 @@ jobs:
               --test leontovich_surface_impedance \
               --test london_eigen_kinetic_inductance \
               --test london_surface_impedance \
+              --test lossy_eigen_sensitivity_p2 \
               --test lp01_profile_selector_benchmark \
               --test lumped_port \
               --test m27_law \
@@ -213,6 +215,7 @@ jobs:
               --test driven_p2_adjoint \
               --test driven_p2_convergence \
               --test driven_p2_operator \
+              --test driven_p2_sensitivity_ports \
               --test driven_p2_surface \
               --test driven_upml \
               --test eigen_p2_tagged \
@@ -237,6 +240,7 @@ jobs:
               --test leontovich_surface_impedance \
               --test london_eigen_kinetic_inductance \
               --test london_surface_impedance \
+              --test lossy_eigen_sensitivity_p2 \
               --test lp01_profile_selector_benchmark \
               --test lumped_port \
               --test m27_law \
@@ -311,6 +315,7 @@ jobs:
               --test nedelec_matrix_free_equivalence \
               --test nedelec_nu_wrapper \
               --test nedelec_sparse \
+              --test ntff_fom_shape_gradient \
               --test p1_local_matrices \
               --test palace_ingestion \
               --test patch_antenna_benchmark \
@@ -409,6 +414,7 @@ jobs:
               --test nedelec_matrix_free_equivalence \
               --test nedelec_nu_wrapper \
               --test nedelec_sparse \
+              --test ntff_fom_shape_gradient \
               --test p1_local_matrices \
               --test palace_ingestion \
               --test patch_antenna_benchmark \

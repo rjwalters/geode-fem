@@ -116,7 +116,7 @@ Three epics turn the differentiable stack toward results that end in measured ha
   - transmon benchmark vs Palace (#476, #639);
   - freeform conformal-radiator inverse design (#647, #651, #652);
   - the GEODE-vs-Palace comparison manuscript (#569).
-  - Operator-gated submissions are #593 and #659. The v1 Zenodo release of all three papers is tracked on #1231; close #593 and #659 once it is published.
+  - The v1 Zenodo release of all three papers is tracked on #1231.
 - **Palace parity tracker:** #475, with the problem types at parity and the infrastructure gaps mapped onto #835 / #836 / #837.
 
 ## Non-goals

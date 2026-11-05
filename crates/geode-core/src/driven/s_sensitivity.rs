@@ -78,8 +78,12 @@
 //!   [`ShapeDesign::from_group_translations`]); `∂A_base/∂X` is the
 //!   exact forward-mode Dual Nédélec element kernel of
 //!   [`crate::driven::shape`] (`∂K − ω²ε∂M + jωσ∂M`), contracted for every
-//!   `(q, p)` pair. PEC nodes may move (the PEC mask is X-independent);
-//!   port faces and walls must stay pinned (see the fences below).
+//!   `(q, p)` pair. PEC nodes may move (the PEC mask is X-independent), and so
+//!   may **impedance-wall** nodes (Epic #841 Phase 2b, issue #1328): the wall
+//!   coefficient `c_Γ(ω)` is geometry-independent, so `∂A/∂X = c_Γ ∂S_Γ/∂X`,
+//!   contracted face by face with the surface-Whitney Dual twin
+//!   [`crate::driven::shape`] shares with the moving port face. Port faces
+//!   must stay pinned (see the fences below).
 //!
 //! # Hybrid port faces θ touches (Phase 3b, issue #872)
 //!
@@ -160,8 +164,7 @@
 //! * a shape column that moves a **geometric wave-port** face node (its
 //!   modes are fixed user profiles; use a hybrid port for a moving face), a
 //!   **lumped-port** face node (N-port moving feeds: follow-on; one moving
-//!   feed is [`crate::driven::shape::driven_shape_gradient_moving_port_s11`])
-//!   or a **`surfaces`** wall node (Phase 2b);
+//!   feed is [`crate::driven::shape::driven_shape_gradient_moving_port_s11`]);
 //! * a shape column that **bends** a hybrid port face out of its plane, a
 //!   complex-pair termination member or the `transverse_only_flux` tripwire
 //!   on a touched hybrid port, and an exactly degenerate cluster on a
@@ -203,7 +206,7 @@ use crate::driven::ports::{
     ChanAt, ChanOrigin, FaceModeSet, HybridWavePort, LumpedPort, WavePort, WavePortSpec,
     assemble_modal_flux, assemble_port_flux, hybrid_port_channel_sweep,
 };
-use crate::driven::shape::{Dual, nedelec_local_dual};
+use crate::driven::shape::{Dual, nedelec_local_dual, wall_face_mass_dual};
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, DrivenSource,
     ElementOrder, SolverMode, SurfaceImpedanceBc, WallParam, validate_driven_surfaces,
@@ -213,7 +216,6 @@ use crate::shape::{BoundaryMotionDof, FreeformBoundaryMorph};
 
 const PHASE_2A: &str =
     "Epic #841 Phase 2a: dispersive, anisotropic and conductive (σ) material parameters";
-const PHASE_2B: &str = "Epic #841 Phase 2b (moving impedance walls: the surface Dual twin)";
 const PHASE_3B_GEOMETRIC: &str = "Epic #841 Phase 3b moves hybrid port faces only: a geometric \
                                   wave port's modes are fixed user-supplied edge profiles";
 const PHASE_3B_PAIR: &str = "Epic #841 Phase 3b differentiates simple face modes only: a \
@@ -984,6 +986,9 @@ pub enum SensitivityFault {
     FlipSigmaSign,
     /// Volumetric conductivity: drop the `j` of `∂A/∂σ = jωM` (use `ωM`).
     DropSigmaJ,
+    /// Drop the moving-impedance-wall term `c_Γ ∂S_Γ/∂X` of the shape columns
+    /// (Epic #841 Phase 2b, issue #1328).
+    DropMovingWall,
 }
 
 /// Options of the sensitivity sweep.
@@ -1409,6 +1414,18 @@ struct ShapeData {
     moving: Vec<bool>,
     tet_idx: Vec<[u32; 6]>,
     tet_sign: Vec<[i8; 6]>,
+    /// Impedance-wall faces with a moving node (Epic #841 Phase 2b, #1328).
+    wall_faces: Vec<WallFace>,
+}
+
+/// One impedance-wall triangle touching a moving node: its wall index, its
+/// vertices, and the global edge index / lower-tag-first sign of its three
+/// local edges.
+struct WallFace {
+    wall: usize,
+    tri: [u32; 3],
+    idx: [u32; 3],
+    sign: [i8; 3],
 }
 
 /// Everything solved at one ω.
@@ -1877,16 +1894,6 @@ impl<'n> Prepared<'n> {
                 ));
             }
         }
-        for (i, wall) in net.surfaces.iter().enumerate() {
-            if let Some(n) = moved_on(wall.triangles) {
-                return Err(unsupported(
-                    format!("a shape column moving impedance wall {i} (node {n})"),
-                    PHASE_2B,
-                    "pin the wall nodes in the morph (PEC walls may move); the wall \
-                     *parameter* columns (SDesign::wall_params) are supported",
-                ));
-            }
-        }
         // Tets bounding each wave-port face (for the material fences).
         let face_tets: HashMap<[u32; 3], Vec<usize>> = {
             let mut m: HashMap<[u32; 3], Vec<usize>> = HashMap::new();
@@ -2124,7 +2131,26 @@ impl<'n> Prepared<'n> {
         let shape = match (&design.shape, moving) {
             (Some(s), Some(mv)) => {
                 let tet_edges = mesh.tet_edges();
+                let lookup = crate::elements::whitney::edge_lookup(&edges);
+                let mut wall_faces = Vec::new();
+                for (wall, bc) in net.surfaces.iter().enumerate() {
+                    for tri in bc.triangles {
+                        if !tri.iter().any(|&n| mv[n as usize]) {
+                            continue;
+                        }
+                        let v: [[f64; 3]; 3] = tri.map(|n| mesh.nodes[n as usize]);
+                        let info =
+                            crate::elements::whitney::face_geometry(tri, &v, &lookup).edge_info;
+                        wall_faces.push(WallFace {
+                            wall,
+                            tri: *tri,
+                            idx: info.map(|e| e.0),
+                            sign: info.map(|e| e.1),
+                        });
+                    }
+                }
                 Some(ShapeData {
+                    wall_faces,
                     columns: s.columns.clone(),
                     moving: mv,
                     tet_idx: tet_edges
@@ -3017,6 +3043,66 @@ impl<'n> Prepared<'n> {
                                     acc += l[i] * row;
                                 }
                                 acc
+                            })
+                            .collect();
+                        for (ci, col) in sh.columns.iter().enumerate() {
+                            let v = col[node][axis];
+                            if v == 0.0 {
+                                continue;
+                            }
+                            for (o, &val) in out[first_shape + ci].iter_mut().zip(&vals) {
+                                *o += val * v;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Moving impedance walls (Epic #841 Phase 2b, #1328): the wall
+            // coefficient c_Γ(ω) is geometry-independent, so
+            // ∂A/∂X = c_Γ ∂S_Γ/∂X, contracted face by face with the surface
+            // Whitney Dual twin (the same kernel the moving-port path uses).
+            let coeffs: Vec<Option<c64>> = self
+                .net
+                .surfaces
+                .iter()
+                .map(|bc| bc.model.weak_coefficient(omega).ok())
+                .collect();
+            let drop_wall = self.opts.fault == Some(SensitivityFault::DropMovingWall);
+            for wf in sh.wall_faces.iter().filter(|_| !drop_wall) {
+                let Some(c_wall) = coeffs[wf.wall] else {
+                    continue;
+                };
+                let l_loc: Vec<[c64; 3]> = lf
+                    .iter()
+                    .map(|l| std::array::from_fn(|i| l[wf.idx[i] as usize] * (wf.sign[i] as f64)))
+                    .collect();
+                let r_loc: Vec<[c64; 3]> = rf
+                    .iter()
+                    .map(|r| std::array::from_fn(|i| r[wf.idx[i] as usize] * (wf.sign[i] as f64)))
+                    .collect();
+                let base: [[f64; 3]; 3] = wf.tri.map(|n| mesh.nodes[n as usize]);
+                for a in 0..3 {
+                    let node = wf.tri[a] as usize;
+                    if !sh.moving[node] {
+                        continue;
+                    }
+                    for axis in 0..3 {
+                        if sh.columns.iter().all(|c| c[node][axis] == 0.0) {
+                            continue;
+                        }
+                        let mut dc = base.map(|v| v.map(Dual::cst));
+                        dc[a][axis] = Dual::var(base[a][axis]);
+                        let ds = wall_face_mass_dual(&dc);
+                        let vals: Vec<c64> = (0..n_pairs)
+                            .map(|q| {
+                                let mut acc = zero;
+                                for i in 0..3 {
+                                    for jj in 0..3 {
+                                        acc += l_loc[q][i] * r_loc[q][jj] * ds[i][jj].du;
+                                    }
+                                }
+                                acc * c_wall
                             })
                             .collect();
                         for (ci, col) in sh.columns.iter().enumerate() {

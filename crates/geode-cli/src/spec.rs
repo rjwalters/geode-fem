@@ -155,6 +155,87 @@ pub struct ProblemSpec {
     /// `sensitivities` block to that report. Extract specs reject it in v1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sensitivity: Option<SensitivitySpec>,
+    /// Adaptive mesh refinement (additive in v1, issue #1267, Epic #835
+    /// Phase 6): solve → estimate → mark → bisect until `target_error`,
+    /// then run the normal analysis on the refined mesh. `driven` (lumped
+    /// ports) and lossless `eigen` specs only. Not the frequency-sweep
+    /// `sweep.adaptive`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adaptive_mesh: Option<AdaptiveMeshSpec>,
+}
+
+/// Adaptive **mesh** refinement of a `driven` or `eigen` spec (issue
+/// #1267). Distinct from [`AdaptiveSweepSpec`] (`sweep.adaptive`, the
+/// reduced-order *frequency* sweep).
+///
+/// The loop is [`geode_core::adapt::driver`]: residual a-posteriori
+/// estimate, Dörfler bulk marking, conforming bisection. It stops when the
+/// relative estimate reaches `target_error`, after `max_iterations`
+/// levels, or when the next refinement would exceed `max_dofs`; the
+/// report's `adaptive_mesh.stop_reason` says which and a warning is
+/// raised unless it is `target_met`. The reported S-parameters /
+/// eigenvalues are those of an ordinary run on the final mesh.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AdaptiveMeshSpec {
+    /// Target relative error estimate `η_rel` (finite, `≥ 0`; `0` never
+    /// stops on the target).
+    pub target_error: f64,
+    /// Maximum number of levels solved, the initial mesh being level 0
+    /// (default `12`, `≥ 1`).
+    #[serde(default = "default_adaptive_mesh_max_iterations")]
+    pub max_iterations: usize,
+    /// DOF budget (full H(curl) space, PEC edges included; default
+    /// `1000000`). No level exceeds it; `geode check` reports the
+    /// worst-case resources at this size.
+    #[serde(default = "default_adaptive_mesh_max_dofs")]
+    pub max_dofs: usize,
+    /// Dörfler bulk-marking fraction θ in `(0, 1]` (default `0.5`).
+    #[serde(default = "default_marking_fraction")]
+    pub marking_fraction: f64,
+    /// What the refinement is steered by. `"energy"` (the residual
+    /// energy-norm estimate; default) and `"eigenfrequency"` (`eigen`
+    /// specs) are available; `{"s_param": [i, j]}` arrives with Epic #835
+    /// Phase 4 and `{"z0": port}` with Phase 5.
+    #[serde(default)]
+    pub goal: AdaptiveGoal,
+    /// Frequencies the driven estimate is maximised over. Omitted: every
+    /// frequency of `frequencies`. Driven specs only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapt_frequencies: Option<FrequencySpec>,
+    /// Write the final mesh here as Gmsh MSH 4.1 ASCII (relative to the
+    /// spec's directory). Re-solving it without `adaptive_mesh`
+    /// reproduces the reported result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export_mesh: Option<PathBuf>,
+}
+
+fn default_adaptive_mesh_max_iterations() -> usize {
+    12
+}
+
+fn default_adaptive_mesh_max_dofs() -> usize {
+    1_000_000
+}
+
+fn default_marking_fraction() -> f64 {
+    0.5
+}
+
+/// The goal of an [`AdaptiveMeshSpec`].
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AdaptiveGoal {
+    /// The residual energy-norm estimate (Phase 3).
+    #[default]
+    Energy,
+    /// The tracked eigenfrequency (`eigen` specs).
+    Eigenfrequency,
+    /// S-parameter entry `[i, j]` (goal-oriented DWR, Epic #835 Phase 4;
+    /// not yet available).
+    SParam([usize; 2]),
+    /// Line impedance of a port (Epic #835 Phase 5; not yet available).
+    Z0(String),
 }
 
 /// Which analysis a spec describes, decided by the presence of the

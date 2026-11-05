@@ -1072,6 +1072,165 @@ fn walled_wave_ports_material_and_shape_match_fd() {
     assert!(gradient_reciprocity(&sw) < 1e-8);
 }
 
+/// Epic #841 Phase 2b (issue #1328): a Leontovich top wall (`y = b`) whose
+/// nodes MOVE — the strip-width case. The shape column displaces the wall
+/// IN ITS PLANE, along `x` (`sin(2πx/a)·sin(πz/L)`, ports and the PEC side
+/// walls pinned), so the wall's surface mass `S_Γ` changes with geometry (a
+/// displacement normal to a flat wall would not, to first order). The shape-column
+/// gradient must match a central FD through the walled wave forward, and
+/// dropping the moving-wall term must be caught.
+struct MovingWall {
+    top: Vec<[u32; 3]>,
+    mask: Vec<bool>,
+    column: Vec<[f64; 3]>,
+}
+
+fn moving_wall_fixture(mesh: &TetMesh) -> MovingWall {
+    let edges = mesh.edges();
+    let on_top = |f: &[u32; 3]| {
+        f.iter()
+            .all(|&v| (mesh.nodes[v as usize][1] - B_DIM).abs() < 1e-9)
+    };
+    let top: Vec<[u32; 3]> = guide()
+        .sidewall_faces
+        .iter()
+        .copied()
+        .filter(on_top)
+        .collect();
+    let pec: Vec<[u32; 3]> = guide()
+        .sidewall_faces
+        .iter()
+        .copied()
+        .filter(|f| !on_top(f))
+        .collect();
+    let mask = pec_interior_mask_from_triangles(&edges, &[pec.as_slice()]);
+    let column = mesh
+        .nodes
+        .iter()
+        .map(|p| {
+            let on_port = p[2] < 1e-9 || p[2] > LEN - 1e-9;
+            if (p[1] - B_DIM).abs() < 1e-9 && !on_port {
+                let pi = std::f64::consts::PI;
+                [
+                    (2.0 * pi * p[0] / A).sin() * (pi * p[2] / LEN).sin(),
+                    0.0,
+                    0.0,
+                ]
+            } else {
+                [0.0; 3]
+            }
+        })
+        .collect();
+    MovingWall { top, mask, column }
+}
+
+fn moving_wall_sens(
+    mesh: &TetMesh,
+    mw: &MovingWall,
+    o: &SSensitivityOptions,
+) -> (SSensitivitySweep, ShapeDesign) {
+    let bcs = DrivenBcs {
+        pec_interior_mask: &mw.mask,
+    };
+    let walls = [SurfaceImpedanceBc {
+        triangles: &mw.top,
+        model: SurfaceImpedanceModel::GoodConductor { sigma: 40.0 },
+    }];
+    let eps = vec![c64::new(1.0, 0.0); mesh.n_tets()];
+    let g = guide();
+    let specs: Vec<WavePortSpec> = [
+        wave_port(mesh, &g.port1_faces, 0.0, 1),
+        wave_port(mesh, &g.port2_faces, LEN, 1),
+    ]
+    .into_iter()
+    .map(WavePortSpec::from)
+    .collect();
+    let shape = ShapeDesign::from_columns(vec![mw.column.clone()], vec!["wall_x".into()]).unwrap();
+    let design = SDesign {
+        shape: Some(shape.clone()),
+        ..SDesign::default()
+    };
+    let space = HcurlSpace::build(mesh, ElementOrder::P1);
+    let net = SNetwork {
+        space: &space,
+        mesh,
+        materials: DrivenMaterials::Scalar(&eps),
+        sigma_tet: None,
+        bcs: &bcs,
+        lumped: &[],
+        wave: &specs,
+        surfaces: &walls,
+    };
+    let sw = s_matrix_sensitivity_sweep::<B>(&net, &[2.2, 2.6], &design, o, &device()).unwrap();
+    (sw, shape)
+}
+
+fn moving_wall_fd(
+    mesh: &TetMesh,
+    mw: &MovingWall,
+    shape: &ShapeDesign,
+    spec: &str,
+    sw: &SSensitivitySweep,
+) -> Vec<f64> {
+    let bcs = DrivenBcs {
+        pec_interior_mask: &mw.mask,
+    };
+    let walls = [SurfaceImpedanceBc {
+        triangles: &mw.top,
+        model: SurfaceImpedanceModel::GoodConductor { sigma: 40.0 },
+    }];
+    let eps = vec![c64::new(1.0, 0.0); mesh.n_tets()];
+    let g = guide();
+    let ports = [
+        wave_port(mesh, &g.port1_faces, 0.0, 1),
+        wave_port(mesh, &g.port2_faces, LEN, 1),
+    ];
+    fd_check(spec, sw, |prm, h| {
+        let moved = shift_mesh(mesh, Some(shape), prm, h);
+        solve_wave_port_sweep_with_mode::<B>(
+            &moved,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &bcs,
+            &ports,
+            &walls,
+            &[2.2, 2.6],
+            SolverMode::Direct,
+            &device(),
+        )
+        .unwrap()
+        .into_iter()
+        .map(|p| p.s)
+        .collect()
+    })
+}
+
+#[test]
+fn moving_leontovich_wall_matches_fd() {
+    let g = guide();
+    let mw = moving_wall_fixture(&g.mesh);
+    let (sw, shape) = moving_wall_sens(&g.mesh, &mw, &opts());
+    let errs = moving_wall_fd(&g.mesh, &mw, &shape, "moving Leontovich wall", &sw);
+    for e in errs {
+        assert!(e <= TOL, "rel_err {e}");
+    }
+    assert!(gradient_reciprocity(&sw) < 1e-8);
+}
+
+/// Mutation tripwire: dropping the moving-wall `c_Γ ∂S_Γ/∂X` term must miss FD
+/// by at least 10× the tolerance.
+#[test]
+fn dropping_the_moving_wall_term_is_caught_by_fd() {
+    let g = guide();
+    let mw = moving_wall_fixture(&g.mesh);
+    let (sw, shape) = moving_wall_sens(&g.mesh, &mw, &faulted(SensitivityFault::DropMovingWall));
+    let worst = moving_wall_fd(&g.mesh, &mw, &shape, "moving wall, mutant", &sw)
+        .into_iter()
+        .fold(0.0, f64::max);
+    eprintln!("MUTATION | drop moving wall | worst rel_err = {worst:.3e}");
+    assert!(worst >= 10.0 * TOL, "mutant not caught: {worst}");
+}
+
 // ---------------------------------------------------------------------------
 // 9. VJP = JVP over a band
 // ---------------------------------------------------------------------------
@@ -1508,24 +1667,8 @@ fn scope_fences_are_loud_typed_errors() {
         "moving lumped feeds",
     );
 
-    // Moving an impedance-wall node: Phase 2b.
-    let walls = [SurfaceImpedanceBc {
-        triangles: &g.sidewall_faces,
-        model: SurfaceImpedanceModel::GoodConductor { sigma: 40.0 },
-    }];
-    let no_pec = vec![true; mesh.edges().len()];
-    let bcs_open = DrivenBcs {
-        pec_interior_mask: &no_pec,
-    };
-    let net_w = SNetwork {
-        surfaces: &walls,
-        bcs: &bcs_open,
-        ..net
-    };
-    expect_unsupported(
-        run(&net_w, &shape_of(wall_bulge(mesh, false)), &opts()),
-        "Phase 2b",
-    );
+    // Moving an impedance-wall node is supported since Epic #841 Phase 2b
+    // (issue #1328): see `moving_leontovich_wall_matches_fd`.
 
     // Non-scalar materials: Phase 2a.
     let diag = vec![[c64::new(1.0, 0.0); 3]; mesh.n_tets()];
