@@ -688,8 +688,9 @@ impl ObservableForm {
 }
 
 /// One design parameter of a [`SensitivitySpec`]: a material property of
-/// one volume group (`physical_group`), or (`kind = "shape"`, driven only,
-/// issue #883) a motion of named geometry groups.
+/// one volume group (`physical_group`), (`kind = "shape"`, driven only,
+/// issue #883) a motion of named geometry groups, or (`kind = "wall_*"`,
+/// driven only, issue #1330) a parameter of one Leontovich wall.
 ///
 /// A shape parameter binds to **group names**, never node ids, so it
 /// survives re-meshing: the groups' nodes move as `motion` prescribes, the
@@ -707,7 +708,10 @@ pub struct SensitivityParameterSpec {
     pub kind: SensitivityParameterKind,
     /// Material kinds: name of a dimension-3 physical group (need not be
     /// listed in `materials`: an unlisted group is differentiated at its
-    /// vacuum default). Shape: one moving group (2-D or 3-D), the same as a
+    /// vacuum default). Wall kinds: the dimension-2 group of a
+    /// `boundary_conditions.leontovich` wall (SI units: `wall_sigma` S/m,
+    /// `wall_rms_roughness` / `wall_ball_radius` m, `wall_ball_density`
+    /// 1/m²). Shape: one moving group (2-D or 3-D), the same as a
     /// one-element `physical_groups`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub physical_group: Option<String>,
@@ -778,6 +782,17 @@ pub enum SensitivityParameterKind {
     /// A geometry parameter (driven, issue #883): see
     /// [`SensitivityParameterSpec`].
     Shape,
+    /// Conductivity `σ` (S/m) of a Leontovich wall (driven, issue #1330):
+    /// `physical_group` names the wall's dimension-2 group.
+    WallSigma,
+    /// Hammerstad–Jensen RMS roughness `Δ` (m) of a Leontovich wall.
+    WallRmsRoughness,
+    /// Huray sphere radius `a` (m) of a Leontovich wall, at fixed sphere
+    /// density `N/A_tile`.
+    WallBallRadius,
+    /// Huray sphere density `N/A_tile` (1/m²) of a Leontovich wall, at
+    /// fixed sphere radius.
+    WallBallDensity,
 }
 
 impl SensitivityParameterKind {
@@ -790,12 +805,33 @@ impl SensitivityParameterKind {
             SensitivityParameterKind::NuR => "nu_r",
             SensitivityParameterKind::MuR => "mu_r",
             SensitivityParameterKind::Shape => "shape",
+            SensitivityParameterKind::WallSigma => "wall_sigma",
+            SensitivityParameterKind::WallRmsRoughness => "wall_rms_roughness",
+            SensitivityParameterKind::WallBallRadius => "wall_ball_radius",
+            SensitivityParameterKind::WallBallDensity => "wall_ball_density",
         }
     }
 
     /// A material kind (bound to one volume group).
     pub fn is_material(self) -> bool {
-        self != SensitivityParameterKind::Shape
+        !self.is_shape() && !self.is_wall()
+    }
+
+    /// The geometry kind.
+    pub fn is_shape(self) -> bool {
+        self == SensitivityParameterKind::Shape
+    }
+
+    /// A Leontovich-wall kind (bound to one dimension-2 group, issue
+    /// #1330).
+    pub fn is_wall(self) -> bool {
+        matches!(
+            self,
+            SensitivityParameterKind::WallSigma
+                | SensitivityParameterKind::WallRmsRoughness
+                | SensitivityParameterKind::WallBallRadius
+                | SensitivityParameterKind::WallBallDensity
+        )
     }
 }
 
