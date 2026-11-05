@@ -857,10 +857,34 @@ fn starter_spec_capacitance(
 
 /// The eigen starter spec: every slab's `eps_r` (real part: the Bloch
 /// pencil is lossless), PEC `outer_boundary` and conductors, and a
-/// placeholder 1 GHz shift to edit. With the layout's `periodic` axes the
+/// shift to edit: a placeholder 1 GHz for the PEC cavity, a cell-scaled
+/// `k0` shift for a periodic cell (see [`periodic_eigen_shift_k0`]). With
+/// the layout's `periodic` axes the
 /// `<axis>_lo` / `<axis>_hi` walls become `boundary_conditions.periodic`
 /// pairs (explicit `translation` = the cell period) and the spec asks for
 /// the Bloch bands at Γ.
+/// Cell-scaled `k0` shift (rad per mesh length unit) for a periodic Bloch
+/// cell. A fixed GHz number cannot work: at Γ the pencil has a large
+/// null space at `k0 = 0`, and a micron-scale cell's first band sits near
+/// 143 THz, so a 1 GHz shift lands in that null space and the
+/// shift-invert solve does not converge (issue #1381).
+///
+/// The cell is a PEC-lidded stack, so its lowest Γ band with vertical
+/// structure is the slab resonance `k0 ≈ π / OPL`, `OPL = Σ tᵢ·√Re(εᵣᵢ)`
+/// the optical path through the stack. The shift sits at `1.5 π / OPL`,
+/// between the first and second such resonance: well above the null
+/// space, and off an exact eigenvalue (a uniform slab has them at
+/// `n π / OPL`, where `A − σB` would be singular). Being in `k0`, it is
+/// independent of `length_unit_m`; it scales as the stack does.
+fn periodic_eigen_shift_k0(layout: &layout::Layout) -> f64 {
+    let opl: f64 = layout
+        .dielectrics
+        .iter()
+        .map(|d| d.thickness * d.eps_r[0].max(1.0).sqrt())
+        .sum();
+    1.5 * std::f64::consts::PI / opl
+}
+
 fn starter_spec_eigen(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf) -> ProblemSpec {
     let l = &r.layout;
     let name = |role: GroupRole| group_name(script, role);
@@ -897,6 +921,11 @@ fn starter_spec_eigen(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf
         })
         .collect();
     let bloch = (!periodic.is_empty()).then_some(BlochSpec::Point(BlochPointSpec { k: [0.0; 3] }));
+    let (unit, shift) = if periodic.is_empty() {
+        (FrequencyUnit::Ghz, 1.0)
+    } else {
+        (FrequencyUnit::K0, periodic_eigen_shift_k0(l))
+    };
     ProblemSpec {
         boundary_conditions: BoundaryConditionsSpec {
             pec,
@@ -905,8 +934,8 @@ fn starter_spec_eigen(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf
         },
         eigen: Some(EigenSpec {
             n_modes: 6,
-            unit: FrequencyUnit::Ghz,
-            shift: 1.0,
+            unit,
+            shift,
             max_iters: spec::default_eigen_max_iters(),
             tol: spec::default_eigen_tol(),
             residual_tol: spec::default_eigen_residual_tol(),
@@ -995,6 +1024,51 @@ mod tests {
         let spec = go(&layout);
         assert!(spec.boundary_conditions.leontovich.is_empty());
         assert_eq!(spec.boundary_conditions.pec.len(), 3);
+    }
+
+    /// The periodic eigen starter spec asks for a `k0` shift scaled to the
+    /// cell (not the 1 GHz placeholder, issue #1381); the PEC-cavity one
+    /// keeps the placeholder.
+    #[test]
+    fn periodic_eigen_shift_is_k0_and_tracks_the_cell() {
+        let cell = |scale: f64, unit_m: f64, periodic: serde_json::Value| -> ProblemSpec {
+            let layout: Layout = serde_json::from_value(serde_json::json!({
+                "schema_version": 1,
+                "length_unit_m": unit_m,
+                "dielectrics": [
+                    {"name": "substrate", "z_bottom": -4.0 * scale, "thickness": 4.0 * scale,
+                     "eps_r": [11.9, 0]},
+                    {"name": "air", "z_bottom": 0, "thickness": 6.0 * scale}
+                ],
+                "conductors": [
+                    {"name": "sheet", "z_bottom": 0, "polygons": [
+                        {"outer": [[0,0],[10.0*scale,0],[10.0*scale,4.0*scale],[0,4.0*scale]]}]}
+                ],
+                "periodic": periodic,
+                "margin": 5.0 * scale,
+                "mesh": {"size_max": 5.0 * scale, "size_conductor": scale}
+            }))
+            .unwrap();
+            let r = layout.resolve_for(MeshAnalysis::Eigen).unwrap();
+            let script = geo::generate(&r, "test");
+            starter_spec_eigen(&r, &script, PathBuf::from("m.msh"))
+        };
+        let xy = cell(1.0, 1e-6, serde_json::json!(["x", "y"]));
+        let e = xy.eigen.as_ref().unwrap();
+        assert_eq!(e.unit, FrequencyUnit::K0);
+        assert!(e.shift.is_finite() && e.shift > 0.0);
+        // Doubling the stack halves the k0 shift; length_unit_m is irrelevant.
+        let big = cell(2.0, 1e-6, serde_json::json!(["x", "y"]));
+        assert!((big.eigen.unwrap().shift - e.shift / 2.0).abs() < 1e-12);
+        let nano = cell(1.0, 1e-9, serde_json::json!(["x", "y"]));
+        assert_eq!(nano.eigen.unwrap().shift, e.shift);
+        // x-only periodic is a Bloch cell too.
+        let x = cell(1.0, 1e-6, serde_json::json!(["x"]));
+        assert_eq!(x.eigen.unwrap().unit, FrequencyUnit::K0);
+        // No periodic axes: the PEC-cavity placeholder is unchanged.
+        let pec = cell(1.0, 1e-6, serde_json::json!([]));
+        let e = pec.eigen.unwrap();
+        assert_eq!((e.unit, e.shift), (FrequencyUnit::Ghz, 1.0));
     }
 
     /// One tet plus two tagged triangles: a real face (tag 101) and a

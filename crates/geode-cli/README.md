@@ -2963,8 +2963,13 @@ Each periodic axis replaces its two PEC walls by the groups `x_lo` /
 the two faces mesh identically. The starter spec lists the pairs as
 `boundary_conditions.periodic` with the cell period as explicit
 `translation`, and asks for the Bloch bands at Γ; the other walls stay in
-`outer_boundary` (PEC). Without `periodic`, `--analysis eigen` gives a
-plain PEC-cavity eigen starter spec.
+`outer_boundary` (PEC). The emitted `eigen` block uses `unit: "k0"` (rad
+per mesh length unit) with a shift scaled to the cell, `1.5 π / OPL` with
+`OPL = Σ thicknessᵢ·√Re(eps_rᵢ)` the optical path through the dielectric
+stack: a fixed GHz number would land in the Γ null space of a
+micron-scale cell and not converge. It is a starting point; edit `shift`
+to look at other bands. Without `periodic`, `--analysis eigen` gives a
+plain PEC-cavity eigen starter spec (1 GHz placeholder shift).
 
 ```sh
 geode mesh cell.layout.json --analysis eigen --spec-out cell.json && geode check cell.json
