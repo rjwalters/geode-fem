@@ -204,7 +204,10 @@ impl ElectrostaticSystem {
     /// `g` (ignored for free nodes). The charge RHS is taken as zero
     /// (capacitance runs are source-free); non-zero charge belongs in the
     /// [`assemble_electrostatic`] `rho` hook.
-    fn solve_with_pinned(&self, pinned_value: &[f64]) -> Result<Vec<f64>, ElectrostaticError> {
+    pub(crate) fn solve_with_pinned(
+        &self,
+        pinned_value: &[f64],
+    ) -> Result<Vec<f64>, ElectrostaticError> {
         use faer::linalg::solvers::Solve;
 
         let b_free = self.fold_pinned(pinned_value);
@@ -283,7 +286,7 @@ fn fold_pinned_columns(
 
 /// Compute the (full-K) bilinear form `uᵀ K v` for two full-length node
 /// vectors. Walks the sparse `K` once.
-fn quad_form(k: &SparseColMat<usize, f64>, u: &[f64], v: &[f64]) -> f64 {
+pub(crate) fn quad_form(k: &SparseColMat<usize, f64>, u: &[f64], v: &[f64]) -> f64 {
     let k_ref = k.as_ref();
     let cp = k_ref.col_ptr();
     let row_idx = k_ref.row_idx();
@@ -387,7 +390,15 @@ pub fn assemble_electrostatic(
         }
     }
 
-    finish_electrostatic_assembly(mesh, full_trips, b_full, electrodes, ground)
+    let sparsity = sparsity_from_tets(&mesh.tets);
+    finish_electrostatic_assembly(
+        mesh.n_nodes(),
+        sparsity,
+        full_trips,
+        b_full,
+        electrodes,
+        ground,
+    )
 }
 
 /// Assemble the reduced SPD electrostatic system with a **per-tet 3×3
@@ -479,7 +490,15 @@ pub fn assemble_electrostatic_tensor(
         }
     }
 
-    finish_electrostatic_assembly(mesh, full_trips, b_full, electrodes, ground)
+    let sparsity = sparsity_from_tets(&mesh.tets);
+    finish_electrostatic_assembly(
+        mesh.n_nodes(),
+        sparsity,
+        full_trips,
+        b_full,
+        electrodes,
+        ground,
+    )
 }
 
 /// Shared tail of the scalar/tensor electrostatic assembly: build the full
@@ -488,19 +507,16 @@ pub fn assemble_electrostatic_tensor(
 /// [`assemble_electrostatic_tensor`] funnel here after producing the
 /// ε-weighted element triplets, so the Dirichlet-reduction logic lives in
 /// one place.
-fn finish_electrostatic_assembly(
-    mesh: &TetMesh,
+pub(crate) fn finish_electrostatic_assembly(
+    n_nodes: usize,
+    sparsity: SparsityPattern,
     full_trips: Vec<Triplet<usize, usize, f64>>,
     b_full: Vec<f64>,
     electrodes: &[Electrode],
     ground: &[u32],
 ) -> Result<ElectrostaticSystem, ElectrostaticError> {
-    let n_nodes = mesh.n_nodes();
-
     let k_full = SparseColMat::<usize, f64>::try_new_from_triplets(n_nodes, n_nodes, &full_trips)
         .map_err(|e| ElectrostaticError::Assembly(format!("{e:?}")))?;
-
-    let sparsity = sparsity_from_tets(&mesh.tets);
 
     let mut dirichlet_value = vec![0.0_f64; n_nodes];
     let mut pinned = vec![false; n_nodes];
