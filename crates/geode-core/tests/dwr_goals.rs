@@ -351,3 +351,134 @@ fn one_goal_serves_the_adjoint_gradient_and_the_dwr_rhs() {
         "fd {fd} vs adjoint {an}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Golden 1: wave-port |ΔS₁₁| effectivity on the E-plane height step
+// ---------------------------------------------------------------------------
+
+mod wave_port_golden {
+    use super::*;
+    use geode_core::adapt::dwr_wave::{WavePortOperator, dwr_p2_wave};
+    use geode_core::driven::ports::{
+        WavePort, extruded_height_step_waveguide_mesh, wave_port_from_faces_on_space,
+    };
+
+    const OMEGA: f64 = 2.4;
+
+    struct Level {
+        space: HcurlSpace,
+        mesh: TetMesh,
+        mask: Vec<bool>,
+        ports: [WavePort; 2],
+        op: DrivenOperator,
+    }
+
+    /// The `2 × 1 → 2 × 0.5` height step of `wave_port_p2.rs` on the
+    /// `(4k, 2k, k, 2k, 2k)` mesh at `order`.
+    fn level(k: usize, order: ElementOrder) -> Level {
+        let g = extruded_height_step_waveguide_mesh(
+            4 * k,
+            2 * k,
+            k,
+            2 * k,
+            2 * k,
+            2.0,
+            1.0,
+            0.5,
+            1.0,
+            1.0,
+        );
+        let space = HcurlSpace::build(&g.mesh, order);
+        let mask = space
+            .pec_interior_mask(&g.mesh, &[g.sidewall_faces.as_slice()])
+            .unwrap();
+        let a = [c64::new(1.0, 0.0)];
+        let ports = [&g.port1_faces, &g.port2_faces]
+            .map(|f| wave_port_from_faces_on_space(&space, &g.mesh, f, &a).unwrap());
+        let eps = vec![c64::new(1.0, 0.0); g.mesh.n_tets()];
+        let zero = CurrentSource {
+            j_tet: vec![[c64::new(0.0, 0.0); 3]; g.mesh.n_tets()],
+        };
+        let op = DrivenOperator::assemble_with_space::<B>(
+            &space,
+            &g.mesh,
+            DrivenMaterials::Scalar(&eps),
+            None,
+            &DrivenBcs {
+                pec_interior_mask: &mask,
+            },
+            &[],
+            &[],
+            DrivenSource::Constant(&zero),
+            &device(),
+        )
+        .unwrap();
+        Level {
+            space,
+            mesh: g.mesh,
+            mask,
+            ports,
+            op,
+        }
+    }
+
+    /// DWR effectivity for the wave-port `S₁₁` of the height step, against
+    /// the finest p=2 solve, stays within a factor of 3 on every level.
+    #[test]
+    fn wave_port_s11_effectivity_is_within_3x() {
+        let ref_l = level(4, ElementOrder::P2);
+        let ref_op = WavePortOperator::new(
+            &ref_l.space,
+            &ref_l.mesh,
+            &ref_l.op,
+            &ref_l.mask,
+            &ref_l.ports,
+            OMEGA,
+        )
+        .unwrap();
+        let x_ref = ref_op.solve_excitation(0).unwrap();
+        let s11_ref = ref_op.s_goal(0, 0).value(&x_ref);
+        eprintln!("reference p=2 k=4 S11 = {s11_ref:.6}");
+
+        for k in [1usize, 2] {
+            let l1 = level(k, ElementOrder::P1);
+            let w1 = WavePortOperator::new(&l1.space, &l1.mesh, &l1.op, &l1.mask, &l1.ports, OMEGA)
+                .unwrap();
+            let x1 = w1.solve_excitation(0).unwrap();
+            let s1 = w1.s_goal(0, 0).value(&x1);
+
+            let l2 = level(k, ElementOrder::P2);
+            let w2 = WavePortOperator::new(&l2.space, &l2.mesh, &l2.op, &l2.mask, &l2.ports, OMEGA)
+                .unwrap();
+            let goal2 = w2.s_goal(0, 0);
+            let est = dwr_p2_wave(&w2, &x1, 0, &goal2.rhs(&[])).unwrap();
+            let signed = est.signed.unwrap();
+
+            // Estimated J(E_p2) − J_p2(E_h) against the p=2 solve on the
+            // same mesh, and the true error of the p=1 S11 vs the reference.
+            let x2 = w2.solve_excitation(0).unwrap();
+            let gain = goal2.value(&x2) - goal2.value(&l2.space.prolong_p1(&x1));
+            let true_err = (s1 - s11_ref).norm();
+            let eff = signed.norm() / true_err;
+            eprintln!(
+                "k={k}: S11_p1 {s1:.5}, |ΔS11| {true_err:.3e}, dwr-p2 {:.3e} (gain {:.3e}), effectivity {eff:.3}",
+                signed.norm(),
+                gain.norm()
+            );
+            // The p=1 and p=2 problems carry different port modes, so the
+            // p=1 solution is not a Galerkin solution of the p=2 system: the
+            // Whitney block of the residual is non-zero and is dropped with
+            // the weight's Whitney DOFs. The estimate is therefore the p=1 →
+            // p=2 gain only to within tens of percent (not 1e-8 as with a
+            // shared operator).
+            assert!(
+                (signed - gain).norm() <= 0.3 * gain.norm(),
+                "dwr-p2 should track the p=1 → p=2 goal gain: {signed} vs {gain}"
+            );
+            assert!(
+                (1.0 / 3.0..=3.0).contains(&eff),
+                "k={k}: effectivity {eff} outside [1/3, 3]"
+            );
+        }
+    }
+}
