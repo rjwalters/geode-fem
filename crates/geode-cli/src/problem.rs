@@ -150,7 +150,7 @@ impl Leontovich {
 }
 
 /// Convert a spec roughness block (SI) to the solver's natural units.
-fn roughness_natural(r: RoughnessSpec, length_unit_m: f64) -> SurfaceRoughness {
+pub(crate) fn roughness_natural(r: RoughnessSpec, length_unit_m: f64) -> SurfaceRoughness {
     match r {
         RoughnessSpec::Hammerstad { rms_m } => SurfaceRoughness::HammerstadJensen {
             rms: rms_m / length_unit_m,
@@ -489,6 +489,10 @@ pub struct SensitivityParameter {
     /// Shape parameters (issue #883): the motion (`region` is then
     /// `usize::MAX` and `physical_group` the moving groups, comma-joined).
     pub shape: Option<ShapeParameterDef>,
+    /// Wall parameters (issue #1330): the Leontovich wall and its
+    /// parameter (`region` is then `usize::MAX`, `physical_group` the
+    /// wall's group; `value` is in SI).
+    pub wall: Option<WallParameterDef>,
 }
 
 /// The resolved `sensitivity` section (issue #707).
@@ -533,6 +537,22 @@ pub struct ShapeParameterDef {
     /// Length scale of the FD step (mesh units): the stretch extent, else
     /// the moving nodes' bounding-box size.
     pub fd_length: f64,
+}
+
+/// A resolved Leontovich-wall parameter (issue #1330).
+#[derive(Debug, Clone)]
+pub struct WallParameterDef {
+    /// Index into [`Problem::leontovich`] (= the library's wall index,
+    /// [`crate::driven::impedance_walls`] lists those walls first).
+    pub wall: usize,
+    /// The library parameter.
+    pub param: geode_core::driven::solve::WallParam,
+    /// `dθ_natural/dθ_SI`: the factor taking the library's natural-unit
+    /// derivative to the reported SI one (`η₀·L_unit` for `σ`, `1/L_unit`
+    /// for a length, `L_unit²` for the sphere density).
+    pub si_factor: f64,
+    /// Unit of the parameter in the report.
+    pub unit: &'static str,
 }
 
 /// One resolved driven observable (issue #883).
@@ -1483,7 +1503,7 @@ pub fn load_parsed(
         .sensitivity
         .iter()
         .flat_map(|sens| &sens.parameters)
-        .filter(|p| !p.kind.is_material())
+        .filter(|p| p.kind.is_shape())
     {
         for (g, role) in shape_groups(prm)
             .iter()
@@ -1871,6 +1891,7 @@ pub fn load_parsed(
                 wave_ports: &wave_ports,
                 frequencies: &frequencies,
                 length_unit_m: spec.mesh.length_unit_m,
+                leontovich: &leontovich,
             },
         )?),
         None => None,
@@ -2713,21 +2734,30 @@ fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), Cl
         use SensitivityParameterKind as K;
         let allowed: &[SensitivityParameterKind] = match analysis {
             Analysis::Inductance => &[K::NuR, K::MuR],
-            Analysis::Driven => &[K::EpsR, K::EpsRImag, K::TanDelta, K::Sigma, K::Shape],
+            Analysis::Driven => &[
+                K::EpsR,
+                K::EpsRImag,
+                K::TanDelta,
+                K::Sigma,
+                K::Shape,
+                K::WallSigma,
+                K::WallRmsRoughness,
+                K::WallBallRadius,
+                K::WallBallDensity,
+            ],
             _ => &[K::EpsR],
         };
         let label = parameter_label(prm);
         if !allowed.contains(&prm.kind) {
             let names: Vec<&str> = allowed.iter().map(|k| k.name()).collect();
-            let why = if analysis != Analysis::Driven
-                && matches!(prm.kind, K::EpsRImag | K::TanDelta | K::Sigma | K::Shape)
-            {
-                " (`eps_r_imag`, `tan_delta`, `sigma` and `shape` are driven-spec parameters of the N-port \
-                 S-matrix adjoint, Epic #841 Phase 5a; this analysis's adjoint has no loss or \
-                 shape gradient in the CLI yet)"
-            } else {
-                ""
-            };
+            let why =
+                if analysis != Analysis::Driven && !matches!(prm.kind, K::EpsR | K::NuR | K::MuR) {
+                    " (`eps_r_imag`, `tan_delta`, `sigma`, `shape` and the `wall_*` kinds are driven-spec \
+                 parameters of the N-port S-matrix adjoint, Epic #841 Phase 5a; this analysis's \
+                 adjoint has no loss, shape or wall gradient in the CLI yet)"
+                } else {
+                    ""
+                };
             return Err(invalid(format!(
                 "sensitivity.parameters[{i}] ({label}): kind `{}` is not a parameter of the {} \
                  observable; supported kinds: `{}`{why}",
@@ -2843,7 +2873,7 @@ pub fn is_n_port_sensitivity(spec: &ProblemSpec) -> bool {
 /// The report / message label of a sensitivity parameter: its volume group
 /// (material kinds), or its name (shape; default `motion(groups)`).
 pub fn parameter_label(prm: &crate::spec::SensitivityParameterSpec) -> String {
-    if prm.kind.is_material() {
+    if !prm.kind.is_shape() {
         return format!("`{}`", prm.physical_group.as_deref().unwrap_or("?"));
     }
     format!("`{}`", shape_name(prm))
@@ -2884,11 +2914,16 @@ fn validate_parameter_fields(
         ("axis", prm.axis.is_some()),
         ("pinned", prm.pinned.is_some()),
     ];
-    if prm.kind.is_material() {
+    if !prm.kind.is_shape() {
         if prm.physical_group.is_none() {
             return Err(invalid(format!(
-                "sensitivity.parameters[{i}]: kind `{}` needs `physical_group` (a volume group)",
-                prm.kind.name()
+                "sensitivity.parameters[{i}]: kind `{}` needs `physical_group` ({})",
+                prm.kind.name(),
+                if prm.kind.is_wall() {
+                    "a Leontovich wall's surface group"
+                } else {
+                    "a volume group"
+                }
             )));
         }
         if let Some((f, _)) = shape_fields.iter().find(|(_, set)| *set) {
@@ -3031,6 +3066,8 @@ struct SensitivityContext<'a> {
     frequencies: &'a [Frequency],
     /// Metres per mesh unit.
     length_unit_m: f64,
+    /// The resolved Leontovich walls (wall parameters, issue #1330).
+    leontovich: &'a [Leontovich],
 }
 
 /// Bind each sensitivity parameter to its volume region (the regions are
@@ -3054,8 +3091,11 @@ fn resolve_sensitivity(
         .iter()
         .zip(tags)
         .map(|(prm, tag)| {
-            if !prm.kind.is_material() {
+            if prm.kind.is_shape() {
                 return resolve_shape_parameter(prm, tagged, ctx.length_unit_m);
+            }
+            if prm.kind.is_wall() {
+                return resolve_wall_parameter(prm, ctx.leontovich, ctx.length_unit_m);
             }
             let group = prm.physical_group.clone().expect("validated");
             let tag = tag.expect("resolved above");
@@ -3072,7 +3112,7 @@ fn resolve_sensitivity(
                 SensitivityParameterKind::NuR => 1.0 / r.mu_r,
                 SensitivityParameterKind::MuR => r.mu_r,
                 SensitivityParameterKind::Sigma => r.sigma_s_m,
-                SensitivityParameterKind::Shape => unreachable!("handled above"),
+                _ => unreachable!("handled above"),
             };
             Ok(SensitivityParameter {
                 physical_group: group,
@@ -3080,6 +3120,7 @@ fn resolve_sensitivity(
                 region,
                 value,
                 shape: None,
+                wall: None,
             })
         })
         .collect::<Result<Vec<_>, CliError>>()?;
@@ -3113,6 +3154,110 @@ fn resolve_sensitivity(
         n_port: analysis == Analysis::Driven && ctx.n_port,
         observables,
         frequency_indices,
+    })
+}
+
+/// A wall parameter's wall, library parameter, SI value and unit factor
+/// (issue #1330). Rejects a group that is not a Leontovich wall and a
+/// parameter the wall's model does not carry.
+fn resolve_wall_parameter(
+    prm: &crate::spec::SensitivityParameterSpec,
+    leontovich: &[Leontovich],
+    length_unit_m: f64,
+) -> Result<SensitivityParameter, CliError> {
+    use geode_core::driven::solve::WallParam;
+    let group = prm.physical_group.clone().expect("validated");
+    let label = parameter_label(prm);
+    let at = format!("sensitivity parameter {label} (kind `{}`)", prm.kind.name());
+    let wall = leontovich
+        .iter()
+        .position(|l| l.surface.name == group)
+        .ok_or_else(|| {
+            invalid(format!(
+                "{at}: `{group}` is not a `boundary_conditions.leontovich` wall (wall parameters \
+                 name the wall's dimension-2 `physical_group`)"
+            ))
+        })?;
+    let l = &leontovich[wall];
+    let needs = |what: &str| {
+        invalid(format!(
+            "{at}: wall `{group}` {what}; the parameter does not exist on it"
+        ))
+    };
+    let (param, value, si_factor, unit) = match (prm.kind, l.roughness) {
+        (SensitivityParameterKind::WallSigma, _) => (
+            WallParam::Sigma,
+            l.sigma_s_m,
+            ETA_0_OHM * length_unit_m,
+            "S/m",
+        ),
+        (SensitivityParameterKind::WallRmsRoughness, Some(RoughnessSpec::Hammerstad { rms_m })) => {
+            (WallParam::RmsRoughness, rms_m, 1.0 / length_unit_m, "m")
+        }
+        (SensitivityParameterKind::WallRmsRoughness, None) => {
+            return Err(needs("is smooth (no `roughness`)"));
+        }
+        (SensitivityParameterKind::WallRmsRoughness, Some(_)) => {
+            return Err(needs(
+                "has a Huray roughness (use `wall_ball_radius` / `wall_ball_density`)",
+            ));
+        }
+        (
+            SensitivityParameterKind::WallBallRadius,
+            Some(RoughnessSpec::Huray { ball_radius_m, .. }),
+        ) => (
+            WallParam::BallRadius,
+            ball_radius_m,
+            1.0 / length_unit_m,
+            "m",
+        ),
+        (
+            SensitivityParameterKind::WallBallDensity,
+            Some(RoughnessSpec::Huray {
+                n_balls,
+                tile_area_m2,
+                ..
+            }),
+        ) => (
+            WallParam::BallDensity,
+            n_balls / tile_area_m2,
+            length_unit_m * length_unit_m,
+            "1/m^2",
+        ),
+        (
+            SensitivityParameterKind::WallBallRadius | SensitivityParameterKind::WallBallDensity,
+            None,
+        ) => {
+            return Err(needs("is smooth (no `roughness`)"));
+        }
+        (
+            SensitivityParameterKind::WallBallRadius | SensitivityParameterKind::WallBallDensity,
+            Some(_),
+        ) => {
+            return Err(needs(
+                "has a Hammerstad roughness (use `wall_rms_roughness`)",
+            ));
+        }
+        _ => unreachable!("wall kinds only"),
+    };
+    if !(value.is_finite() && value > 0.0) {
+        return Err(invalid(format!(
+            "{at}: the parameter's value is {value:e}; the finite-difference scale and the \
+             gradient need a positive value"
+        )));
+    }
+    Ok(SensitivityParameter {
+        physical_group: group,
+        kind: prm.kind,
+        region: usize::MAX,
+        value,
+        shape: None,
+        wall: Some(WallParameterDef {
+            wall,
+            param,
+            si_factor,
+            unit,
+        }),
     })
 }
 
@@ -3165,6 +3310,7 @@ fn resolve_shape_parameter(
         physical_group: groups.join(","),
         kind: SensitivityParameterKind::Shape,
         region: usize::MAX,
+        wall: None,
         value: value_mesh * length_unit_m,
         shape: Some(ShapeParameterDef {
             name,
