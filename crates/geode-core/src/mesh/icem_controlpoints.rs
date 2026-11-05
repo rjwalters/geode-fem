@@ -65,7 +65,9 @@
 //! differ from the scalar-only construction by exactly one offset per group
 //! along the frozen directions, to round-off
 //! (`benchmarks/motor_reference/parametric_cp/`). The alternative stator
-//! assignment (arc middles with the opening) leaves a 3e-8 m misfit.
+//! assignment (arc middles with the opening) was tried and found worse; the
+//! 3e-8 m misfit once recorded for it is not reproduced by any script or log
+//! in this repository, so it is uncited.
 //! Within the rotor, the order `CPR4..CPR7` and `CPR1` against `CPR2`
 //! follow the upstream numbers (contiguous `59..66` along the pole row,
 //! `43, 44` along the edge row); the fit itself does not depend on which

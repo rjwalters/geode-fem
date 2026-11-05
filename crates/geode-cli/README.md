@@ -1527,8 +1527,8 @@ lumped-port spec whose parameters are all `eps_r` and that has no
 - **Typed rejections.** Besides the section rules above, the library's
   fences surface as `invalid_spec` naming what would lift them: a shape
   parameter moving a geometric wave-port face (its modes are fixed
-  profiles), a lumped-port face (N-port moving feeds) or an impedance wall
-  (Phase 2b); a hybrid face bent out of its plane; an exactly degenerate
+  profiles) or a lumped-port face (N-port moving feeds) — an impedance
+  wall (Leontovich) may move since Epic #841 Phase 2b; a hybrid face bent out of its plane; an exactly degenerate
   face-mode cluster (e.g. the even / odd TEM pair of a symmetric coupled
   line) whose face a parameter touches — a per-channel gradient is
   basis-dependent there; a mesh-induced complex-pair channel. The CLI has
@@ -2636,7 +2636,7 @@ operator, plus two V-cycles (Re / Im) per iteration.
 geode mesh <layout.json|layout.toml> [--analysis driven|capacitance|inductance] [--mesh-out mesh.msh] [--spec-out spec.json] [--gmsh PATH] [--gmsh-timeout SECONDS] [-o report.json]
 ```
 
-`geode mesh` turns a **layout** — 2-D rectilinear polygons per conductor
+`geode mesh` turns a **layout** — 2-D polygons (axis-parallel and ±45° edges, holes allowed) per conductor
 layer plus a layer stack — into a solver-ready tagged mesh, so an EDA
 flow (e.g. klayout-tools reading GDS, which geode deliberately does not
 parse) does not need a hand-built `.msh`:
@@ -2859,8 +2859,8 @@ the m1 underpass and the vias):
 | `conductors[].polygons[]` | ≥ 1 | shapes of the layer |
 | `….polygons[].name` | name, optional | unique within the layer; referenced by `ports[].between` |
 | `….polygons[].net` | name, optional | puts the polygon in the conductor group named after the net (any layer) instead of the layer's group; net names share the group namespace |
-| `….polygons[].outer` | `[[x, y], …]` | simple **rectilinear** ring (every edge parallel to x or y), ≥ 4 vertices, either orientation, closing vertex optional |
-| `….polygons[].holes` | must be empty | accepted by the schema, rejected in v1 |
+| `….polygons[].outer` | `[[x, y], …]` | simple ring, ≥ 3 vertices, every edge parallel to x or y or at ±45°, either orientation, closing vertex optional. A rectilinear ring without holes is decomposed into rectangles exactly as before; any other polygon is meshed as one polygon extrusion (sheet: one planar surface) |
+| `….polygons[].holes` | list of rings, default `[]` | interior rings with the same edge rules; each must lie strictly inside `outer` and clear of the other holes, and must not meet the footprint of a same-net polygon on a layer whose z-range touches the polygon's (a via must land on metal). Errors name the conductor and polygon |
 | `conductors[].mesh_size` | length > 0, optional | per-layer target size (default `mesh.size_conductor`) |
 | `ports[]` | ≥ 1 for `--analysis driven`, else optional (not meshed) | lumped **gap** ports, horizontal, at the layer's mid-height |
 | `ports[].name` | name | surface group name |
@@ -2883,8 +2883,12 @@ the m1 underpass and the vias):
 | `mesh.near_distance` | length > 0, default: the target size | distance from a conductor over which its target size holds (ports: their gap length) |
 | `mesh.far_distance` | length > 0, default `margin` | distance at which the size reaches `size_max` |
 
-**Not in v1** (natural follow-ups): polygons with holes and
-non-rectilinear polygons; Leontovich / finite-conductivity conductor
+Polygons with holes or 45° edges are not supported in `--analysis
+inductance` path conductors or their contacts' return groups (a contact
+face is only defined for rectangles); other analyses accept them.
+
+**Not in v1** (natural follow-ups): edges at angles other than
+axis-parallel and ±45°, curved edges; Leontovich / finite-conductivity conductor
 models in the starter spec; wave ports and non-horizontal
 ports; per-layer curvature / sloped sidewalls; GDS ingestion (owned by
 klayout-tools, by design).

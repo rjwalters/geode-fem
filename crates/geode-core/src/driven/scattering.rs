@@ -648,10 +648,77 @@ pub(crate) fn box_surface_samples(
     box_lo: [f64; 3],
     box_hi: [f64; 3],
 ) -> Vec<BoxFaceSample> {
-    use std::collections::HashMap;
-
     let edges = mesh.edges();
     assert_eq!(e_edges.len(), edges.len(), "one DOF per global edge");
+
+    // H = (i/ω)·∇×E.
+    let i_over_omega = c64::new(0.0, 1.0 / omega);
+    box_surface_faces(mesh, box_lo, box_hi)
+        .into_iter()
+        .map(|face| {
+            let dofs = local_dofs(&face.tet_edges, e_edges);
+            let mut e = [c64::new(0.0, 0.0); 3];
+            let mut curl = [c64::new(0.0, 0.0); 3];
+            for (slot, &d) in dofs.iter().enumerate() {
+                for k in 0..3 {
+                    e[k] += d * c64::new(face.e_basis[slot][k], 0.0);
+                    curl[k] += d * c64::new(face.curl_basis[slot][k], 0.0);
+                }
+            }
+            BoxFaceSample {
+                n_hat: face.n_hat,
+                area: face.area,
+                centroid: face.centroid,
+                e,
+                h: [
+                    i_over_omega * curl[0],
+                    i_over_omega * curl[1],
+                    i_over_omega * curl[2],
+                ],
+            }
+        })
+        .collect()
+}
+
+/// One Huygens-box surface face together with the **linear field maps**
+/// that produce its [`BoxFaceSample`] fields from the edge DOFs: the
+/// tangential `E` and `∇×E` on the face are `Σ_slot d_slot · e_basis[slot]`
+/// and `Σ_slot d_slot · curl_basis[slot]`, with `d_slot = sign · e_edges[idx]`
+/// (see [`local_dofs`]). Exposing the maps (instead of only their values at
+/// one field) is what lets the far-field figure of merit build its
+/// edge-space cotangent without re-deriving any Whitney algebra.
+pub(crate) struct BoxFaceBasis {
+    /// Index of the inside tet the face belongs to.
+    pub(crate) tet: usize,
+    /// Global edge index and orientation sign of the inside tet's six edges.
+    pub(crate) tet_edges: [(u32, i8); 6],
+    /// Outward unit normal `n̂`.
+    pub(crate) n_hat: [f64; 3],
+    /// Face area.
+    pub(crate) area: f64,
+    /// Face centroid `r'`.
+    pub(crate) centroid: [f64; 3],
+    /// Whitney basis value `W_slot(r')` for each local edge slot.
+    pub(crate) e_basis: [[f64; 3]; 6],
+    /// Whitney curl `∇×W_slot` (constant per tet) for each local edge slot.
+    pub(crate) curl_basis: [[f64; 3]; 6],
+}
+
+/// Walk the closed Huygens-box surface (the **identical selector**
+/// [`flux_power_box`] uses: tets whose centroid is inside
+/// `[box_lo, box_hi]`, faces with exactly one inside-tet neighbour) and
+/// return one [`BoxFaceBasis`] per surface face.
+///
+/// # Panics
+///
+/// Panics on an empty box or an all-inside box (empty surface).
+pub(crate) fn box_surface_faces(
+    mesh: &TetMesh,
+    box_lo: [f64; 3],
+    box_hi: [f64; 3],
+) -> Vec<BoxFaceBasis> {
+    use std::collections::HashMap;
+
     let tet_edges = mesh.tet_edges();
     let centroids = crate::assembly::nedelec::tet_centroids(mesh);
 
@@ -679,21 +746,17 @@ pub(crate) fn box_surface_samples(
         }
     }
 
-    // H = (i/ω)·∇×E.
-    let i_over_omega = c64::new(0.0, 1.0 / omega);
-    let mut samples = Vec::new();
+    let mut faces = Vec::new();
     for (t, tet) in mesh.tets.iter().enumerate() {
         if !inside[t] {
             continue;
         }
         let geom = tet_geometry(mesh, tet);
-        let dofs = local_dofs(&tet_edges[t], e_edges);
-        let curl = eval_curl(&geom, &dofs);
-        let h = [
-            i_over_omega * curl[0],
-            i_over_omega * curl[1],
-            i_over_omega * curl[2],
-        ];
+        let curl_basis: [[f64; 3]; 6] = std::array::from_fn(|slot| {
+            let (a, b) = TET_LOCAL_EDGES[slot];
+            let w = cross(geom.grad[a], geom.grad[b]);
+            [2.0 * w[0], 2.0 * w[1], 2.0 * w[2]]
+        });
 
         for (local_face, lf) in TET_LOCAL_FACES.iter().enumerate() {
             let mut tri = [tet[lf[0]], tet[lf[1]], tet[lf[2]]];
@@ -722,18 +785,42 @@ pub(crate) fn box_surface_samples(
             for &lv in lf {
                 lambda[lv] = 1.0 / 3.0;
             }
-            let e = eval_field_at_bary(&geom, &dofs, lambda);
+            let e_basis: [[f64; 3]; 6] = std::array::from_fn(|slot| {
+                let (a, b) = TET_LOCAL_EDGES[slot];
+                std::array::from_fn(|k| lambda[a] * geom.grad[b][k] - lambda[b] * geom.grad[a][k])
+            });
 
-            samples.push(BoxFaceSample {
+            faces.push(BoxFaceBasis {
+                tet: t,
+                tet_edges: tet_edges[t],
                 n_hat,
                 area,
                 centroid: face_centroid,
-                e,
-                h,
+                e_basis,
+                curl_basis,
             });
         }
     }
-    samples
+    faces
+}
+
+/// Nodes of every Huygens-box **surface tet** (an inside tet owning at least
+/// one surface face), as a per-node mask.
+///
+/// The far-field transform reads `E`, `∇×E`, the face normal/area/centroid
+/// from exactly these tets, so holding these nodes fixed makes the whole
+/// near-to-far map geometry-constant (`∂NTFF/∂X|_x = 0`): the only dependence
+/// of the far field on a node motion is then through the solved edge DOFs,
+/// which the shape adjoint already differentiates. Pin them (e.g. in the
+/// mesh-morph `fixed_zero` set) alongside the PML shell.
+pub fn box_surface_tet_nodes(mesh: &TetMesh, box_lo: [f64; 3], box_hi: [f64; 3]) -> Vec<bool> {
+    let mut pinned = vec![false; mesh.n_nodes()];
+    for face in box_surface_faces(mesh, box_lo, box_hi) {
+        for &n in &mesh.tets[face.tet] {
+            pinned[n as usize] = true;
+        }
+    }
+    pinned
 }
 
 /// Normalize a power to a Mie efficiency:

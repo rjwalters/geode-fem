@@ -34,6 +34,10 @@
 //! - [`floquet`] — **Floquet ports** (analytic TE + TM modes per
 //!   diffraction order) and oblique plane-wave drive on a Bloch-phased
 //!   unit cell (issue #870, Epic #837 Phase 3a).
+//! - [`floquet_sensitivity`] — **Floquet-port S-matrix** sensitivities
+//!   `∂S_pq/∂θ` (per-region `ε′`/`ε″`, node-motion shape) through the
+//!   mirrored-order transpose solve on the forward LU (Epic #1252 Phase 1 /
+//!   issue #1256).
 //! - [`transient`] — implicit second-order (generalized-α / Newmark-β)
 //!   time integration of the same `K`/`C`/`M` matrices the driven path
 //!   assembles, with a lumped-port time-domain drive and broadband
@@ -50,6 +54,7 @@
 pub mod adjoint;
 pub mod extraction;
 pub mod floquet;
+pub mod floquet_sensitivity;
 pub mod matrix_free;
 pub mod periodic;
 pub mod ports;

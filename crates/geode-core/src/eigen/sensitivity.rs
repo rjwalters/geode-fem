@@ -77,7 +77,9 @@
 //!   silently producing a wrong gradient.
 //! - **Isotropic real `ε_r`.** Matching [`crate::driven::adjoint`] /
 //!   [`crate::driven::shape`] (#576/#577), the material is a per-tet isotropic
-//!   real scalar. The anisotropic-tensor / lossy-ε sensitivity is a follow-on.
+//!   real scalar. The anisotropic-tensor sensitivity is a follow-on; the
+//!   lossy (complex-ε) eigenpair has its own entry point,
+//!   [`LossySpaceEigenSensitivity`] (issue #1277).
 //! - **Volume curl-curl / mass terms.** The geometry gradient covers the
 //!   *volume* element kernels. A lumped-port surface term
 //!   ([`crate::eigen::transmon`]'s `S_Γ`) that *moves with the geometry* is not
@@ -89,6 +91,7 @@
 
 use crate::driven::shape::{Dual, nedelec_local_dual, nedelec_local_dual_tensor};
 use crate::mesh::TetMesh;
+use faer::c64;
 
 /// Error returned by the Hellmann–Feynman sensitivity entry points.
 #[derive(Debug, Clone, PartialEq)]
@@ -903,5 +906,231 @@ impl SpaceEigenSensitivity<'_> {
     ) -> Result<f64, EigenSensitivityError> {
         let grad_node = self.deigenvalue_dx()?;
         Ok(crate::shape::chain_node_motion(&grad_node, dnode_dtheta))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Lossy (complex-symmetric) eigenpair: ∂λ/∂ε, ∂k₀/∂ε (issue #1277, Epic #836 P4b)
+// ---------------------------------------------------------------------------
+
+/// Material sensitivity of a **lossy** simple eigenpair of the complex
+/// symmetric pencil `K x = λ M x` assembled on an
+/// [`crate::assembly::hcurl_space::HcurlSpace`] by
+/// [`crate::eigen::lossy_cavity::solve_lossy_cavity_modes_on_space`]
+/// (isotropic complex `ε_r` per tet; issue #1277, Epic #836 Phase 4b).
+///
+/// # The identity (non-conjugated left eigenvector)
+///
+/// `K` and `M` are complex **symmetric** (not Hermitian), so the left
+/// eigenvector of a simple eigenpair `(λ, x)` is `x` itself under the
+/// *bilinear* (non-conjugated) product — the same product the lossy
+/// Lanczos normalises with (`xᵀ M x = 1`, see
+/// [`crate::eigen::lossy_cavity::LossyCavityMode::vector`]). Differentiating
+/// `K x = λ M x` and projecting on `xᵀ`:
+///
+/// ```text
+///   ∂λ/∂p = xᵀ (∂K/∂p − λ ∂M/∂p) x / (xᵀ M x).
+/// ```
+///
+/// `K` is independent of `ε` and `M(ε) = Σ_t ε_t M_loc(t)` is linear in the
+/// (complex) per-tet `ε_t`, so for a region `k`
+///
+/// ```text
+///   ∂λ/∂ε_k = −λ · Σ_{t ∈ k} xᵀ M_loc(t) x      (no complex conjugation),
+/// ```
+///
+/// the holomorphic derivative with respect to the complex `ε_k`. The
+/// wavenumber follows by the chain rule, `∂k₀/∂ε_k = (∂λ/∂ε_k)/(2 k₀)`;
+/// `ω = c·k₀` (in mesh units) so `∂ω/∂ε_k` is the same up to the constant
+/// `c/L_unit`. Impedance walls frozen at a reference frequency
+/// ([`crate::eigen::lossy_cavity::FrozenWalls`]) do not depend on `ε` and so
+/// do not enter; their frozen-frequency approximation is inherited.
+///
+/// Scope: simple eigenvalues only (a typed
+/// [`EigenSensitivityError::DegenerateEigenvalue`] otherwise, using the
+/// complex distance `|λ_i − λ_j|/|λ_i|`); isotropic `ε_r`; p=1 and p=2.
+pub struct LossySpaceEigenSensitivity<'a> {
+    /// The H(curl) space the pencil was assembled on.
+    pub space: &'a crate::assembly::hcurl_space::HcurlSpace,
+    /// The mesh the space was built on.
+    pub mesh: &'a TetMesh,
+    /// Kept-DOF mask over `space.n_dofs()` (the pencil's PEC mask).
+    pub interior_mask: &'a [bool],
+    /// All converged complex eigenvalues `λ = k₀²` (for the gap check).
+    pub lambdas: &'a [c64],
+    /// Index of the target mode within `lambdas`.
+    pub mode_index: usize,
+    /// The target mode's eigenvector over the kept DOFs, **bilinear**
+    /// `M`-normalised (`xᵀ M x = 1`, no conjugation).
+    pub eigenvector: &'a [c64],
+    /// Minimum relative spectral gap for the target to count as simple.
+    pub min_rel_gap: f64,
+}
+
+impl LossySpaceEigenSensitivity<'_> {
+    /// Simple-eigenvalue gate; returns the target `λ`.
+    fn checked_lambda(&self) -> Result<c64, EigenSensitivityError> {
+        let lambda = *self.lambdas.get(self.mode_index).ok_or(
+            EigenSensitivityError::ModeIndexOutOfRange {
+                index: self.mode_index,
+                n_modes: self.lambdas.len(),
+            },
+        )?;
+        let denom = lambda.norm().max(f64::MIN_POSITIVE);
+        let rel_gap = self
+            .lambdas
+            .iter()
+            .enumerate()
+            .filter(|&(j, _)| j != self.mode_index)
+            .map(|(_, &lj)| (lambda - lj).norm() / denom)
+            .fold(f64::INFINITY, f64::min);
+        if rel_gap < self.min_rel_gap || !lambda.re.is_finite() || !lambda.im.is_finite() {
+            return Err(EigenSensitivityError::DegenerateEigenvalue {
+                index: self.mode_index,
+                lambda: lambda.re,
+                rel_gap,
+                min_rel_gap: self.min_rel_gap,
+            });
+        }
+        Ok(lambda)
+    }
+
+    /// Scatter the kept-DOF eigenvector to full DOF length.
+    fn full_vector(&self) -> Result<Vec<c64>, EigenSensitivityError> {
+        let n = self.space.n_dofs();
+        if self.interior_mask.len() != n {
+            return Err(EigenSensitivityError::DimMismatch {
+                what: "interior_mask",
+                got: self.interior_mask.len(),
+                want: n,
+            });
+        }
+        let dim = self.interior_mask.iter().filter(|&&k| k).count();
+        if dim == 0 {
+            return Err(EigenSensitivityError::EmptyInterior);
+        }
+        if self.eigenvector.len() != dim {
+            return Err(EigenSensitivityError::DimMismatch {
+                what: "eigenvector",
+                got: self.eigenvector.len(),
+                want: dim,
+            });
+        }
+        let mut xf = vec![c64::new(0.0, 0.0); n];
+        let mut it = self.eigenvector.iter();
+        for (x, &keep) in xf.iter_mut().zip(self.interior_mask) {
+            if keep {
+                *x = *it.next().expect("length checked");
+            }
+        }
+        Ok(xf)
+    }
+
+    /// Local DOF values of tet `t` (signed at p=1, unit-sign at p=2) and the
+    /// ε = 1 element mass in the same layout.
+    fn local_x_and_mass(&self, xf: &[c64], t: usize) -> (Vec<c64>, Vec<Vec<f64>>) {
+        use crate::assembly::hcurl_space::TetOrientation;
+        let dofs = self.space.tet_dofs(t);
+        match self.space.tet_orientation(t) {
+            TetOrientation::EdgeSigns(sign) => {
+                let x = (0..6)
+                    .map(|i| xf[dofs[i] as usize] * f64::from(sign[i]))
+                    .collect();
+                let tet = &self.mesh.tets[t];
+                let coords: [[Dual; 3]; 4] =
+                    std::array::from_fn(|a| self.mesh.nodes[tet[a] as usize].map(Dual::cst));
+                let (_k, m, _n) = nedelec_local_dual(&coords);
+                let m = (0..6)
+                    .map(|i| (0..6).map(|j| m[i][j].re).collect())
+                    .collect();
+                (x, m)
+            }
+            TetOrientation::AscendingPerm(_) => {
+                let x = dofs.iter().map(|&d| xf[d as usize]).collect();
+                let coords = self.space.tet_local_coords(self.mesh, t);
+                let (_k, m, _) = crate::elements::nedelec_p2::tet_nedelec2_local(&coords);
+                let m = m.iter().map(|r| r.to_vec()).collect();
+                (x, m)
+            }
+        }
+    }
+
+    /// Per-region bilinear mass forms `Q_k = Σ_{t ∈ k} xᵀ M_loc(t) x`
+    /// (no conjugation), the reusable core of every `ε`-type lossy
+    /// sensitivity: `∂λ/∂ε_k = −λ Q_k`. Regions with no tets give exactly
+    /// `0`; out-of-range labels are ignored. Does **not** apply the
+    /// simple-eigenvalue gate (callers do).
+    ///
+    /// # Errors
+    ///
+    /// [`EigenSensitivityError::DimMismatch`] / [`EigenSensitivityError::EmptyInterior`]
+    /// on inconsistent input lengths.
+    pub fn region_mass_forms(
+        &self,
+        region_of: &[usize],
+        n_regions: usize,
+    ) -> Result<Vec<c64>, EigenSensitivityError> {
+        let n_tets = self.mesh.n_tets();
+        if region_of.len() != n_tets {
+            return Err(EigenSensitivityError::DimMismatch {
+                what: "region_of",
+                got: region_of.len(),
+                want: n_tets,
+            });
+        }
+        let xf = self.full_vector()?;
+        let mut q = vec![c64::new(0.0, 0.0); n_regions];
+        for (t, &k) in region_of.iter().enumerate() {
+            if k >= n_regions {
+                continue;
+            }
+            let (x, m) = self.local_x_and_mass(&xf, t);
+            let mut acc = c64::new(0.0, 0.0);
+            for (i, row) in m.iter().enumerate() {
+                for (j, &mij) in row.iter().enumerate() {
+                    acc += x[i] * x[j] * mij;
+                }
+            }
+            q[k] += acc;
+        }
+        Ok(q)
+    }
+
+    /// **Material** sensitivity `∂λ/∂ε_k = −λ · Σ_{t∈k} xᵀ M_loc x` for every
+    /// region (complex-valued).
+    ///
+    /// # Errors
+    ///
+    /// [`EigenSensitivityError::DegenerateEigenvalue`] if the target fails the
+    /// simple-mode gate; [`EigenSensitivityError::DimMismatch`] on a length
+    /// mismatch.
+    pub fn deigenvalue_deps(
+        &self,
+        region_of: &[usize],
+        n_regions: usize,
+    ) -> Result<Vec<c64>, EigenSensitivityError> {
+        let lambda = self.checked_lambda()?;
+        let q = self.region_mass_forms(region_of, n_regions)?;
+        Ok(q.into_iter().map(|q| -lambda * q).collect())
+    }
+
+    /// **Wavenumber / frequency** sensitivity `∂k₀/∂ε_k = (∂λ/∂ε_k)/(2k₀)`
+    /// with `k₀ = √λ` on the principal branch
+    /// ([`crate::eigen::lossy_cavity::principal_k0`]); `∂ω/∂ε_k` is this
+    /// times `c/L_unit`. Complex: the imaginary part carries `∂(Im k₀)/∂ε`,
+    /// i.e. the `Q` sensitivity.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::deigenvalue_deps`].
+    pub fn dk0_deps(
+        &self,
+        region_of: &[usize],
+        n_regions: usize,
+    ) -> Result<Vec<c64>, EigenSensitivityError> {
+        let lambda = self.checked_lambda()?;
+        let k0 = crate::eigen::lossy_cavity::principal_k0(lambda);
+        let dl = self.deigenvalue_deps(region_of, n_regions)?;
+        Ok(dl.into_iter().map(|d| d / (k0 * 2.0)).collect())
     }
 }
