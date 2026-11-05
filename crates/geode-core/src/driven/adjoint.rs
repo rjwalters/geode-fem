@@ -101,15 +101,21 @@ use faer::linalg::solvers::Solve;
 use faer::sparse::{SparseColMat, Triplet};
 use faer::{Mat, c64};
 
+use crate::assembly::hcurl_space::HcurlSpace;
 use crate::assembly::nedelec::{
     NedelecScatterMap, assemble_global_nedelec_with_complex_epsilon_sparse,
     assemble_nedelec_current_rhs,
 };
+use crate::assembly::nedelec_p2::{p2_local_mass_tensor, tabulate_p2_tet};
 use crate::assembly::p1::upload_mesh;
+use crate::driven::ports::WavePortSpec;
 use crate::driven::ports::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
 use crate::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenError, SurfaceImpedanceBc, validate_driven_surfaces,
+    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, DrivenSource,
+    SurfaceImpedanceBc, validate_driven_surfaces,
 };
+use crate::elements::ElementOrder;
+use crate::elements::nedelec_p2::{TET_NEDELEC2_DOFS, tet_nedelec2_local};
 use crate::mesh::TetMesh;
 
 /// Result of a driven-Nédélec material discrete-adjoint gradient evaluation.
@@ -591,7 +597,7 @@ where
 /// ([`crate::assembly::surface::assemble_surface_mass_triplets`]) scaled by
 /// [`SurfaceImpedanceModel::weak_coefficient`](crate::driven::solve::SurfaceImpedanceModel::weak_coefficient).
 /// This is term for term the system
-/// [`DrivenOperator`](crate::driven::solve::DrivenOperator) assembles for
+/// [`DrivenOperator`] assembles for
 /// `DrivenMaterials::Scalar(eps_r)` without a volume `σ` — the pencil
 /// [`s_parameter_operator`](crate::driven::extraction::s_parameter_operator)
 /// and [`driven_solve_with_ports`](crate::driven::solve::driven_solve_with_ports)
@@ -1078,10 +1084,6 @@ pub fn driven_material_adjoint_gradient_p2<G>(
 where
     G: Fn(&[c64]) -> (f64, Vec<c64>),
 {
-    use crate::assembly::nedelec_p2::{P2DofMap, p2_interior_km, p2_region_mass_action};
-    use faer::Mat;
-    use faer::linalg::solvers::Solve;
-
     let n_tets = mesh.n_tets();
     if eps_r.len() != n_tets {
         return Err(DrivenError::MaterialDimMismatch {
@@ -1089,6 +1091,330 @@ where
             want: n_tets,
         });
     }
+    let space = HcurlSpace::build(mesh, ElementOrder::P2);
+    if rhs_full.len() != space.n_dofs() {
+        return Err(DrivenError::SourceDimMismatch {
+            got: rhs_full.len(),
+            want: space.n_dofs(),
+        });
+    }
+    let eps_c: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
+    let zero_src = CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; n_tets],
+    };
+    let bcs = DrivenBcs {
+        pec_interior_mask: interior_dof_mask,
+    };
+    let problem = DrivenGradientProblem {
+        space: &space,
+        mesh,
+        materials: DrivenMaterials::Scalar(&eps_c),
+        bcs: &bcs,
+        source: &zero_src,
+        ports: &[],
+        surfaces: &[],
+        wave_ports: &[],
+        omega,
+        excited: None,
+    };
+    // Thin wrapper (issue #1264): the raw-RHS, real-ε case of the
+    // order-generic p=2 core; `rhs_full` replaces the operator's own `b`.
+    let op = problem.assemble_p2_operator()?;
+    let b_int: Vec<c64> = (0..space.n_dofs())
+        .filter(|&g| interior_dof_mask[g])
+        .map(|g| rhs_full[g])
+        .collect();
+    let g = material_gradient_p2_core(
+        &problem,
+        &op,
+        Some(&b_int),
+        region_of_tet,
+        n_regions,
+        objective,
+    )?;
+    Ok(P2DrivenAdjointGradient {
+        objective: g.objective,
+        grad: g.grad_eps_prime,
+        x: g.e_edges,
+        residual_rel: g.residual_rel,
+        n_factorizations: g.n_factorizations,
+    })
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ORDER-GENERIC sensitivities on a `DrivenOperator` (issue #1264, Epic #836
+// Phase 4).
+// ─────────────────────────────────────────────────────────────────────────
+
+/// The `feature` string of the [`DrivenError::UnsupportedAtOrder`] returned
+/// for any wave / hybrid-port gradient request (the fence of Epic #836
+/// Phase 4; it lifts with Phase 3b).
+pub const WAVE_PORT_GRADIENT_FEATURE: &str =
+    "wave/hybrid-port gradient terms (deferred to #836 P3b)";
+
+/// Everything an **order-generic** driven gradient needs: the H(curl) space
+/// and the same mesh / materials / boundary conditions / source / lumped
+/// ports / impedance surfaces the forward
+/// [`DrivenOperator`] is built from
+/// (it is assembled from them, so the gradient's forward solve **is** the
+/// operator's solve), plus the drive frequency and, optionally, the
+/// excited port (the `S_{·p}` convention of
+/// [`FactoredDrivenOperator::solve_excited`](crate::driven::solve::FactoredDrivenOperator::solve_excited)).
+///
+/// Consumed by [`driven_material_adjoint_gradient_on_space`] and
+/// [`crate::driven::shape::driven_shape_gradient_on_space`].
+#[derive(Clone, Copy)]
+pub struct DrivenGradientProblem<'a> {
+    /// The H(curl) space (`P1` or `P2`) the operator lives on.
+    pub space: &'a HcurlSpace,
+    /// The tet mesh the space was built on.
+    pub mesh: &'a TetMesh,
+    /// Volume materials (scalar complex ε, diagonal tensor, or matched
+    /// UPML).
+    pub materials: DrivenMaterials<'a>,
+    /// PEC interior mask over `space.n_dofs()`.
+    pub bcs: &'a DrivenBcs<'a>,
+    /// Per-tet-constant volumetric current source.
+    pub source: &'a CurrentSource,
+    /// Lumped ports.
+    pub ports: &'a [LumpedPort<'a>],
+    /// Impedance-surface walls (Leontovich / London / Silver-Müller).
+    pub surfaces: &'a [SurfaceImpedanceBc<'a>],
+    /// Wave / hybrid ports. **Must be empty**: their gradient terms are
+    /// Epic #836 Phase 3b; a non-empty slice returns
+    /// [`DrivenError::UnsupportedAtOrder`] naming `#836 P3b` — never a silent
+    /// fall-back to another order.
+    pub wave_ports: &'a [WavePortSpec],
+    /// Drive frequency `ω = k₀`.
+    pub omega: f64,
+    /// `Some(p)` restricts the port drive to port `p` (matched-source /
+    /// S-parameter convention); `None` drives every port with `v_inc ≠ 0`.
+    /// Honored at p=2; a `Some` at p=1 is rejected (the p=1 drivers have no
+    /// such selector).
+    pub excited: Option<usize>,
+}
+
+impl DrivenGradientProblem<'_> {
+    /// The wave / hybrid-port fence.
+    pub(crate) fn check_supported(&self) -> Result<(), DrivenError> {
+        if self.wave_ports.is_empty() {
+            Ok(())
+        } else {
+            Err(DrivenError::UnsupportedAtOrder {
+                order: self.space.order(),
+                feature: WAVE_PORT_GRADIENT_FEATURE,
+            })
+        }
+    }
+
+    /// Assemble the p=2 forward operator the gradient differentiates.
+    pub(crate) fn assemble_p2_operator(&self) -> Result<DrivenOperator, DrivenError> {
+        DrivenOperator::assemble_p2_host(
+            self.space,
+            self.mesh,
+            self.materials,
+            self.bcs,
+            self.ports,
+            self.surfaces,
+            DrivenSource::Constant(self.source),
+        )
+    }
+}
+
+/// `∂g/∂ε′_k`, `∂g/∂ε″_k` for every design region `k` of the driven solve
+/// described by `problem`, at **either element order** — the order-generic
+/// successor of the cube-only
+/// [`driven_material_adjoint_gradient_p2`] (issue #1264, Epic #836 Phase 4).
+///
+/// - **p=1:** delegates to [`driven_material_adjoint_gradient_ports`]
+///   bit-for-bit (scalar complex ε only; tensor / matched-UPML materials,
+///   `excited = Some(_)` and the like are
+///   [`DrivenError::UnsupportedAtOrder`]).
+/// - **p=2:** assembles the p=2 [`DrivenOperator`] from `problem` (lumped
+///   ports, every impedance-surface model, scalar / diagonal-tensor /
+///   matched-UPML ε), factors `A(ω)` **once** and reuses that factorization
+///   for the adjoint solve (`A(ω)ᵀ = A(ω)`; `n_factorizations == 1`). The
+///   contraction is the same as at p=1,
+///   `∂g/∂ε′_k = 2ω² Re[z_k]`, `∂g/∂ε″_k = 2ω² Im[z_k]`,
+///   `z_k = λᵀ M_k x`, with `M_k` the p=2 mass of the region-`k` tets. For a
+///   tensor material the design variable is the complex scale `s_k` of the
+///   per-tet tensor (`ε_t = s_k·T_t`, evaluated at `s_k = 1`), so `M_k` is
+///   the mass of `T_t` — this is the matched-UPML case (the PML profile is
+///   held fixed, the design region carries the scale). Every port and wall
+///   term is ε-independent, so it only loads `x` and `λ`.
+///
+/// # Errors
+///
+/// [`DrivenError::UnsupportedAtOrder`] for `problem.wave_ports` ≠ ∅ (names
+/// `#836 P3b`), plus the assembly / factorization errors of the forward
+/// operator and [`DrivenError::MaterialDimMismatch`] for bad region labels.
+pub fn driven_material_adjoint_gradient_on_space<B, G>(
+    problem: &DrivenGradientProblem<'_>,
+    region_of_tet: &[usize],
+    n_regions: usize,
+    objective: G,
+    device: &B::Device,
+) -> Result<DrivenComplexAdjointGradient, DrivenError>
+where
+    B: Backend,
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    problem.check_supported()?;
+    if problem.space.order() == ElementOrder::P1 {
+        let DrivenMaterials::Scalar(eps) = problem.materials else {
+            return Err(DrivenError::UnsupportedAtOrder {
+                order: ElementOrder::P1,
+                feature: "the material gradient of tensor / matched-UPML materials",
+            });
+        };
+        if problem.excited.is_some() {
+            return Err(DrivenError::UnsupportedAtOrder {
+                order: ElementOrder::P1,
+                feature: "the excited-port selector of the material gradient",
+            });
+        }
+        return driven_material_adjoint_gradient_ports::<B, G>(
+            problem.mesh,
+            eps,
+            problem.bcs,
+            problem.omega,
+            problem.source,
+            problem.ports,
+            problem.surfaces,
+            region_of_tet,
+            n_regions,
+            objective,
+            device,
+        );
+    }
+    let op = problem.assemble_p2_operator()?;
+    material_gradient_p2_core(problem, &op, None, region_of_tet, n_regions, objective)
+}
+
+/// The p=2 per-tet **unit mass** `∂M/∂s` of tet `t` (sorted-vertex layout):
+/// the `ε = 1` mass for scalar materials, the mass of the tet's own tensor
+/// for diagonal-tensor / matched-UPML materials.
+fn p2_unit_mass(
+    materials: DrivenMaterials<'_>,
+    t: usize,
+    coords: &[[f64; 3]; 4],
+) -> [[c64; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS] {
+    match materials {
+        DrivenMaterials::Scalar(_) => {
+            let (_, m, _) = tet_nedelec2_local(coords);
+            std::array::from_fn(|i| std::array::from_fn(|j| c64::new(m[i][j], 0.0)))
+        }
+        DrivenMaterials::DiagTensor(eps) => {
+            let z = c64::new(0.0, 0.0);
+            let d = eps[t];
+            let w = [[d[0], z, z], [z, d[1], z], [z, z, d[2]]];
+            p2_local_mass_tensor(&tabulate_p2_tet(coords), &w)
+        }
+        DrivenMaterials::MatchedUpml { epsilon_tensor, .. } => {
+            p2_local_mass_tensor(&tabulate_p2_tet(coords), &epsilon_tensor[t])
+        }
+    }
+}
+
+/// Forward field, adjoint field and health numbers of one p=2 forward +
+/// adjoint solve pair on a single factorization.
+pub(crate) struct P2ForwardAdjoint {
+    pub(crate) objective: f64,
+    /// Full-length forward DOF field (zero on PEC DOFs).
+    pub(crate) x_full: Vec<c64>,
+    /// Full-length adjoint field `λ`, `Aᵀ λ = ∂g/∂x` (zero on PEC DOFs).
+    pub(crate) lam_full: Vec<c64>,
+    pub(crate) residual_rel: f64,
+}
+
+/// Factor `A(ω)` of `op` **once**, solve `A x = b`, evaluate `objective` and
+/// solve the adjoint `Aᵀ λ = ∂g/∂x` on the same factorization (`A(ω)` is
+/// complex-symmetric, `Aᵀ = A`). `b_override` replaces the operator's own
+/// RHS `b(ω)` (the legacy raw-RHS entry point).
+pub(crate) fn p2_forward_adjoint<G>(
+    problem: &DrivenGradientProblem<'_>,
+    op: &DrivenOperator,
+    b_override: Option<&[c64]>,
+    objective: G,
+) -> Result<P2ForwardAdjoint, DrivenError>
+where
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    let omega = problem.omega;
+    let zero = c64::new(0.0, 0.0);
+    let n_int = op.n_interior();
+    let n_dofs = op.n_dofs();
+    let fac = op.factor_at(omega)?;
+    let b_int: Vec<c64> = match b_override {
+        Some(b) => {
+            if b.len() != n_int {
+                return Err(DrivenError::SourceDimMismatch {
+                    got: b.len(),
+                    want: n_int,
+                });
+            }
+            b.to_vec()
+        }
+        None => op.assemble_b_at(omega, problem.excited),
+    };
+    let mut x_int = vec![zero; n_int];
+    fac.back_solve(&b_int, &mut x_int)?;
+
+    // Residual health check ‖A x − b‖ / ‖b‖.
+    let mut ax = vec![zero; n_int];
+    fac.spmv_a(&x_int, &mut ax);
+    let (mut res2, mut b2) = (0.0_f64, 0.0_f64);
+    for i in 0..n_int {
+        res2 += (ax[i] - b_int[i]).norm_sqr();
+        b2 += b_int[i].norm_sqr();
+    }
+    let residual_rel = if b2 > 0.0 {
+        (res2 / b2).sqrt()
+    } else {
+        res2.sqrt()
+    };
+
+    let inv = op.interior_to_full();
+    let mut x_full = vec![zero; n_dofs];
+    for (i, &f) in inv.iter().enumerate() {
+        x_full[f] = x_int[i];
+    }
+    let (objective_value, dg_dx) = objective(&x_full);
+    if dg_dx.len() != n_dofs {
+        return Err(DrivenError::SparseAssembly(format!(
+            "objective cotangent length {} != DOF count {n_dofs}",
+            dg_dx.len()
+        )));
+    }
+    let g_int: Vec<c64> = inv.iter().map(|&f| dg_dx[f]).collect();
+    let mut lam_int = vec![zero; n_int];
+    fac.back_solve(&g_int, &mut lam_int)?;
+    let mut lam_full = vec![zero; n_dofs];
+    for (i, &f) in inv.iter().enumerate() {
+        lam_full[f] = lam_int[i];
+    }
+    Ok(P2ForwardAdjoint {
+        objective: objective_value,
+        x_full,
+        lam_full,
+        residual_rel,
+    })
+}
+
+/// The p=2 material-gradient core on an assembled operator (see
+/// [`p2_forward_adjoint`] for `b_override`).
+pub(crate) fn material_gradient_p2_core<G>(
+    problem: &DrivenGradientProblem<'_>,
+    op: &DrivenOperator,
+    b_override: Option<&[c64]>,
+    region_of_tet: &[usize],
+    n_regions: usize,
+    objective: G,
+) -> Result<DrivenComplexAdjointGradient, DrivenError>
+where
+    G: Fn(&[c64]) -> (f64, Vec<c64>),
+{
+    let n_tets = problem.mesh.n_tets();
     if region_of_tet.len() != n_tets {
         return Err(DrivenError::MaterialDimMismatch {
             got: region_of_tet.len(),
@@ -1101,118 +1427,39 @@ where
             want: n_regions,
         });
     }
-    let dofs = P2DofMap::build(mesh);
-    if interior_dof_mask.len() != dofs.n_dofs {
-        return Err(DrivenError::MaskDimMismatch {
-            got: interior_dof_mask.len(),
-            want: dofs.n_dofs,
-        });
-    }
-    if rhs_full.len() != dofs.n_dofs {
-        return Err(DrivenError::SourceDimMismatch {
-            got: rhs_full.len(),
-            want: dofs.n_dofs,
-        });
-    }
-
-    let (remap, n_interior, kept) = p2_interior_km(mesh, &dofs, eps_r, interior_dof_mask);
-    if n_interior == 0 {
-        return Err(DrivenError::EmptyInterior);
-    }
-
-    // Interior A(ω) = K − ω² M(ε) (duplicates summed).
-    let omega2 = omega * omega;
-    let triplets: Vec<Triplet<usize, usize, c64>> = kept
-        .iter()
-        .map(|&(r, c, k, m)| Triplet::new(r, c, c64::new(k - omega2 * m, 0.0)))
-        .collect();
-    let a_int =
-        SparseColMat::<usize, c64>::try_new_from_triplets(n_interior, n_interior, &triplets)
-            .map_err(|e| DrivenError::SparseAssembly(format!("{e:?}")))?;
-    let lu = a_int
-        .as_ref()
-        .sp_lu()
-        .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
+    let omega = problem.omega;
+    let zero = c64::new(0.0, 0.0);
+    // One factorization serves the forward and the adjoint solve.
     let n_factorizations = 1;
+    let fa = p2_forward_adjoint(problem, op, b_override, objective)?;
 
-    // Interior RHS.
-    let mut b_int = vec![c64::new(0.0, 0.0); n_interior];
-    for (g, &ri) in remap.iter().enumerate() {
-        if ri >= 0 {
-            b_int[ri as usize] = rhs_full[g];
+    // z_k = λᵀ M_k x, one local sweep (unit-sign gather; PEC DOFs are zero).
+    let mut z = vec![zero; n_regions];
+    for t in 0..n_tets {
+        let dofs = problem.space.tet_dofs(t);
+        let lam_loc: [c64; TET_NEDELEC2_DOFS] =
+            std::array::from_fn(|i| fa.lam_full[dofs[i] as usize]);
+        if lam_loc.iter().all(|v| v.re == 0.0 && v.im == 0.0) {
+            continue;
         }
+        let x_loc: [c64; TET_NEDELEC2_DOFS] = std::array::from_fn(|i| fa.x_full[dofs[i] as usize]);
+        let coords = problem.space.tet_local_coords(problem.mesh, t);
+        let m = p2_unit_mass(problem.materials, t, &coords);
+        let mut acc = zero;
+        for i in 0..TET_NEDELEC2_DOFS {
+            for j in 0..TET_NEDELEC2_DOFS {
+                acc += lam_loc[i] * m[i][j] * x_loc[j];
+            }
+        }
+        z[region_of_tet[t]] += acc;
     }
-
-    // Forward solve.
-    let mut fwd: Mat<c64> = Mat::from_fn(n_interior, 1, |i, _| b_int[i]);
-    lu.solve_in_place(fwd.as_mut());
-    let x_int: Vec<c64> = (0..n_interior).map(|i| fwd[(i, 0)]).collect();
-
-    // Residual health check.
-    let residual_rel = {
-        let mut ax = vec![c64::new(0.0, 0.0); n_interior];
-        for &(r, c, k, m) in &kept {
-            ax[r] += c64::new(k - omega2 * m, 0.0) * x_int[c];
-        }
-        let mut res2 = 0.0_f64;
-        let mut b2 = 0.0_f64;
-        for i in 0..n_interior {
-            let d = ax[i] - b_int[i];
-            res2 += d.re * d.re + d.im * d.im;
-            b2 += b_int[i].re * b_int[i].re + b_int[i].im * b_int[i].im;
-        }
-        if b2 > 0.0 {
-            (res2 / b2).sqrt()
-        } else {
-            res2.sqrt()
-        }
-    };
-
-    // Scatter x to full length.
-    let mut x = vec![c64::new(0.0, 0.0); dofs.n_dofs];
-    for (g, &ri) in remap.iter().enumerate() {
-        if ri >= 0 {
-            x[g] = x_int[ri as usize];
-        }
-    }
-
-    // Objective and its Wirtinger cotangent.
-    let (objective_value, dg_dx) = objective(&x);
-    if dg_dx.len() != dofs.n_dofs {
-        return Err(DrivenError::SparseAssembly(format!(
-            "objective cotangent length {} != DOF count {}",
-            dg_dx.len(),
-            dofs.n_dofs
-        )));
-    }
-    let mut g_x_int = vec![c64::new(0.0, 0.0); n_interior];
-    for (g, &ri) in remap.iter().enumerate() {
-        if ri >= 0 {
-            g_x_int[ri as usize] = dg_dx[g];
-        }
-    }
-
-    // Adjoint solve Aᵀ λ = ∂g/∂x (A complex-symmetric → same factorization).
-    let mut adj: Mat<c64> = Mat::from_fn(n_interior, 1, |i, _| g_x_int[i]);
-    lu.solve_transpose_in_place(adj.as_mut());
-    let lambda_int: Vec<c64> = (0..n_interior).map(|i| adj[(i, 0)]).collect();
-
-    // Per-region gradient dg/dε_k = 2 ω² Re[ λᵀ M_k x ].
-    let mut grad = vec![0.0_f64; n_regions];
-    for (k, grad_k) in grad.iter_mut().enumerate() {
-        let mkx = p2_region_mass_action(mesh, &dofs, &remap, n_interior, region_of_tet, k, &x_int);
-        let mut contrib = c64::new(0.0, 0.0);
-        for i in 0..n_interior {
-            contrib += lambda_int[i] * mkx[i];
-        }
-        *grad_k = 2.0 * omega2 * contrib.re;
-    }
-
-    Ok(P2DrivenAdjointGradient {
-        objective: objective_value,
-        grad,
-        x,
-        residual_rel,
+    let omega2 = omega * omega;
+    Ok(DrivenComplexAdjointGradient {
+        objective: fa.objective,
+        grad_eps_prime: z.iter().map(|v| 2.0 * omega2 * v.re).collect(),
+        grad_eps_dprime: z.iter().map(|v| 2.0 * omega2 * v.im).collect(),
+        e_edges: fa.x_full,
+        residual_rel: fa.residual_rel,
         n_factorizations,
     })
 }
