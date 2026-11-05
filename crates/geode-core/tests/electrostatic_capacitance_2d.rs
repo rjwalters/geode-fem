@@ -14,7 +14,7 @@
 use std::f64::consts::PI;
 
 use geode_core::analytic::waveguide::TriMesh;
-use geode_core::assembly::electrostatic::{Electrode, ElectrostaticError, EPS_0};
+use geode_core::assembly::electrostatic::{EPS_0, Electrode, ElectrostaticError};
 use geode_core::assembly::electrostatic_2d::{
     assemble_electrostatic_2d, extract_capacitance_2d, recover_e_field_2d,
 };
