@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "description": "two metal layers joined by a via on one net: an octagonal ring with a square hole (m1), a via landing on the ring body, and a strap (m2), above a ground sheet",
+  "length_unit_m": 1e-06,
+  "dielectrics": [
+    {
+      "name": "substrate",
+      "z_bottom": -10,
+      "thickness": 10,
+      "eps_r": [
+        11.9,
+        0
+      ]
+    },
+    {
+      "name": "ild",
+      "z_bottom": 0,
+      "thickness": 8,
+      "eps_r": [
+        4.0,
+        0
+      ]
+    },
+    {
+      "name": "air",
+      "z_bottom": 8,
+      "thickness": 12
+    }
+  ],
+  "ground": [
+    "gnd"
+  ],
+  "conductors": [
+    {
+      "name": "gnd",
+      "z_bottom": 0,
+      "polygons": [
+        {
+          "outer": [
+            [
+              -20,
+              -20
+            ],
+            [
+              24,
+              -20
+            ],
+            [
+              24,
+              20
+            ],
+            [
+              -20,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "m1",
+      "z_bottom": 2,
+      "thickness": 1,
+      "polygons": [
+        {
+          "name": "ring",
+          "net": "sig",
+          "outer": [
+            [
+              5,
+              -8
+            ],
+            [
+              8,
+              -5
+            ],
+            [
+              8,
+              5
+            ],
+            [
+              5,
+              8
+            ],
+            [
+              -5,
+              8
+            ],
+            [
+              -8,
+              5
+            ],
+            [
+              -8,
+              -5
+            ],
+            [
+              -5,
+              -8
+            ]
+          ],
+          "holes": [
+            [
+              [
+                -3,
+                -3
+              ],
+              [
+                3,
+                -3
+              ],
+              [
+                3,
+                3
+              ],
+              [
+                -3,
+                3
+              ]
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "v1",
+      "z_bottom": 3,
+      "thickness": 2,
+      "polygons": [
+        {
+          "name": "via",
+          "net": "sig",
+          "outer": [
+            [
+              5,
+              -1
+            ],
+            [
+              7,
+              -1
+            ],
+            [
+              7,
+              1
+            ],
+            [
+              5,
+              1
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "m2",
+      "z_bottom": 5,
+      "thickness": 1,
+      "polygons": [
+        {
+          "name": "strap",
+          "net": "sig",
+          "outer": [
+            [
+              4,
+              -2
+            ],
+            [
+              14,
+              -2
+            ],
+            [
+              14,
+              2
+            ],
+            [
+              4,
+              2
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "margin": 10,
+  "mesh": {
+    "size_max": 8,
+    "size_conductor": 3
+  }
+}

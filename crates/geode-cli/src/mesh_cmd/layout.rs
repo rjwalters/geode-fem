@@ -41,8 +41,10 @@
 //! `net`, `ground` and `contacts` are additive (schema v1): a layout
 //! without them resolves exactly as before.
 //!
-//! v1 is deliberately small: rectilinear polygons without holes,
-//! thin-sheet / shell PEC conductors, lumped gap ports. See
+//! v1 is deliberately small: polygons with axis-parallel and ±45° edges
+//! (holes allowed; a rectilinear polygon without holes keeps the exact v1
+//! rectangle decomposition), thin-sheet / shell PEC conductors, lumped
+//! gap ports. See
 //! `crates/geode-cli/README.md` ("Layout, schema v1") for the field
 //! reference and the documented deferrals.
 
@@ -149,7 +151,8 @@ impl ConductorLayer {
     }
 }
 
-/// A simple rectilinear polygon (every edge parallel to x or y).
+/// A simple polygon whose edges are parallel to x or y or at ±45°, with
+/// optional holes.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Polygon {
@@ -162,11 +165,12 @@ pub struct Polygon {
     /// layer's group.
     #[serde(default)]
     pub net: Option<String>,
-    /// Outer ring `[[x, y], …]` (`≥ 4` vertices, either orientation,
-    /// closing vertex optional).
+    /// Outer ring `[[x, y], …]` (`≥ 3` vertices, either orientation,
+    /// closing vertex optional). Every edge is axis-parallel or at ±45°.
     pub outer: Vec<[f64; 2]>,
-    /// Interior rings. Accepted by the schema, but v1 rejects non-empty
-    /// holes.
+    /// Interior rings (same rules as `outer`, either orientation): each
+    /// must lie strictly inside the outer ring and must not touch another
+    /// hole.
     #[serde(default)]
     pub holes: Vec<Vec<[f64; 2]>>,
 }
@@ -365,13 +369,17 @@ pub enum ConductorBody {
     Solid,
 }
 
-/// One rectangle of a conductor group, on one layer.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// One part of a conductor group, on one layer: a rectangle, or a
+/// polygon with holes / 45° edges.
+#[derive(Debug, Clone, PartialEq)]
 pub struct GroupPart {
     /// Conductor layer index.
     pub layer: usize,
-    /// Footprint.
+    /// Footprint rectangle; for a [`GroupPart::poly`] part, its bounding
+    /// box.
     pub rect: Rect,
+    /// The exact footprint when it is not a rectangle.
+    pub poly: Option<PolyShape>,
     /// Bottom of the part (the layer's `z_bottom`).
     pub z0: f64,
     /// Top of the part (the layer's top; `z0` for a sheet).
@@ -379,6 +387,13 @@ pub struct GroupPart {
 }
 
 impl GroupPart {
+    /// The exact footprint.
+    fn footprint(&self) -> PolyShape {
+        self.poly
+            .clone()
+            .unwrap_or_else(|| PolyShape::from_rect(&self.rect))
+    }
+
     /// Closed box `[lo, hi]`.
     fn bounds(&self) -> ([f64; 3], [f64; 3]) {
         (
@@ -437,7 +452,12 @@ pub struct ResolvedLayout {
     /// The analysis the geometry and starter spec are built for.
     pub analysis: MeshAnalysis,
     /// Per conductor layer, the rectangle decomposition of its polygons.
+    /// A polygon with holes / 45° edges contributes one entry: its
+    /// bounding box (exact shape in `rect_poly`).
     pub conductor_rects: Vec<Vec<Rect>>,
+    /// Per conductor layer and entry of `conductor_rects`, the exact
+    /// footprint when it is not a rectangle.
+    pub rect_poly: Vec<Vec<Option<PolyShape>>>,
     /// Per conductor layer and rectangle (as in `conductor_rects`), the
     /// index of its conductor group.
     pub rect_group: Vec<Vec<usize>>,
@@ -625,8 +645,290 @@ pub fn decompose_rectilinear(ring: &[[f64; 2]]) -> Result<Vec<Rect>, String> {
     Ok(rects)
 }
 
+/// A polygon with holes whose edges are axis-parallel or at ±45° (a
+/// footprint [`decompose_rectilinear`] cannot represent). Validated by
+/// [`PolyShape::new`]: rings simple, holes strictly inside the outer ring
+/// and pairwise disjoint.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PolyShape {
+    /// Outer ring (no closing vertex).
+    pub outer: Vec<[f64; 2]>,
+    /// Hole rings (no closing vertices).
+    pub holes: Vec<Vec<[f64; 2]>>,
+}
+
+/// Where a point lies relative to a ring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Outside,
+    Boundary,
+    Inside,
+}
+
+fn cross(o: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+}
+
+/// `p` (collinear with `a`–`b`) lies within the segment's bounding box.
+fn within(a: [f64; 2], b: [f64; 2], p: [f64; 2]) -> bool {
+    p[0] >= a[0].min(b[0])
+        && p[0] <= a[0].max(b[0])
+        && p[1] >= a[1].min(b[1])
+        && p[1] <= a[1].max(b[1])
+}
+
+/// Closed segments `a–b` and `c–d` share at least one point.
+fn segments_meet(a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]) -> bool {
+    let (d1, d2) = (cross(a, b, c), cross(a, b, d));
+    let (d3, d4) = (cross(c, d, a), cross(c, d, b));
+    if ((d1 > 0.0 && d2 < 0.0) || (d1 < 0.0 && d2 > 0.0))
+        && ((d3 > 0.0 && d4 < 0.0) || (d3 < 0.0 && d4 > 0.0))
+    {
+        return true;
+    }
+    (d1 == 0.0 && within(a, b, c))
+        || (d2 == 0.0 && within(a, b, d))
+        || (d3 == 0.0 && within(c, d, a))
+        || (d4 == 0.0 && within(c, d, b))
+}
+
+fn ring_edges(ring: &[[f64; 2]]) -> impl Iterator<Item = ([f64; 2], [f64; 2])> + '_ {
+    (0..ring.len()).map(move |i| (ring[i], ring[(i + 1) % ring.len()]))
+}
+
+fn locate(p: [f64; 2], ring: &[[f64; 2]]) -> Side {
+    let mut inside = false;
+    for (a, b) in ring_edges(ring) {
+        if cross(a, b, p) == 0.0 && within(a, b, p) {
+            return Side::Boundary;
+        }
+        if (a[1] > p[1]) != (b[1] > p[1]) {
+            let x = a[0] + (p[1] - a[1]) / (b[1] - a[1]) * (b[0] - a[0]);
+            if x > p[0] {
+                inside = !inside;
+            }
+        }
+    }
+    if inside { Side::Inside } else { Side::Outside }
+}
+
+fn ring_area(ring: &[[f64; 2]]) -> f64 {
+    0.5 * ring_edges(ring)
+        .map(|(a, b)| a[0] * b[1] - b[0] * a[1])
+        .sum::<f64>()
+        .abs()
+}
+
+fn rect_ring(r: &Rect) -> Vec<[f64; 2]> {
+    vec![[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]]
+}
+
+/// Clip `ring` to the half-plane kept by `keep` (a signed distance ≥ 0),
+/// Sutherland–Hodgman. The result's shoelace area is exact even for a
+/// concave `ring` (the clipper is convex).
+fn clip_half(ring: &[[f64; 2]], keep: impl Fn([f64; 2]) -> f64) -> Vec<[f64; 2]> {
+    let mut out = Vec::new();
+    for (a, b) in ring_edges(ring) {
+        let (ka, kb) = (keep(a), keep(b));
+        if ka >= 0.0 {
+            out.push(a);
+        }
+        if (ka >= 0.0) != (kb >= 0.0) {
+            let t = ka / (ka - kb);
+            out.push([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]);
+        }
+    }
+    out
+}
+
+fn clipped_area(ring: &[[f64; 2]], r: &Rect) -> f64 {
+    let mut v = clip_half(ring, |p| p[0] - r.x0);
+    v = clip_half(&v, |p| r.x1 - p[0]);
+    v = clip_half(&v, |p| p[1] - r.y0);
+    v = clip_half(&v, |p| r.y1 - p[1]);
+    if v.len() < 3 { 0.0 } else { ring_area(&v) }
+}
+
+/// Edge direction is axis-parallel or ±45° (to a relative 1e-9).
+fn edge_angle_ok(a: [f64; 2], b: [f64; 2]) -> bool {
+    let (dx, dy) = ((b[0] - a[0]).abs(), (b[1] - a[1]).abs());
+    let m = dx.max(dy);
+    dx == 0.0 || dy == 0.0 || (dx - dy).abs() <= 1e-9 * m
+}
+
+/// Strip an optional closing vertex.
+fn open_ring(ring: &[[f64; 2]]) -> Vec<[f64; 2]> {
+    let mut pts = ring.to_vec();
+    if pts.len() > 1 && pts.first() == pts.last() {
+        pts.pop();
+    }
+    pts
+}
+
+/// Whether every edge of `ring` is axis-parallel (or degenerate, left to
+/// [`decompose_rectilinear`] to report).
+fn is_rectilinear(ring: &[[f64; 2]]) -> bool {
+    let pts = open_ring(ring);
+    ring_edges(&pts).all(|(a, b)| a[0] == b[0] || a[1] == b[1])
+}
+
+/// Validate one ring of a [`PolyShape`]: finite, `≥ 3` distinct vertices,
+/// edges axis-parallel or ±45°, non-zero area, simple.
+fn check_ring(what: &str, ring: &[[f64; 2]]) -> Result<Vec<[f64; 2]>, String> {
+    let pts = open_ring(ring);
+    if pts.iter().flatten().any(|v| !v.is_finite()) {
+        return Err(format!("{what}: coordinates must be finite"));
+    }
+    if pts.len() < 3 {
+        return Err(format!(
+            "{what}: a ring needs ≥ 3 distinct vertices (got {})",
+            pts.len()
+        ));
+    }
+    let n = pts.len();
+    for (a, b) in ring_edges(&pts) {
+        if a == b {
+            return Err(format!("{what}: repeated vertex {a:?}"));
+        }
+        if !edge_angle_ok(a, b) {
+            return Err(format!(
+                "{what}: edge {a:?} → {b:?} is neither axis-parallel nor at ±45° (layout \
+                 accepts only those edge directions)"
+            ));
+        }
+    }
+    for i in 0..n {
+        let (a, b) = (pts[i], pts[(i + 1) % n]);
+        for j in i + 1..n {
+            let (c, d) = (pts[j], pts[(j + 1) % n]);
+            let adjacent = j == i + 1 || (i == 0 && j == n - 1);
+            if adjacent {
+                // Neighbours share one vertex; they must not fold back
+                // over each other.
+                let (shared, p, q) = if j == i + 1 { (b, a, d) } else { (a, b, c) };
+                if cross(shared, p, q) == 0.0 && {
+                    let u = [p[0] - shared[0], p[1] - shared[1]];
+                    let v = [q[0] - shared[0], q[1] - shared[1]];
+                    u[0] * v[0] + u[1] * v[1] > 0.0
+                } {
+                    return Err(format!(
+                        "{what}: ring is self-intersecting (edge folds back)"
+                    ));
+                }
+            } else if segments_meet(a, b, c, d) {
+                return Err(format!("{what}: ring is self-intersecting"));
+            }
+        }
+    }
+    // After the simplicity test: a bow tie's signed lobes can cancel.
+    if ring_area(&pts) == 0.0 {
+        return Err(format!("{what}: ring has zero area"));
+    }
+    Ok(pts)
+}
+
+impl PolyShape {
+    /// Validate `outer` with `holes`. Errors are human-readable and
+    /// relative to the polygon (the caller prefixes conductor + polygon).
+    pub fn new(outer: &[[f64; 2]], holes: &[Vec<[f64; 2]>]) -> Result<Self, String> {
+        let outer = check_ring("outer ring", outer)?;
+        let mut checked: Vec<Vec<[f64; 2]>> = Vec::with_capacity(holes.len());
+        for (k, h) in holes.iter().enumerate() {
+            let h = check_ring(&format!("hole {k}"), h)?;
+            let crosses = ring_edges(&h)
+                .any(|(a, b)| ring_edges(&outer).any(|(c, d)| segments_meet(a, b, c, d)));
+            if crosses || locate(h[0], &outer) != Side::Inside {
+                return Err(format!(
+                    "hole {k} is not strictly inside the outer ring (it crosses, touches or \
+                     lies outside it)"
+                ));
+            }
+            for (m, o) in checked.iter().enumerate() {
+                let meets = ring_edges(&h)
+                    .any(|(a, b)| ring_edges(o).any(|(c, d)| segments_meet(a, b, c, d)));
+                if meets || locate(h[0], o) != Side::Outside || locate(o[0], &h) != Side::Outside {
+                    return Err(format!(
+                        "hole {k} intersects hole {m} (holes must be disjoint)"
+                    ));
+                }
+            }
+            checked.push(h);
+        }
+        Ok(PolyShape {
+            outer,
+            holes: checked,
+        })
+    }
+
+    /// Bounding box of the outer ring.
+    pub fn bbox(&self) -> Rect {
+        let mut r = Rect {
+            x0: f64::INFINITY,
+            y0: f64::INFINITY,
+            x1: f64::NEG_INFINITY,
+            y1: f64::NEG_INFINITY,
+        };
+        for p in &self.outer {
+            r.x0 = r.x0.min(p[0]);
+            r.x1 = r.x1.max(p[0]);
+            r.y0 = r.y0.min(p[1]);
+            r.y1 = r.y1.max(p[1]);
+        }
+        r
+    }
+
+    fn from_rect(r: &Rect) -> Self {
+        PolyShape {
+            outer: rect_ring(r),
+            holes: Vec::new(),
+        }
+    }
+
+    /// `p` lies in the closed region (hole boundaries included).
+    fn contains(&self, p: [f64; 2]) -> bool {
+        locate(p, &self.outer) != Side::Outside
+            && !self.holes.iter().any(|h| locate(p, h) == Side::Inside)
+    }
+
+    /// The closed regions share at least one point.
+    pub fn meets(&self, other: &PolyShape) -> bool {
+        let rings = |s: &PolyShape| -> Vec<Vec<[f64; 2]>> {
+            std::iter::once(s.outer.clone())
+                .chain(s.holes.iter().cloned())
+                .collect()
+        };
+        let (ra, rb) = (rings(self), rings(other));
+        for a in &ra {
+            for b in &rb {
+                if ring_edges(a).any(|(p, q)| ring_edges(b).any(|(c, d)| segments_meet(p, q, c, d)))
+                {
+                    return true;
+                }
+            }
+        }
+        // No boundary contact: either disjoint or one inside the other.
+        self.contains(other.outer[0]) || other.contains(self.outer[0])
+    }
+
+    /// Positive-area overlap with `r`.
+    pub fn overlaps_rect(&self, r: &Rect) -> bool {
+        let area = clipped_area(&self.outer, r)
+            - self.holes.iter().map(|h| clipped_area(h, r)).sum::<f64>();
+        area > 1e-12 * r.area()
+    }
+}
+
 fn bbox(rects: &[Rect]) -> Rect {
     rects[1..].iter().fold(rects[0], |acc, r| acc.union(r))
+}
+
+/// One input polygon after resolution: its rectangles (v1 path) or a
+/// single bounding-box entry carrying the exact [`PolyShape`].
+struct Shape {
+    name: Option<String>,
+    label: String,
+    rects: Vec<Rect>,
+    polys: Vec<Option<PolyShape>>,
 }
 
 /// Faces shared by two sets of closed boxes (a thick path conductor
@@ -634,6 +936,14 @@ fn bbox(rects: &[Rect]) -> Rect {
 /// or a zero-thickness part of `b` passing through the interior of `a`.
 /// Edge / point contacts are not faces and are ignored.
 fn interface(a: &[GroupPart], b: &[GroupPart]) -> Result<Vec<FaceBox>, String> {
+    if a.iter().chain(b).any(|p| p.poly.is_some()) {
+        return Err(
+            "a footprint with holes or 45° edges has no well-defined contact face (use \
+             rectilinear polygons without holes for `--analysis inductance` path conductors and \
+             their contacts' return groups)"
+                .into(),
+        );
+    }
     let mut faces = Vec::new();
     for pa in a {
         let (alo, ahi) = pa.bounds();
@@ -670,6 +980,7 @@ fn touches(a: &[GroupPart], b: &[GroupPart]) -> bool {
         b.iter().any(|pb| {
             let (blo, bhi) = pb.bounds();
             (0..3).all(|k| alo[k].max(blo[k]) <= ahi[k].min(bhi[k]))
+                && (pa.poly.is_none() && pb.poly.is_none() || pa.footprint().meets(&pb.footprint()))
         })
     })
 }
@@ -785,7 +1096,8 @@ impl Layout {
 
         // Conductors: rectilinear, inside the stack.
         let mut conductor_rects = Vec::with_capacity(self.conductors.len());
-        let mut shape_rects: Vec<Vec<(Option<String>, Vec<Rect>)>> = Vec::new();
+        let mut rect_poly: Vec<Vec<Option<PolyShape>>> = Vec::new();
+        let mut shape_rects: Vec<Vec<Shape>> = Vec::new();
         for c in &self.conductors {
             if !(c.z_bottom.is_finite() && c.thickness.is_finite() && c.thickness >= 0.0) {
                 return Err(format!(
@@ -812,30 +1124,43 @@ impl Layout {
                 return Err(format!("conductors[{}] has no polygons", c.name));
             }
             let mut rects = Vec::new();
-            let mut shapes: Vec<(Option<String>, Vec<Rect>)> = Vec::new();
+            let mut polys: Vec<Option<PolyShape>> = Vec::new();
+            let mut shapes: Vec<Shape> = Vec::new();
             for (j, p) in c.polygons.iter().enumerate() {
                 let label = p.name.clone().unwrap_or_else(|| format!("#{j}"));
-                if !p.holes.is_empty() {
-                    return Err(format!(
-                        "conductors[{}] polygon {label}: holes are not supported in layout v1",
-                        c.name
-                    ));
-                }
                 if let Some(name) = &p.name {
                     check_name("shape", name)?;
-                    if shapes.iter().any(|(n, _)| n.as_ref() == Some(name)) {
+                    if shapes.iter().any(|s| s.name.as_ref() == Some(name)) {
                         return Err(format!(
                             "conductors[{}]: shape name `{name}` is used more than once",
                             c.name
                         ));
                     }
                 }
-                let r = decompose_rectilinear(&p.outer)
-                    .map_err(|e| format!("conductors[{}] polygon {label}: {e}", c.name))?;
+                // Rectilinear without holes: the v1 rectangle
+                // decomposition (byte-stable output). Anything else is one
+                // polygon part.
+                let (r, poly) = if p.holes.is_empty() && is_rectilinear(&p.outer) {
+                    let r = decompose_rectilinear(&p.outer)
+                        .map_err(|e| format!("conductors[{}] polygon {label}: {e}", c.name))?;
+                    let n = r.len();
+                    (r, vec![None; n])
+                } else {
+                    let shape = PolyShape::new(&p.outer, &p.holes)
+                        .map_err(|e| format!("conductors[{}] polygon {label}: {e}", c.name))?;
+                    (vec![shape.bbox()], vec![Some(shape)])
+                };
                 rects.extend_from_slice(&r);
-                shapes.push((p.name.clone(), r));
+                polys.extend(poly.iter().cloned());
+                shapes.push(Shape {
+                    name: p.name.clone(),
+                    label,
+                    rects: r,
+                    polys: poly,
+                });
             }
             conductor_rects.push(rects);
+            rect_poly.push(polys);
             shape_rects.push(shapes);
         }
 
@@ -863,7 +1188,7 @@ impl Layout {
         let mut rect_group = Vec::with_capacity(self.conductors.len());
         for (li, (c, shapes)) in self.conductors.iter().zip(&shape_rects).enumerate() {
             let mut of_rect = Vec::new();
-            for (p, (_, rects)) in c.polygons.iter().zip(shapes) {
+            for (p, shape) in c.polygons.iter().zip(shapes) {
                 let g = match &p.net {
                     None => layer_group[li].expect("layer has un-netted polygons"),
                     Some(n) => net_base + nets.iter().position(|m| m == n).expect("collected"),
@@ -878,10 +1203,11 @@ impl Layout {
                         cgroups[g].name, c.name, c.conductivity_s_m, cgroups[g].conductivity_s_m
                     ));
                 }
-                for &rect in rects {
+                for (&rect, poly) in shape.rects.iter().zip(&shape.polys) {
                     cgroups[g].parts.push(GroupPart {
                         layer: li,
                         rect,
+                        poly: poly.clone(),
                         z0: c.z_bottom,
                         z1: c.z_top(),
                     });
@@ -893,6 +1219,48 @@ impl Layout {
         for g in &mut cgroups {
             if g.parts.iter().any(|p| p.z1 > p.z0) {
                 g.body = ConductorBody::Hollow;
+            }
+        }
+        // A hole must not meet the footprint of a same-net polygon on a
+        // z-touching layer (a via landing on, or partly in, the void).
+        for (li, (c, shapes)) in self.conductors.iter().zip(&shape_rects).enumerate() {
+            for (p, shape) in c.polygons.iter().zip(shapes) {
+                let (Some(net), Some(poly)) =
+                    (&p.net, shape.polys.first().and_then(Option::as_ref))
+                else {
+                    continue;
+                };
+                for (k, hole) in poly.holes.iter().enumerate() {
+                    let void = PolyShape {
+                        outer: hole.clone(),
+                        holes: Vec::new(),
+                    };
+                    for (lj, (c2, shapes2)) in self.conductors.iter().zip(&shape_rects).enumerate()
+                    {
+                        let z_touch = c.z_bottom <= c2.z_top() && c2.z_bottom <= c.z_top();
+                        if lj == li || !z_touch {
+                            continue;
+                        }
+                        for (p2, sh2) in c2.polygons.iter().zip(shapes2) {
+                            if p2.net.as_ref() != Some(net) {
+                                continue;
+                            }
+                            let meets = sh2.rects.iter().zip(&sh2.polys).any(|(r, q)| {
+                                q.clone()
+                                    .unwrap_or_else(|| PolyShape::from_rect(r))
+                                    .meets(&void)
+                            });
+                            if meets {
+                                return Err(format!(
+                                    "conductors[{}] polygon {}: hole {k} meets the footprint of \
+                                     polygon {} on conductor layer `{}` (same net `{net}`); a via \
+                                     must land on metal, not on or against a hole",
+                                    c.name, shape.label, sh2.label, c2.name
+                                ));
+                            }
+                        }
+                    }
+                }
             }
         }
         let group_names: Vec<&str> = cgroups.iter().map(|g| g.name.as_str()).collect();
@@ -1062,8 +1430,8 @@ impl Layout {
                     let find = |s: &str| {
                         shape_rects[li]
                             .iter()
-                            .find(|(n, _)| n.as_deref() == Some(s))
-                            .map(|(_, r)| bbox(r))
+                            .find(|sh| sh.name.as_deref() == Some(s))
+                            .map(|sh| bbox(&sh.rects))
                             .ok_or_else(|| {
                                 format!(
                                     "ports[{}].between: layer `{}` has no shape named `{s}`",
@@ -1093,13 +1461,18 @@ impl Layout {
             };
             let z = layer.z_bottom + 0.5 * layer.thickness;
             // The port must not overlap any conductor (it would be shorted).
-            for (c, rects) in self.conductors.iter().zip(&conductor_rects) {
+            for ((c, rects), polys) in self.conductors.iter().zip(&conductor_rects).zip(&rect_poly)
+            {
                 let z_hit = if c.thickness == 0.0 {
                     c.z_bottom == z
                 } else {
                     c.z_bottom <= z && z <= c.z_top()
                 };
-                if z_hit && rects.iter().any(|r| r.overlaps(&rect)) {
+                let hit = rects.iter().zip(polys).any(|(r, poly)| match poly {
+                    None => r.overlaps(&rect),
+                    Some(shape) => shape.overlaps_rect(&rect),
+                });
+                if z_hit && hit {
                     return Err(format!(
                         "ports[{}] overlaps a shape of conductor layer `{}` (a port must span \
                          a gap)",
@@ -1174,6 +1547,7 @@ impl Layout {
             layout: self,
             analysis,
             conductor_rects,
+            rect_poly,
             rect_group,
             groups: cgroups,
             ports,
@@ -1465,8 +1839,8 @@ mod tests {
         assert!(err(&|l| l.ports[0].name = OUTER_BOUNDARY.into()).contains("reserved"));
         assert!(err(&|l| l.conductors[0].z_bottom = 20.0).contains("strictly inside"));
         assert!(
-            err(&|l| l.conductors[0].polygons[0].holes = vec![rect(1.0, 1.0, 2.0, 2.0)])
-                .contains("holes")
+            err(&|l| l.conductors[0].polygons[0].holes = vec![rect(11.0, 1.0, 12.0, 2.0)])
+                .contains("not strictly inside")
         );
         assert!(err(&|l| l.ports[0].between = Some(["a".into(), "zz".into()])).contains("zz"));
         assert!(err(&|l| l.ports[0].layer = "air".into()).contains("not a conductor"));
@@ -1712,5 +2086,262 @@ mod tests {
             l.contacts[1].to = "gnd".into();
         });
         assert!(e.contains("passes through"), "{e}");
+    }
+
+    /// Regular-ish octagon of "radius" `r` (edges at 0°, 45°, 90°, …)
+    /// centred on `(cx, cy)`; `s` is the diagonal cut.
+    fn octagon(cx: f64, cy: f64, r: f64, s: f64) -> Vec<[f64; 2]> {
+        let (a, b) = (r, r - s);
+        vec![
+            [cx + b, cy - a],
+            [cx + a, cy - b],
+            [cx + a, cy + b],
+            [cx + b, cy + a],
+            [cx - b, cy + a],
+            [cx - a, cy + b],
+            [cx - a, cy - b],
+            [cx - b, cy - a],
+        ]
+    }
+
+    fn with_polygons(polygons: serde_json::Value) -> Layout {
+        serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [{"name": "air", "z_bottom": -1, "thickness": 12}],
+            "conductors": [{"name": "m1", "z_bottom": 1, "thickness": 0.5, "polygons": polygons}],
+            "ports": [],
+            "margin": 3,
+            "mesh": {"size_max": 3, "size_conductor": 1}
+        }))
+        .unwrap()
+    }
+
+    fn cap(polygons: serde_json::Value) -> Result<ResolvedLayout, String> {
+        with_polygons(polygons).resolve_for(MeshAnalysis::Capacitance)
+    }
+
+    #[test]
+    fn hole_resolves_as_one_polygon_part() {
+        let r = cap(serde_json::json!([{
+            "outer": rect(0.0, 0.0, 10.0, 10.0),
+            "holes": [rect(3.0, 3.0, 7.0, 7.0)]
+        }]))
+        .unwrap();
+        assert_eq!(r.groups[0].parts.len(), 1);
+        let shape = r.groups[0].parts[0].poly.as_ref().expect("polygon part");
+        assert_eq!(shape.holes.len(), 1);
+        assert_eq!(r.conductor_rects[0], vec![shape.bbox()]);
+        // Either ring orientation is accepted.
+        let mut rev = rect(3.0, 3.0, 7.0, 7.0);
+        rev.reverse();
+        cap(serde_json::json!([{"outer": rect(0.0, 0.0, 10.0, 10.0), "holes": [rev]}])).unwrap();
+        let mut rev = rect(0.0, 0.0, 10.0, 10.0);
+        rev.reverse();
+        cap(serde_json::json!([{"outer": rev, "holes": [rect(3.0, 3.0, 7.0, 7.0)]}])).unwrap();
+    }
+
+    #[test]
+    fn forty_five_degree_edges_and_rings_with_holes_resolve() {
+        let r = cap(serde_json::json!([{ "outer": octagon(0.0, 0.0, 5.0, 2.0) }])).unwrap();
+        assert!(r.groups[0].parts[0].poly.is_some());
+        // Triangle with a 45° hypotenuse.
+        cap(serde_json::json!([{"outer": [[0, 0], [4, 0], [4, 4]]}])).unwrap();
+        // 45° ring with an octagonal hole.
+        let r = cap(serde_json::json!([{
+            "outer": octagon(0.0, 0.0, 5.0, 2.0),
+            "holes": [octagon(0.0, 0.0, 2.0, 0.8)]
+        }]))
+        .unwrap();
+        let shape = r.groups[0].parts[0].poly.as_ref().unwrap();
+        assert_eq!((shape.outer.len(), shape.holes[0].len()), (8, 8));
+        // A rectilinear polygon without holes keeps the v1 rectangles.
+        let r = cap(serde_json::json!([{"outer": rect(0.0, 0.0, 4.0, 2.0)}])).unwrap();
+        assert!(r.groups[0].parts.iter().all(|p| p.poly.is_none()));
+    }
+
+    #[test]
+    fn invalid_polygons_name_conductor_and_polygon() {
+        let e = |poly: serde_json::Value| cap(serde_json::json!([poly])).unwrap_err();
+        let big = rect(0.0, 0.0, 10.0, 10.0);
+        let bow = e(serde_json::json!({"name": "w", "outer": [[0, 0], [4, 4], [4, 0], [0, 4]]}));
+        assert!(bow.contains("conductors[m1] polygon w"), "{bow}");
+        assert!(bow.contains("self-intersecting"), "{bow}");
+        let skew = e(serde_json::json!({"outer": [[0, 0], [4, 0], [4, 1], [1, 3]]}));
+        assert!(skew.contains("±45°"), "{skew}");
+        let outside = e(serde_json::json!({"outer": big, "holes": [rect(8.0, 8.0, 12.0, 12.0)]}));
+        assert!(
+            outside.contains("hole 0 is not strictly inside"),
+            "{outside}"
+        );
+        let touching = e(serde_json::json!({"outer": big, "holes": [rect(0.0, 2.0, 3.0, 4.0)]}));
+        assert!(touching.contains("not strictly inside"), "{touching}");
+        let far = e(serde_json::json!({"outer": big, "holes": [rect(20.0, 20.0, 22.0, 22.0)]}));
+        assert!(far.contains("not strictly inside"), "{far}");
+        let overlap = e(serde_json::json!({"outer": big,
+            "holes": [rect(2.0, 2.0, 5.0, 5.0), rect(4.0, 4.0, 7.0, 7.0)]}));
+        assert!(overlap.contains("hole 1 intersects hole 0"), "{overlap}");
+        let nested = e(serde_json::json!({"outer": big,
+            "holes": [rect(2.0, 2.0, 8.0, 8.0), rect(4.0, 4.0, 6.0, 6.0)]}));
+        assert!(nested.contains("hole 1 intersects hole 0"), "{nested}");
+        let zero = e(serde_json::json!({"outer": [[0, 0], [2, 2], [4, 4]]}));
+        assert!(zero.contains("self-intersecting"), "{zero}");
+        let repeat = e(serde_json::json!({"outer": [[0, 0], [4, 0], [4, 0], [4, 4]]}));
+        assert!(repeat.contains("repeated vertex"), "{repeat}");
+        let self_hole = e(serde_json::json!({"outer": big,
+            "holes": [[[2, 2], [6, 6], [6, 2], [2, 6]]]}));
+        assert!(self_hole.contains("hole 0") && self_hole.contains("self-intersecting"));
+    }
+
+    #[test]
+    fn hole_must_not_meet_a_same_net_via_footprint() {
+        let layout = |via: Vec<[f64; 2]>| -> Layout {
+            serde_json::from_value(serde_json::json!({
+                "schema_version": 1,
+                "length_unit_m": 1e-6,
+                "dielectrics": [{"name": "air", "z_bottom": -1, "thickness": 12}],
+                "conductors": [
+                    {"name": "m1", "z_bottom": 1, "thickness": 0.5, "polygons": [
+                        {"name": "plate", "net": "n", "outer": rect(0.0, 0.0, 10.0, 10.0),
+                         "holes": [rect(4.0, 4.0, 6.0, 6.0)]}]},
+                    {"name": "v1", "z_bottom": 1.5, "thickness": 1.0, "polygons": [
+                        {"name": "via", "net": "n", "outer": via}]}
+                ],
+                "ports": [],
+                "margin": 3,
+                "mesh": {"size_max": 3, "size_conductor": 1}
+            }))
+            .unwrap()
+        };
+        // Landing on metal clear of the hole: fine.
+        layout(rect(1.0, 1.0, 2.0, 2.0))
+            .resolve_for(MeshAnalysis::Capacitance)
+            .unwrap();
+        for via in [
+            rect(5.0, 5.0, 5.5, 5.5), // inside the hole
+            rect(5.5, 5.5, 7.0, 7.0), // straddling the hole edge
+            rect(6.0, 4.0, 7.0, 5.0), // touching the hole corner
+        ] {
+            let err = layout(via)
+                .resolve_for(MeshAnalysis::Capacitance)
+                .unwrap_err();
+            assert!(
+                err.contains("conductors[m1] polygon plate: hole 0 meets")
+                    && err.contains("`v1`")
+                    && err.contains("net `n`"),
+                "{err}"
+            );
+        }
+    }
+
+    #[test]
+    fn via_stack_on_one_net_is_one_conductor_group() {
+        let l: Layout = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [{"name": "ild", "z_bottom": -1, "thickness": 12}],
+            "ground": ["gnd"],
+            "conductors": [
+                {"name": "gnd", "z_bottom": 0, "polygons": [
+                    {"outer": rect(-8.0, -8.0, 20.0, -6.0)}]},
+                {"name": "m1", "z_bottom": 1, "thickness": 0.5, "polygons": [
+                    {"net": "sig", "outer": octagon(0.0, 0.0, 4.0, 1.5),
+                     "holes": [rect(-1.0, -1.0, 1.0, 1.0)]}]},
+                {"name": "v1", "z_bottom": 1.5, "thickness": 1.0, "polygons": [
+                    {"net": "sig", "outer": rect(2.0, 2.0, 3.0, 3.0)}]},
+                {"name": "m2", "z_bottom": 2.5, "thickness": 0.5, "polygons": [
+                    {"net": "sig", "outer": rect(1.5, 1.5, 9.0, 3.5)}]}
+            ],
+            "margin": 3,
+            "mesh": {"size_max": 3, "size_conductor": 1}
+        }))
+        .unwrap();
+        let r = l.resolve_for(MeshAnalysis::Capacitance).unwrap();
+        let names: Vec<_> = r.groups.iter().map(|g| g.name.as_str()).collect();
+        assert_eq!(names, ["gnd", "sig"], "three layers, one group");
+        let sig = &r.groups[1];
+        assert_eq!(sig.body, ConductorBody::Hollow);
+        assert_eq!(
+            sig.parts.iter().map(|p| p.layer).collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+        assert!(sig.parts[0].poly.is_some() && sig.parts[1].poly.is_none());
+        // The stack is electrically one conductor: the layers touch.
+        assert!(touches(&sig.parts[0..1], &sig.parts[1..2]));
+        assert!(touches(&sig.parts[1..2], &sig.parts[2..3]));
+    }
+
+    #[test]
+    fn touches_is_exact_for_polygon_parts() {
+        let ring_part = |r: &ResolvedLayout| r.groups[0].parts.clone();
+        let l = cap(serde_json::json!([
+            {"name": "ring", "outer": rect(0.0, 0.0, 10.0, 10.0),
+             "holes": [rect(2.0, 2.0, 8.0, 8.0)]}]))
+        .unwrap();
+        let ring = ring_part(&l);
+        let part = |r: Rect| GroupPart {
+            layer: 0,
+            rect: r,
+            poly: None,
+            z0: 1.0,
+            z1: 1.5,
+        };
+        let r = |x0, y0, x1, y1| Rect { x0, y0, x1, y1 };
+        // A pad floating in the hole does not touch the ring (its bbox does).
+        assert!(!touches(&ring, &[part(r(4.0, 4.0, 6.0, 6.0))]));
+        // One reaching the hole wall, the ring body, or spanning it does.
+        assert!(touches(&ring, &[part(r(2.0, 4.0, 4.0, 6.0))]));
+        assert!(touches(&ring, &[part(r(1.0, 4.0, 4.0, 6.0))]));
+        assert!(touches(&ring, &[part(r(-1.0, -1.0, 11.0, 11.0))]));
+        assert!(!touches(&ring, &[part(r(11.0, 0.0, 12.0, 2.0))]));
+        // 45° cut corner: a pad in the cut triangle misses the octagon.
+        let oct = cap(serde_json::json!([{"outer": octagon(0.0, 0.0, 5.0, 3.0)}])).unwrap();
+        assert!(!touches(
+            &oct.groups[0].parts,
+            &[part(r(3.8, 3.8, 4.9, 4.9))]
+        ));
+        assert!(touches(
+            &oct.groups[0].parts,
+            &[part(r(1.0, 1.0, 2.0, 2.0))]
+        ));
+    }
+
+    #[test]
+    fn port_in_a_hole_is_accepted_and_over_metal_rejected() {
+        let mk = |port: [f64; 4]| -> Result<ResolvedLayout, String> {
+            let mut l = with_polygons(serde_json::json!([
+                {"name": "ring", "outer": rect(0.0, 0.0, 10.0, 10.0),
+                 "holes": [rect(3.0, 3.0, 7.0, 7.0)]}]));
+            l.conductors[0].thickness = 0.0;
+            l.ports = vec![PortDef {
+                name: "p".into(),
+                kind: PortKind::default(),
+                layer: "m1".into(),
+                between: None,
+                rect: Some(port),
+                direction: Some(Axis::X),
+                resistance_ohm: 50.0,
+            }];
+            l.resolve()
+        };
+        mk([4.0, 4.0, 6.0, 6.0]).unwrap();
+        assert!(mk([1.0, 4.0, 4.0, 6.0]).unwrap_err().contains("overlaps"));
+    }
+
+    #[test]
+    fn inductance_rejects_polygon_parts_in_contacts() {
+        let mut l = path_layout();
+        // The path conductor gets a 45° notch: no longer a box.
+        l.conductors[2].polygons[0].outer = vec![
+            [0.0, -0.5],
+            [10.0, -0.5],
+            [10.0, 0.5],
+            [5.5, 0.5],
+            [5.0, 1.0],
+            [4.5, 0.5],
+            [0.0, 0.5],
+        ];
+        let err = l.resolve_for(MeshAnalysis::Inductance).unwrap_err();
+        assert!(err.contains("contacts["), "{err}");
     }
 }
