@@ -86,25 +86,18 @@ Concretely:
 docs, and the Rust harness gains a thin subprocess-driver per backend.
 The fixtures and the comparator stay backend-agnostic.
 
-## Fixture format choice — JSON now, HDF5 reserved
+## Fixture format choice — JSON only
 
-The harness supports a `FixtureFormat::Json` variant today and reserves
-`FixtureFormat::Hdf5` for the eigenvector-class outputs that arrive
-with the cube-cavity slice (#92).
+The harness supports a single `FixtureFormat::Json` variant. An HDF5
+variant was once reserved for eigenvector-class outputs but was never
+wired up and has been removed; it can be re-added behind a Cargo
+feature if large binary fixtures are ever needed.
 
 Rationale:
 
 - The Phase-A smoke fixture is a single 4×4 matrix plus a 4×4 mass
   matrix plus a scalar — JSON is the smallest sufficient format. It
   also reviews cleanly in PRs.
-- HDF5 is the format-of-record once we ship large complex eigenvectors
-  (#88's framing — see *Implementation notes* in #89). The
-  `FixtureFormat::Hdf5` variant is wired into the API now so callers
-  can pin format choice without waiting for the implementation; the
-  linker dependency on `libhdf5` will be added behind a Cargo feature
-  in the same PR that lands the first binary fixture (#92), so
-  contributors who never run cube-cavity validation don't pay the
-  `libhdf5` install cost.
 - See `SCHEMA.md` for the JSON v1 schema.
 
 ## How the harness emits a diff artifact
