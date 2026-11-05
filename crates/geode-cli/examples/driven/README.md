@@ -38,6 +38,23 @@ within 2 %, `|S11|` within 0.01). The smoke mesh is deliberately coarse;
 the benchmark tier (`spiral_golden_benchmark.json`, `--ignored`) is the
 one held to the Mohan / mom-PEEC oracle bands.
 
+## Adaptive mesh refinement (`adaptive_mesh`, issue #1267)
+
+`adaptive_mesh_box.json` drives the 2 × 1 cm waveguide fixture through a
+boundary lumped port and lets `adaptive_mesh` refine the mesh until the
+relative error estimate falls below `target_error` (the loop needs the
+lumped-port faces on the mesh boundary):
+
+```sh
+geode driven crates/geode-cli/examples/driven/adaptive_mesh_box.json --outdir out -o report.json
+```
+
+The report's `adaptive_mesh.history[]` lists tets, DOFs and the estimate per
+level, and `stop_reason` is `target_met` here (any other reason also raises a
+warning). With `--outdir`, `out/E_0000.vtu` carries the final level's per-tet
+error indicator as the `eta` cell array — colour by it in ParaView to see
+where the mesh was refined. Non-adaptive runs write no `eta` array.
+
 ## Adaptive 40-point sweep (`sweep.adaptive`, issue #708)
 
 `spiral_inductor_adaptive.json` is the same spiral over a 40-point

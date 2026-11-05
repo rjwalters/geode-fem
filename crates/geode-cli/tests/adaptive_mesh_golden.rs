@@ -15,7 +15,12 @@
 //! * `adaptive_mesh` on unsupported analyses / goals / values is
 //!   `invalid_spec` before any mesh work;
 //! * `geode check` reports the worst-case resources and initial kh / PPW
-//!   without solving.
+//!   without solving;
+//! * with `--outdir`, an adaptive driven run's field `.vtu` carries the
+//!   final level's per-tet `eta` cell array (one finite value per tet), and
+//!   a non-adaptive run's does not;
+//! * golden 3 (release tier, `--ignored`): an end-to-end `adaptive_mesh`
+//!   run on a `geode mesh` microstrip layout (needs Gmsh).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -412,4 +417,111 @@ fn check_reports_worst_case_resources_without_solving() {
     let spec = write_spec(&dir, "t.json", &driven_spec(&mesh, Some(tiny)));
     let v = ok_report(&run("check", &spec));
     assert_eq!(v["adaptive_mesh"]["initial_over_budget"], true);
+}
+
+/// The `eta` `CellData` array of a `.vtu`, if present.
+fn vtu_eta(path: &Path) -> Option<Vec<f64>> {
+    let text = std::fs::read_to_string(path).unwrap();
+    let (_, rest) = text.split_once("<CellData>")?;
+    let (cell, _) = rest.split_once("</CellData>")?;
+    let (_, arr) = cell.split_once("Name=\"eta\"")?;
+    let (_, body) = arr.split_once('>')?;
+    let (body, _) = body.split_once("</DataArray>")?;
+    Some(
+        body.split_whitespace()
+            .map(|x| x.parse().unwrap())
+            .collect(),
+    )
+}
+
+/// `NumberOfCells` of a `.vtu`.
+fn vtu_cells(path: &Path) -> usize {
+    let text = std::fs::read_to_string(path).unwrap();
+    let (_, rest) = text.split_once("NumberOfCells=\"").unwrap();
+    rest.split_once('"').unwrap().0.parse().unwrap()
+}
+
+/// The field `.vtu` of an adaptive driven run carries one finite, non-negative
+/// `eta` value per tet of the final mesh; a non-adaptive run's has none.
+#[test]
+fn adaptive_field_vtu_carries_the_per_tet_eta() {
+    let dir = Scratch::new("geode-adaptive-", "eta");
+    let mesh = write_box(&dir);
+    let adaptive = json!({"target_error": 0.9, "max_iterations": 8});
+    let spec = write_spec(&dir, "spec.json", &driven_spec(&mesh, Some(adaptive)));
+    let out = dir.join("out");
+    let r = geode(&[
+        "driven",
+        spec.to_str().unwrap(),
+        "--outdir",
+        out.to_str().unwrap(),
+    ]);
+    let v = ok_report(&r);
+    let vtu = out.join(v["results"][0]["field_file"]["path"].as_str().unwrap());
+    let eta = vtu_eta(&vtu).expect("adaptive run writes an `eta` cell array");
+    assert_eq!(eta.len(), vtu_cells(&vtu));
+    assert_eq!(eta.len() as u64, v["mesh"]["n_tets"].as_u64().unwrap());
+    assert!(eta.iter().all(|e| e.is_finite() && *e >= 0.0));
+    assert!(eta.iter().any(|e| *e > 0.0), "indicators are not all zero");
+
+    // Non-adaptive run on the same mesh: unchanged, no cell data.
+    let plain = write_spec(&dir, "plain.json", &driven_spec(&mesh, None));
+    let out2 = dir.join("out_plain");
+    let r = geode(&[
+        "driven",
+        plain.to_str().unwrap(),
+        "--outdir",
+        out2.to_str().unwrap(),
+    ]);
+    let w = ok_report(&r);
+    let vtu2 = out2.join(w["results"][0]["field_file"]["path"].as_str().unwrap());
+    assert!(vtu_eta(&vtu2).is_none());
+    assert!(
+        !std::fs::read_to_string(&vtu2)
+            .unwrap()
+            .contains("<CellData>")
+    );
+}
+
+/// Golden 3 (release tier): an end-to-end `adaptive_mesh` run on a
+/// `geode mesh` layout reaches `target_met`.
+///
+/// **Not verified in CI yet.** The lumped port of the shipped `geode mesh`
+/// layouts (spiral) is an interior sheet, which `adapt_driven` rejects
+/// (`lumped port 0 has no boundary face classified LumpedPort(0)`), and the
+/// microstrip layout uses hybrid wave ports, which adaptive rejects. This
+/// test therefore stays `--ignored` until interior lumped-port support
+/// lands in `geode-core::adapt` (tracked as a separate issue); it needs
+/// Gmsh.
+#[test]
+#[ignore = "needs Gmsh and interior lumped-port support in geode-core::adapt"]
+fn mesh_layout_reaches_target_met() {
+    let dir = Scratch::new("geode-adaptive-", "layout");
+    let layout =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/mesh/spiral_inductor.layout.json");
+    let (mesh, spec) = (dir.join("spiral.msh"), dir.join("spiral.spec.json"));
+    let m = geode(&[
+        "mesh",
+        layout.to_str().unwrap(),
+        "--analysis",
+        "driven",
+        "--mesh-out",
+        mesh.to_str().unwrap(),
+        "--spec-out",
+        spec.to_str().unwrap(),
+    ]);
+    assert!(
+        m.status.success(),
+        "geode mesh failed: {}",
+        String::from_utf8_lossy(&m.stderr)
+    );
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(&spec).unwrap()).unwrap();
+    v["adaptive_mesh"] = json!({"target_error": 0.5, "max_iterations": 6});
+    let spec = write_spec(&dir, "adaptive.json", &v);
+    let r = ok_report(&run("driven", &spec));
+    assert_eq!(
+        r["adaptive_mesh"]["stop_reason"], "target_met",
+        "report: {:#}",
+        r["adaptive_mesh"]
+    );
 }

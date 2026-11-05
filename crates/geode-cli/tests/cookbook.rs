@@ -88,6 +88,10 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         Some("waveguide_mixed_smoke.json"),
         Input::Spec("driven"),
     ),
+    // The 2 × 1 cm waveguide fixture driven through a boundary lumped port
+    // with `adaptive_mesh` (issue #1267); `tests/adaptive_mesh_golden.rs`
+    // pins the loop and the `eta` cell array of the field `.vtu`.
+    ("driven/adaptive_mesh_box.json", None, Input::Spec("driven")),
     // A 50 Ω shielded microstrip line with hybrid wave ports (issue #807),
     // on a Gmsh mesh of `driven/microstrip_line.geo`;
     // `tests/hybrid_wave_port.rs` holds the hybrid goldens.

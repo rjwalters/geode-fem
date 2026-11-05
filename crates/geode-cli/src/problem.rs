@@ -626,6 +626,10 @@ pub struct Problem {
     pub inductance: Option<InductanceTarget>,
     /// The resolved `sensitivity` section, if present (issue #707).
     pub sensitivity: Option<SensitivityTarget>,
+    /// Final-level per-tet error indicator `η_T`, parallel to
+    /// `tagged.mesh.tets`, set only by an `adaptive_mesh` driven run
+    /// (issue #1267); exported as the `eta` cell array of the field `.vtu`.
+    pub adaptive_eta: Option<Vec<f64>>,
 }
 
 impl Problem {
@@ -1741,6 +1745,7 @@ pub fn load_parsed(
         capacitance,
         inductance,
         sensitivity,
+        adaptive_eta: None,
     })
 }
 
