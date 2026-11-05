@@ -367,6 +367,11 @@ const MANIFEST: &[Entry] = &[
          geode-core --release --example patch_conformal_2g4_baseline -- \
          <dir>/patch_conformal_L1.msh",
     ),
+    // #652 (epic #647 Phase 5): far-field realized-gain FD gate on the conformal smoke radiator.
+    a(
+        "benchmarks/patch_antenna_conformal/ntff_gain_results.toml",
+        "cargo run -p geode-core --release --example patch_conformal_ntff_diffopt",
+    ),
     // #1085 (conformal v5 E2): per-level dip / FD artifacts of the mesh-refinement study.
     // L2 / L3 are regenerated from YAML (sha256 pinned in tests/patch_conformal_convergence.rs);
     // L3 and p = 2 on L1 were run one geometry at a time (PATCH_CONFORMAL_GEOMS) and merged.
@@ -775,6 +780,13 @@ const MANIFEST: &[Entry] = &[
         "examples/transmon_multiparam_optimize.rs: scalar/tensor f64 electrostatic assembly + \
          faer LU (shape::transmon_remorph, quantum::diffopt::optimize_multiparam_bounded), no \
          Backend generic",
+    ),
+    b(
+        "benchmarks/transmon_diffopt/claw_beta.toml",
+        "examples/transmon_claw_beta.rs: scalar f64 electrostatic assembly + faer LU \
+         (shape::capacitance_matrix_shape_gradient with a fictitious claw electrode, \
+         shape::transmon_remorph::TransmonCSigmaProblem::new_with_claw, \
+         quantum::diffopt::optimize_multiparam_bounded), no Backend generic (issue #1037)",
     ),
     b(
         "benchmarks/transmon_diffopt/c_sigma_convergence.toml",

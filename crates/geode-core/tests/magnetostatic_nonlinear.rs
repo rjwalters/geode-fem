@@ -940,6 +940,71 @@ fn converged_tangent_gives_solution_sensitivity() {
     assert!(err < 1e-6, "sensitivity mismatch {err:e}");
 }
 
+/// Issue #1186: the adjoint solve preconditioned with the forward's last
+/// factorization (iterative refinement) must agree with a fresh LU of the
+/// converged tangent to round-off, and the 0-iteration warm start (no
+/// retained factorization) must take the fresh-LU fallback.
+#[test]
+fn adjoint_refinement_matches_fresh_lu() {
+    use faer::Mat;
+    use faer::linalg::solvers::Solve;
+    use faer::sparse::linalg::solvers::Lu;
+
+    let (mesh, tags) = coax_mesh(32);
+    let i0 = coax_current();
+    let cfg = NewtonConfig {
+        rel_tol: 1e-12,
+        ..NewtonConfig::default()
+    };
+    let sys = coax_system(&mesh, &tags, i0);
+    let fresh =
+        |sol: &geode_core::assembly::magnetostatic_nonlinear::NonlinearMagnetostaticSolution,
+         rhs: &[f64]| {
+            let lu: Lu<usize, f64> = sol.tangent.as_ref().sp_lu().unwrap();
+            let mut x = Mat::<f64>::from_fn(rhs.len(), 1, |i, _| rhs[i]);
+            lu.solve_transpose_in_place(x.as_mut());
+            (0..rhs.len()).map(|i| x[(i, 0)]).collect::<Vec<f64>>()
+        };
+    let rhs_of =
+        |n: usize| -> Vec<f64> { (0..n).map(|i| ((i as f64) * 0.37).sin() + 0.1).collect() };
+
+    // Cold solve: several Newton updates, so a factorization is retained.
+    let sol = sys.solve(&cfg, None).unwrap();
+    assert!(sol.iterations > 0, "cold solve took no Newton update");
+    let rhs = rhs_of(sol.n_free);
+    let got = sol.solve_tangent_transpose(&rhs).unwrap();
+    let want = fresh(&sol, &rhs);
+    let err = norm(
+        &got.iter()
+            .zip(&want)
+            .map(|(a, b)| a - b)
+            .collect::<Vec<f64>>(),
+    ) / norm(&want);
+    println!("    refinement vs fresh LU (cold): rel diff {err:.3e}");
+    assert!(
+        err < 1e-10,
+        "refined adjoint differs from fresh LU: {err:e}"
+    );
+
+    // Warm start from the converged state: converges at iteration 0, so
+    // nothing is retained and the fallback factorization is used.
+    let warm = sys.solve(&cfg, Some(&sol.a_z)).unwrap();
+    assert_eq!(warm.iterations, 0, "warm start should converge immediately");
+    let got = warm.solve_tangent_transpose(&rhs).unwrap();
+    let want = fresh(&warm, &rhs);
+    let err = norm(
+        &got.iter()
+            .zip(&want)
+            .map(|(a, b)| a - b)
+            .collect::<Vec<f64>>(),
+    ) / norm(&want);
+    println!("    fallback vs fresh LU (0-iteration warm start): rel diff {err:.3e}");
+    assert!(
+        err < 1e-12,
+        "fallback adjoint differs from fresh LU: {err:e}"
+    );
+}
+
 fn sys_solve(mesh: &TriMesh, tags: &[i32], i: f64, cfg: &NewtonConfig) -> Vec<f64> {
     coax_system(mesh, tags, i).solve(cfg, None).unwrap().a_z
 }
