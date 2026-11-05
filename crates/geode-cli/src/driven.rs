@@ -1708,8 +1708,14 @@ impl<'a, B: burn::tensor::backend::Backend> Exporter<'a, B> {
                 ),
             });
         }
-        row.field_file =
-            Some(out.write_field(&field_file_name(index), mesh, &sol.e_edges, true, eps_nodes)?);
+        row.field_file = Some(out.write_field(
+            &field_file_name(index),
+            mesh,
+            &sol.e_edges,
+            true,
+            eps_nodes,
+            self.p.adaptive_eta.as_deref(),
+        )?);
 
         let Some((lo, hi)) = self.ntff_box else {
             return Ok(());

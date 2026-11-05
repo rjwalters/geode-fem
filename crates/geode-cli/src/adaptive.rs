@@ -64,9 +64,11 @@ pub fn load(
         },
         ..AdaptOptions::default()
     };
+    let mut final_eta: Option<Vec<f64>> = None;
     let (report, final_mesh, goal_name, goal_of) = match analysis {
         Analysis::Driven => {
             let r = run_driven(&p0, &am, &opts)?;
+            final_eta = per_tet_eta(&r.estimates);
             (r.report, r.mesh, "energy", GoalValue::EtaRel)
         }
         Analysis::Eigen => {
@@ -147,6 +149,9 @@ pub fn load(
     // Keep the section on the resolved problem so `Problem::spec` still
     // describes what the user asked for.
     p.spec.adaptive_mesh = Some(am);
+    // The exported mesh round-trips exactly, so the final level's per-tet
+    // indicators are parallel to the reloaded mesh's tets.
+    p.adaptive_eta = final_eta.filter(|e| e.len() == p.tagged.mesh.n_tets());
 
     let mut out = build_report(&report, goal_name, goal_of, &p);
     out.mesh_file = mesh_file;
@@ -258,6 +263,20 @@ fn run_eigen(
     spec.settings.residual_tol = target.residual_tol;
     let device = <B as BackendTypes>::Device::default();
     adapt_eigen::<B>(&spec, opts, &device).map_err(adapt_error)
+}
+
+/// Per-tet `η_T` of the final level: `sqrt(η_T²)`, the maximum over the
+/// adaptation frequencies (the worst-case indicator the loop refines on).
+/// `None` when there is no estimate.
+fn per_tet_eta(estimates: &[geode_core::adapt::estimator::ErrorEstimate]) -> Option<Vec<f64>> {
+    let first = estimates.first()?;
+    let mut eta = vec![0.0_f64; first.eta_t2.len()];
+    for e in estimates {
+        for (slot, t2) in eta.iter_mut().zip(&e.eta_t2) {
+            *slot = slot.max(t2.max(0.0).sqrt());
+        }
+    }
+    Some(eta)
 }
 
 fn adapt_error(e: AdaptError) -> CliError {

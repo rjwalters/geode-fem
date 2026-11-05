@@ -222,6 +222,7 @@ pub fn run(
                     &e_edges,
                     solved.complex,
                     &eps_nodes,
+                    None,
                 )?)
             }
             None => None,

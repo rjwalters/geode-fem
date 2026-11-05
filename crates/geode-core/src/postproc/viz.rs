@@ -85,6 +85,28 @@ pub fn write_vtu(
     e_imag: Option<&[[f64; 3]]>,
     eps_r: Option<&[f64]>,
 ) -> std::io::Result<()> {
+    write_vtu_cell_data(path, mesh, e_field, e_imag, eps_r, &[])
+}
+
+/// [`write_vtu`] plus named per-tet scalar `CellData` arrays.
+///
+/// `cell_scalars` is a list of `(name, values)`; each `values` has length
+/// `mesh.n_tets()` and is written, in `mesh.tets` order, as a scalar
+/// `Float64` array inside a `<CellData>` block placed after `PointData`.
+/// With an empty list no `<CellData>` block is written and the output is
+/// byte-identical to [`write_vtu`]'s.
+///
+/// # Panics
+///
+/// As [`write_vtu`], and if any `values.len() != mesh.n_tets()`.
+pub fn write_vtu_cell_data(
+    path: &Path,
+    mesh: &TetMesh,
+    e_field: &[[f64; 3]],
+    e_imag: Option<&[[f64; 3]]>,
+    eps_r: Option<&[f64]>,
+    cell_scalars: &[(&str, &[f64])],
+) -> std::io::Result<()> {
     let n_nodes = mesh.n_nodes();
     let n_tets = mesh.n_tets();
 
@@ -224,6 +246,28 @@ pub fn write_vtu(
     }
 
     s.push_str("      </PointData>\n");
+
+    // --- CellData (optional per-tet scalars) --------------------------------
+    if !cell_scalars.is_empty() {
+        s.push_str("      <CellData>\n");
+        for (name, values) in cell_scalars {
+            assert_eq!(
+                values.len(),
+                n_tets,
+                "cell array `{name}` length ({}) must equal mesh.n_tets() ({n_tets})",
+                values.len()
+            );
+            let _ = writeln!(
+                s,
+                "        <DataArray type=\"Float64\" Name=\"{name}\" NumberOfComponents=\"1\" format=\"ascii\">"
+            );
+            for v in *values {
+                let _ = writeln!(s, "          {}", fmt_f64(*v));
+            }
+            s.push_str("        </DataArray>\n");
+        }
+        s.push_str("      </CellData>\n");
+    }
 
     // --- Close ------------------------------------------------------------
     s.push_str("    </Piece>\n");

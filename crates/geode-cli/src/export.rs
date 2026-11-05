@@ -26,7 +26,9 @@
 //!   interpolant evaluated at the vertex, averaged onto the shared node.
 //!   It is a visualization aid for ParaView, not a quadrature-accurate
 //!   field sample (normal `E` is discontinuous across material
-//!   interfaces, and the average smears it).
+//!   interfaces, and the average smears it). For an `adaptive_mesh`
+//!   driven run the file also carries a per-tet `eta` `CellData` array:
+//!   the final level's error indicator `η_T` (issue #1267).
 //! * **Far field** — the principal-plane pattern cuts of the NTFF
 //!   ([`geode_core::postproc::ntff::principal_plane_cuts`]) as a small
 //!   JSON file.
@@ -40,7 +42,7 @@ use std::path::{Path, PathBuf};
 use faer::c64;
 use geode_core::mesh::TetMesh;
 use geode_core::postproc::ntff::PatternCut;
-use geode_core::postproc::viz::write_vtu;
+use geode_core::postproc::viz::write_vtu_cell_data;
 use geode_util::viz::edge_field_to_nodes;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -74,7 +76,9 @@ impl OutDir {
 
     /// Write a complex edge-DOF field (`mesh.edges()` order) as a `.vtu`
     /// named `name`. `imag = false` drops the imaginary part (real
-    /// eigenvectors).
+    /// eigenvectors). `eta` (the final-level per-tet error indicator of an
+    /// `adaptive_mesh` run, parallel to `mesh.tets`) is written as the
+    /// `eta` `CellData` array; `None` writes no cell data.
     pub fn write_field(
         &self,
         name: &str,
@@ -82,15 +86,18 @@ impl OutDir {
         e_edges: &[c64],
         imag: bool,
         eps_nodes: &[f64],
+        eta: Option<&[f64]>,
     ) -> Result<FileRef, CliError> {
         let (e_re, e_im) = edge_field_to_nodes(mesh, e_edges);
         let path = self.root.join(name);
-        write_vtu(
+        let cells: Vec<(&str, &[f64])> = eta.map(|e| ("eta", e)).into_iter().collect();
+        write_vtu_cell_data(
             &path,
             mesh,
             &e_re,
             imag.then_some(e_im.as_slice()),
             Some(eps_nodes),
+            &cells,
         )
         .map_err(|err| CliError::Io {
             path: path.clone(),
