@@ -399,18 +399,46 @@ fn touchstone_extract_round_trips() {
     touchstone_support::assert_round_trip(&v, &ts);
 }
 
-/// Issue #838: p=2 is reachable from the library (`HcurlSpace` +
-/// `DrivenOperator::assemble_with_space`) but not from the CLI until Epic
-/// #836 Phase 5. A spec that asks for it must fail loudly — today with
-/// `spec_parse` (the spec schema has no such field, `deny_unknown_fields`)
-/// naming the field — and never be solved at p=1 and reported as if the
-/// request were honoured (the #804 rule). Phase 5a replaces this with the
-/// real field.
+/// Strip the run-dependent fields of a report so two runs compare equal.
+fn stable(mut v: serde_json::Value) -> serde_json::Value {
+    for k in [
+        "provenance",
+        "timestamp",
+        "wall_time_s",
+        "git_sha",
+        "spec_path",
+    ] {
+        v.as_object_mut().unwrap().remove(k);
+    }
+    v
+}
+
+/// Issue #1265 (Epic #836 Phase 5a): `element_order` is a real spec field.
+/// `1` is the default (byte-identical to omitting it); anything other than
+/// the integers 1 and 2 is a `spec_parse` error naming the field.
 #[test]
-fn element_order_is_rejected_until_the_cli_supports_it() {
-    for order in [1, 2] {
-        let spec = edited_spec(&format!("element-order-{order}"), |v| {
-            v["element_order"] = serde_json::json!(order);
+fn element_order_one_matches_omitting_it_and_bad_values_are_rejected() {
+    let omitted = edited_spec("element-order-omitted", |_| {});
+    let one = edited_spec("element-order-1", |v| {
+        v["element_order"] = serde_json::json!(1);
+    });
+    let a = json(&geode(&["check", omitted.to_str().unwrap()]));
+    let b = json(&geode(&["check", one.to_str().unwrap()]));
+    assert_eq!(stable(a.clone()), stable(b), "order 1 == default");
+    assert_eq!(a["mesh"]["element_order"], 1);
+    assert_eq!(a["mesh"]["n_dofs"], a["mesh"]["n_edges"]);
+    assert!(a["resources"].get("order_comparison").is_none());
+
+    for (i, bad) in [
+        serde_json::json!(3),
+        serde_json::json!("2"),
+        serde_json::json!(0),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let spec = edited_spec(&format!("element-order-bad-{i}"), |v| {
+            v["element_order"] = bad.clone();
         });
         for command in ["check", "driven"] {
             let out = geode(&[command, spec.to_str().unwrap()]);
@@ -419,6 +447,162 @@ fn element_order_is_rejected_until_the_cli_supports_it() {
             assert!(msg.contains("element_order"), "{command}: {msg}");
         }
     }
+}
+
+/// `geode check` at order 2: exact DOF / nnz counts, the ratios against
+/// order 1 on the same mesh, and `order_of_magnitude` confidence.
+#[test]
+fn check_at_order_two_reports_exact_counts_and_ratios() {
+    let p1 = edited_spec("check-p1", |_| {});
+    let p2 = edited_spec("check-p2", |v| {
+        v["element_order"] = serde_json::json!(2);
+    });
+    let a = json(&geode(&["check", p1.to_str().unwrap()]));
+    let out = geode(&["check", p2.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let b = json(&out);
+    assert_eq!(b["mesh"]["element_order"], 2);
+    assert_eq!(a["mesh"]["n_tets"], b["mesh"]["n_tets"]);
+    let n_edges = b["mesh"]["n_edges"].as_u64().unwrap();
+    let n_dofs = b["mesh"]["n_dofs"].as_u64().unwrap();
+    // 2·n_edges + 2·n_faces, with n_faces strictly positive.
+    assert!(
+        n_dofs > 2 * n_edges && n_dofs.is_multiple_of(2),
+        "{n_dofs} vs {n_edges}"
+    );
+    let c = &b["resources"]["order_comparison"];
+    assert_eq!(c["n_dofs_p2"].as_u64().unwrap(), n_dofs);
+    assert_eq!(c["n_interior_p2"], b["mesh"]["n_interior"]);
+    assert_eq!(c["n_interior_p1"], a["mesh"]["n_interior"]);
+    assert_eq!(c["nnz_p1"], a["resources"]["nnz_a"]);
+    assert_eq!(c["nnz_p2"], b["resources"]["nnz_a"]);
+    assert!(c["dof_ratio"].as_f64().unwrap() > 2.0);
+    assert!(c["memory_ratio"].as_f64().unwrap() > 1.0);
+    assert_eq!(
+        b["resources"]["peak_memory_confidence"],
+        "order_of_magnitude"
+    );
+    assert_eq!(c["fits_direct_lu"], true);
+}
+
+/// Every unsupported order-2 combination errors with `invalid_spec`
+/// naming `element_order` and the feature (never solved at order 1).
+#[test]
+fn element_order_two_rejects_unsupported_combinations() {
+    type Edit = fn(&mut serde_json::Value);
+    let cases: [(&str, &str, Edit); 6] = [
+        ("iterative", "iterative", |v| {
+            v["solver"] = serde_json::json!({"mode": "iterative"});
+        }),
+        ("adaptive", "sweep.adaptive", |v| {
+            v["sweep"] = serde_json::json!({"adaptive": {"tolerance": 1e-3}});
+        }),
+        ("upml", "absorbing_regions", |v| {
+            v["absorbing_regions"] = serde_json::json!([
+                {"physical_group": "dielectric", "thickness": 1.0, "sigma_0": 1.0}
+            ]);
+        }),
+        ("wave-ports", "wave_ports", |v| {
+            v["wave_ports"] = serde_json::json!([{"physical_group": "port"}]);
+        }),
+        ("capacitance", "capacitance", |v| {
+            v["capacitance"] = serde_json::json!({
+                "terminals": ["port"], "ground": ["outer_boundary"]
+            });
+        }),
+        ("adaptive-mesh", "adaptive_mesh", |v| {
+            v["adaptive_mesh"] = serde_json::json!({"target_error": 0.1});
+        }),
+    ];
+    for (name, needle, edit) in cases {
+        let spec = edited_spec(&format!("p2-reject-{name}"), |v| {
+            v["element_order"] = serde_json::json!(2);
+            edit(v);
+        });
+        let out = geode(&["check", spec.to_str().unwrap()]);
+        // A spec the parser itself rejects is also fine, but it must not
+        // be solved: the failure is a loud `invalid_spec`/`spec_parse`.
+        assert!(!out.status.success(), "{name}: must fail");
+        let v = json(&out);
+        assert_eq!(v["kind"], "error", "{name}: {v:#}");
+        let msg = v["error"]["message"].as_str().unwrap();
+        assert!(
+            msg.contains("element_order") && msg.contains(needle),
+            "{name}: {msg}"
+        );
+    }
+    // Hybrid ports / sensitivities name the unblocking phase.
+    let spec = edited_spec("p2-reject-sensitivity", |v| {
+        v["element_order"] = serde_json::json!(2);
+        v["sensitivity"] = serde_json::json!({"parameters": []});
+    });
+    let out = geode(&["check", spec.to_str().unwrap()]);
+    assert!(!out.status.success());
+}
+
+/// An order-2 eigen run goes through the order-2 solver: same mesh and
+/// spec, close to but not identical to the order-1 frequencies, and the
+/// report records the order used.
+#[test]
+fn eigen_at_order_two_runs_the_order_two_solver() {
+    let raw = std::fs::read_to_string(fixtures().join("sphere_pec_golden.json")).unwrap();
+    let mut base: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    base["mesh"]["path"] = fixtures()
+        .join(base["mesh"]["path"].as_str().unwrap())
+        .display()
+        .to_string()
+        .into();
+    let run = |order: u64| {
+        let mut v = base.clone();
+        v["element_order"] = serde_json::json!(order);
+        let dir = scratch(&format!("eigen-order-{order}"));
+        let path = dir.join("spec.json");
+        std::fs::write(&path, serde_json::to_string(&v).unwrap()).unwrap();
+        let out = geode(&["eigen", path.to_str().unwrap()]);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        json(&out)
+    };
+    let (a, b) = (run(1), run(2));
+    assert_eq!(a["mesh"]["element_order"], 1);
+    assert_eq!(b["mesh"]["element_order"], 2);
+    assert!(b["mesh"]["n_dofs"].as_u64() > a["mesh"]["n_dofs"].as_u64());
+    let f = |r: &serde_json::Value| r["modes"][0]["frequency_hz"].as_f64().unwrap();
+    let rel = (f(&a) - f(&b)).abs() / f(&a);
+    assert!(
+        rel > 1e-9,
+        "order 2 must not reproduce order 1 (rel {rel:e})"
+    );
+    assert!(rel < 0.2, "orders disagree wildly (rel {rel:e})");
+}
+
+/// `--outdir` field export is edge-based: rejected at order 2.
+#[test]
+fn element_order_two_rejects_outdir() {
+    let spec = edited_spec("p2-outdir", |v| {
+        v["element_order"] = serde_json::json!(2);
+        v["frequencies"] = serde_json::json!({"unit": "ghz", "values": [1.0]});
+    });
+    let dir = scratch("p2-outdir-dir");
+    let out = geode(&[
+        "driven",
+        spec.to_str().unwrap(),
+        "--outdir",
+        dir.to_str().unwrap(),
+    ]);
+    let v = assert_error(&out, "driven", "invalid_spec");
+    let msg = v["error"]["message"].as_str().unwrap();
+    assert!(
+        msg.contains("element_order = 2") && msg.contains("--outdir"),
+        "{msg}"
+    );
 }
 
 #[test]
