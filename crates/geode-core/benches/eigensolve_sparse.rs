@@ -48,7 +48,7 @@ fn bench_sparse_eigensolve(c: &mut Criterion) {
                 let lambdas = solver
                     .smallest_eigenvalues(p.sys.k.as_ref(), p.sys.m.as_ref(), 5)
                     .expect("sparse eigensolve");
-                criterion::black_box(lambdas);
+                std::hint::black_box(lambdas);
             });
         });
     }

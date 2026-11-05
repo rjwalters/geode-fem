@@ -59,7 +59,7 @@ fn bench_assembly_nedelec_real(c: &mut Criterion) {
                     let sys =
                         assemble_global_nedelec(nodes_t, tets_t, &tet_idx, &tet_sign, n_edges);
                     let k_host = burn_matrix_to_faer(sys.k);
-                    criterion::black_box(k_host);
+                    std::hint::black_box(k_host);
                 },
                 BatchSize::SmallInput,
             );
@@ -91,7 +91,7 @@ fn bench_assembly_nedelec_complex(c: &mut Criterion) {
                         nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &eps,
                     );
                     let k_host = burn_matrix_to_faer(sys.k);
-                    criterion::black_box(k_host);
+                    std::hint::black_box(k_host);
                 },
                 BatchSize::SmallInput,
             );

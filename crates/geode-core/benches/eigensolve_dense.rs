@@ -62,7 +62,7 @@ fn bench_dense_eigensolve(c: &mut Criterion) {
                 let lambdas = FaerDenseEigensolver
                     .smallest_eigenvalues(p.k_int.as_ref(), p.m_int.as_ref(), 5)
                     .expect("dense eigensolve");
-                criterion::black_box(lambdas);
+                std::hint::black_box(lambdas);
             });
         });
     }
