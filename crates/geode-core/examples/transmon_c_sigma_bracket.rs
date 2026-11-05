@@ -606,7 +606,7 @@ fn increment_toml(t: &mut String, table: &str, b: &Bracket, x0: (f64, f64), note
 /// and adaptive rows, checked against its `[bracket_x0]`.
 fn committed_x0_bounds() -> (f64, f64) {
     let text = fs::read_to_string(BRACKET_TOML).unwrap();
-    let v: toml::Value = text.parse().unwrap();
+    let v: toml::Value = text.parse::<toml::Table>().map(toml::Value::Table).unwrap();
     let (mut lo, mut hi) = (f64::NEG_INFINITY, f64::INFINITY);
     for table in ["uniform_x0", "adaptive_x0"] {
         for r in v[table].as_array().unwrap() {
@@ -743,7 +743,7 @@ struct Committed {
 
 fn committed(dir: &Path) -> Committed {
     let text = fs::read_to_string(dir.join("summary.toml")).unwrap();
-    let v: toml::Value = text.parse().unwrap();
+    let v: toml::Value = text.parse::<toml::Table>().map(toml::Value::Table).unwrap();
     let th = v["optimization"]["theta"].as_array().unwrap();
     let theta = std::array::from_fn(|i| th[i].as_float().unwrap());
     let rounds = v["held_out"].as_array().unwrap();
@@ -1168,7 +1168,8 @@ fn grounded(mesh: &TetMesh, sheets: &Sheets, wall: &[[u32; 3]]) -> Sheets {
 fn committed_tensor_uppers(table: &str) -> Vec<(String, f64)> {
     let v: toml::Value = fs::read_to_string(BRACKET_TENSOR_TOML)
         .unwrap()
-        .parse()
+        .parse::<toml::Table>()
+        .map(toml::Value::Table)
         .unwrap();
     v[table]
         .as_array()
@@ -1397,7 +1398,8 @@ fn dressed_band(c_lo: f64, c_hi: f64, fr_ghz: f64) -> ((f64, f64), (f64, f64)) {
 fn write_grounded_box(out: &Path, uni: &[BoxRow], adapt: &[BoxRow], max_rounds: usize) {
     let tv: toml::Value = fs::read_to_string(BRACKET_TENSOR_TOML)
         .unwrap()
-        .parse()
+        .parse::<toml::Table>()
+        .map(toml::Value::Table)
         .unwrap();
     let nb = &tv["bracket_x0_tensor"];
     let nat_lo = nb["lower_ff"].as_float().unwrap();
@@ -1405,7 +1407,8 @@ fn write_grounded_box(out: &Path, uni: &[BoxRow], adapt: &[BoxRow], max_rounds: 
     let nat_lo_from = nb["lower_from"].as_str().unwrap().to_string();
     let xv: toml::Value = fs::read_to_string(CROSSCHECK_RESULTS_TOML)
         .unwrap()
-        .parse()
+        .parse::<toml::Table>()
+        .map(toml::Value::Table)
         .unwrap();
     let st = &xv["static_cross_check"]["initial"];
     let fr = st["resonator_f_r_ghz"].as_float().unwrap();
@@ -1607,7 +1610,7 @@ fn write_grounded_box(out: &Path, uni: &[BoxRow], adapt: &[BoxRow], max_rounds: 
 /// of `tables` in a committed bracket artifact.
 fn committed_family(path: &str, tables: &[&str]) -> (f64, f64) {
     let text = fs::read_to_string(path).unwrap();
-    let v: toml::Value = text.parse().unwrap();
+    let v: toml::Value = text.parse::<toml::Table>().map(toml::Value::Table).unwrap();
     let (mut lo, mut hi) = (f64::NEG_INFINITY, f64::INFINITY);
     for table in tables {
         for r in v[*table].as_array().unwrap() {
