@@ -148,6 +148,17 @@ fn solve_lossless(p: &Problem, target: &EigenTarget) -> Result<Solved, CliError>
 }
 
 fn solve_lossy(p: &Problem, target: &EigenTarget) -> Result<Solved, CliError> {
+    solve_lossy_with_eps(p, target, &p.eps)
+}
+
+/// The lossy / open pencil's modes for the per-tet `eps` (the spec's, or a
+/// perturbed copy for the sensitivity FD check; the box-UPML stretch stays
+/// frozen at the shift, so only the permittivity moves).
+fn solve_lossy_with_eps(
+    p: &Problem,
+    target: &EigenTarget,
+    eps: &[c64],
+) -> Result<Solved, CliError> {
     let settings = LossyCavitySettings {
         max_iters: target.max_iters,
         tol: target.tol,
@@ -159,10 +170,10 @@ fn solve_lossy(p: &Problem, target: &EigenTarget) -> Result<Solved, CliError> {
     let upml_reference_k0 = (!p.upml.is_empty()).then_some(target.shift.k0);
     let tensors = p
         .needs_tensor_materials()
-        .then(|| p.material_tensors(&p.eps, &tet_centroids(&p.tagged.mesh), target.shift.k0));
+        .then(|| p.material_tensors(eps, &tet_centroids(&p.tagged.mesh), target.shift.k0));
     let materials = match &tensors {
         Some((eps, nu)) => LossyCavityMaterials::Tensor { eps, nu },
-        None => LossyCavityMaterials::Isotropic(&p.eps),
+        None => LossyCavityMaterials::Isotropic(eps),
     };
     let solved = match &p.hcurl_space {
         Some(space) => {
@@ -286,39 +297,55 @@ pub fn run(
         });
     }
 
-    // Material sensitivities (issue #707): lossless pencil only
-    // (`problem::load` rejected a lossy / open spec with a `sensitivity`
-    // section), so every λ and eigenvector is real.
+    // Material sensitivities (issue #707 lossless, issue #1329 lossy / open).
     let sensitivities = match &p.sensitivity {
         Some(sens) => {
-            debug_assert!(!solved.complex);
-            let lambdas: Vec<f64> = solved.modes.iter().map(|m| m.lambda.re).collect();
-            let vectors: Vec<Vec<f64>> = solved
-                .modes
-                .iter()
-                .map(|m| m.vector.iter().map(|x| x.re).collect())
-                .collect();
-            if let Some(&m) = sens.modes.iter().find(|&&m| m >= lambdas.len()) {
+            if let Some(&m) = sens.modes.iter().find(|&&m| m >= solved.modes.len()) {
                 return Err(CliError::InvalidSpec(format!(
                     "sensitivity.modes lists mode {m}, but the eigen solve returned only {} modes",
-                    lambdas.len()
+                    solved.modes.len()
                 )));
             }
-            Some(crate::sensitivity::eigen(
-                &p,
-                &lambdas,
-                &vectors,
-                sens,
-                |eps_r| {
-                    Ok(
-                        pec_cavity_modes(&p, &target, &PecCavityMaterials::Isotropic(eps_r))?
+            if solved.complex {
+                let lambdas: Vec<c64> = solved.modes.iter().map(|m| m.lambda).collect();
+                let vectors: Vec<&[c64]> =
+                    solved.modes.iter().map(|m| m.vector.as_slice()).collect();
+                Some(crate::sensitivity::eigen_lossy(
+                    &p,
+                    &lambdas,
+                    &vectors,
+                    sens,
+                    |eps| {
+                        Ok(solve_lossy_with_eps(&p, &target, eps)?
                             .modes
                             .iter()
                             .map(|m| m.lambda)
-                            .collect(),
-                    )
-                },
-            )?)
+                            .collect())
+                    },
+                )?)
+            } else {
+                let lambdas: Vec<f64> = solved.modes.iter().map(|m| m.lambda.re).collect();
+                let vectors: Vec<Vec<f64>> = solved
+                    .modes
+                    .iter()
+                    .map(|m| m.vector.iter().map(|x| x.re).collect())
+                    .collect();
+                Some(crate::sensitivity::eigen(
+                    &p,
+                    &lambdas,
+                    &vectors,
+                    sens,
+                    |eps_r| {
+                        Ok(
+                            pec_cavity_modes(&p, &target, &PecCavityMaterials::Isotropic(eps_r))?
+                                .modes
+                                .iter()
+                                .map(|m| m.lambda)
+                                .collect(),
+                        )
+                    },
+                )?)
+            }
         }
         None => None,
     };

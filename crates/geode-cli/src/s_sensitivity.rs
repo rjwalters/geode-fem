@@ -1376,6 +1376,10 @@ pub fn driven(
                     frequency_hz: Some(p.frequencies[fi].hz),
                     fd_gradient: None,
                     fd_rel_error: None,
+                    q_value: None,
+                    q_gradient: None,
+                    q_fd_gradient: None,
+                    q_fd_rel_error: None,
                 });
             }
         }

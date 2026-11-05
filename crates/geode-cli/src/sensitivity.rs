@@ -26,6 +26,12 @@
 //!   the simple-eigenvalue gap guard), chained through
 //!   [`geode_core::eigen::transmon::frequency_hz_from_lambda`]:
 //!   `f = c√λ/(2πL)` ⇒ `∂f/∂ε = (f / 2λ) ∂λ/∂ε`.
+//! * **Eigen** (lossy / open, issue #1329) —
+//!   [`geode_core::eigen::sensitivity::LossyEigenSensitivity`]: the
+//!   unconjugated Hellmann–Feynman `∂λ/∂ε = −λ xᵀM_k x` on the
+//!   complex-symmetric pencil (`xᵀMx = 1`), chained to `∂f/∂ε` and the
+//!   cancellation-free `∂Q/∂ε` (`q_gradient`). A box UPML is frozen at the
+//!   shift (fixed `Λ`), and the FD check re-solves the same frozen pencil.
 //!
 //! * **Driven** (one lumped port, issue #739) —
 //!   [`geode_core::driven::adjoint::driven_material_adjoint_gradient_ports`]
@@ -60,11 +66,15 @@ use geode_core::assembly::electrostatic::{Electrode, assemble_electrostatic_p2};
 use geode_core::assembly::magnetostatic3d::{
     CurrentTerminal, assemble_magnetostatic3d, extract_inductance,
 };
+use geode_core::assembly::nedelec::tet_centroids;
+use geode_core::constants::C_M_PER_S;
 use geode_core::driven::adjoint::driven_material_adjoint_gradient_ports;
 use geode_core::driven::extraction::{s_parameter_operator, s_parameter_point, s11_sq_objective};
 use geode_core::driven::ports::assemble_port_flux;
 use geode_core::driven::solve::{CurrentSource, DrivenBcs, DrivenMaterials, SolverMode};
-use geode_core::eigen::sensitivity::EigenSensitivity;
+use geode_core::eigen::sensitivity::{
+    EigenSensitivity, LossyEigenSensitivity, eps_direction_mass, region_eps_direction,
+};
 use geode_core::eigen::transmon::frequency_hz_from_lambda;
 
 use crate::backend::CompiledBackend;
@@ -151,6 +161,10 @@ fn finish(
                 frequency_hz: None,
                 fd_gradient: None,
                 fd_rel_error: None,
+                q_value: None,
+                q_gradient: None,
+                q_fd_gradient: None,
+                q_fd_rel_error: None,
             });
         }
     }
@@ -435,6 +449,188 @@ pub fn eigen(
         forward,
         t0,
     )
+}
+
+/// `∂f/∂ε_r` and `∂Q/∂ε_r` of the `sensitivity.modes` resonances of a
+/// **lossy / open** cavity (issue #1329): the unconjugated Hellmann–Feynman
+/// `∂λ/∂ε = −λ xᵀ M_k x` on the complex-symmetric pencil
+/// ([`LossyEigenSensitivity`]), chained through `k₀ = √λ` to
+/// `f = Re k₀ · c / (2π L)` and the cancellation-free `Q`. `lambdas` /
+/// `vectors` are every returned mode's complex eigenvalue and bilinear-`M`
+/// normalized interior eigenvector (`xᵀ M x = 1`). The parameter is the real
+/// part of a region's `ε_r` (its `Im ε_r` is held fixed). A box-UPML stretch
+/// is frozen at the shift (fixed `Λ`), so `ε_tensor = ε Λ` is linear in the
+/// scalar `ε`. `resolve(eps)` re-solves the same frozen pencil for the FD
+/// check and returns its complex eigenvalues.
+pub fn eigen_lossy(
+    p: &Problem,
+    lambdas: &[c64],
+    vectors: &[&[c64]],
+    sens: &SensitivityTarget,
+    mut resolve: impl FnMut(&[c64]) -> Result<Vec<c64>, CliError>,
+) -> Result<SensitivityReport, CliError> {
+    let t0 = Instant::now();
+    let mesh = &p.tagged.mesh;
+    let k0_to_hz = C_M_PER_S / (2.0 * std::f64::consts::PI * p.length_unit_m());
+    let device = <CompiledBackend as BackendTypes>::Device::default();
+    let shift_k0 = p.eigen.as_ref().map_or(1.0, |t| t.shift.k0);
+
+    // Direction tensors ∂ε_tensor/∂ε_k per design region.
+    let unit_tensors = p.needs_tensor_materials().then(|| {
+        let unit = vec![c64::new(1.0, 0.0); mesh.n_tets()];
+        p.material_tensors(&unit, &tet_centroids(mesh), shift_k0).0
+    });
+    let zero_t = [[c64::new(0.0, 0.0); 3]; 3];
+    let dm: Vec<_> = sens
+        .parameters
+        .iter()
+        .map(|prm| -> Result<_, CliError> {
+            let dir: Vec<[[c64; 3]; 3]> = match &unit_tensors {
+                Some(unit) => unit
+                    .iter()
+                    .enumerate()
+                    .map(|(t, &u)| {
+                        // `eps_r_diag` tets ignore the scalar ε.
+                        let live = sens.region_of_tet[t] == prm.region
+                            && p.eps_diag.get(t).copied().flatten().is_none();
+                        if live { u } else { zero_t }
+                    })
+                    .collect(),
+                None => region_eps_direction(&sens.region_of_tet, prm.region),
+            };
+            eps_direction_mass::<CompiledBackend>(mesh, &dir, &p.pec_mask, &device)
+                .map_err(CliError::EigenSensitivity)
+        })
+        .collect::<Result<_, _>>()?;
+
+    let mut components = Vec::with_capacity(sens.modes.len());
+    let mut q_base: Vec<Option<f64>> = Vec::with_capacity(sens.modes.len());
+    // grad[parameter][component] of f and Q.
+    let mut dfreq = vec![Vec::new(); sens.parameters.len()];
+    let mut dqual = vec![Vec::new(); sens.parameters.len()];
+    for &m in &sens.modes {
+        let es = LossyEigenSensitivity {
+            lambdas,
+            mode_index: m,
+            eigenvector: vectors[m],
+            min_rel_gap: sens.min_rel_gap,
+        };
+        let mut f0 = 0.0;
+        let mut q0 = f64::INFINITY;
+        for (k, dmk) in dm.iter().enumerate() {
+            let dl = es
+                .dlambda(None, Some(dmk.as_ref()))
+                .map_err(CliError::EigenSensitivity)?;
+            let g = es
+                .observable_gradient(dl)
+                .map_err(CliError::EigenSensitivity)?;
+            f0 = g.k0.re * k0_to_hz;
+            q0 = g.q;
+            dfreq[k].push(g.dk0.re * k0_to_hz);
+            dqual[k].push(g.dq);
+        }
+        components.push((vec![m], f0));
+        q_base.push(q0.is_finite().then_some(q0));
+    }
+    let g = Gradients {
+        components,
+        grad: dfreq,
+    };
+
+    // FD: re-solve the frozen pencil with the region's Re ε moved (Im ε,
+    // the UPML stretch and the shift unchanged) and follow each mode to
+    // the nearest perturbed eigenvalue. The Q's ride along in a cache so
+    // the Q check costs no extra solve.
+    let base: Vec<c64> = sens.modes.iter().map(|&m| lambdas[m]).collect();
+    let cache: std::cell::RefCell<std::collections::HashMap<(usize, u64), Vec<f64>>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+    let forward = |k: usize, value: f64| -> Result<Vec<f64>, CliError> {
+        let region = sens.parameters[k].region;
+        let eps: Vec<c64> = p
+            .eps
+            .iter()
+            .zip(&sens.region_of_tet)
+            .map(|(&e, &r)| {
+                if r == region {
+                    c64::new(value, e.im)
+                } else {
+                    e
+                }
+            })
+            .collect();
+        let solved = resolve(&eps)?;
+        let mut f = Vec::with_capacity(base.len());
+        let mut q = Vec::with_capacity(base.len());
+        for &l0 in &base {
+            let nearest = solved
+                .iter()
+                .copied()
+                .min_by(|a, b| (a - l0).norm().total_cmp(&(b - l0).norm()))
+                .unwrap_or(c64::new(f64::NAN, f64::NAN));
+            let (re, im) = geode_util::eigen::k_from_lambda(nearest);
+            f.push(re * k0_to_hz);
+            q.push(geode_util::eigen::q_factor(c64::new(re, im)));
+        }
+        cache.borrow_mut().insert((k, value.to_bits()), q);
+        Ok(f)
+    };
+    let mut report = finish(
+        sens,
+        "frequency_hz",
+        "Hz",
+        "hellmann_feynman_unconjugated",
+        g,
+        |idx| format!("mode {} frequency", idx[0]),
+        forward,
+        t0,
+    )?;
+
+    // Q alongside f: value and ∂Q/∂p on every entry, then the Q FD check.
+    let n_comp = sens.modes.len();
+    for (k, row) in dqual.iter().enumerate() {
+        for (c, dq) in row.iter().enumerate() {
+            let e = &mut report.entries[k * n_comp + c];
+            e.q_value = q_base[c];
+            e.q_gradient = *dq;
+        }
+    }
+    if let Some((step, tol)) = sens.fd_check {
+        let cache = cache.borrow();
+        for (k, prm) in sens.parameters.iter().enumerate() {
+            let h = step * prm.value.abs();
+            let (p_plus, p_minus) = (prm.value + h, prm.value - h);
+            let (Some(plus), Some(minus)) = (
+                cache.get(&(k, p_plus.to_bits())),
+                cache.get(&(k, p_minus.to_bits())),
+            ) else {
+                continue;
+            };
+            for c in 0..n_comp {
+                let e = &mut report.entries[k * n_comp + c];
+                let (Some(q), Some(dq)) = (e.q_value, e.q_gradient) else {
+                    continue;
+                };
+                let fd = (plus[c] - minus[c]) / (p_plus - p_minus);
+                let floor = FD_SCALE_FLOOR * (q / prm.value).abs();
+                let rel = rel_error(dq, fd, floor);
+                if rel.is_nan() || rel > tol {
+                    return Err(CliError::FdCheckFailed {
+                        detail: format!(
+                            "parameter `{}` ({}), mode {} Q: gradient {dq:.6e} vs central FD \
+                             {fd:.6e} (rel {rel:.3e})",
+                            prm.physical_group,
+                            prm.kind.name(),
+                            e.index[0]
+                        ),
+                        tolerance: tol,
+                    });
+                }
+                e.q_fd_gradient = Some(fd);
+                e.q_fd_rel_error = Some(rel);
+            }
+        }
+    }
+    Ok(report)
 }
 
 /// `∂|S11|²/∂ε_r` of the single lumped port at every swept frequency

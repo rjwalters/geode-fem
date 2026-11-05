@@ -625,9 +625,9 @@ impl<'a> Prepared<'a> {
                             *o = zz * c64::new(0.0, omega);
                         }
                     }
-                    // Shape is filled below; Wall is an impedance-wall
-                    // parameter that Floquet networks never enumerate.
-                    SParam::Shape { .. } | SParam::Wall { .. } => {}
+                    // Shape is handled below; Floquet never builds direction or wall
+                    // columns (only ε′/ε″/shape above), so these contribute nothing here.
+                    SParam::Shape { .. } | SParam::EpsDirection { .. } | SParam::Wall { .. } => {}
                 }
             }
         }

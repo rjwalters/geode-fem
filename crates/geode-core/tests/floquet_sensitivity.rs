@@ -279,9 +279,9 @@ fn fd(s: &Setup, param: SParam, k_t: [f64; 3]) -> Vec<Vec<c64>> {
                     }
                 }
             }
-            // The Floquet adjoint never enumerates σ or wall parameters.
-            SParam::Sigma { .. } | SParam::Wall { .. } => {
-                unreachable!("Floquet setups have no σ / wall parameters")
+            // The Floquet adjoint never enumerates σ, direction or wall columns.
+            SParam::EpsDirection { .. } | SParam::Sigma { .. } | SParam::Wall { .. } => {
+                unreachable!("Floquet sensitivity has no direction, σ or wall columns")
             }
         }
         s_of(&s.c, &mesh, &eps, k_t)
