@@ -37,7 +37,9 @@ jobs:
             exit 1
           fi
 
+      # `cargo rustc ... -- -D warnings` applies the flag to geode-core only.
+      # A job-level RUSTFLAGS would also reach the vendored path crate
+      # `vendor/mshio` (cargo does not cap lints on path crates), which trips
+      # `non_local_definitions` from its `FromPrimitive` derive.
       - name: Build the slim config
-        env:
-          RUSTFLAGS: -D warnings
-        run: cargo check -p geode-core --no-default-features --lib
+        run: cargo rustc -p geode-core --no-default-features --lib -- -D warnings
