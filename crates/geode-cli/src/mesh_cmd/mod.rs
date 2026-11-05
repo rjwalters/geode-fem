@@ -855,14 +855,6 @@ fn starter_spec_capacitance(
     }
 }
 
-/// The eigen starter spec: every slab's `eps_r` (real part: the Bloch
-/// pencil is lossless), PEC `outer_boundary` and conductors, and a
-/// shift to edit: a placeholder 1 GHz for the PEC cavity, a cell-scaled
-/// `k0` shift for a periodic cell (see [`periodic_eigen_shift_k0`]). With
-/// the layout's `periodic` axes the
-/// `<axis>_lo` / `<axis>_hi` walls become `boundary_conditions.periodic`
-/// pairs (explicit `translation` = the cell period) and the spec asks for
-/// the Bloch bands at Γ.
 /// Cell-scaled `k0` shift (rad per mesh length unit) for a periodic Bloch
 /// cell. A fixed GHz number cannot work: at Γ the pencil has a large
 /// null space at `k0 = 0`, and a micron-scale cell's first band sits near
@@ -882,9 +874,23 @@ fn periodic_eigen_shift_k0(layout: &layout::Layout) -> f64 {
         .iter()
         .map(|d| d.thickness * d.eps_r[0].max(1.0).sqrt())
         .sum();
-    1.5 * std::f64::consts::PI / opl
+    // An empty (or zero-thickness) stack has no optical path: fall back to a
+    // finite shift of 1 rad per mesh length unit rather than dividing by zero.
+    if opl > 0.0 {
+        1.5 * std::f64::consts::PI / opl
+    } else {
+        1.0
+    }
 }
 
+/// The eigen starter spec: every slab's `eps_r` (real part: the Bloch
+/// pencil is lossless), PEC `outer_boundary` and conductors, and a
+/// shift to edit: a placeholder 1 GHz for the PEC cavity, a cell-scaled
+/// `k0` shift for a periodic cell (see [`periodic_eigen_shift_k0`]). With
+/// the layout's `periodic` axes the
+/// `<axis>_lo` / `<axis>_hi` walls become `boundary_conditions.periodic`
+/// pairs (explicit `translation` = the cell period) and the spec asks for
+/// the Bloch bands at Γ.
 fn starter_spec_eigen(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf) -> ProblemSpec {
     let l = &r.layout;
     let name = |role: GroupRole| group_name(script, role);
