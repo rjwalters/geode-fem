@@ -2598,6 +2598,31 @@ the layouts above. Both require `--spice`.
   Within each group of coupled paths the lowest-numbered path is never
   flipped, so the choice is deterministic.
 
+## Element order (`element_order`, issue #1265)
+
+`element_order` selects the Nédélec space: `1` (default, `n_edges` DOFs) or
+`2` (`2·n_edges + 2·n_faces` DOFs; hierarchical, more accurate on a coarser
+mesh). Omitting it or writing `1` gives output identical to before. Any
+other value (`3`, `"2"`) is a `spec_parse` error naming the field.
+
+Order 2 runs for **`eigen`** specs (lossless and lossy, isotropic or
+diagonal-anisotropic) and **`driven`** specs with lumped ports, the direct
+solver and a dense sweep. Everything else is rejected with `invalid_spec`
+naming the feature, never solved at order 1: `extract`, `capacitance`,
+`inductance`, `wave_ports` (hybrid ports need #836 Phase 3b), `sensitivity`
+(Phase 4), `absorbing_regions`, dispersive materials, `solver.mode =
+"iterative"` (matrix-free / AMS), `sweep.adaptive` and `--outdir`. The
+single support table is `problem::p2_support` / `validate_element_order`.
+
+The report's `mesh` block records `element_order` and `n_dofs` (global DOFs
+before PEC elimination); `n_interior` is the order-2 system size. At order 2
+`geode check` adds `resources.order_comparison`: exact order-2 `n_dofs` and
+`nnz` (from the DOF tables, no assembly), the DOF / nnz / memory ratios
+against order 1 on the same mesh, and `fits_direct_lu` with a plain verdict
+(direct LU runs out of memory near 1M DOF). Memory reuses the order-1
+anchor linear in `nnz`; there is **no order-2 anchor measurement yet**, so
+`peak_memory_confidence` stays `"order_of_magnitude"`.
+
 ## Resource estimate (`geode check`, issue #703)
 
 `geode check` reports a `resources` block so an agent can pick mesh and
@@ -2970,6 +2995,30 @@ The report (`kind = "mesh"`) carries the provenance fields plus `layout`
 `pec_sheet` \| `pec_shell` \| `conductor_volume` \| `port` \| `contact`
 \| `outer_boundary`, `n_elements`), `analysis` (`driven` \|
 `capacitance` \| `inductance`), `starter_spec_path` and `starter_spec`.
+
+### GDS → layout and XML stackup (issue #1288)
+
+`scripts/gds2geode-layout.py` flattens a GDS cell with KLayout's batch
+interpreter into layout JSON v1 (outer rings and holes per layer, hierarchy
+and arrays flattened, coordinates in microns). A small layer-map JSON gives
+each `layer/datatype` a conductor name, `z_bottom` and `thickness`, and may
+carry a `template` (dielectrics, `margin`, `mesh`, ports) merged into the
+output:
+
+```sh
+klayout -b -r scripts/gds2geode-layout.py -rd gds=cell.gds -rd cell=TOP \
+    -rd layermap=layers.layermap -rd out=layout.json
+geode mesh layout.json --analysis capacitance --mesh-out m.msh --spec-out s.json
+```
+
+`mesh_cmd::stackup::parse` reads an XML layer stackup (named materials plus a
+z-ordered layer list; see `tests/fixtures/stackup_example.xml` and the module
+docs) into dielectric layers (z, thickness, ε) and conductor layers (z,
+thickness, σ), with one named `StackupError` per failure class. It is a
+library function for now; wiring it into `geode mesh` is a follow-up. The
+element names are this crate's own, written from the shape of the public
+gds2palace stackup format; no gds2palace file or code is vendored (GPL-3.0).
+
 
 ## Report, schema v1
 

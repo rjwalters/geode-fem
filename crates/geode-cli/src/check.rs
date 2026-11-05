@@ -13,9 +13,9 @@ use crate::report::{
     BlochRequestSummary, CapacitanceSettingsSummary, CheckReport, ConductorSummary,
     CurrentPathSummary, DebyePoleSummary, DispersionSummary, EigenSettingsSummary,
     ExtractSettingsSummary, FrequencySummary, InductanceSettingsSummary, LeontovichSummary,
-    MeshSummary, PecSummary, PeriodicPairSummary, PeriodicSummary, PortSummary, Provenance,
-    RegionSummary, ResourceEstimate, RoughnessSummary, SilverMullerSummary, SolverSummary,
-    UpmlSummary, WavePortMediumSummary, WavePortSummary,
+    MeshSummary, OrderComparison, PecSummary, PeriodicPairSummary, PeriodicSummary, PortSummary,
+    Provenance, RegionSummary, ResourceEstimate, RoughnessSummary, SilverMullerSummary,
+    SolverSummary, UpmlSummary, WavePortMediumSummary, WavePortSummary,
 };
 use crate::spec::{DispersionSpec, FrequencyUnit, RoughnessSpec, SolverSpec};
 
@@ -324,7 +324,11 @@ pub const ITERATIVE_BASIS: &str = "vector count (no measured anchor), 2026-09-28
 /// memory on the spiral smoke mesh ~1.6× **low** (process and mesh
 /// overhead are not modelled). See `crates/geode-cli/README.md`.
 pub fn resource_estimate(p: &Problem) -> ResourceEstimate {
-    resource_estimate_scaled(p, 1.0)
+    let mut est = resource_estimate_scaled(p, 1.0);
+    if let Some(space) = &p.hcurl_space {
+        est.order_comparison = Some(order_comparison(p, space, &est, nnz_p1(p)));
+    }
+    est
 }
 
 /// [`resource_estimate`] for the same problem with every size (`nnz(A)`,
@@ -332,8 +336,17 @@ pub fn resource_estimate(p: &Problem) -> ResourceEstimate {
 /// worst case of an `adaptive_mesh` run at `max_dofs` is
 /// `scale = max_dofs / n_edges` of the initial mesh (issue #1267). Bisection
 /// keeps the edge-per-DOF connectivity of the mesh, so `nnz` scales with
-/// the DOF count.
+/// the DOF count. No order comparison is attached (see [`resource_estimate`]).
 pub fn resource_estimate_scaled(p: &Problem, scale_sizes: f64) -> ResourceEstimate {
+    let nnz = match &p.hcurl_space {
+        Some(space) => nnz_from_tet_dofs(space),
+        None => nnz_p1(p),
+    };
+    resource_estimate_with_nnz_n(p, nnz, p.n_interior(), scale_sizes)
+}
+
+/// Exact order-1 `nnz(A)` (full edge pattern, before PEC elimination).
+fn nnz_p1(p: &Problem) -> usize {
     let tet_edges: Vec<[u32; 6]> = p
         .tagged
         .mesh
@@ -341,9 +354,93 @@ pub fn resource_estimate_scaled(p: &Problem, scale_sizes: f64) -> ResourceEstima
         .iter()
         .map(|row| std::array::from_fn(|i| row[i].0))
         .collect();
-    let nnz =
-        (sparsity_pattern_from_tet_edges(&tet_edges).nnz() as f64 * scale_sizes).round() as usize;
-    let n = p.n_interior() as f64 * scale_sizes;
+    sparsity_pattern_from_tet_edges(&tet_edges).nnz()
+}
+
+/// Exact `nnz(A)` of an H(curl) space's system pattern: every pair of DOFs
+/// sharing a tet (the `tet_dofs` gather; no assembly).
+pub fn nnz_from_tet_dofs(space: &geode_core::assembly::hcurl_space::HcurlSpace) -> usize {
+    let mut rows: Vec<Vec<u32>> = vec![Vec::new(); space.n_dofs()];
+    for t in 0..space.n_tets() {
+        let dofs = space.tet_dofs(t);
+        for &r in dofs {
+            rows[r as usize].extend_from_slice(dofs);
+        }
+        // Keep the per-row buffers bounded on large meshes.
+        if t % 4096 == 4095 {
+            for row in rows.iter_mut().filter(|r| r.len() > 256) {
+                row.sort_unstable();
+                row.dedup();
+            }
+        }
+    }
+    rows.iter_mut()
+        .map(|row| {
+            row.sort_unstable();
+            row.dedup();
+            row.len()
+        })
+        .sum()
+}
+
+/// Interior DOF count above which direct LU runs out of memory (the
+/// memory-abundance experiment OOMs at about 1M DOF).
+pub const DIRECT_LU_DOF_LIMIT: usize = 1_000_000;
+
+/// The order-2 vs order-1 comparison on the same mesh (issue #1265).
+fn order_comparison(
+    p: &Problem,
+    space: &geode_core::assembly::hcurl_space::HcurlSpace,
+    est: &ResourceEstimate,
+    nnz_p1: usize,
+) -> OrderComparison {
+    let lists: Vec<&[[u32; 3]]> = p.pec.iter().map(|s| s.triangles.as_slice()).collect();
+    let mask_p1 = geode_core::mesh::pec_interior_mask_from_triangles(&p.edges, &lists);
+    let n_interior_p1 = mask_p1.iter().filter(|&&k| k).count();
+    let n_interior_p2 = p.n_interior();
+    let est_p1 = resource_estimate_with_nnz_n(p, nnz_p1, n_interior_p1, 1.0);
+    let fits = est.solver_mode == "direct" && n_interior_p2 < DIRECT_LU_DOF_LIMIT;
+    let dof_ratio = n_interior_p2 as f64 / n_interior_p1 as f64;
+    let verdict = if fits {
+        format!(
+            "order 2 fits direct LU: {n_interior_p2} DOFs ({dof_ratio:.1}x order 1), \
+             ~{:.1} GB ({:.1}x order 1)",
+            est.peak_memory_gb,
+            est.peak_memory_gb / est_p1.peak_memory_gb
+        )
+    } else {
+        format!(
+            "order 2 on this mesh will NOT fit direct LU: {n_interior_p2} DOFs (limit about \
+             {DIRECT_LU_DOF_LIMIT}), ~{:.1} GB; order 1 needs {n_interior_p1} DOFs, ~{:.1} GB \
+             (coarsen the mesh or use element_order = 1)",
+            est.peak_memory_gb, est_p1.peak_memory_gb
+        )
+    };
+    OrderComparison {
+        n_dofs_p2: space.n_dofs(),
+        n_interior_p2,
+        n_interior_p1,
+        dof_ratio,
+        nnz_p2: est.nnz_a,
+        nnz_p1,
+        nnz_ratio: est.nnz_a as f64 / nnz_p1 as f64,
+        peak_memory_gb_p1: est_p1.peak_memory_gb,
+        memory_ratio: est.peak_memory_gb / est_p1.peak_memory_gb,
+        direct_lu_dof_limit: DIRECT_LU_DOF_LIMIT,
+        fits_direct_lu: fits,
+        verdict,
+        memory_model: "p1_anchor_linear_in_nnz",
+    }
+}
+
+fn resource_estimate_with_nnz_n(
+    p: &Problem,
+    nnz: usize,
+    n_interior: usize,
+    scale_sizes: f64,
+) -> ResourceEstimate {
+    let nnz = (nnz as f64 * scale_sizes).round() as usize;
+    let n = n_interior as f64 * scale_sizes;
     let is_eigen = p.eigen.is_some();
     let n_paths = p.inductance.as_ref().map(|i| i.paths.len());
     // A lossless eigen pencil and inductance factor a real symmetric
@@ -383,6 +480,7 @@ pub fn resource_estimate_scaled(p: &Problem, scale_sizes: f64) -> ResourceEstima
         peak_memory_confidence: "order_of_magnitude",
         wall_time_confidence: Some("conservative_below_anchor"),
         calibration_basis: CALIBRATION_BASIS,
+        order_comparison: None,
     };
     match (is_real, p.solver()) {
         (
@@ -664,6 +762,8 @@ pub fn mesh_summary(p: &Problem) -> MeshSummary {
         n_tets: p.tagged.mesh.n_tets(),
         n_edges: p.edges.len(),
         n_interior: p.n_interior(),
+        element_order: p.spec.element_order.as_u8(),
+        n_dofs: p.hcurl_space.as_ref().map_or(p.edges.len(), |s| s.n_dofs()),
     }
 }
 
