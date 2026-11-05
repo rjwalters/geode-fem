@@ -1649,10 +1649,17 @@ mod tests {
         assert!(s.modes.is_none() && s.min_rel_gap.is_none());
         let fd = s.fd_check.as_ref().unwrap();
         assert_eq!((fd.relative_step, fd.tolerance), (1e-4, 1e-4));
+        // `sigma` is a valid kind (issue #1254).
+        let sigma = serde_json::from_str::<SensitivityParameterSpec>(
+            r#"{"kind":"sigma","physical_group":"d"}"#,
+        )
+        .unwrap();
+        assert_eq!(sigma.kind, SensitivityParameterKind::Sigma);
+        assert_eq!(sigma.kind.name(), "sigma");
         // Unknown kinds / keys are parse errors.
         assert!(
             serde_json::from_str::<SensitivityParameterSpec>(
-                r#"{"kind":"sigma","physical_group":"d"}"#
+                r#"{"kind":"bogus","physical_group":"d"}"#
             )
             .is_err()
         );
