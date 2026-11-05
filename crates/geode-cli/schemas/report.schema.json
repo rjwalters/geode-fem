@@ -1749,6 +1749,15 @@
       ],
       "type": "object"
     },
+    "ElementOrderSpec": {
+      "default": 1,
+      "description": "Nédélec element order: 1 (default) or 2.",
+      "enum": [
+        1,
+        2
+      ],
+      "type": "integer"
+    },
     "EpsDiagSpec": {
       "additionalProperties": false,
       "description": "Diagonal complex relative-permittivity tensor `diag(ε_xx, ε_yy, ε_zz)`\nin mesh axes (issue #760). Each component is `[re, im]`, `im ≤ 0`\n(`exp(+jωt)`).",
@@ -3819,10 +3828,23 @@
     "MeshSummary": {
       "description": "Mesh summary (shared by `check` and `driven`).",
       "properties": {
+        "element_order": {
+          "description": "Nédélec element order actually used (additive in v1, issue #1265):\n`1` or `2`.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
         "length_unit_m": {
           "description": "Metres per mesh length unit.",
           "format": "double",
           "type": "number"
+        },
+        "n_dofs": {
+          "description": "Global H(curl) DOF count before PEC elimination: `n_edges` at order\n1, `2·n_edges + 2·n_faces` at order 2 (additive in v1, issue #1265).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
         },
         "n_edges": {
           "description": "Nédélec edge-DOF count before PEC elimination.",
@@ -3831,7 +3853,7 @@
           "type": "integer"
         },
         "n_interior": {
-          "description": "Edge DOFs kept after PEC elimination (the linear-system size).",
+          "description": "DOFs kept after PEC elimination (the linear-system size).",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -3864,7 +3886,9 @@
         "n_nodes",
         "n_tets",
         "n_edges",
-        "n_interior"
+        "n_interior",
+        "element_order",
+        "n_dofs"
       ],
       "type": "object"
     },
@@ -4035,6 +4059,95 @@
           "type": "string"
         }
       ]
+    },
+    "OrderComparison": {
+      "description": "What `element_order = 2` costs relative to order 1 on the same mesh\n(`geode check`, issue #1265). DOF and nnz counts are **exact** (from the\norder-2 DOF tables, no assembly); memory is the order-1 anchor's\nlinear-in-nnz model applied to the order-2 pattern, with no order-2\nanchor measurement yet, so it stays `order_of_magnitude`.",
+      "properties": {
+        "direct_lu_dof_limit": {
+          "description": "Interior DOF count above which direct LU runs out of memory\n(memory-abundance experiment, about 1M DOF).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "dof_ratio": {
+          "description": "`n_interior_p2 / n_interior_p1`.",
+          "format": "double",
+          "type": "number"
+        },
+        "fits_direct_lu": {
+          "description": "`false` when the order-2 system is at or above the direct-LU limit\n(or the iterative solver is selected, which has no order-2 path).",
+          "type": "boolean"
+        },
+        "memory_model": {
+          "description": "`\"p1_anchor_linear_in_nnz\"`: no order-2 anchor measurement exists.",
+          "type": "string"
+        },
+        "memory_ratio": {
+          "description": "`peak_memory_gb / peak_memory_gb_p1`.",
+          "format": "double",
+          "type": "number"
+        },
+        "n_dofs_p2": {
+          "description": "Order-2 global DOFs before PEC elimination, `2·n_edges + 2·n_faces`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_interior_p1": {
+          "description": "Order-1 DOFs after PEC elimination on the same mesh.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_interior_p2": {
+          "description": "Order-2 DOFs after PEC elimination (the linear-system size).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nnz_p1": {
+          "description": "Exact order-1 `nnz(A)` before PEC elimination.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nnz_p2": {
+          "description": "Exact order-2 `nnz(A)` before PEC elimination (equals `nnz_a`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nnz_ratio": {
+          "description": "`nnz_p2 / nnz_p1`.",
+          "format": "double",
+          "type": "number"
+        },
+        "peak_memory_gb_p1": {
+          "description": "Order-1 peak-memory estimate on the same mesh (GB).",
+          "format": "double",
+          "type": "number"
+        },
+        "verdict": {
+          "description": "Plain-language verdict, including the order-1 numbers when order 2\nwill not fit.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "n_dofs_p2",
+        "n_interior_p2",
+        "n_interior_p1",
+        "dof_ratio",
+        "nnz_p2",
+        "nnz_p1",
+        "nnz_ratio",
+        "peak_memory_gb_p1",
+        "memory_ratio",
+        "direct_lu_dof_limit",
+        "fits_direct_lu",
+        "verdict",
+        "memory_model"
+      ],
+      "type": "object"
     },
     "PecSummary": {
       "description": "One PEC surface.",
@@ -4358,6 +4471,10 @@
           "default": null,
           "description": "Eigenmode analysis settings. Its presence makes this an **eigen\nspec** (for `geode eigen`)."
         },
+        "element_order": {
+          "$ref": "#/$defs/ElementOrderSpec",
+          "description": "Nédélec element order of the H(curl) space (additive in v1, issue\n#1265, Epic #836 Phase 5a): `1` (default, lowest-order edge\nelements) or `2` (second-order, `2·n_edges + 2·n_faces` DOFs).\nOrder 2 is supported by lossless / lossy `eigen` specs and by `driven`\nspecs with lumped ports, a direct solver and a dense sweep; every\nother combination is rejected with `invalid_spec` naming the feature\n(never solved at order 1 and reported as order 2)."
+        },
         "extract": {
           "anyOf": [
             {
@@ -4612,6 +4729,17 @@
           "format": "uint",
           "minimum": 0,
           "type": "integer"
+        },
+        "order_comparison": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OrderComparison"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Order-2 vs order-1 comparison on the same mesh (additive in v1,\nissue #1265); present only when `element_order = 2`."
         },
         "peak_memory_confidence": {
           "description": "Accuracy class of `peak_memory_gb`: `\"order_of_magnitude\"`.",

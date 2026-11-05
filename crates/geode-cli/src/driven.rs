@@ -125,8 +125,8 @@ use geode_core::driven::rom::{
 };
 use geode_core::driven::scattering::flux_power_box;
 use geode_core::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, ElementOrder, IterativeSettings,
-    SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel,
+    CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, DrivenSource, ElementOrder,
+    IterativeSettings, SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel,
 };
 use geode_core::postproc::ntff::{
     broadside_directivity, directivity, gain, ntff_far_field, principal_plane_cuts, to_db,
@@ -533,6 +533,13 @@ pub fn sweep(
     command: &'static str,
     opts: SweepOptions,
 ) -> Result<(Vec<FrequencyResult>, SolverStats), CliError> {
+    if p.element_order == ElementOrder::P2 && out.is_some() {
+        return Err(CliError::InvalidSpec(
+            "element_order = 2 is not supported with --outdir: the VTU field export is \
+             edge-based (order 1); drop --outdir or use element_order = 1"
+                .into(),
+        ));
+    }
     let lumped = lumped_ports(p);
     let surfaces = impedance_walls(p);
     let mode = solver_mode(p);
@@ -678,6 +685,63 @@ fn emit_point(progress: &Progress, p: &Problem, index: usize, row: &LumpedRow) {
     );
 }
 
+/// The purely port-driven operator of a lumped-port sweep at the spec's
+/// `element_order` (issue #1265). Order 1 is exactly
+/// [`s_parameter_operator`]; order 2 assembles on `p.hcurl_space` with the
+/// same all-zero volume source and the same port validation.
+/// `validate_element_order` has already rejected UPML / dispersive
+/// materials at order 2, so `FrequencyMaterials::constant` is the full
+/// material set.
+fn lumped_operator<B: burn::tensor::backend::Backend>(
+    p: &Problem,
+    bcs: &DrivenBcs<'_>,
+    lumped: &[LumpedPort<'_>],
+    surfaces: &[SurfaceImpedanceBc<'_>],
+    device: &<B as BackendTypes>::Device,
+) -> Result<DrivenOperator, CliError> {
+    let mesh = &p.tagged.mesh;
+    let binding = FrequencyMaterials::constant(p);
+    let materials = binding.materials();
+    let Some(space) = p.hcurl_space.as_ref() else {
+        return Ok(s_parameter_operator::<B>(
+            mesh,
+            materials,
+            p.sigma(),
+            bcs,
+            lumped,
+            surfaces,
+            device,
+        )?);
+    };
+    if lumped.is_empty() {
+        return Err(CliError::InvalidSpec(
+            "element_order = 2: a lumped-port sweep needs at least one lumped port".into(),
+        ));
+    }
+    if let Some(i) = lumped
+        .iter()
+        .position(|port| port.v_inc == c64::new(0.0, 0.0))
+    {
+        return Err(CliError::InvalidSpec(format!(
+            "element_order = 2: ports[{i}] needs a non-zero v_inc"
+        )));
+    }
+    let zero_source = CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+    };
+    Ok(DrivenOperator::assemble_with_space::<B>(
+        space,
+        mesh,
+        materials,
+        p.sigma(),
+        bcs,
+        lumped,
+        surfaces,
+        DrivenSource::Constant(&zero_source),
+        device,
+    )?)
+}
+
 /// Dense sweep: every frequency solved full-order, up to `opts.jobs`
 /// concurrently ([`crate::progress::par_map`]; rows in frequency order).
 /// Without UPML or dispersive materials the operator is assembled once
@@ -704,15 +768,7 @@ fn dense_sweep<B: burn::tensor::backend::Backend>(
     };
     if !p.is_frequency_dependent() {
         let device = <B as BackendTypes>::Device::default();
-        let op = s_parameter_operator::<B>(
-            mesh,
-            FrequencyMaterials::constant(p).materials(),
-            p.sigma(),
-            bcs,
-            lumped,
-            surfaces,
-            &device,
-        )?;
+        let op = lumped_operator::<B>(p, bcs, lumped, surfaces, &device)?;
         return par_map(n, opts.jobs, |index| solve_row(index, &op));
     }
     let centroids = tet_centroids(mesh);

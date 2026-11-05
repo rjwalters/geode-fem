@@ -1,0 +1,4 @@
+# #1265 evidence: spiral_golden_smoke, 1 GHz, debug build, loom-worker-2 (shared host)
+# geode driven <spec with element_order = 1|2>; n_interior, S11 (re,im), residual_rel, solver wall_time_s
+element_order=1 n_interior=13997 S11=[-0.9532865376164357, 0.2055566990749033] residual_rel=1.113e-11 wall_time_s=10.2
+element_order=2 n_interior=73052 S11=[-0.9498260576923803, 0.22173023026443917] residual_rel=6.936e-11 wall_time_s=193.2
