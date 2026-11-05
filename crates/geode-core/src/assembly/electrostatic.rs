@@ -221,7 +221,7 @@ impl ElectrostaticSystem {
     /// [`assemble_electrostatic`] does, but without re-assembling `K`.
     /// Pinned-node rows are dropped (they carry no unknown). The result does
     /// **not** include the pinned-voltage fold-in; combine it with
-    /// [`ElectrostaticSystem::fold_pinned`] (as
+    /// the private `fold_pinned` helper (as
     /// [`ElectrostaticFactor::solve_charge_voltages`] does).
     ///
     /// # Errors
