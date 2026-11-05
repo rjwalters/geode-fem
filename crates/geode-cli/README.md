@@ -2901,6 +2901,30 @@ The report (`kind = "mesh"`) carries the provenance fields plus `layout`
 \| `outer_boundary`, `n_elements`), `analysis` (`driven` \|
 `capacitance` \| `inductance`), `starter_spec_path` and `starter_spec`.
 
+### GDS → layout and XML stackup (issue #1288)
+
+`scripts/gds2geode-layout.py` flattens a GDS cell with KLayout's batch
+interpreter into layout JSON v1 (outer rings and holes per layer, hierarchy
+and arrays flattened, coordinates in microns). A small layer-map JSON gives
+each `layer/datatype` a conductor name, `z_bottom` and `thickness`, and may
+carry a `template` (dielectrics, `margin`, `mesh`, ports) merged into the
+output:
+
+```sh
+klayout -b -r scripts/gds2geode-layout.py -rd gds=cell.gds -rd cell=TOP \
+    -rd layermap=layers.layermap -rd out=layout.json
+geode mesh layout.json --analysis capacitance --mesh-out m.msh --spec-out s.json
+```
+
+`mesh_cmd::stackup::parse` reads an XML layer stackup (named materials plus a
+z-ordered layer list; see `tests/fixtures/stackup_example.xml` and the module
+docs) into dielectric layers (z, thickness, ε) and conductor layers (z,
+thickness, σ), with one named `StackupError` per failure class. It is a
+library function for now; wiring it into `geode mesh` is a follow-up. The
+element names are this crate's own, written from the shape of the public
+gds2palace stackup format; no gds2palace file or code is vendored (GPL-3.0).
+
+
 ## Report, schema v1
 
 Every report carries these top-level provenance fields:

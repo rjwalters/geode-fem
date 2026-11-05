@@ -1197,3 +1197,80 @@ fn spiral_benchmark_layout_within_oracle_bands() {
         "PEC L off the committed mesh"
     );
 }
+
+/// `scripts/gds2geode-layout.py` (issue #1288): flatten the committed
+/// two-bar GDS (one bar placed through a sub-cell three times) to layout
+/// JSON with KLayout and check `geode mesh` accepts it. Layout
+/// validation runs before Gmsh is looked up, so an empty `PATH`
+/// reaching `gmsh_not_found` proves the layout parsed and validated.
+/// Skips loudly when `klayout` is not on `PATH` (never a silent pass);
+/// `GEODE_REQUIRE_KLAYOUT=1` turns the skip into a failure.
+#[test]
+fn gds_script_emits_a_layout_geode_mesh_accepts() {
+    let klayout = Command::new("klayout").arg("-v").output();
+    if klayout.is_err() {
+        assert!(
+            std::env::var_os("GEODE_REQUIRE_KLAYOUT").is_none(),
+            "klayout required (GEODE_REQUIRE_KLAYOUT) but not on PATH"
+        );
+        eprintln!("SKIPPED gds_script_emits_a_layout_geode_mesh_accepts: no `klayout` on PATH");
+        return;
+    }
+    let root = manifest_dir().join("../..");
+    let gds = fixtures().join("gds");
+    let dir = scratch("gds-script");
+    let layout = dir.join("layout.json");
+    let run = Command::new("klayout")
+        .args(["-b", "-r"])
+        .arg(root.join("scripts/gds2geode-layout.py"))
+        .arg("-rd")
+        .arg(format!("gds={}", s(&gds.join("two_bars.gds"))))
+        .arg("-rd")
+        .arg("cell=TOP")
+        .arg("-rd")
+        .arg(format!("layermap={}", s(&gds.join("two_bars.layermap"))))
+        .arg("-rd")
+        .arg(format!("out={}", s(&layout)))
+        .output()
+        .expect("spawn klayout");
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+
+    let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&layout).unwrap()).unwrap();
+    assert_eq!(v["length_unit_m"], 1e-6);
+    let cond = v["conductors"].as_array().unwrap();
+    assert_eq!(cond.len(), 1, "layer 99 is absent from the GDS and skipped");
+    assert_eq!(cond[0]["name"], "TopMetal1");
+    // Three flattened 10 x 2 um bars (one via an instance of SUB each).
+    let polys = cond[0]["polygons"].as_array().unwrap();
+    assert_eq!(polys.len(), 3);
+    for p in polys {
+        let xs: Vec<f64> = p["outer"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|pt| pt[0].as_f64().unwrap())
+            .collect();
+        let w = xs.iter().cloned().fold(f64::MIN, f64::max)
+            - xs.iter().cloned().fold(f64::MAX, f64::min);
+        assert!((w - 10.0).abs() < 1e-9, "bar width {w}");
+    }
+
+    let out = Command::new(env!("CARGO_BIN_EXE_geode"))
+        .args([
+            "mesh",
+            s(&layout),
+            "--analysis",
+            "capacitance",
+            "--mesh-out",
+            s(&dir.join("m.msh")),
+        ])
+        .env("PATH", "")
+        .env_remove("GEODE_GMSH")
+        .output()
+        .unwrap();
+    assert_error(&out, "gmsh_not_found");
+}
