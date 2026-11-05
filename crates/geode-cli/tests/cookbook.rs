@@ -156,6 +156,14 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         Some("driven_spiral_sensitivity_smoke.json"),
         Input::Spec("driven"),
     ),
+    // ∂f/∂ε_r of the two lowest modes of a lossless PEC box cavity
+    // (issue #1257): the eigen sample of `--dataset`;
+    // `tests/dataset_roundtrip.rs` runs it.
+    (
+        "sensitivity/eigen_box_cavity.json",
+        None,
+        Input::Spec("eigen"),
+    ),
     // ∂S / ∂Z₀ / ∂ε_eff w.r.t. the strip width of the microstrip cookbook
     // line (issue #883); `tests/sensitivity_nport.rs` runs it with
     // `--check-gradient` in the release tier.

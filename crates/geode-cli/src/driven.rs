@@ -141,8 +141,8 @@ use crate::problem::{self, Problem, UpmlRegion};
 use crate::progress::{Progress, SweepOptions, par_map};
 use crate::report::{
     AdaptiveSweepStats, Complex, DrivenReport, FarFieldResult, FrequencyResult, MaterialEpsResult,
-    PortResult, Provenance, RoughnessKResult, SolverStats, WarningResult, WaveChannelResult,
-    WaveModeSummary, WavePortSummary,
+    PortResult, Provenance, RoughnessKResult, SensitivityReport, SolverStats, WarningResult,
+    WaveChannelResult, WaveModeSummary, WavePortSummary,
 };
 use crate::spec::{AdaptiveSweepSpec, Analysis, SolverSpec};
 use serde_json::json;
@@ -213,6 +213,7 @@ pub fn run(
     touchstone: Option<&Path>,
     opts: SweepOptions,
     check_gradient: bool,
+    dataset: Option<&Path>,
 ) -> Result<DrivenReport, CliError> {
     let (mut p, adaptive_mesh) = crate::adaptive::load(spec_path, Analysis::Driven)?;
     // `--check-gradient` (issue #883): the FD self-check, with the spec's
@@ -231,6 +232,9 @@ pub fn run(
         ));
     }
     let p = p;
+    if dataset.is_some() {
+        validate_dataset(&p)?;
+    }
     p.print_load_warnings();
     // Every port-face solve of the run, made once on first use and shared
     // by the Touchstone classification, the `z0` precheck, the degeneracy
@@ -298,6 +302,9 @@ pub fn run(
             }
         })
         .transpose()?;
+    if let (Some(dir), Some(sens)) = (dataset, sensitivities.as_ref()) {
+        write_dataset(&p, &provenance, dir, &results, sens)?;
+    }
     let ports = port_summaries(&p);
     let touchstone_file = touchstone
         .zip(plan.as_ref())
@@ -326,6 +333,70 @@ pub fn run(
         warnings,
         adaptive_mesh,
     })
+}
+
+/// `--dataset` preconditions, checked before any solve: a `sensitivity`
+/// section (the sample's gradient labels), all-lumped ports and a dense
+/// sweep (every row needs a full-order field).
+fn validate_dataset(p: &Problem) -> Result<(), CliError> {
+    if p.sensitivity.is_none() {
+        return Err(CliError::InvalidSpec(
+            "--dataset needs a `sensitivity` section in the spec (a sample is gradient-labelled; \
+             it would otherwise carry no gradients)"
+                .to_string(),
+        ));
+    }
+    if !p.wave_ports.is_empty() {
+        return Err(CliError::InvalidSpec(
+            "--dataset: wave-port specs have no exportable edge-DOF field yet; use an all-lumped \
+             spec"
+                .to_string(),
+        ));
+    }
+    if p.spec.sweep.as_ref().and_then(|s| s.adaptive).is_some() {
+        return Err(CliError::InvalidSpec(
+            "--dataset: an adaptive sweep interpolates some rows (no full-order field); use a \
+             dense sweep"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Write the `--dataset` sample of a finished lumped-port run: one extra
+/// solve per row (every port driven at its `v_inc`, like `--outdir`) for
+/// the field, the report's own S and gradients for the labels.
+fn write_dataset(
+    p: &Problem,
+    provenance: &Provenance,
+    dir: &Path,
+    results: &[FrequencyResult],
+    sens: &SensitivityReport,
+) -> Result<(), CliError> {
+    type B = CompiledBackend;
+    let lumped = lumped_ports(p);
+    let surfaces = impedance_walls(p);
+    let device = <B as BackendTypes>::Device::default();
+    let exporter = Exporter::<B>::new(p, &lumped, &surfaces, solver_mode(p), &device)?;
+    let e_edges = p
+        .frequencies
+        .iter()
+        .enumerate()
+        .map(|(index, f)| exporter.solve_edges(index, f))
+        .collect::<Result<Vec<_>, _>>()?;
+    let sample = crate::dataset::build(
+        p,
+        crate::dataset::SampleInputs {
+            kind: "driven",
+            provenance,
+            sensitivities: sens,
+            e_edges: &e_edges,
+            frequency_hz: results.iter().map(|r| r.frequency_hz).collect(),
+            s: Some(results.iter().map(|r| r.s.clone()).collect()),
+            q: None,
+        },
+    )?;
+    crate::dataset::write(dir, &sample)
 }
 
 /// The spec's lumped ports as library [`LumpedPort`]s (resistance in
@@ -1727,6 +1798,32 @@ impl<'a, B: burn::tensor::backend::Backend> Exporter<'a, B> {
         )?)
     }
 
+    /// The edge-DOF field of row `index` (every port driven at its
+    /// `v_inc`), `mesh.edges()` order; a non-finite solution is an error.
+    fn solve_edges(
+        &self,
+        index: usize,
+        f: &crate::problem::Frequency,
+    ) -> Result<Vec<c64>, CliError> {
+        let row_op;
+        let op = match &self.scalar_op {
+            Some(op) => op,
+            None => {
+                let m = FrequencyMaterials::at(self.p, &self.centroids, f);
+                row_op = self.assemble(m.materials())?;
+                &row_op
+            }
+        };
+        let (sol, _) = op.prepare_at::<B>(f.k0, self.mode, self.device)?.solve()?;
+        if !sol.residual_rel.is_finite() {
+            return Err(CliError::NonFinite {
+                index,
+                what: format!("--dataset field (residual_rel = {})", sol.residual_rel),
+            });
+        }
+        Ok(sol.e_edges)
+    }
+
     /// One extra solve at row `index` (every port driven at its `v_inc`),
     /// written to `E_<index>.vtu`; plus the NTFF quantities and pattern
     /// file when [`Exporter::ntff_box`] is set.
@@ -2246,6 +2343,7 @@ mod tests {
             touchstone.then_some(ts.as_path()),
             SweepOptions::default(),
             false,
+            None,
         )
         .unwrap();
         (

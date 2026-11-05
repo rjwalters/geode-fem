@@ -220,8 +220,16 @@ pub fn run(
     spec_path: &Path,
     provenance: Provenance,
     outdir: Option<&Path>,
+    dataset: Option<&Path>,
 ) -> Result<EigenReport, CliError> {
     let (p, adaptive_mesh) = crate::adaptive::load(spec_path, Analysis::Eigen)?;
+    if dataset.is_some() && p.sensitivity.is_none() {
+        return Err(CliError::InvalidSpec(
+            "--dataset needs a `sensitivity` section in the spec (a sample is gradient-labelled; \
+             it would otherwise carry no gradients)"
+                .to_string(),
+        ));
+    }
     if p.hcurl_space.is_some() && outdir.is_some() {
         return Err(CliError::InvalidSpec(
             "element_order = 2 is not supported with --outdir: the VTU field export is \
@@ -349,6 +357,30 @@ pub fn run(
         }
         None => None,
     };
+
+    // `--dataset`: every mode's field (PEC edges zero; arbitrary sign) plus
+    // the report's own frequencies, Q and gradients. `problem::load`
+    // admitted the `sensitivity` section for the lossless pencil only.
+    if let (Some(dir), Some(sens)) = (dataset, sensitivities.as_ref()) {
+        let e_edges: Vec<Vec<c64>> = solved
+            .modes
+            .iter()
+            .map(|m| scatter_interior(&p.pec_mask, &m.vector))
+            .collect();
+        let sample = crate::dataset::build(
+            &p,
+            crate::dataset::SampleInputs {
+                kind: "eigen",
+                provenance: &provenance,
+                sensitivities: sens,
+                e_edges: &e_edges,
+                frequency_hz: modes.iter().map(|m| m.frequency_hz).collect(),
+                s: None,
+                q: Some(modes.iter().map(|m| m.q.unwrap_or(f64::NAN)).collect()),
+            },
+        )?;
+        crate::dataset::write(dir, &sample)?;
+    }
 
     Ok(EigenReport {
         provenance,

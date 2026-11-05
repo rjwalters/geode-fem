@@ -1664,6 +1664,42 @@ The physical field there is a linear combination of the per-channel
 Sherman–Morrison–Woodbury solves, which the library does not return, and
 reconstructing it would need a `geode-core` API extension.
 
+## Gradient-labelled dataset samples (`--dataset`, issue #1257)
+
+`geode driven` and `geode eigen` take an opt-in `--dataset DIR` that writes
+**one sample** next to the report: the mesh, the parameter vector (values
+and physical-domain bounds), the solution field (edge DOFs plus the
+Whitney field at every tet centroid), the observables (driven: S per
+frequency; eigen: `f` and `Q` per mode), the gradient of every observable
+w.r.t. every parameter, and provenance (spec SHA-256, mesh SHA-256,
+`geode` version, git SHA). The gradients are the report's own
+`sensitivities.entries[]`, copied unchanged, so they equal the `-o`
+report exactly. The spec must have a `sensitivity` section (else
+`invalid_spec` before solving); wave-port and adaptive-sweep driven specs
+and `geode extract` are rejected. Without the flag nothing changes.
+
+```sh
+geode driven crates/geode-cli/examples/sensitivity/driven_spiral.json --dataset spiral.zarr -o s.json
+geode eigen  crates/geode-cli/examples/sensitivity/eigen_box_cavity.json --dataset box.zarr -o e.json
+```
+
+**Format: Zarr v2** directory store (uncompressed, one chunk per array,
+little-endian). Chosen over HDF5 because it needs no C library (new C
+dependencies need operator sign-off under the FFI policy) and a pure-Rust
+writer is a few hundred lines on top of `serde_json`; `zarr.open` reads
+it. Layout, semantics and the schema version are in
+[`docs/dataset-schema.md`](../../docs/dataset-schema.md) (a unit test and
+`tests/dataset_roundtrip.rs` fail when the writer drifts from it).
+Minimal Python loader (documentation only; no Python enters CI):
+
+```python
+import zarr
+s = zarr.open_group("spiral.zarr", mode="r")
+grad, param = s["grad/gradient"][:], s["grad/entry_parameter"][:]
+e = s["field/e_cell_centre"][..., 0] + 1j * s["field/e_cell_centre"][..., 1]
+print(dict(s.attrs)["provenance"])
+```
+
 ## Conductor surface roughness (issue #758)
 
 Real PCB / RFIC copper is not smooth: foil roughness of 0.5–5 µm RMS
