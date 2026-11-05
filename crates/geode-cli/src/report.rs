@@ -1651,7 +1651,8 @@ pub struct SensitivityReport {
     /// capacitance — distinct from, and about the P1 discretization
     /// error off, the report's own `c_farad`), `"l_henry"`
     /// (inductance-matrix entries), `"frequency_hz"` (eigenmode
-    /// resonant frequency) or `"s11_mag_sq"` (driven: the squared
+    /// resonant frequency; on a lossy / open pencil each entry also carries
+    /// `∂Q/∂parameter`, `q_gradient`) or `"s11_mag_sq"` (driven: the squared
     /// reflection magnitude `|S11|²` of the single lumped port).
     pub observable: &'static str,
     /// Unit of every entry's `value` and `gradient`: `"F"`, `"H"`, `"Hz"`
@@ -1801,6 +1802,24 @@ pub struct SensitivityEntry {
     /// central-difference round-off (present only with `fd_check`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fd_rel_error: Option<f64>,
+    /// Lossy / open eigen path (issue #1329): the mode's quality factor
+    /// `Q = Re k₀ / (2|Im k₀|)` at the base point. Absent on every other
+    /// path and for a numerically lossless mode (`Q = ∞`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub q_value: Option<f64>,
+    /// Lossy / open eigen path: `∂Q/∂parameter` (per unit parameter),
+    /// from the unconjugated Hellmann–Feynman `∂λ/∂p` chained through the
+    /// cancellation-free `Im k₀`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub q_gradient: Option<f64>,
+    /// Lossy / open eigen path with `fd_check`: central finite-difference
+    /// estimate of `∂Q/∂parameter`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub q_fd_gradient: Option<f64>,
+    /// Lossy / open eigen path with `fd_check`: relative disagreement of
+    /// `q_gradient` and `q_fd_gradient` (same floor rule as `fd_rel_error`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub q_fd_rel_error: Option<f64>,
 }
 
 /// Finite-difference self-check summary of a [`SensitivityReport`].

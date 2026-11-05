@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Differentiable EDA (Epic #841):** `geode eigen` accepts `sensitivity` on lossy and open (UPML) specs. The unconjugated Hellmann–Feynman gradient of the complex-symmetric pencil gives `∂f/∂ε_r` and `∂Q/∂ε_r` per mode (`q_gradient` in the report, additive); the library adds `LossyEigenSensitivity` with `∂/∂ε″`, `∂/∂σ_wall` and `∂/∂λ_L` pencil derivatives (#1329).
+
 ## [0.9.0] - 2026-10-26
 
 This release lands the library side of the four v0.9 roadmap epics, the solver work behind them, and the evidence behind the three papers published on Zenodo on 2026-10-25. The epics' remaining CLI phases ship in v0.10.0. It covers:

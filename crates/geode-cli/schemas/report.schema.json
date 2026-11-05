@@ -4522,6 +4522,38 @@
           "minimum": 0,
           "type": "integer"
         },
+        "q_fd_gradient": {
+          "description": "Lossy / open eigen path with `fd_check`: central finite-difference\nestimate of `∂Q/∂parameter`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "q_fd_rel_error": {
+          "description": "Lossy / open eigen path with `fd_check`: relative disagreement of\n`q_gradient` and `q_fd_gradient` (same floor rule as `fd_rel_error`).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "q_gradient": {
+          "description": "Lossy / open eigen path: `∂Q/∂parameter` (per unit parameter),\nfrom the unconjugated Hellmann–Feynman `∂λ/∂p` chained through the\ncancellation-free `Im k₀`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "q_value": {
+          "description": "Lossy / open eigen path (issue #1329): the mode's quality factor\n`Q = Re k₀ / (2|Im k₀|)` at the base point. Absent on every other\npath and for a numerically lossless mode (`Q = ∞`).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "value": {
           "description": "Observable value (`observable_unit`).",
           "format": "double",
@@ -4889,7 +4921,7 @@
           "type": "string"
         },
         "observable": {
-          "description": "The differentiated observable: `\"c_farad_p2\"` (two-terminal P2\ncapacitance — distinct from, and about the P1 discretization\nerror off, the report's own `c_farad`), `\"l_henry\"`\n(inductance-matrix entries), `\"frequency_hz\"` (eigenmode\nresonant frequency) or `\"s11_mag_sq\"` (driven: the squared\nreflection magnitude `|S11|²` of the single lumped port).",
+          "description": "The differentiated observable: `\"c_farad_p2\"` (two-terminal P2\ncapacitance — distinct from, and about the P1 discretization\nerror off, the report's own `c_farad`), `\"l_henry\"`\n(inductance-matrix entries), `\"frequency_hz\"` (eigenmode\nresonant frequency; on a lossy / open pencil each entry also carries\n`∂Q/∂parameter`, `q_gradient`) or `\"s11_mag_sq\"` (driven: the squared\nreflection magnitude `|S11|²` of the single lumped port).",
           "type": "string"
         },
         "observable_unit": {

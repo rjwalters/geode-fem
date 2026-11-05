@@ -85,9 +85,46 @@
 //!   (the port `S_Γ` geometry derivative is a documented follow-on). Material
 //!   sensitivity is port-agnostic (the port mass depends on `C`, not `ε`).
 //! - **Lossless `R = 0`.** Inherited from [`crate::eigen::transmon`]'s v1 fence:
-//!   a resistive `R` makes the pencil complex (out of scope).
+//!   a resistive `R` makes the pencil complex (out of scope for the real
+//!   [`EigenSensitivity`]; the lossy / open pencil has its own
+//!   complex-symmetric path, [`LossyEigenSensitivity`], below).
+//!
+//! # Lossy / open pencils: unconjugated Hellmann–Feynman (issue #1329)
+//!
+//! The lossy cavity pencil of [`crate::eigen::lossy_cavity`] is
+//! **complex-symmetric** (`K = Kᵀ`, `M = Mᵀ`, not Hermitian), and its
+//! eigenvectors are bilinear-`M`-normalized (`xᵀ M x = 1`, **no
+//! conjugation**). For a simple eigenvalue the Hellmann–Feynman identity
+//! carries over with the transpose in place of the conjugate transpose:
+//!
+//! ```text
+//!   ∂λ/∂p = xᵀ (∂K/∂p − λ ∂M/∂p) x          (λ = k₀², complex)
+//! ```
+//!
+//! [`LossyEigenSensitivity`] evaluates it for any pencil derivative
+//! `(∂K/∂p, ∂M/∂p)` and chains it to `k₀ = √λ`, the frequency `Re k₀` and
+//! `Q = Re k₀ / (2 |Im k₀|)`. The derivative matrices for the supported
+//! parameters come from [`eps_direction_mass`] (`ε` of a region, lossy or
+//! fixed-`Λ` UPML: `M` is linear in `ε`, `K` does not move) and
+//! [`wall_stiffness_derivative`] (an impedance wall's conductivity /
+//! London depth: `K` is linear in the weak coefficient).
+//!
+//! **Frozen walls.** The wall coefficient is evaluated once at the pencil's
+//! `omega_ref` ([`crate::eigen::lossy_cavity::FrozenWalls`]); the gradient
+//! is that of the **frozen** pencil — `omega_ref` is held fixed and is not
+//! a design variable, and a finite-difference check must re-solve with the
+//! same `omega_ref`. It is therefore not the derivative of the exact,
+//! frequency-dependent (nonlinear-in-`λ`) problem, except for London walls
+//! (frequency-independent coefficient), which are exact. The UPML tensors
+//! are likewise frozen (fixed `Λ`).
+
+use burn::tensor::backend::Backend;
+use faer::c64;
+use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
 use crate::driven::shape::{Dual, nedelec_local_dual, nedelec_local_dual_tensor};
+use crate::driven::solve::SurfaceImpedanceModel;
+use crate::eigen::lossy_cavity::{LossyCavityMaterials, assemble_lossy_pencil};
 use crate::mesh::TetMesh;
 
 /// Error returned by the Hellmann–Feynman sensitivity entry points.
@@ -135,6 +172,13 @@ pub enum EigenSensitivityError {
         /// Total number of triangles in the list.
         total: usize,
     },
+    /// Assembling a pencil-derivative matrix failed (complex-symmetric
+    /// path, issue #1329).
+    Assembly(String),
+    /// The requested derivative is not defined for this model (complex-symmetric
+    /// path, issue #1329), e.g. the conductivity derivative of a `Fixed`
+    /// wall impedance, which has no parameter.
+    Unsupported(String),
 }
 
 impl std::fmt::Display for EigenSensitivityError {
@@ -169,6 +213,10 @@ impl std::fmt::Display for EigenSensitivityError {
                 "surface triangle {triangle:?} is not a face of any tet in the mesh \
                  ({dangling} of {total} triangles on this surface are not tet faces)"
             ),
+            EigenSensitivityError::Assembly(msg) => {
+                write!(f, "pencil-derivative assembly failed: {msg}")
+            }
+            EigenSensitivityError::Unsupported(msg) => write!(f, "unsupported derivative: {msg}"),
         }
     }
 }
@@ -904,4 +952,272 @@ impl SpaceEigenSensitivity<'_> {
         let grad_node = self.deigenvalue_dx()?;
         Ok(crate::shape::chain_node_motion(&grad_node, dnode_dtheta))
     }
+}
+
+// ---------------------------------------------------------------------------
+// Lossy / open (complex-symmetric) pencil — issue #1329
+// ---------------------------------------------------------------------------
+
+/// `xᵀ A x` (bilinear, **no conjugation**) for a complex sparse `A`.
+fn bilinear(a: SparseColMatRef<'_, usize, c64>, x: &[c64]) -> c64 {
+    let mut acc = c64::new(0.0, 0.0);
+    for (j, &xj) in x.iter().enumerate() {
+        let mut col = c64::new(0.0, 0.0);
+        for (i, v) in a.row_idx_of_col(j).zip(a.val_of_col(j)) {
+            col += *v * x[i];
+        }
+        acc += xj * col;
+    }
+    acc
+}
+
+/// Gradient of a lossy eigenpair's observables w.r.t. one parameter
+/// ([`LossyEigenSensitivity::observable_gradient`]).
+#[derive(Debug, Clone, Copy)]
+pub struct LossyEigenGradient {
+    /// `∂λ/∂p`, `λ = k₀²` (complex, `(rad / mesh unit)²` per unit `p`).
+    pub dlambda: c64,
+    /// The eigenvalue's wavenumber `k₀ = √λ` (principal branch, from the
+    /// cancellation-free [`crate::eigen::wavenumber::principal_sqrt`]).
+    pub k0: c64,
+    /// `∂k₀/∂p = ∂λ/∂p / (2 k₀)`.
+    pub dk0: c64,
+    /// `Q = Re k₀ / (2 |Im k₀|)`, `+∞` for a numerically lossless mode
+    /// ([`crate::eigen::self_consistent::q_factor`]).
+    pub q: f64,
+    /// `∂Q/∂p`; `None` when `Q` is `+∞` (lossless: undefined).
+    ///
+    /// Computed as `Q (∂Re k₀/Re k₀ − ∂|Im k₀|/|Im k₀|)` from the
+    /// cancellation-free `Im k₀`, so it stays finite and accurate up to the
+    /// lossless cutoff (issue #830) rather than differencing `λ`.
+    pub dq: Option<f64>,
+}
+
+/// Unconjugated Hellmann–Feynman sensitivities of one **simple** eigenpair
+/// of the complex-symmetric lossy / open pencil `K x = λ M x`.
+///
+/// `eigenvector` is the interior-DOF vector of
+/// [`crate::eigen::lossy_cavity::LossyCavityMode::vector`], bilinear-`M`
+/// normalized (`xᵀ M x = 1`). All entry points enforce the same
+/// simple-eigenvalue gap check as the real path (complex distance).
+pub struct LossyEigenSensitivity<'a> {
+    /// All converged eigenvalues `λ = k₀²` (for the gap check).
+    pub lambdas: &'a [c64],
+    /// Index of the target mode within `lambdas`.
+    pub mode_index: usize,
+    /// The target mode's interior eigenvector, `xᵀ M x = 1`.
+    pub eigenvector: &'a [c64],
+    /// Minimum relative spectral gap `|λ_i − λ_j| / |λ_i|` for a simple mode.
+    pub min_rel_gap: f64,
+}
+
+impl LossyEigenSensitivity<'_> {
+    fn checked_simple_lambda(&self) -> Result<c64, EigenSensitivityError> {
+        let lambda = self.lambdas.get(self.mode_index).copied().ok_or(
+            EigenSensitivityError::ModeIndexOutOfRange {
+                index: self.mode_index,
+                n_modes: self.lambdas.len(),
+            },
+        )?;
+        let denom = lambda.norm().max(f64::MIN_POSITIVE);
+        let mut rel_gap = f64::INFINITY;
+        for (j, &lj) in self.lambdas.iter().enumerate() {
+            if j != self.mode_index {
+                rel_gap = rel_gap.min((lambda - lj).norm() / denom);
+            }
+        }
+        if rel_gap < self.min_rel_gap {
+            return Err(EigenSensitivityError::DegenerateEigenvalue {
+                index: self.mode_index,
+                lambda: lambda.re,
+                rel_gap,
+                min_rel_gap: self.min_rel_gap,
+            });
+        }
+        Ok(lambda)
+    }
+
+    /// `∂λ/∂p = xᵀ(∂K/∂p − λ ∂M/∂p)x` for the pencil derivatives `dk` /
+    /// `dm` (interior ordering; `None` = zero).
+    ///
+    /// # Errors
+    ///
+    /// [`EigenSensitivityError::DegenerateEigenvalue`] /
+    /// [`EigenSensitivityError::ModeIndexOutOfRange`] from the simple-mode
+    /// check, [`EigenSensitivityError::DimMismatch`] on a size mismatch.
+    pub fn dlambda(
+        &self,
+        dk: Option<SparseColMatRef<'_, usize, c64>>,
+        dm: Option<SparseColMatRef<'_, usize, c64>>,
+    ) -> Result<c64, EigenSensitivityError> {
+        let lambda = self.checked_simple_lambda()?;
+        let n = self.eigenvector.len();
+        for (what, a) in [("dK", dk), ("dM", dm)] {
+            if let Some(a) = a
+                && (a.nrows() != n || a.ncols() != n)
+            {
+                return Err(EigenSensitivityError::DimMismatch {
+                    what: if what == "dK" { "dK" } else { "dM" },
+                    got: a.nrows(),
+                    want: n,
+                });
+            }
+        }
+        let mut d = c64::new(0.0, 0.0);
+        if let Some(dk) = dk {
+            d += bilinear(dk, self.eigenvector);
+        }
+        if let Some(dm) = dm {
+            d -= lambda * bilinear(dm, self.eigenvector);
+        }
+        Ok(d)
+    }
+
+    /// Chain `∂λ/∂p` to `k₀`, `Re k₀` and `Q` (see [`LossyEigenGradient`]).
+    ///
+    /// # Errors
+    ///
+    /// The simple-mode check of [`Self::dlambda`].
+    pub fn observable_gradient(
+        &self,
+        dlambda: c64,
+    ) -> Result<LossyEigenGradient, EigenSensitivityError> {
+        let lambda = self.checked_simple_lambda()?;
+        let k0 = crate::eigen::wavenumber::principal_sqrt(lambda);
+        let dk0 = dlambda / (2.0 * k0);
+        let q = crate::eigen::self_consistent::q_factor(k0);
+        let dq = q.is_finite().then(|| {
+            let s = k0.im.signum();
+            q * (dk0.re / k0.re - s * dk0.im / k0.im.abs())
+        });
+        Ok(LossyEigenGradient {
+            dlambda,
+            k0,
+            dk0,
+            q,
+            dq,
+        })
+    }
+}
+
+/// The mass matrix `∂M/∂p` of a parameter that scales the permittivity
+/// along `eps_direction` (`∂ε_tensor/∂p` per tet), interior-reduced.
+///
+/// `M` is linear in `ε` and `K` does not depend on it, so this **is** the
+/// derivative — for a lossy scalar `ε` (`eps_direction = 1` on the region,
+/// `0` elsewhere: `∂/∂Re ε`; multiply by `j` for `∂/∂Im ε`) and for the
+/// fixed-`Λ` UPML (`eps_direction = Λ` on the region: the stretch is frozen,
+/// so `ε_tensor = ε Λ` is linear in the scalar `ε`).
+///
+/// # Errors
+///
+/// [`EigenSensitivityError::Assembly`] on a bad direction / mask.
+pub fn eps_direction_mass<B: Backend>(
+    mesh: &TetMesh,
+    eps_direction: &[[[c64; 3]; 3]],
+    pec_interior_mask: &[bool],
+    device: &B::Device,
+) -> Result<SparseColMat<usize, c64>, EigenSensitivityError> {
+    let zero_nu = vec![[[c64::new(0.0, 0.0); 3]; 3]; eps_direction.len()];
+    let materials = LossyCavityMaterials::Tensor {
+        eps: eps_direction,
+        nu: &zero_nu,
+    };
+    assemble_lossy_pencil::<B>(mesh, &materials, pec_interior_mask, device)
+        .map(|(_k, m)| m)
+        .map_err(|e| EigenSensitivityError::Assembly(e.to_string()))
+}
+
+/// Isotropic `ε`-direction tensors: the identity on the tets of
+/// `region_of == region`, zero elsewhere (input to [`eps_direction_mass`]).
+#[must_use]
+pub fn region_eps_direction(region_of: &[usize], region: usize) -> Vec<[[c64; 3]; 3]> {
+    region_of
+        .iter()
+        .map(|&r| {
+            let mut t = [[c64::new(0.0, 0.0); 3]; 3];
+            if r == region {
+                for (i, row) in t.iter_mut().enumerate() {
+                    row[i] = c64::new(1.0, 0.0);
+                }
+            }
+            t
+        })
+        .collect()
+}
+
+/// `∂K/∂p` of an impedance wall's model parameter `p` (`σ` of a
+/// [`SurfaceImpedanceModel::GoodConductor`], `λ_L` of a
+/// [`SurfaceImpedanceModel::London`]), interior-reduced, p=1 Whitney.
+///
+/// The wall adds `c(p)·S_Γ` to `K`, `c = iω/Z_s(ω_ref)` frozen at
+/// `omega_ref` ([`crate::eigen::lossy_cavity::FrozenWalls`]); the gradient is
+/// that of this frozen pencil (`omega_ref` is not a design variable).
+/// `GoodConductor`: `c = (1+j)√(ω σ/2)` ⇒ `dc/dσ = c/(2σ)`. `London`:
+/// `c = 1/λ_L` ⇒ `dc/dλ_L = −1/λ_L²` (exact: no `ω_ref` dependence).
+///
+/// # Errors
+///
+/// [`EigenSensitivityError::Unsupported`] for `Fixed` (no parameter) and
+/// `RoughConductor` (the roughness factor depends on `σ` through the skin
+/// depth); [`EigenSensitivityError::SurfaceNotOnMesh`] /
+/// [`EigenSensitivityError::DimMismatch`] on bad inputs.
+pub fn wall_stiffness_derivative(
+    mesh: &TetMesh,
+    edges: &[[u32; 2]],
+    pec_interior_mask: &[bool],
+    triangles: &[[u32; 3]],
+    model: SurfaceImpedanceModel,
+    omega_ref: f64,
+) -> Result<SparseColMat<usize, c64>, EigenSensitivityError> {
+    if pec_interior_mask.len() != edges.len() {
+        return Err(EigenSensitivityError::DimMismatch {
+            what: "interior_mask",
+            got: pec_interior_mask.len(),
+            want: edges.len(),
+        });
+    }
+    let dcoeff = match model {
+        SurfaceImpedanceModel::GoodConductor { sigma } => {
+            let c = model
+                .weak_coefficient(omega_ref)
+                .map_err(|e| EigenSensitivityError::Assembly(e.to_string()))?;
+            c / (2.0 * sigma)
+        }
+        SurfaceImpedanceModel::London { lambda_l } => c64::new(-1.0 / (lambda_l * lambda_l), 0.0),
+        other => {
+            return Err(EigenSensitivityError::Unsupported(format!(
+                "wall parameter derivative of {other:?} (only GoodConductor σ and London λ_L)"
+            )));
+        }
+    };
+    if let Err(d) = crate::elements::whitney::validate_surface_faces(mesh, [triangles]) {
+        return Err(EigenSensitivityError::SurfaceNotOnMesh {
+            triangle: d.triangle,
+            dangling: d.dangling,
+            total: d.total,
+        });
+    }
+    let mut remap = vec![usize::MAX; edges.len()];
+    let mut n = 0usize;
+    for (i, &keep) in pec_interior_mask.iter().enumerate() {
+        if keep {
+            remap[i] = n;
+            n += 1;
+        }
+    }
+    if n == 0 {
+        return Err(EigenSensitivityError::EmptyInterior);
+    }
+    let mut tr = Vec::new();
+    for (r, c, v) in
+        crate::assembly::surface::assemble_surface_mass_triplets(mesh, triangles, edges)
+    {
+        let (rr, cc) = (remap[r], remap[c]);
+        if rr != usize::MAX && cc != usize::MAX {
+            tr.push(Triplet::new(rr, cc, dcoeff * v));
+        }
+    }
+    SparseColMat::<usize, c64>::try_new_from_triplets(n, n, &tr)
+        .map_err(|e| EigenSensitivityError::Assembly(format!("{e:?}")))
 }
