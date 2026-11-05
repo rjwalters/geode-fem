@@ -218,6 +218,17 @@ with `cargo test -p geode-core --features metal`.
 
 ## System dependencies
 
+**Slim (tensor-free) build.** `geode-core` has a default-on `tensor` feature
+that pulls in `burn` and `bunsen`. Consumers that only need the electrostatic
+assembly, `mesh::TetMesh` / the MSH reader and `faer` can depend on it with
+`default-features = false`; that graph contains no `burn*`, `bunsen*` or
+`colored`. The `wgpu`, `cuda`, `flex`, `metal`, `autodiff` and `testing`
+features imply `tensor`. A CI lane (`slim-build`) keeps this config building.
+
+**Known dependency of the default build:** `colored` (MPL-2.0) arrives
+transitively through `burn-tensor`. It is not used by the slim config. Making
+it optional is an upstream burn matter, not something this repo can change.
+
 The default build is **pure Rust**: backend GPU drivers (Metal, Vulkan, CUDA,
 etc.) aside, no system Fortran/BLAS libraries are required. In particular,
 sparse generalized eigensolves use a built-in shift-and-invert Lanczos

@@ -5,25 +5,37 @@
 //! shape of the API; concrete implementations arrive with scalar
 //! Helmholtz (#3) and the eigenmode solver work that follows.
 
+#[cfg(feature = "tensor")]
 pub mod adapt;
+#[cfg(feature = "tensor")]
 pub mod adjoint;
+#[cfg(feature = "tensor")]
 pub mod analytic;
 pub mod assembly;
 pub mod constants;
 pub mod derham;
+#[cfg(feature = "tensor")]
 pub mod driven;
 pub mod eigen;
 pub mod elements;
+#[cfg(feature = "tensor")]
 pub mod interop;
 pub mod mesh;
+#[cfg(feature = "tensor")]
 pub mod postproc;
+#[cfg(feature = "tensor")]
 pub mod prelude;
+#[cfg(feature = "tensor")]
 pub mod quantum;
+#[cfg(feature = "tensor")]
 pub mod shape;
+#[cfg(feature = "tensor")]
 pub mod solver;
+#[cfg(feature = "tensor")]
 pub mod traits;
 
 #[cfg(feature = "testing")]
+#[cfg(feature = "tensor")]
 pub mod testing;
 
 // Core traits stay reachable at the crate root WITHOUT deprecation (epic
@@ -32,4 +44,5 @@ pub mod testing;
 // `mesh/mod.rs`. Every other former flat-root re-export has moved to its
 // canonical module home (`geode_core::<module>::<item>` or
 // `geode_core::prelude::*`) — see epic #377.
+#[cfg(feature = "tensor")]
 pub use traits::{Element, Mesh, Operator};

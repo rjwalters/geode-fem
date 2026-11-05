@@ -73,7 +73,7 @@ use std::collections::BTreeSet;
 use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
-pub use crate::assembly::p1::SparsityPattern;
+pub use crate::assembly::sparsity::SparsityPattern;
 use crate::elements::p2::{TET_P2_DOFS, tet_p2_local, tet_p2_local_tensor};
 use crate::mesh::TetMesh;
 

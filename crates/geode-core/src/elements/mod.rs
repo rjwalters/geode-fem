@@ -31,11 +31,16 @@
 //! [`crate::assembly::hcurl_space::HcurlSpace`] and re-exported at its two
 //! historical paths, `crate::driven::solve::ElementOrder` and
 //! `crate::eigen::cavity::ElementOrder`.
+#[cfg(feature = "tensor")]
 pub mod bmm;
+#[cfg(feature = "tensor")]
 pub mod nedelec;
 pub mod nedelec_p2;
+#[cfg(feature = "tensor")]
 pub mod p1;
 pub mod p2;
+pub mod quadrature;
+#[cfg(feature = "tensor")]
 pub(crate) mod whitney;
 
 /// Polynomial order of the curl-conforming (first-kind Nédélec) H(curl)

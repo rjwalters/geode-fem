@@ -41,7 +41,7 @@ use crate::analytic::waveguide::{
     TRI_LOCAL_EDGES, TRI_QUAD_DEG4, TriMesh, tri_bary_grads, tri_p1_local, tri_p2_local,
 };
 
-pub use crate::assembly::p1::SparsityPattern;
+pub use crate::assembly::sparsity::SparsityPattern;
 
 /// Error surfaced by the scalar magnetostatic assembler / solver.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1358,6 +1358,7 @@ impl ProjectedShiftInvertLanczos {
 ///
 /// Propagates [`EigenError`] from the reduced assembly, the projector build
 /// (`GᵀMG` LU), or the projected Lanczos solve.
+#[cfg(feature = "tensor")]
 pub fn solve_transmon_eigenmodes_projected(
     pencil: &crate::eigen::transmon::TransmonPencil<'_>,
     sigma: f64,
@@ -1410,6 +1411,7 @@ pub fn solve_transmon_eigenmodes_projected(
 /// # Errors
 ///
 /// As [`solve_transmon_eigenmodes_projected`].
+#[cfg(feature = "tensor")]
 pub fn solve_transmon_eigenmodes_projected_with_port_model(
     pencil: &crate::eigen::transmon::TransmonPencil<'_>,
     port_model: crate::eigen::transmon::JunctionPortModel,
@@ -1441,6 +1443,7 @@ pub fn solve_transmon_eigenmodes_projected_with_port_model(
 /// # Errors
 ///
 /// As [`solve_transmon_eigenmodes_projected`].
+#[cfg(feature = "tensor")]
 pub fn solve_transmon_eigenmodes_projected_with_port_model_full(
     pencil: &crate::eigen::transmon::TransmonPencil<'_>,
     port_model: crate::eigen::transmon::JunctionPortModel,
@@ -1459,6 +1462,7 @@ pub fn solve_transmon_eigenmodes_projected_with_port_model_full(
 
 /// Shared body of the bulk-projected transmon solves; `drop_null` selects
 /// [`ProjectedShiftInvertLanczos::smallest_nonnull_eigenpairs`].
+#[cfg(feature = "tensor")]
 fn projected_transmon_impl(
     pencil: &crate::eigen::transmon::TransmonPencil<'_>,
     port_model: crate::eigen::transmon::JunctionPortModel,
@@ -1607,6 +1611,7 @@ fn projected_transmon_impl(
 ///
 /// Propagates [`EigenError`] from the reduced assembly, either projector build,
 /// or either Lanczos solve.
+#[cfg(feature = "tensor")]
 pub fn solve_transmon_eigenmodes_port_aware(
     pencil: &crate::eigen::transmon::TransmonPencil<'_>,
     sigma: f64,
@@ -1770,6 +1775,7 @@ pub fn solve_transmon_eigenmodes_port_aware(
 ///
 /// Propagates [`EigenError`] from the reduced assembly, the projector builds
 /// or the projected Lanczos solve.
+#[cfg(feature = "tensor")]
 pub fn solve_transmon_eigenmodes_port_subspace(
     pencil: &crate::eigen::transmon::TransmonPencil<'_>,
     sigma: f64,
@@ -1825,6 +1831,7 @@ pub fn solve_transmon_eigenmodes_port_subspace(
 }
 
 /// The reduced real transmon system shared by the projected entry points.
+#[cfg(feature = "tensor")]
 struct ReducedTransmonSystem {
     interior_index: Vec<Option<usize>>,
     dim: usize,
@@ -1835,6 +1842,7 @@ struct ReducedTransmonSystem {
 
 /// Plain PEC interior reindex plus the reduced `K + K_port`, `M + M_port`
 /// and `K_port` (the same reduction as the ungauged path).
+#[cfg(feature = "tensor")]
 fn reduced_transmon_system(
     pencil: &crate::eigen::transmon::TransmonPencil<'_>,
 ) -> Result<ReducedTransmonSystem, EigenError> {
@@ -1938,6 +1946,7 @@ pub struct UngaugedModeDivergence {
 ///
 /// Propagates [`EigenError`] from the reduced assembly, the projector build,
 /// or the ungauged Lanczos solve.
+#[cfg(feature = "tensor")]
 pub fn ungauged_mode_divergences(
     pencil: &crate::eigen::transmon::TransmonPencil<'_>,
     sigma: f64,
@@ -2055,6 +2064,7 @@ pub fn ungauged_mode_divergences(
 /// surface triplets summed on top. Mirrors the private helper in
 /// [`crate::eigen::transmon`] (the projected entry point reuses the exact
 /// same reduction so `K_red`/`M_red` match the ungauged path bit-for-bit).
+#[cfg(feature = "tensor")]
 fn assemble_reduced_real(
     pattern_rows: &[u32],
     pattern_cols: &[u32],
@@ -2084,6 +2094,7 @@ fn assemble_reduced_real(
 
 /// Junction participation `p = (xᵀ K_port x) / (xᵀ (K + K_port) x)`, clamped
 /// to `[0, 1]`. Mirrors the private metric in [`crate::eigen::transmon`].
+#[cfg(feature = "tensor")]
 fn junction_participation(
     k_total: &SparseColMat<usize, f64>,
     k_port: &SparseColMat<usize, f64>,
@@ -2098,6 +2109,7 @@ fn junction_participation(
 }
 
 /// Quadratic form `xᵀ A x` for a CSC sparse matrix.
+#[cfg(feature = "tensor")]
 fn quad_form(a: &SparseColMat<usize, f64>, x: &[f64]) -> f64 {
     let col_ptr = a.col_ptr();
     let row_idx = a.row_idx();
