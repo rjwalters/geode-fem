@@ -1527,8 +1527,8 @@ lumped-port spec whose parameters are all `eps_r` and that has no
 - **Typed rejections.** Besides the section rules above, the library's
   fences surface as `invalid_spec` naming what would lift them: a shape
   parameter moving a geometric wave-port face (its modes are fixed
-  profiles), a lumped-port face (N-port moving feeds) or an impedance wall
-  (Phase 2b); a hybrid face bent out of its plane; an exactly degenerate
+  profiles) or a lumped-port face (N-port moving feeds) — an impedance
+  wall (Leontovich) may move since Epic #841 Phase 2b; a hybrid face bent out of its plane; an exactly degenerate
   face-mode cluster (e.g. the even / odd TEM pair of a symmetric coupled
   line) whose face a parameter touches — a per-channel gradient is
   basis-dependent there; a mesh-induced complex-pair channel. The CLI has

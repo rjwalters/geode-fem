@@ -508,22 +508,10 @@ fn port_face_geometry_dual(v: &[[Dual; 3]; 3]) -> (Dual, [[Dual; 3]; 3]) {
     (area, grad_lambda)
 }
 
-/// Dual twin of a single port face: the UNSIGNED tangential surface-mass block
-/// `S^face_{ij} = ∮_T N_i·N_j dS` (`3×3`), the UNSIGNED flux moment
-/// `f^face_k = ∮_T N_k·ê dS` (`3`), and the face area, all in dual arithmetic on
-/// the dual-valued triangle vertices `v`.
-///
-/// The mass block uses the SAME 3-point edge-midpoint quadrature
-/// ([`crate::elements::whitney::BARYCENTRIC_MIDPOINTS`], degree-2 exact) as
-/// `face_mass_block`; the flux uses the SAME closed form
-/// `∫_T N_k dA = (area/3)(∇λ_lb − ∇λ_la)` dotted with `ê` as
-/// `assemble_port_flux`. At zero perturbation the `.re` fields reproduce those
-/// `f64` kernels exactly (unit-tested); the `.du` fields are `∂S^face/∂X` and
-/// `∂f^face/∂X`.
-fn port_face_dual(v: &[[Dual; 3]; 3], e_hat: [f64; 3]) -> (Dual, [[Dual; 3]; 3], [Dual; 3]) {
-    let (area, grad_lambda) = port_face_geometry_dual(v);
-    let weight = area.scale(1.0 / 3.0);
-
+/// The UNSIGNED tangential surface-mass block `∮_T N_i·N_j dS` of one face in
+/// dual arithmetic, from the face's in-plane barycentric gradients and
+/// `weight = area/3` (the 3-point edge-midpoint rule of `face_mass_block`).
+fn face_mass_block_dual(grad_lambda: &[[Dual; 3]; 3], weight: Dual) -> [[Dual; 3]; 3] {
     // Tangential surface mass, 3-point edge-midpoint rule on the Whitney trace
     // N_e(λ) = λ_la·∇λ_lb − λ_lb·∇λ_la (BAC-CAB rank reduction on the flat face).
     let mut mass = [[Dual::cst(0.0); 3]; 3];
@@ -540,6 +528,38 @@ fn port_face_dual(v: &[[Dual; 3]; 3], e_hat: [f64; 3]) -> (Dual, [[Dual; 3]; 3],
             }
         }
     }
+    mass
+}
+
+/// Dual twin of one impedance-wall face (Epic #841 Phase 2b, issue #1328): the
+/// UNSIGNED `3×3` surface mass `S_Γ^face = ∮_T N_i·N_j dS` of a `Leontovich`
+/// (or any `SurfaceImpedanceBc`) wall triangle in dual arithmetic. This is the
+/// SAME block as the mass of [`port_face_dual`] (one shared kernel), so at zero
+/// perturbation `.re` reproduces `assemble_surface_mass` and `.du` is
+/// `∂S_Γ^face/∂X`. The wall coefficient `c_Γ(ω)` is geometry-independent, so
+/// `∂A/∂X|_wall = c_Γ ∂S_Γ/∂X`.
+pub(crate) fn wall_face_mass_dual(v: &[[Dual; 3]; 3]) -> [[Dual; 3]; 3] {
+    let (area, grad_lambda) = port_face_geometry_dual(v);
+    face_mass_block_dual(&grad_lambda, area.scale(1.0 / 3.0))
+}
+
+/// Dual twin of a single port face: the UNSIGNED tangential surface-mass block
+/// `S^face_{ij} = ∮_T N_i·N_j dS` (`3×3`), the UNSIGNED flux moment
+/// `f^face_k = ∮_T N_k·ê dS` (`3`), and the face area, all in dual arithmetic on
+/// the dual-valued triangle vertices `v`.
+///
+/// The mass block uses the SAME 3-point edge-midpoint quadrature
+/// ([`crate::elements::whitney::BARYCENTRIC_MIDPOINTS`], degree-2 exact) as
+/// `face_mass_block`; the flux uses the SAME closed form
+/// `∫_T N_k dA = (area/3)(∇λ_lb − ∇λ_la)` dotted with `ê` as
+/// `assemble_port_flux`. At zero perturbation the `.re` fields reproduce those
+/// `f64` kernels exactly (unit-tested); the `.du` fields are `∂S^face/∂X` and
+/// `∂f^face/∂X`.
+fn port_face_dual(v: &[[Dual; 3]; 3], e_hat: [f64; 3]) -> (Dual, [[Dual; 3]; 3], [Dual; 3]) {
+    let (area, grad_lambda) = port_face_geometry_dual(v);
+    let weight = area.scale(1.0 / 3.0);
+
+    let mass = face_mass_block_dual(&grad_lambda, weight);
 
     // Flux moment f_k = ∮_T N_k·ê dS with ∫_T N_k dA = (area/3)(∇λ_lb − ∇λ_la).
     let e = [
