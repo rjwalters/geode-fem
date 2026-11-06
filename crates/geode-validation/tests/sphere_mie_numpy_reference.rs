@@ -75,24 +75,17 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use burn::tensor::backend::BackendTypes;
 use num_complex::Complex64;
 
 use geode_core::analytic::mie::{MiePolarisation, merged_roots};
-use geode_core::assembly::nedelec::{
-    assemble_global_nedelec_with_anisotropic_epsilon, build_anisotropic_pml_tensor_diag,
-    burn_complex_mass_to_faer, sphere_n_interior_nodes, sphere_pec_interior_edges, tet_centroids,
-};
-use geode_core::assembly::p1::upload_mesh;
 use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
-use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
-use geode_core::mesh::{R_BUFFER, R_SPHERE, SphereFixture, read_sphere_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::mesh::{R_BUFFER, R_SPHERE, read_sphere_fixture};
 use geode_util::eigen::{q_factor_from_lambda, re_k_from_lambda};
 use geode_util::fixture::load_small_sphere_fixture;
 use geode_validation::{Fixture, FixtureFormat};
 
-type B = TestBackend;
+mod common;
+use common::run_burn_mie_pipeline;
 
 /// Q-factor lower band for the TM_1,1 triplet — mirror of
 /// `Q_LOWER_BAND_TM11` in `crates/geode-core/tests/mie_sphere.rs`.
@@ -126,93 +119,6 @@ fn small_fixture_path() -> PathBuf {
 // ---------------------------------------------------------------------------
 // Burn pipeline → complex (K_int, M_int) under the anisotropic UPML.
 // ---------------------------------------------------------------------------
-
-struct BurnMiePipeline {
-    n_nodes: usize,
-    n_tets: usize,
-    n_edges: usize,
-    n_interior_edges: usize,
-    spurious_dim: usize,
-    /// Row-major flattened (tet, axis) diagonal tensor — matches the
-    /// fixture's `epsilon_tensor_diag` on-disk layout.
-    epsilon_tensor_diag_flat: Vec<Complex64>,
-    k_int_complex: faer::Mat<faer::c64>,
-    m_int_complex: faer::Mat<faer::c64>,
-}
-
-fn run_burn_mie_pipeline(
-    fixture: &SphereFixture,
-    sigma_0: f64,
-    n_index: f64,
-    k0_ref: f64,
-) -> BurnMiePipeline {
-    let n_nodes = fixture.mesh.n_nodes();
-    let n_tets = fixture.mesh.n_tets();
-
-    let centroids = tet_centroids(&fixture.mesh);
-    let eps_aniso = build_anisotropic_pml_tensor_diag(
-        &fixture.tet_physical_tags,
-        &centroids,
-        n_index,
-        sigma_0,
-        k0_ref,
-    );
-    let epsilon_tensor_diag_flat: Vec<Complex64> =
-        geode_util::convert::flatten_complex_rows(&eps_aniso);
-
-    let edges = fixture.mesh.edges();
-    let n_edges = edges.len();
-    let tet_edges = fixture.mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
-
-    let (mask_edges, interior_mask) = sphere_pec_interior_edges(&fixture.mesh, R_BUFFER);
-    assert_eq!(mask_edges.len(), n_edges, "Burn-side edge mask shape");
-    let n_interior_edges = interior_mask.iter().filter(|&&b| b).count();
-    let spurious_dim = sphere_n_interior_nodes(&fixture.mesh, R_BUFFER);
-
-    let device = <B as BackendTypes>::Device::default();
-    let (nodes_t, tets_t) = upload_mesh::<B>(&fixture.mesh, &device);
-    let sys = assemble_global_nedelec_with_anisotropic_epsilon(
-        nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &eps_aniso,
-    );
-
-    let k_full = burn_matrix_to_faer(sys.k);
-    let m_complex_full = burn_complex_mass_to_faer(sys.m_re, sys.m_im);
-
-    let dummy_zero = faer::Mat::<f64>::zeros(k_full.nrows(), k_full.ncols());
-    let (k_int, _) = apply_dirichlet_bc(k_full.as_ref(), dummy_zero.as_ref(), &interior_mask)
-        .expect("Dirichlet BC reduction (K)");
-
-    let interior_idx: Vec<usize> = interior_mask
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &b)| if b { Some(i) } else { None })
-        .collect();
-    let dim = interior_idx.len();
-    let m_int_complex = faer::Mat::<faer::c64>::from_fn(dim, dim, |i, j| {
-        m_complex_full[(interior_idx[i], interior_idx[j])]
-    });
-    let k_int_complex =
-        faer::Mat::<faer::c64>::from_fn(dim, dim, |i, j| faer::c64::new(k_int[(i, j)], 0.0));
-
-    BurnMiePipeline {
-        n_nodes,
-        n_tets,
-        n_edges,
-        n_interior_edges,
-        spurious_dim,
-        epsilon_tensor_diag_flat,
-        k_int_complex,
-        m_int_complex,
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Schema-level tests (no eigensolve; default `cargo test`)
