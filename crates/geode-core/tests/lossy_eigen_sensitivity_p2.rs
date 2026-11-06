@@ -14,6 +14,7 @@ use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::hcurl_space::HcurlSpace;
+use geode_core::assembly::nedelec::tet_centroid as centroid;
 use geode_core::eigen::lossy_cavity::{
     FrozenWalls, LossyCavityMaterials, LossyCavitySettings, SpaceLossyCavityModes,
     solve_lossy_cavity_modes_on_space,
@@ -142,11 +143,6 @@ fn refs(lists: &[Vec<[u32; 3]>]) -> Vec<&[[u32; 3]]> {
 }
 
 const BOX: [f64; 3] = [1.0, 0.8, 0.6];
-
-fn centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
-    let tet = mesh.tets[t];
-    std::array::from_fn(|d| tet.iter().map(|&v| mesh.nodes[v as usize][d]).sum::<f64>() / 4.0)
-}
 
 /// `(mesh, region_of)`: two regions split at `x = 0.5`.
 fn setup() -> (TetMesh, Vec<usize>) {
