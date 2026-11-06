@@ -44,6 +44,7 @@ use geode_core::analytic::port_mode_sensitivity::{FaceDesign, FaceParamKind, str
 use geode_core::analytic::port_modes::HybridPecMasks;
 use geode_core::analytic::waveguide::TriMesh;
 use geode_core::assembly::hcurl_space::HcurlSpace;
+use geode_core::assembly::nedelec::tet_centroid as centroid;
 use geode_core::driven::ports::{
     HybridPortFace, HybridWavePort, HybridWavePortOpts, WavePortSpec, extruded_rect_waveguide_mesh,
     solve_wave_port_spec_sweep_with_mode, strip_line_section,
@@ -80,16 +81,6 @@ fn quiet() -> HybridWavePortOpts {
         accuracy: None,
         ..Default::default()
     }
-}
-
-fn centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
-    let mut c = [0.0; 3];
-    for &v in &mesh.tets[t] {
-        for (ci, x) in c.iter_mut().zip(mesh.nodes[v as usize]) {
-            *ci += 0.25 * x;
-        }
-    }
-    c
 }
 
 /// `max_kp |adj − fd| / max_kp |fd|`.
