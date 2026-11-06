@@ -1008,15 +1008,19 @@ fn goal_marking_labels_the_product_fallback_and_requires_a_goal() {
 }
 
 /// Golden 2, narrow-slit variants (#1413; NOT a gate). The pocket is joined
-/// by a slit a quarter as wide as in [`golden2_measurement`] (`m = 8`,
-/// half-width 1 cell) and `S₂₁` is measured at the pocket's (0,1) resonance
-/// (`ω = 4.19`) and at its (1,1) resonance (`ω = 5.24`), where the pocket
-/// field is large. Measured result (debug build, ~2.5 min per ω, final
-/// levels): at both frequencies the goal and energy runs track each other
-/// (|ΔS|_est ≈ 2.5e-2 vs 2.6e-2 at ω = 4.19 with 5.1k vs 5.7k DOFs; 4.4e-2
-/// vs 3.9e-2 at ω = 5.24 with 5.2k vs 5.3k DOFs). The `S₂₁` error is the
-/// channel's phase (dispersion) error, which both indicators refine, not the
-/// pocket's; no DOF advantage appears, so the Golden 2 gate is still open.
+/// by a slit half as wide as in [`golden2_measurement`] (`m = 8`, half-width
+/// 1 cell: width `2*hw/m = 0.25` vs `0.5` at `m = 4`) and `S₂₁` is measured at
+/// the pocket's (0,1) resonance (`ω = 4.19`) and at its (1,1) resonance
+/// (`ω = 5.24`), where the pocket field is large. Measured result (debug
+/// build, ~2.5 min per ω, final levels): at both frequencies the goal and
+/// energy runs track each other (|ΔS|_est ≈ 2.5e-2 vs 2.6e-2 at ω = 4.19 with
+/// 5.1k vs 5.7k DOFs; 4.4e-2 vs 3.9e-2 at ω = 5.24 with 5.2k vs 5.3k DOFs).
+/// The conclusion is scoped to this 2× narrower coupling; a still narrower
+/// iris (e.g. `m = 16`) was not tried. Caveats: the table uses the DWR
+/// estimate, not a true error against a reference, and the attribution of the
+/// `S₂₁` error to the channel's phase (dispersion) error, which both
+/// indicators refine, is inferred, not measured here. No DOF advantage
+/// appears, so the Golden 2 gate is still open.
 #[test]
 #[ignore = "measurement only: minutes, prints a table"]
 fn golden2_narrow_slit_measurement() {
