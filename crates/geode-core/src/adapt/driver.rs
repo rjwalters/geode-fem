@@ -160,6 +160,7 @@
 //!   planar faces stay planar), so a [`LevelSolver`] that builds wave ports
 //!   from the tags works on every level.
 
+use crate::vec3::sorted3;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::time::Instant;
@@ -1511,11 +1512,6 @@ struct Classified {
     impedance: Vec<Vec<[u32; 3]>>,
     ports: Vec<Vec<[u32; 3]>>,
     kinds: BoundaryKinds,
-}
-
-fn sorted3(mut f: [u32; 3]) -> [u32; 3] {
-    f.sort_unstable();
-    f
 }
 
 /// Classify the boundary faces of a level. Impedance surface `i` is the
