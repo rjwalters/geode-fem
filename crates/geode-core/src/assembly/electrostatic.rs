@@ -193,6 +193,34 @@ impl ElectrostaticSystem {
         Ok(phi)
     }
 
+    /// Solve the system with the free-node Dirichlet values **re-folded**
+    /// for a new set of pinned potentials, reusing the assembled full and
+    /// reduced stiffness. This is the per-excitation solve the capacitance
+    /// extraction drives: the sparsity, free-node numbering, and reduced
+    /// `K` are fixed; only the pinned values (hence the RHS fold-in)
+    /// change.
+    ///
+    /// `pinned_value[g]` supplies the Dirichlet potential for pinned node
+    /// `g` (ignored for free nodes). The charge RHS is taken as zero
+    /// (capacitance runs are source-free); non-zero charge belongs in the
+    /// [`assemble_electrostatic`] `rho` hook.
+    pub(crate) fn solve_with_pinned(
+        &self,
+        pinned_value: &[f64],
+    ) -> Result<Vec<f64>, ElectrostaticError> {
+        use faer::linalg::solvers::Solve;
+
+        let b_free = self.fold_pinned(pinned_value);
+        let lu = self
+            .k
+            .as_ref()
+            .sp_lu()
+            .map_err(|e| ElectrostaticError::Factorization(format!("{e:?}")))?;
+        let mut rhs: Mat<f64> = Mat::from_fn(self.n_free, 1, |i, _| b_free[i]);
+        lu.solve_in_place(rhs.as_mut());
+        Ok(self.scatter_free(pinned_value, |fi| rhs[(fi, 0)]))
+    }
+
     /// Factor the reduced stiffness `K` once so that many solves with new
     /// electrode voltages and/or a new per-tet charge density can reuse it.
     /// See [`ElectrostaticFactor`] for what may change between solves and
@@ -445,7 +473,7 @@ fn fold_pinned_columns(
 
 /// Compute the (full-K) bilinear form `uᵀ K v` for two full-length node
 /// vectors. Walks the sparse `K` once.
-fn quad_form(k: &SparseColMat<usize, f64>, u: &[f64], v: &[f64]) -> f64 {
+pub(crate) fn quad_form(k: &SparseColMat<usize, f64>, u: &[f64], v: &[f64]) -> f64 {
     let k_ref = k.as_ref();
     let cp = k_ref.col_ptr();
     let row_idx = k_ref.row_idx();
@@ -549,7 +577,15 @@ pub fn assemble_electrostatic(
         }
     }
 
-    finish_electrostatic_assembly(mesh, full_trips, b_full, electrodes, ground)
+    let sparsity = sparsity_from_tets(&mesh.tets);
+    finish_electrostatic_assembly(
+        mesh.n_nodes(),
+        sparsity,
+        full_trips,
+        b_full,
+        electrodes,
+        ground,
+    )
 }
 
 /// Assemble the reduced SPD electrostatic system with a **per-tet 3×3
@@ -641,7 +677,15 @@ pub fn assemble_electrostatic_tensor(
         }
     }
 
-    finish_electrostatic_assembly(mesh, full_trips, b_full, electrodes, ground)
+    let sparsity = sparsity_from_tets(&mesh.tets);
+    finish_electrostatic_assembly(
+        mesh.n_nodes(),
+        sparsity,
+        full_trips,
+        b_full,
+        electrodes,
+        ground,
+    )
 }
 
 /// Shared tail of the scalar/tensor electrostatic assembly: build the full
@@ -650,19 +694,16 @@ pub fn assemble_electrostatic_tensor(
 /// [`assemble_electrostatic_tensor`] funnel here after producing the
 /// ε-weighted element triplets, so the Dirichlet-reduction logic lives in
 /// one place.
-fn finish_electrostatic_assembly(
-    mesh: &TetMesh,
+pub(crate) fn finish_electrostatic_assembly(
+    n_nodes: usize,
+    sparsity: SparsityPattern,
     full_trips: Vec<Triplet<usize, usize, f64>>,
     b_full: Vec<f64>,
     electrodes: &[Electrode],
     ground: &[u32],
 ) -> Result<ElectrostaticSystem, ElectrostaticError> {
-    let n_nodes = mesh.n_nodes();
-
     let k_full = SparseColMat::<usize, f64>::try_new_from_triplets(n_nodes, n_nodes, &full_trips)
         .map_err(|e| ElectrostaticError::Assembly(format!("{e:?}")))?;
-
-    let sparsity = sparsity_from_tets(&mesh.tets);
 
     let mut dirichlet_value = vec![0.0_f64; n_nodes];
     let mut pinned = vec![false; n_nodes];
