@@ -33,8 +33,9 @@
 //!
 //! # What is not here
 //!
-//! The S-parameter and eigenfrequency goals, the adaptive-loop hook and the
-//! `driven/adjoint.rs` bridge are later steps of #1266.
+//! The eigenfrequency goal lives in [`crate::adapt::dwr_eigen`]. The
+//! S-parameter goals, the adaptive-loop hook and the `driven/adjoint.rs`
+//! bridge landed in later steps of #1266.
 
 use faer::c64;
 
