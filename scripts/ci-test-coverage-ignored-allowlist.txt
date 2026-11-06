@@ -112,3 +112,4 @@ geode-core/transmon_eigenmode::real_transmon_matrix_free_matches_direct  # relea
 geode-core/transmon_eigenmode::real_transmon_matrix_free_indefinite_matches_direct  # slow: >=20 min on ubuntu-latest (timed out at the 20-min cap)
 geode-core/transmon_eigenmode::real_transmon_ams_beats_jacobi  # release-only, passes (#960): the Jacobi leg runs its full 266216-iteration CG budget before the lower-bound gate, 22.7 min locally, over the 20-min cap
 geode-core/motor_experiment2_domain::every_repair_attempt_meshes_theta0_through_gmsh  # needs uv and gmsh 4.15.2 (four real gmsh meshes, #1201); the CI target checks the attempt sequence without gmsh; record logs/mesh_repair_attempts_L0.log
+geode-core/dwr_goals::golden2_measurement  # measurement only (#1266): minutes, prints an energy-vs-goal marking table for whoever continues Golden 2; asserts nothing
