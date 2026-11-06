@@ -51,9 +51,12 @@
 //! provenance guard"): there is no blanket `cargo test -p geode-core` job,
 //! so a new `#[test]` here is only enforced because that step names it.
 
+mod common;
+use common::repo_root;
+
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Required provenance shape of one committed benchmark artifact.
 #[derive(Debug, Clone, Copy)]
@@ -1561,13 +1564,6 @@ const MANIFEST: &[Entry] = &[
          #1148); no Burn backend",
     ),
 ];
-
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("repo root resolves")
-}
 
 /// Recursively collect repo-relative `*.toml` paths under `dir`.
 fn collect_tomls(root: &Path, dir: &Path, out: &mut BTreeSet<String>) {
