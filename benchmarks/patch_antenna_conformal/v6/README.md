@@ -45,6 +45,8 @@ What the ladders show:
 
 [Palace](https://github.com/awslabs/palace) (commit `fba6a5b`, the vendored `reference/palace/docker/Dockerfile`, `palace-build-info.txt`) solved the same problem on geode's own meshes. The meshes were written as MSH 2.2 by `patch_conformal_nested_dof --verify-only --write-mesh`, with sha256 in `x1/palace/meshes.txt`. Palace used the same materials, PEC patch and ground (interior surfaces), and the same uniform 50 Ω lumped port. It is an independent solver with an independent absorber: Palace has no UPML, so the shell is air and the outer wall carries a first-order absorbing boundary. Each run is an adaptive (PROM) driven sweep at 1 MHz spacing (`AdaptiveTol` 1e-3, GMRES to 1e-8). Configs come from `scripts/palace_patch_config.py`, and `scripts/palace_ingest.py` extracts the results.
 
+Port model: the geode column and the Palace column both use the default `S_Γ` junction model for the resistive `R` term (Palace's `LumpedPort` operator); no A2 (`PortVoltage`) result appears in this table.
+
 | run | mesh | order | ND DOFs (Palace) | dip (GHz) | geode on the same mesh (GHz) |
 |---|---|---|---|---|---|
 | init_L1_p1 | initial, L1 | 1 | 174 490 | 2.3130 | 2.31182 (P1) |
