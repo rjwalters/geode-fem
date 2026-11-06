@@ -875,6 +875,7 @@ fn starter_spec_eigen(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf
             dispersion: None,
             eps_r_diag: None,
             mu_r_diag: None,
+            conductivity_s_m: None,
         })
         .collect();
     let mut pec = vec![name(GroupRole::OuterBoundary)];
