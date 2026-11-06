@@ -57,16 +57,15 @@
 //! ```
 
 use burn::prelude::Backend;
-use burn::tensor::DType;
 use std::path::PathBuf;
 
-use geode_core::testing::{TestBackend, device_tolerances};
+use geode_core::testing::TestBackend;
 use geode_util::eigen::dense_lowest_eigenvalues;
 use geode_util::math::{frobenius_norm, symmetry_residual};
 use geode_validation::{Fixture, FixtureFormat};
 
 mod common;
-use common::run_burn_pipeline;
+use common::{BackendTolerances, run_burn_pipeline};
 
 type B = TestBackend;
 
@@ -76,54 +75,6 @@ type B = TestBackend;
 //
 // Cases live in the test; geode-core supplies only the selector. Keyed by
 // the device float dtype: tight f64 on f64 backends, looser f32 otherwise.
-
-#[derive(Debug, Clone, Copy)]
-struct BackendTolerances {
-    /// Relative tolerance on K_int / M_int Frobenius norms.
-    frobenius_rel: f64,
-    /// Per-entry absolute tolerance on K_int / M_int diagonals.
-    diagonal_abs: f64,
-    /// Absolute tolerance on the full lowest-spectrum slice. Retained for
-    /// parity with the f64/f32 case tables; the spectrum gate currently
-    /// asserts via `eigenvalue_rel`, so this field is not read directly.
-    #[allow(dead_code)]
-    spectrum_abs: f64,
-    /// Relative tolerance on the lowest 5 physical eigenvalues (Epic #88 AC).
-    eigenvalue_rel: f64,
-    /// Per-entry absolute on symmetry residuals.
-    symmetry_abs: f64,
-}
-
-const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
-    frobenius_rel: 1e-4,
-    diagonal_abs: 1e-5,
-    spectrum_abs: 1e-3,
-    eigenvalue_rel: 1e-5,
-    symmetry_abs: 1e-10,
-};
-
-const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
-    frobenius_rel: 5e-4,
-    diagonal_abs: 5e-5,
-    spectrum_abs: 1e-2,
-    eigenvalue_rel: 5e-4,
-    symmetry_abs: 1e-6,
-};
-
-impl BackendTolerances {
-    /// Tolerance envelope for the active backend device, selected by the
-    /// device's float dtype.
-    fn for_device<B: Backend>(device: &B::Device) -> Self {
-        device_tolerances::<B, BackendTolerances>(
-            device,
-            &[
-                ("", DType::F64, NDARRAY_F64_TOLERANCES),
-                ("", DType::F32, GPU_F32_TOLERANCES),
-            ],
-        )
-        .expect("a tolerance case must match the active backend dtype")
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Fixture paths
