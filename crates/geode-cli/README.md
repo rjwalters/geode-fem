@@ -46,7 +46,7 @@ one worked example per analysis, with the output to expect.
 | `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
 | `capacitance` | live (#705) — static **Maxwell capacitance matrix** (farads) between named conductor surfaces, from one electrostatic solve per terminal (P1 scalar, direct LU); non-driven conductors are **grounded**, never floating (see [Capacitance](#static-capacitance-geode-capacitance-issue-705)); optional SPICE `.subckt` (#715) |
 | `inductance` | live (#714) — static **Maxwell inductance matrix** (henries) between named open current paths (conductor volume + source / sink faces returning through one connected PEC conductor), from a P1 conduction solve per path for the current density and one tree-cotree-gauged magnetostatic solve per path (Nédélec edges, direct LU); **not** `extract`'s RF `l0_h` (see [Inductance](#static-inductance-geode-inductance-issue-714)); optional SPICE `.subckt` (#719) |
-| `mesh`    | live (#704) — layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged Gmsh MSH 4.1 mesh with automatically named physical groups + a starter problem spec (`--analysis driven`, `capacitance` or `inductance`, #720), via the external `gmsh` binary (see [Layout → mesh](#layout--mesh-geode-mesh-issue-704)) |
+| `mesh`    | live (#704) — layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged Gmsh MSH 4.1 mesh with automatically named physical groups + a starter problem spec (`--analysis driven`, `capacitance`, `inductance` (#720) or `eigen` (periodic Bloch cells, #837)), via the external `gmsh` binary (see [Layout → mesh](#layout--mesh-geode-mesh-issue-704)) |
 | `schema`  | live (#709) — print the JSON Schema (draft 2020-12) of the problem spec, the report or the layout (`geode schema spec\|report\|layout [-o PATH]`), derived from the same serde types the binary parses and emits; committed under [`schemas/`](schemas/) (see [JSON Schema](#json-schema-geode-schema-issue-709)) |
 
 ## Install
@@ -66,7 +66,7 @@ trigger with `upload: true`):
 |---|---|---|
 | `x86_64-unknown-linux-gnu`  | `ubuntu-22.04`     | Linux x86-64, glibc ≥ 2.35 (Ubuntu 22.04+, Debian 12+, RHEL 10+) |
 | `aarch64-unknown-linux-gnu` | `ubuntu-22.04-arm` | Linux arm64, glibc ≥ 2.35 |
-| `aarch64-apple-darwin`      | `macos-14`         | macOS 11+ on Apple silicon |
+| `aarch64-apple-darwin`      | `macos-15`         | macOS 11+ on Apple silicon |
 
 ```sh
 V=0.6.0; T=x86_64-unknown-linux-gnu   # pick your target
@@ -223,6 +223,7 @@ Driven example (the spiral-inductor golden input,
 | `materials[].physical_group` | string | name of a **dimension-3** physical group |
 | `materials[].eps_r` | `[re, im]`, `im ≤ 0` (eigen: `re > 0`; capacitance: `im = 0`, `re > 0`; inductance: omit or `[1, 0]`); default `[1, 0]` (vacuum, for every analysis: a `materials` entry may omit `eps_r`) | complex relative permittivity, `exp(+jωt)` convention: `ε_r = ε'(1 − j·tan δ)`. `im > 0` (gain) is rejected |
 | `materials[].mu_r` | float > 0, default `1` (additive in v1, issue #714) | real relative permeability. Honoured **only by `geode inductance`**; every other analysis rejects `mu_r ≠ 1` (for a permeable region in `driven` / `extract` / `eigen` give `mu_r_diag`, three equal components for an isotropic one) |
+| `materials[].conductivity_s_m` | float `≥ 0`, S/m; omit for a non-conducting region (additive, issue #1254); `driven` / `extract` only | **volumetric conductivity**: adds the conduction term `jωσM` to the driven operator (`exp(+jωt)`, so `Im ε_eff = −σ/ω`; natural units `σ·η₀·length_unit_m`, like `leontovich[].conductivity_s_m`). Absent or `0` leaves the spec byte-identical. A Drude region with `ω_p² = σγ/ε₀`, `γ → ∞` is the same medium. `driven` `sensitivity` differentiates it (`kind: "sigma"`); `eigen` / `capacitance` / `inductance` reject `σ > 0` — see [`spiral_inductor_sigma.json`](examples/driven/README.md#explicit-conductivity-silicon-issue-1254) |
 | `materials[].eps_r_diag` | optional `{"xx": [re, im], "yy": …, "zz": …}`, each `im ≤ 0` (additive, issue #760) | **diagonal anisotropic** permittivity in mesh axes; replaces `eps_r` (omit it) and cannot be combined with `dispersion`. `driven` / `extract` / `eigen` (eigen: every `re > 0`) and `capacitance` (every component real, `> 0`); rejected by `inductance` and with `sensitivity` — see [Anisotropic materials](#anisotropic-materials-issue-760) |
 | `materials[].mu_r_diag` | optional `{"xx": μ, "yy": μ, "zz": μ}`, each finite `> 0` (additive, issue #760) | **diagonal anisotropic** real permeability in mesh axes; replaces `mu_r` (omit it). `driven` / `extract` / `eigen` and `inductance`; rejected by `capacitance` and with `sensitivity` |
 | `materials[].dispersion` | optional (additive, #757 / #761); driven / extract dense sweeps only | frequency-dependent permittivity, one of `{"model": "djordjevic_sarkar", "eps_r": ε′, "tan_delta": tan δ, "f_ref_hz": f_ref}` (optional `f_low_hz` = `1e3`, `f_high_hz` = `1e12`), `{"model": "debye", "eps_inf": ε∞, "poles": [{"delta_eps": Δε, "tau_s": τ}, …]}` or `{"model": "drude", "eps_inf": ε∞, "omega_p_rad_s": ω_p, "gamma_rad_s": γ}`; replaces `eps_r` (which must then be omitted) — see [Dispersive dielectrics](#dispersive-dielectrics-issue-757) |
@@ -320,6 +321,58 @@ the nullspace, with a shift far above it you get the modes around the
 shift instead. If fewer than `n_modes` physical modes are resolved the
 run fails with `solve_failed` (never a silently short list); raise
 `max_iters` or move `shift`.
+
+### Periodic unit cells and Bloch bands (Epic #837 Phase 4a)
+
+`boundary_conditions.periodic` pairs two conforming surface groups of a
+unit cell, and `eigen.bloch` asks `geode eigen` for the **band structure**
+of that cell instead of PEC-cavity modes (additive in schema v1; specs
+without these keys are unchanged):
+
+```json
+"boundary_conditions": {
+  "pec": ["z_lo", "z_hi"],
+  "periodic": [
+    { "master": "x_lo", "slave": "x_hi" },
+    { "master": "y_lo", "slave": "y_hi", "translation": [0, 2.0, 0] }
+  ]
+},
+"eigen": { "n_modes": 6, "unit": "k0", "shift": 1.0,
+           "bloch": { "k": [0.5, 0, 0] } }
+```
+
+* `translation` (`slave − master`, mesh length units) is optional: when
+  omitted it is inferred from the two faces (a least-squares fit over the
+  matched nodes). A given translation that contradicts the mesh fails
+  `check` with `invalid_spec`.
+* `bloch` is either one wave vector `{ "k": [kx, ky, kz] }` (rad per mesh
+  length unit) or a path `{ "path": ["G", "X", "M", "G"], "lattice":
+  { "a": 1.0 }, "points_per_segment": 16 }` (default 16). Labels `G`/`Γ`,
+  `X`, `Y`, `Z`, `M`, `R` refer to an orthogonal lattice with periods
+  `a`, `b`, `c` (`b`, `c` default to `a`).
+* `eigen.shift` is the shift-invert target: the `n_modes` bands closest to
+  it are returned, so for the lowest bands put it just below the first
+  one. `eigen.max_iters` is ignored (the block solver keeps its core basis
+  cap); `eigen.tol` is the solver's residual bound and `eigen.residual_tol`
+  the acceptance gate on every reported band.
+* A Bloch spec is **lossless**: real `eps_r`, no `absorbing_regions`
+  (a UPML stretch is not periodic along the periodic axis), no
+  `sensitivity`. A group may not also be PEC (or carry any other boundary
+  condition). Periodic boundaries in `driven` / Floquet-port analyses are
+  Phase 4b.
+* **`geode check` runs the pairing before any solve** and reports
+  `periodic`: per pair the translation (and whether it was inferred), the
+  matched node / edge / face counts, snapped nodes and the periodic axes,
+  plus the snap warnings (kind `periodic_snap`). A mesh whose two faces
+  do not match node for node fails with `invalid_spec` and the fix
+  (`Periodic Surface` in Gmsh, or `geode mesh` with `periodic`).
+* The `eigen` report carries `bands`: one **row per wave vector**
+  (`k`, `s` and `label` along a path, `frequency_hz` per band,
+  `residual_rel` per band, `v_g_over_c` per band for a path) plus
+  warnings; `modes` is empty. Along a path the bands are tracked by
+  eigenvector overlap, so a band keeps its identity through a crossing.
+  At a Γ-equivalent `k` the harmonic fields appear as `0 Hz` bands
+  (round-off-level values, a few Hz).
 
 ### Lossy / open-cavity eigenmodes (issue #706)
 
@@ -1281,7 +1334,7 @@ consumed by that subcommand.
 | `inductance` | every `L_ij` (H) | `nu_r` (= `1/μ_r`), `mu_r` | self-adjoint energy form (`inductance_adjoint_sensitivity`), `∂L/∂μ_r = −ν_r² ∂L/∂ν_r` | the forward solves again on one factorization; no adjoint solve |
 | `eigen`, **lossless** (real `eps_r`, no `absorbing_regions`) | `frequency_hz` of each `modes[]` entry | `eps_r` | Hellmann–Feynman (`EigenSensitivity::deigenvalue_deps`), `∂f/∂ε = (f/2λ) ∂λ/∂ε` | a local contraction; no solve |
 | `driven`, **exactly one** lumped port, no `wave_ports` / `absorbing_regions`, direct solver, dense sweep (issue #739) | `s11_mag_sq` = `\|S11\|²` at **every** swept frequency (dimensionless) | `eps_r` | port-loaded discrete adjoint (`driven_material_adjoint_gradient_ports` + `s11_sq_objective`) | per frequency: one assembly + LU of the port-loaded `A(ω)`, one forward + one adjoint back-solve |
-| `driven` with `observables`, `frequencies`, a non-`eps_r` kind or any other port set — lumped, wave (geometric, filled), mixed, walled, hybrid (issue #883) | `driven_observables`: any `S_ij` (`mag` / `mag_sq` / `db` / `phase_deg` / `real` / `imag`), `Σ\|S_ij\|²`, a hybrid port's `z0` / `eps_eff` | `eps_r`, `eps_r_imag`, `tan_delta`, `shape` | N-port S-matrix adjoint (`s_matrix_sensitivity_sweep`; reciprocity) | per frequency: one LU (the forward's own excitation solves, **zero** extra solves) — see [N-port driven sensitivities](#n-port-driven-sensitivities-issue-883) |
+| `driven` with `observables`, `frequencies`, a non-`eps_r` kind or any other port set — lumped, wave (geometric, filled), mixed, walled, hybrid (issue #883) | `driven_observables`: any `S_ij` (`mag` / `mag_sq` / `db` / `phase_deg` / `real` / `imag`), `Σ\|S_ij\|²`, a hybrid port's `z0` / `eps_eff` | `eps_r`, `eps_r_imag`, `tan_delta`, `sigma`, `shape`, `wall_sigma`, `wall_rms_roughness`, `wall_ball_radius`, `wall_ball_density` | N-port S-matrix adjoint (`s_matrix_sensitivity_sweep`; reciprocity) | per frequency: one LU (the forward's own excitation solves, **zero** extra solves) — see [N-port driven sensitivities](#n-port-driven-sensitivities-issue-883) |
 
 - **Parameters.** `physical_group` is any dimension-3 group (listed in
   `materials` or not — an unlisted group is differentiated at its vacuum
@@ -1399,10 +1452,13 @@ lumped-port spec whose parameters are all `eps_r` and that has no
     { "kind": "eps_r", "physical_group": "substrate" },        // ε′ (ε″ held)
     { "kind": "eps_r_imag", "physical_group": "substrate" },   // ε″ = −Im ε_r (ε′ held)
     { "kind": "tan_delta", "physical_group": "substrate" },    // tan δ (ε′ held)
+    { "kind": "sigma", "physical_group": "substrate" },        // σ in S/m (materials[].conductivity_s_m)
     { "kind": "shape", "name": "strip_width", "physical_group": "strip",
       "motion": "stretch", "axis": [1, 0, 0], "pinned": ["shield"] },
     { "kind": "shape", "name": "iris_x", "physical_groups": ["iris_l", "iris_r"],
-      "motion": "translate", "axis": [1, 0, 0], "pinned": ["walls", "port_in", "port_out"] }
+      "motion": "translate", "axis": [1, 0, 0], "pinned": ["walls", "port_in", "port_out"] },
+    { "kind": "wall_sigma", "physical_group": "conductor_surface" },           // σ of a Leontovich wall (S/m)
+    { "kind": "wall_rms_roughness", "physical_group": "conductor_surface" }   // Hammerstad Δ (m)
   ],
   "observables": [                                   // default: every |S_ij|²
     { "quantity": "s", "entry": [0, 0], "form": "db" },          // S11 in dB
@@ -1420,9 +1476,29 @@ lumped-port spec whose parameters are all `eps_r` and that has no
   `ε″` held; `eps_r_imag` is `ε″` (`ε_r = ε′ − jε″`) with `ε′` held — at a
   lossless point the gradient is the passive-side (`ε″ → 0⁺`) one;
   `tan_delta` is `tan δ = ε″/ε′` with `ε′` held (`∂/∂tan δ = ε′·∂/∂ε″`).
+  `sigma` is the volumetric conductivity `materials[].conductivity_s_m` in
+  S/m (absent = 0, the design point; issue #1254): `∂A/∂σ = jωM` through
+  the same zero-extra-solve adjoint, gradient per S/m. At `σ = 0` the
+  FD self-check is one-sided (a negative `σ` is gain). A `sigma` parameter on
+  a region that bounds a hybrid port's face is `invalid_spec` (σ there changes
+  the port's modes).
   A geometric wave port filled by a differentiated region follows it
   (its `β`, drive and power weights, #777); a hybrid port's face modes
   follow the face triangles' tets.
+- **Wall parameters** (issue #1330) bind to a `boundary_conditions.leontovich`
+  wall by its dimension-2 `physical_group` and are reported per **SI**
+  parameter (the library's natural-unit derivative is chain-ruled):
+  `wall_sigma` (conductivity, S/m), `wall_rms_roughness` (Hammerstad `Δ`,
+  m), `wall_ball_radius` (Huray sphere radius `a`, m, at fixed density)
+  and `wall_ball_density` (Huray `N/A_tile`, 1/m², at fixed radius). The
+  roughness kinds must match the wall's `roughness` model (a smooth wall
+  has none; Hammerstad and Huray kinds do not mix), and a roughness
+  value must be positive (the FD scale). Columns follow the material and
+  shape columns' report order (spec order). Where a roughness loss factor
+  sits on its plateau (`K → 2`, or the Huray plateau) the column is ≈ 0 by
+  saturation and the report carries a `sensitivity_wall_saturated`
+  warning for that parameter. Driven N-port path only (`LondonDepth` has
+  no CLI wall model).
 - **Shape parameters** (`kind = "shape"`) bind to **group names**, never
   node ids, so a design survives re-meshing: the nodes of
   `physical_group` / `physical_groups` (2-D or 3-D groups) move as `motion`
@@ -1515,7 +1591,8 @@ lumped-port spec whose parameters are all `eps_r` and that has no
   each entry is compared to the central difference. `h = relative_step ×`
   the parameter's natural scale: `|ε′|` (`eps_r`), `|ε_r|` (`eps_r_imag`),
   `1` (`tan_delta`), the motion's length (`shape`: the stretch extent,
-  else the moving groups' bounding-box size). A loss parameter within one
+  else the moving groups' bounding-box size), the parameter's own value
+  (`wall_*`). A loss parameter within one
   step of `0` uses the one-sided second-order difference
   `(−3f(0) + 4f(h) − f(2h))/(2h)` (`ε″ < 0` is gain). `fd_rel_error =
   |g − g_FD| / max(|g|, |g_FD|, floor)`, the floor the larger of 1 % of
@@ -1638,6 +1715,42 @@ shrunk box, as `examples/patch_antenna` does.
 The physical field there is a linear combination of the per-channel
 Sherman–Morrison–Woodbury solves, which the library does not return, and
 reconstructing it would need a `geode-core` API extension.
+
+## Gradient-labelled dataset samples (`--dataset`, issue #1257)
+
+`geode driven` and `geode eigen` take an opt-in `--dataset DIR` that writes
+**one sample** next to the report: the mesh, the parameter vector (values
+and physical-domain bounds), the solution field (edge DOFs plus the
+Whitney field at every tet centroid), the observables (driven: S per
+frequency; eigen: `f` and `Q` per mode), the gradient of every observable
+w.r.t. every parameter, and provenance (spec SHA-256, mesh SHA-256,
+`geode` version, git SHA). The gradients are the report's own
+`sensitivities.entries[]`, copied unchanged, so they equal the `-o`
+report exactly. The spec must have a `sensitivity` section (else
+`invalid_spec` before solving); wave-port and adaptive-sweep driven specs
+and `geode extract` are rejected. Without the flag nothing changes.
+
+```sh
+geode driven crates/geode-cli/examples/sensitivity/driven_spiral.json --dataset spiral.zarr -o s.json
+geode eigen  crates/geode-cli/examples/sensitivity/eigen_box_cavity.json --dataset box.zarr -o e.json
+```
+
+**Format: Zarr v2** directory store (uncompressed, one chunk per array,
+little-endian). Chosen over HDF5 because it needs no C library (new C
+dependencies need operator sign-off under the FFI policy) and a pure-Rust
+writer is a few hundred lines on top of `serde_json`; `zarr.open` reads
+it. Layout, semantics and the schema version are in
+[`docs/dataset-schema.md`](../../docs/dataset-schema.md) (a unit test and
+`tests/dataset_roundtrip.rs` fail when the writer drifts from it).
+Minimal Python loader (documentation only; no Python enters CI):
+
+```python
+import zarr
+s = zarr.open_group("spiral.zarr", mode="r")
+grad, param = s["grad/gradient"][:], s["grad/entry_parameter"][:]
+e = s["field/e_cell_centre"][..., 0] + 1j * s["field/e_cell_centre"][..., 1]
+print(dict(s.attrs)["provenance"])
+```
 
 ## Conductor surface roughness (issue #758)
 
@@ -2839,6 +2952,24 @@ a shielded microstrip shorted by end caps against a 2-D reference,
 measured −2.6 % from below on the default mesh; see [Golden
 tests](#golden-tests)).
 
+### Periodic unit cells (`periodic`, `--analysis eigen`, Epic #837 Phase 4a)
+
+`"periodic": ["x", "y"]` in the layout makes the cell periodic along the
+listed lateral axes (the key is additive; `z` is not supported). It needs
+`--analysis eigen` (ports are not meshed) and the default PEC `boundary`.
+Each periodic axis replaces its two PEC walls by the groups `x_lo` /
+`x_hi` (resp. `y_lo` / `y_hi`) and the script gets one
+`Periodic Surface {slave} = {master} Translate {…}` per axis and slab, so
+the two faces mesh identically. The starter spec lists the pairs as
+`boundary_conditions.periodic` with the cell period as explicit
+`translation`, and asks for the Bloch bands at Γ; the other walls stay in
+`outer_boundary` (PEC). Without `periodic`, `--analysis eigen` gives a
+plain PEC-cavity eigen starter spec.
+
+```sh
+geode mesh cell.layout.json --analysis eigen --spec-out cell.json && geode check cell.json
+```
+
 ### Layout, schema v1
 
 A layout (JSON or TOML, same schema; unknown fields rejected) — the
@@ -2944,10 +3075,16 @@ geode mesh layout.json --analysis capacitance --mesh-out m.msh --spec-out s.json
 `mesh_cmd::stackup::parse` reads an XML layer stackup (named materials plus a
 z-ordered layer list; see `tests/fixtures/stackup_example.xml` and the module
 docs) into dielectric layers (z, thickness, ε) and conductor layers (z,
-thickness, σ), with one named `StackupError` per failure class. It is a
-library function for now; wiring it into `geode mesh` is a follow-up. The
-element names are this crate's own, written from the shape of the public
-gds2palace stackup format; no gds2palace file or code is vendored (GPL-3.0).
+thickness, σ), with one named `StackupError` per failure class.
+`geode mesh layout.json --stackup stackup.xml` fills what the layout omits
+from it (values the layout states win): `dielectrics` when absent or empty,
+and for conductors matched by `name` the `z_bottom`, `thickness` and
+`conductivity_s_m`. Stackup z values are converted to the layout's
+`length_unit_m`. The element names are this crate's own, written from the
+shape of the public gds2palace stackup format and only partly cross-checked
+against it (a separate `Dielectrics` block, `ELayers` and `schemaVersion`
+appear in public examples and are not read); no gds2palace file or code is
+vendored (GPL-3.0).
 
 
 ## Report, schema v1

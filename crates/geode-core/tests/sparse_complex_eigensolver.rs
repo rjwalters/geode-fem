@@ -404,7 +404,8 @@ fn load_fixture_at(path: &std::path::Path) -> DenseOracleFixture {
         )
     });
     let doc: toml::Value = text
-        .parse()
+        .parse::<toml::Table>()
+        .map(toml::Value::Table)
         .unwrap_or_else(|e| panic!("malformed TOML in {}: {e}", path.display()));
     let get = |table: &str, key: &str| -> &toml::Value {
         doc.get(table)

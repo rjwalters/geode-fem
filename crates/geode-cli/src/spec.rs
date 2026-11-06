@@ -406,17 +406,26 @@ pub struct EigenSpec {
     /// unconverged and fails the run with `solve_failed`.
     #[serde(default = "default_eigen_residual_tol")]
     pub residual_tol: f64,
+    /// Bloch (unit-cell band) analysis (additive in v1, Epic #837 Phase
+    /// 4a): solve the periodic unit cell named by
+    /// `boundary_conditions.periodic` at one wave vector `k`, or along a
+    /// k-path, instead of the PEC cavity modes. Needs at least one
+    /// `periodic` pair and a lossless spec (real `eps_r`, no
+    /// `absorbing_regions`). `shift` / `unit` give the target frequency
+    /// of the shift-invert solve, as for a cavity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bloch: Option<BlochSpec>,
 }
 
-fn default_eigen_max_iters() -> usize {
+pub(crate) fn default_eigen_max_iters() -> usize {
     geode_core::eigen::pec_cavity::PecCavitySettings::DEFAULT_MAX_ITERS
 }
 
-fn default_eigen_tol() -> f64 {
+pub(crate) fn default_eigen_tol() -> f64 {
     geode_core::eigen::pec_cavity::PecCavitySettings::DEFAULT_TOL
 }
 
-fn default_eigen_residual_tol() -> f64 {
+pub(crate) fn default_eigen_residual_tol() -> f64 {
     geode_core::eigen::pec_cavity::PecCavitySettings::DEFAULT_RESIDUAL_TOL
 }
 
@@ -688,8 +697,9 @@ impl ObservableForm {
 }
 
 /// One design parameter of a [`SensitivitySpec`]: a material property of
-/// one volume group (`physical_group`), or (`kind = "shape"`, driven only,
-/// issue #883) a motion of named geometry groups.
+/// one volume group (`physical_group`), (`kind = "shape"`, driven only,
+/// issue #883) a motion of named geometry groups, or (`kind = "wall_*"`,
+/// driven only, issue #1330) a parameter of one Leontovich wall.
 ///
 /// A shape parameter binds to **group names**, never node ids, so it
 /// survives re-meshing: the groups' nodes move as `motion` prescribes, the
@@ -707,7 +717,10 @@ pub struct SensitivityParameterSpec {
     pub kind: SensitivityParameterKind,
     /// Material kinds: name of a dimension-3 physical group (need not be
     /// listed in `materials`: an unlisted group is differentiated at its
-    /// vacuum default). Shape: one moving group (2-D or 3-D), the same as a
+    /// vacuum default). Wall kinds: the dimension-2 group of a
+    /// `boundary_conditions.leontovich` wall (SI units: `wall_sigma` S/m,
+    /// `wall_rms_roughness` / `wall_ball_radius` m, `wall_ball_density`
+    /// 1/m²). Shape: one moving group (2-D or 3-D), the same as a
     /// one-element `physical_groups`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub physical_group: Option<String>,
@@ -769,6 +782,10 @@ pub enum SensitivityParameterKind {
     /// Loss tangent `tan δ = ε″/ε′`, `ε′` held (driven, issue #883):
     /// `∂/∂tan δ = ε′·∂/∂ε″`.
     TanDelta,
+    /// Volumetric conductivity `σ` in S/m (driven N-port S sensitivity,
+    /// issue #1254): `∂A/∂σ = jωM`. The region's `conductivity_s_m` is the
+    /// design point (absent = 0).
+    Sigma,
     /// Relative reluctivity `ν_r = 1/μ_r` (inductance) — the parameter
     /// the inductance energy form is linear in.
     NuR,
@@ -778,6 +795,17 @@ pub enum SensitivityParameterKind {
     /// A geometry parameter (driven, issue #883): see
     /// [`SensitivityParameterSpec`].
     Shape,
+    /// Conductivity `σ` (S/m) of a Leontovich wall (driven, issue #1330):
+    /// `physical_group` names the wall's dimension-2 group.
+    WallSigma,
+    /// Hammerstad–Jensen RMS roughness `Δ` (m) of a Leontovich wall.
+    WallRmsRoughness,
+    /// Huray sphere radius `a` (m) of a Leontovich wall, at fixed sphere
+    /// density `N/A_tile`.
+    WallBallRadius,
+    /// Huray sphere density `N/A_tile` (1/m²) of a Leontovich wall, at
+    /// fixed sphere radius.
+    WallBallDensity,
 }
 
 impl SensitivityParameterKind {
@@ -787,15 +815,37 @@ impl SensitivityParameterKind {
             SensitivityParameterKind::EpsR => "eps_r",
             SensitivityParameterKind::EpsRImag => "eps_r_imag",
             SensitivityParameterKind::TanDelta => "tan_delta",
+            SensitivityParameterKind::Sigma => "sigma",
             SensitivityParameterKind::NuR => "nu_r",
             SensitivityParameterKind::MuR => "mu_r",
             SensitivityParameterKind::Shape => "shape",
+            SensitivityParameterKind::WallSigma => "wall_sigma",
+            SensitivityParameterKind::WallRmsRoughness => "wall_rms_roughness",
+            SensitivityParameterKind::WallBallRadius => "wall_ball_radius",
+            SensitivityParameterKind::WallBallDensity => "wall_ball_density",
         }
     }
 
     /// A material kind (bound to one volume group).
     pub fn is_material(self) -> bool {
-        self != SensitivityParameterKind::Shape
+        !self.is_shape() && !self.is_wall()
+    }
+
+    /// The geometry kind.
+    pub fn is_shape(self) -> bool {
+        self == SensitivityParameterKind::Shape
+    }
+
+    /// A Leontovich-wall kind (bound to one dimension-2 group, issue
+    /// #1330).
+    pub fn is_wall(self) -> bool {
+        matches!(
+            self,
+            SensitivityParameterKind::WallSigma
+                | SensitivityParameterKind::WallRmsRoughness
+                | SensitivityParameterKind::WallBallRadius
+                | SensitivityParameterKind::WallBallDensity
+        )
     }
 }
 
@@ -897,6 +947,15 @@ pub struct MaterialSpec {
     /// an isotropic `μ_r ≠ 1` there.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mu_r_diag: Option<MuDiagSpec>,
+    /// Volumetric electrical conductivity `σ` in S/m (additive in v1, issue
+    /// #1254; finite, `≥ 0`). Omit (or `null`) for a non-conducting region —
+    /// existing specs are unchanged. It adds the conduction term `jωσM` to
+    /// the driven operator (`exp(+jωt)`: `Im ε_eff = −σ/ω`), in `driven`,
+    /// `extract` and a `driven` `sensitivity` (a `kind: "sigma"` parameter).
+    /// Rejected by `eigen`, `capacitance` and `inductance`, which have no
+    /// conduction term.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conductivity_s_m: Option<f64>,
 }
 
 /// Diagonal complex relative-permittivity tensor `diag(ε_xx, ε_yy, ε_zz)`
@@ -1055,6 +1114,83 @@ pub struct BoundaryConditionsSpec {
     /// only.
     #[serde(default)]
     pub silver_muller: Vec<String>,
+    /// Periodic master/slave surface pairs (additive in v1, Epic #837
+    /// Phase 4a). The two groups must be conforming translates of each
+    /// other (Gmsh `Periodic Surface` or `geode mesh` with `periodic`);
+    /// an `eigen.bloch` analysis is the only consumer in this phase. A
+    /// group may not also be PEC (or carry any other boundary condition).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub periodic: Vec<PeriodicSpec>,
+}
+
+/// One periodic boundary pair: the slave surface is the master translated
+/// by `translation`.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PeriodicSpec {
+    /// Dimension-2 physical-group name of the master face.
+    pub master: String,
+    /// Dimension-2 physical-group name of the slave face.
+    pub slave: String,
+    /// Translation `slave − master` in mesh length units. Optional: when
+    /// omitted it is inferred from the two faces (a least-squares fit
+    /// over the matched nodes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translation: Option<[f64; 3]>,
+}
+
+/// The Bloch wave vector(s) of an `eigen.bloch` analysis: one point, or a
+/// path through the Brillouin zone.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(untagged)]
+pub enum BlochSpec {
+    /// A single wave vector.
+    Point(BlochPointSpec),
+    /// A labelled polyline through k-space, sampled and band-tracked.
+    Path(BlochPathSpec),
+}
+
+/// `eigen.bloch` at a single wave vector.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlochPointSpec {
+    /// `[kx, ky, kz]` in rad per mesh length unit.
+    pub k: [f64; 3],
+}
+
+/// `eigen.bloch` along a k-path.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BlochPathSpec {
+    /// Vertex labels (`G`/`Γ`, `X`, `Y`, `Z`, `M`, `R`), `≥ 2`; their
+    /// coordinates come from `lattice`.
+    pub path: Vec<String>,
+    /// The orthogonal lattice the labels refer to.
+    pub lattice: LatticeSpec,
+    /// Samples per segment (default `16`, `≥ 1`).
+    #[serde(default = "default_points_per_segment")]
+    pub points_per_segment: usize,
+}
+
+fn default_points_per_segment() -> usize {
+    16
+}
+
+/// An orthogonal lattice with periods `a`, `b`, `c` (mesh length units).
+/// The high-symmetry points are `Γ = 0`, `X = (π/a, 0, 0)`,
+/// `Y = (0, π/b, 0)`, `Z = (0, 0, π/c)`, `M = (π/a, π/b, 0)` and
+/// `R = (π/a, π/b, π/c)`.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LatticeSpec {
+    /// Period along `x` (`> 0`).
+    pub a: f64,
+    /// Period along `y` (default `a`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub b: Option<f64>,
+    /// Period along `z` (default `a`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub c: Option<f64>,
 }
 
 /// A matched (full Sacks) box-UPML absorbing shell on one volume physical
@@ -1796,10 +1932,17 @@ mod tests {
         assert!(s.modes.is_none() && s.min_rel_gap.is_none());
         let fd = s.fd_check.as_ref().unwrap();
         assert_eq!((fd.relative_step, fd.tolerance), (1e-4, 1e-4));
+        // `sigma` is a valid kind (issue #1254).
+        let sigma = serde_json::from_str::<SensitivityParameterSpec>(
+            r#"{"kind":"sigma","physical_group":"d"}"#,
+        )
+        .unwrap();
+        assert_eq!(sigma.kind, SensitivityParameterKind::Sigma);
+        assert_eq!(sigma.kind.name(), "sigma");
         // Unknown kinds / keys are parse errors.
         assert!(
             serde_json::from_str::<SensitivityParameterSpec>(
-                r#"{"kind":"sigma","physical_group":"d"}"#
+                r#"{"kind":"bogus","physical_group":"d"}"#
             )
             .is_err()
         );
@@ -1815,6 +1958,72 @@ mod tests {
             })
             .unwrap()
             .contains("sensitivity")
+        );
+    }
+
+    #[test]
+    fn periodic_and_bloch_sections_parse_round_trip_and_default_absent() {
+        let point: ProblemSpec = serde_json::from_str(
+            r#"{"schema_version":1,"mesh":{"path":"m.msh","length_unit_m":1},
+                "boundary_conditions":{"periodic":[
+                    {"master":"x_lo","slave":"x_hi"},
+                    {"master":"y_lo","slave":"y_hi","translation":[0,2,0]}]},
+                "eigen":{"n_modes":3,"unit":"k0","shift":1.5,"bloch":{"k":[0.5,0,0]}}}"#,
+        )
+        .unwrap();
+        let bc = &point.boundary_conditions;
+        assert_eq!(bc.periodic.len(), 2);
+        assert_eq!(bc.periodic[0].translation, None);
+        assert_eq!(bc.periodic[1].translation, Some([0.0, 2.0, 0.0]));
+        assert!(matches!(
+            point.eigen.as_ref().unwrap().bloch,
+            Some(BlochSpec::Point(BlochPointSpec { k })) if k == [0.5, 0.0, 0.0]
+        ));
+        let again: ProblemSpec =
+            serde_json::from_str(&serde_json::to_string(&point).unwrap()).unwrap();
+        assert_eq!(again.boundary_conditions.periodic.len(), 2);
+
+        let path: EigenSpec = serde_json::from_str(
+            r#"{"n_modes":4,"unit":"ghz","shift":1,
+                "bloch":{"path":["G","X","M","G"],"lattice":{"a":0.5}}}"#,
+        )
+        .unwrap();
+        match path.bloch.unwrap() {
+            BlochSpec::Path(p) => {
+                assert_eq!(p.path, ["G", "X", "M", "G"]);
+                assert_eq!(p.points_per_segment, 16);
+                assert_eq!((p.lattice.a, p.lattice.b, p.lattice.c), (0.5, None, None));
+            }
+            other => panic!("{other:?}"),
+        }
+
+        // Existing specs are unchanged: no periodic, no bloch, and neither
+        // is serialized when absent.
+        let plain: ProblemSpec = serde_json::from_str(
+            r#"{"schema_version":1,"mesh":{"path":"m.msh","length_unit_m":1}}"#,
+        )
+        .unwrap();
+        assert!(plain.boundary_conditions.periodic.is_empty());
+        let text = serde_json::to_string(&plain).unwrap();
+        assert!(
+            !text.contains("periodic") && !text.contains("bloch"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn bloch_rejects_unknown_and_mixed_keys() {
+        for bad in [
+            r#"{"n_modes":1,"unit":"k0","shift":1,"bloch":{"k":[0,0,0],"path":["G","X"]}}"#,
+            r#"{"n_modes":1,"unit":"k0","shift":1,"bloch":{"kk":[0,0,0]}}"#,
+            r#"{"n_modes":1,"unit":"k0","shift":1,"bloch":{"path":["G","X"]}}"#,
+            r#"{"n_modes":1,"unit":"k0","shift":1,"bloch":{"path":["G","X"],"lattice":{"a":1,"d":2}}}"#,
+        ] {
+            assert!(serde_json::from_str::<EigenSpec>(bad).is_err(), "{bad}");
+        }
+        assert!(
+            serde_json::from_str::<PeriodicSpec>(r#"{"master":"a","slave":"b","shift":[1,0,0]}"#)
+                .is_err()
         );
     }
 }

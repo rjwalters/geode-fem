@@ -449,6 +449,68 @@ fn eigen_frequency_gradient_matches_fd_and_euler() {
     }
 }
 
+/// Lossy / open eigen (issue #1329): the same PEC box with lossy fills in
+/// both halves. `∂f/∂Re ε` and `∂Q/∂Re ε` from the unconjugated
+/// Hellmann–Feynman on the complex-symmetric pencil, each held to the
+/// shipped forward's central FD (`fd_check`: f in the generic check, Q in
+/// the lossy path's own check on the cached re-solves).
+#[test]
+fn lossy_eigen_frequency_and_q_gradients_match_fd() {
+    let spec = box_cavity_spec("eigen-lossy", 2.0, 1.0, [8, 4, 6], &[0, 1]);
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(&*spec).unwrap()).unwrap();
+    v["materials"] = json!([
+        {"physical_group": "front", "eps_r": [2.0, -0.05]},
+        {"physical_group": "back", "eps_r": [1.0, -0.02]}
+    ]);
+    std::fs::write(&*spec, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    let r = run_ok("eigen", &spec);
+    assert_eq!(r["solver"]["pencil"], "complex_symmetric");
+    let s = checked_sensitivities(&r);
+    assert_eq!(s["observable"], "frequency_hz");
+    assert_eq!(s["method"], "hellmann_feynman_unconjugated");
+    assert_eq!(s["entries"].as_array().unwrap().len(), 2 * 2);
+    for e in s["entries"].as_array().unwrap() {
+        let m = e["index"][0].as_u64().unwrap() as usize;
+        let mode = &r["modes"][m];
+        assert!(rel(f(&e["value"]), f(&mode["frequency_hz"])) < 1e-12, "{e}");
+        assert!(rel(f(&e["q_value"]), f(&mode["q"])) < 1e-12, "{e}");
+        let (dq, dq_fd) = (f(&e["q_gradient"]), f(&e["q_fd_gradient"]));
+        let q_err = f(&e["q_fd_rel_error"]);
+        eprintln!(
+            "  Q param {} mode {m}: {dq:.6e} vs FD {dq_fd:.6e} (rel {q_err:.2e})",
+            e["parameter"]
+        );
+        assert!(q_err <= FD_REL_TOL, "entry {e}");
+        // More real permittivity lowers the resonance.
+        assert!(f(&e["gradient"]) < 0.0, "{e}");
+    }
+}
+
+/// Open eigen with a box UPML frozen at the shift (fixed `Λ`, issue
+/// #1329): `ε_tensor = ε Λ` is linear in the substrate's scalar `ε`, so the
+/// same unconjugated Hellmann–Feynman applies. `∂f/∂ε` and `∂Q/∂ε` of the
+/// three open quasi-modes against the shipped forward's FD (each FD solve
+/// re-uses the frozen `Λ`).
+#[test]
+fn open_upml_eigen_frequency_and_q_gradients_match_fd() {
+    let spec = edited("patch_eigen_upml_smoke.json", "upml-sens", |v| {
+        v["sensitivity"] = json!({
+            "parameters": [{"kind": "eps_r", "physical_group": "substrate"}],
+            "modes": [0, 1, 2],
+            "fd_check": {}
+        });
+    });
+    let r = run_ok("eigen", &spec);
+    assert!(r["solver"]["upml_reference_k0"].is_number(), "{r:#}");
+    let s = checked_sensitivities(&r);
+    for e in s["entries"].as_array().unwrap() {
+        let m = e["index"][0].as_u64().unwrap() as usize;
+        assert!(rel(f(&e["value"]), f(&r["modes"][m]["frequency_hz"])) < 1e-12);
+        assert!(rel(f(&e["q_value"]), f(&r["modes"][m]["q"])) < 1e-12);
+        assert!(f(&e["q_fd_rel_error"]) <= FD_REL_TOL, "{e}");
+    }
+}
+
 #[test]
 fn eigen_degenerate_mode_is_refused() {
     // The lossless sphere cavity's lowest mode is one of the l = 1 TE
@@ -573,7 +635,7 @@ fn unsupported_combinations_are_rejected_naming_the_gap() {
 }
 
 #[test]
-fn unsupported_driven_extract_and_lossy_eigen_sensitivity_are_rejected() {
+fn unsupported_driven_and_extract_sensitivity_are_rejected() {
     let drv = "driven_spiral_sensitivity_smoke.json";
     // The supported combination passes `geode check` (Leontovich walls
     // included: their term is ε-independent).
@@ -614,13 +676,23 @@ fn unsupported_driven_extract_and_lossy_eigen_sensitivity_are_rejected() {
         v["sensitivity"] = json!({"parameters": [{"kind": "eps_r", "physical_group": "x"}]});
     }));
     assert!(msg.contains("not supported for an `extract` spec"), "{msg}");
-    // Lossy eigen: no complex-eigenvalue (Q) gradient.
-    let msg = check_err(&edited("sphere_lossy_pec_golden.json", "lossy", |v| {
-        v["sensitivity"] = json!({
-            "parameters": [{"kind": "eps_r", "physical_group": "sphere_interior"}]
-        });
-    }));
-    assert!(msg.contains("lossless pencil"), "{msg}");
+    // Lossy / open eigen now differentiates (issue #1329): the spec passes
+    // `geode check`.
+    let ok = geode(&[
+        "check",
+        edited("sphere_lossy_pec_golden.json", "lossy", |v| {
+            v["sensitivity"] = json!({
+                "parameters": [{"kind": "eps_r", "physical_group": "sphere_interior"}]
+            });
+        })
+        .to_str()
+        .unwrap(),
+    ]);
+    assert!(
+        ok.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ok.stdout)
+    );
     // Eigen needs ≥ 2 modes and in-range mode indices.
     let msg = check_err(&edited("sphere_pec_golden.json", "one-mode", |v| {
         v["eigen"]["n_modes"] = json!(1);

@@ -187,6 +187,10 @@ pub struct TrackedBand {
     pub sorted_index: Vec<usize>,
     /// Overlap with the previous point (`1` at the first point).
     pub overlap: Vec<f64>,
+    /// Relative eigen-residual of the band's mode at each point
+    /// ([`super::BlochMode::residual_rel`]; reporting only, the tracking does not
+    /// use it).
+    pub residual_rel: Vec<f64>,
 }
 
 /// Result of [`BlochCell::band_structure`].
@@ -291,6 +295,7 @@ impl BlochCell {
                         group_velocity: Vec::new(),
                         sorted_index: Vec::new(),
                         overlap: Vec::new(),
+                        residual_rel: Vec::new(),
                     })
                     .collect();
                 ((0..n_c).collect(), vec![1.0; n_c])
@@ -342,6 +347,7 @@ impl BlochCell {
                 });
                 slot.sorted_index.push(j);
                 slot.overlap.push(ov[s]);
+                slot.residual_rel.push(modes.modes[j].residual_rel);
                 if s < n_bands && ov[s] < MIN_CONFIDENT_OVERLAP {
                     warnings.push(format!(
                         "band {s}: tracking overlap {:.3} at point {p} (k = {:?}) is below \

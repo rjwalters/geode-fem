@@ -4920,7 +4920,8 @@ fn long_guide_records() -> Vec<LongGuideRecord> {
         .join("../../benchmarks/tm_guard_955/long_guide_table.toml");
     let doc: toml::Value = std::fs::read_to_string(&path)
         .expect("long_guide_table.toml")
-        .parse()
+        .parse::<toml::Table>()
+        .map(toml::Value::Table)
         .expect("TOML");
     let num = |v: &toml::Value| {
         v.as_float()

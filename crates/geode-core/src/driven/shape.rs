@@ -2573,6 +2573,24 @@ pub(crate) enum SurfaceTermMutation {
     DropPortFlux,
 }
 
+/// Promote per-tet diagonal permittivities `[ε_x, ε_y, ε_z]` to the full 3×3
+/// `(ε, ν)` tensor pair of the matched-UPML pencil, with `ν = μ⁻¹ = I`
+/// (`μ = 1`), so a [`DrivenMaterials::DiagTensor`] material can reuse the
+/// tensor Dual shape-gradient path.
+#[allow(clippy::type_complexity)]
+pub(crate) fn diag_tensor_to_full(
+    eps_diag: &[[c64; 3]],
+) -> (Vec<[[c64; 3]; 3]>, Vec<[[c64; 3]; 3]>) {
+    let zero = c64::new(0.0, 0.0);
+    let one = c64::new(1.0, 0.0);
+    let eps = eps_diag
+        .iter()
+        .map(|d| [[d[0], zero, zero], [zero, d[1], zero], [zero, zero, d[2]]])
+        .collect();
+    let nu = vec![[[one, zero, zero], [zero, one, zero], [zero, zero, one]]; eps_diag.len()];
+    (eps, nu)
+}
+
 /// Nodal-coordinate gradient `∂g/∂X_{n,d}` of the driven solve described by
 /// `problem`, at **either element order** — the order-generic successor of
 /// the cube-only [`driven_shape_gradient_p2`] / [`driven_shape_gradient_p2_complex`]
@@ -2660,9 +2678,25 @@ where
                 objective,
                 device,
             ),
-            DrivenMaterials::DiagTensor(_) => Err(unsupported(
-                "the shape gradient of diagonal-tensor materials",
-            )),
+            // Epic #841 Phase 2a (#1259): a diagonal anisotropic ε with μ = 1 is
+            // exactly the matched-UPML pencil with `ε = diag(ε_x, ε_y, ε_z)` and
+            // `ν = I` (same global-Cartesian basis, same K/M assembly), so the
+            // FD-validated tensor Dual path (`nedelec_local_dual_tensor`) is
+            // reused verbatim by promoting the diagonal to full tensors.
+            DrivenMaterials::DiagTensor(eps_diag) => {
+                let (epsilon_tensor, nu_tensor) = diag_tensor_to_full(eps_diag);
+                driven_shape_gradient_matched_upml_ports::<B, G>(
+                    problem.mesh,
+                    &epsilon_tensor,
+                    &nu_tensor,
+                    problem.bcs,
+                    problem.ports,
+                    problem.omega,
+                    problem.source,
+                    objective,
+                    device,
+                )
+            }
         };
     }
     let op = problem.assemble_p2_operator()?;

@@ -32,15 +32,19 @@ use geode_core::driven::ports::{
 use geode_core::driven::solve::{SurfaceImpedanceModel, SurfaceRoughness};
 use geode_core::elements::ElementOrder;
 use geode_core::mesh::patch::box_upml_tensors;
+use geode_core::mesh::periodic::{
+    PeriodicMap, PeriodicMatchOptions, PeriodicPair, PeriodicTransform,
+};
 use geode_core::mesh::{TaggedTetMesh, pec_interior_mask_from_triangles, read_tagged_tet_mesh};
 use sha2::{Digest, Sha256};
 
 use crate::dispersion::DispersionModel;
 use crate::error::CliError;
 use crate::spec::{
-    Analysis, DEFAULT_N_TERMINATION_EVANESCENT, DEFAULT_SENSITIVITY_MIN_REL_GAP, FrequencyUnit,
-    ImpedanceDefinition, ProblemSpec, RoughnessSpec, SPEC_SCHEMA_VERSION, SensitivityParameterKind,
-    ShapeMotion, SolverSpec, WavePortSpec,
+    Analysis, BlochPathSpec, BlochPointSpec, BlochSpec, DEFAULT_N_TERMINATION_EVANESCENT,
+    DEFAULT_SENSITIVITY_MIN_REL_GAP, FrequencyUnit, ImpedanceDefinition, ProblemSpec,
+    RoughnessSpec, SPEC_SCHEMA_VERSION, SensitivityParameterKind, ShapeMotion, SolverSpec,
+    WavePortSpec,
 };
 
 /// How a volume region's permittivity was chosen.
@@ -94,6 +98,8 @@ pub struct Region {
     pub eps_r_diag: Option<[c64; 3]>,
     /// Diagonal anisotropic `μ_r` `[xx, yy, zz]` (issue #760), if given.
     pub mu_r_diag: Option<[f64; 3]>,
+    /// Volumetric conductivity in S/m (issue #1254; `0` unless listed).
+    pub sigma_s_m: f64,
 }
 
 /// A resolved surface group (PEC).
@@ -105,6 +111,58 @@ pub struct Surface {
     pub tag: i32,
     /// Tagged triangles.
     pub triangles: Vec<[u32; 3]>,
+}
+
+/// One resolved periodic master/slave pair (Epic #837 Phase 4a).
+#[derive(Debug, Clone)]
+pub struct PeriodicPairSetup {
+    /// The master face.
+    pub master: Surface,
+    /// The slave face.
+    pub slave: Surface,
+}
+
+/// The resolved periodic boundary conditions: the pairs and the matched
+/// map built at load time (so `check` and the solve see the same pairing
+/// and the same snapped mesh).
+#[derive(Debug, Clone)]
+pub struct PeriodicSetup {
+    /// The pairs, in spec order.
+    pub pairs: Vec<PeriodicPairSetup>,
+    /// The matched node / edge / face map.
+    pub map: PeriodicMap,
+}
+
+impl PeriodicSetup {
+    /// Whether the lattice has a nonzero translation component along each
+    /// axis (`x`, `y`, `z`).
+    pub fn periodic_axes(&self) -> [bool; 3] {
+        let mut axes = [false; 3];
+        for r in &self.map.report().pairs {
+            for (a, d) in axes.iter_mut().zip(r.translation) {
+                *a |= d.abs() > 1e-9 * norm3(r.translation);
+            }
+        }
+        axes
+    }
+}
+
+fn norm3(v: [f64; 3]) -> f64 {
+    (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
+}
+
+/// A resolved `eigen.bloch` request.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BlochTarget {
+    /// One wave vector (rad per mesh length unit).
+    Point([f64; 3]),
+    /// A labelled k-path.
+    Path {
+        /// Labelled vertices.
+        vertices: Vec<(String, [f64; 3])>,
+        /// Samples per segment.
+        points_per_segment: usize,
+    },
 }
 
 /// A resolved Leontovich wall.
@@ -148,7 +206,7 @@ impl Leontovich {
 }
 
 /// Convert a spec roughness block (SI) to the solver's natural units.
-fn roughness_natural(r: RoughnessSpec, length_unit_m: f64) -> SurfaceRoughness {
+pub(crate) fn roughness_natural(r: RoughnessSpec, length_unit_m: f64) -> SurfaceRoughness {
     match r {
         RoughnessSpec::Hammerstad { rms_m } => SurfaceRoughness::HammerstadJensen {
             rms: rms_m / length_unit_m,
@@ -487,6 +545,10 @@ pub struct SensitivityParameter {
     /// Shape parameters (issue #883): the motion (`region` is then
     /// `usize::MAX` and `physical_group` the moving groups, comma-joined).
     pub shape: Option<ShapeParameterDef>,
+    /// Wall parameters (issue #1330): the Leontovich wall and its
+    /// parameter (`region` is then `usize::MAX`, `physical_group` the
+    /// wall's group; `value` is in SI).
+    pub wall: Option<WallParameterDef>,
 }
 
 /// The resolved `sensitivity` section (issue #707).
@@ -531,6 +593,22 @@ pub struct ShapeParameterDef {
     /// Length scale of the FD step (mesh units): the stretch extent, else
     /// the moving nodes' bounding-box size.
     pub fd_length: f64,
+}
+
+/// A resolved Leontovich-wall parameter (issue #1330).
+#[derive(Debug, Clone)]
+pub struct WallParameterDef {
+    /// Index into [`Problem::leontovich`] (= the library's wall index,
+    /// [`crate::driven::impedance_walls`] lists those walls first).
+    pub wall: usize,
+    /// The library parameter.
+    pub param: geode_core::driven::solve::WallParam,
+    /// `dθ_natural/dθ_SI`: the factor taking the library's natural-unit
+    /// derivative to the reported SI one (`η₀·L_unit` for `σ`, `1/L_unit`
+    /// for a length, `L_unit²` for the sphere density).
+    pub si_factor: f64,
+    /// Unit of the parameter in the report.
+    pub unit: &'static str,
 }
 
 /// One resolved driven observable (issue #883).
@@ -586,6 +664,10 @@ pub struct Problem {
     /// Per-tet complex relative permittivity (dispersive regions at their
     /// reference frequency; the solve uses [`Problem::eps_at`]).
     pub eps: Vec<c64>,
+    /// Per-tet volumetric conductivity in natural units `σ·η₀·L_unit`
+    /// (1/length; issue #1254). **Empty** when no material lists a
+    /// positive `conductivity_s_m` — see [`Problem::sigma`].
+    pub sigma_tet: Vec<f64>,
     /// Dispersive regions, in spec order (issue #757; empty when every
     /// material is constant).
     pub dispersion: Vec<DispersiveRegion>,
@@ -634,6 +716,12 @@ pub struct Problem {
     pub inductance: Option<InductanceTarget>,
     /// The resolved `sensitivity` section, if present (issue #707).
     pub sensitivity: Option<SensitivityTarget>,
+    /// The resolved periodic boundary pairs (`boundary_conditions.periodic`;
+    /// `None` when the spec lists none).
+    pub periodic: Option<PeriodicSetup>,
+    /// The resolved `eigen.bloch` request (`None` for a cavity eigen
+    /// spec).
+    pub bloch: Option<BlochTarget>,
 }
 
 impl Problem {
@@ -739,6 +827,13 @@ impl Problem {
     /// material (issue #757) — so the sweep re-assembles it per frequency.
     pub fn is_frequency_dependent(&self) -> bool {
         !self.upml.is_empty() || !self.dispersion.is_empty()
+    }
+
+    /// The per-tet natural-unit conductivity the driven operator takes
+    /// (`None` when no material is conducting, so a σ-free spec calls the
+    /// library exactly as before).
+    pub fn sigma(&self) -> Option<&[f64]> {
+        (!self.sigma_tet.is_empty()).then_some(self.sigma_tet.as_slice())
     }
 
     /// Per-tet complex relative permittivity at `hz` (Hz): borrows
@@ -1030,6 +1125,11 @@ fn validate_adaptive_mesh(spec: &ProblemSpec, analysis: Analysis) -> Result<(), 
     if spec.sensitivity.is_some() {
         return unsupported("a `sensitivity` section");
     }
+    // The periodic pairing is matched at load time on one snapped mesh;
+    // refinement would not preserve it.
+    if !spec.boundary_conditions.periodic.is_empty() {
+        return unsupported("`boundary_conditions.periodic`");
+    }
     if spec.sweep.as_ref().is_some_and(|s| s.adaptive.is_some()) {
         return unsupported("`sweep.adaptive` together with it");
     }
@@ -1224,6 +1324,23 @@ pub fn load_parsed(
             )));
         }
         validate_diagonal_material(m, analysis)?;
+        if let Some(sigma) = m.conductivity_s_m {
+            if !(sigma.is_finite() && sigma >= 0.0) {
+                return Err(invalid(format!(
+                    "materials[{}].conductivity_s_m must be finite and >= 0 (got {sigma})",
+                    m.physical_group
+                )));
+            }
+            if sigma != 0.0 && !matches!(analysis, Analysis::Driven | Analysis::Extract) {
+                return Err(invalid(format!(
+                    "materials[{}].conductivity_s_m is only supported by `geode driven` and \
+                     `geode extract` in schema v1; the {} solver has no conduction term and \
+                     would silently ignore it",
+                    m.physical_group,
+                    analysis.name()
+                )));
+            }
+        }
         if let Some(d) = &m.dispersion {
             validate_dispersion(&m.physical_group, m.eps_r, d, &spec, analysis)?;
         }
@@ -1287,6 +1404,7 @@ pub fn load_parsed(
     validate_sensitivity(&spec, analysis)?;
     validate_sweep(&spec, analysis)?;
     validate_open_boundaries(&spec)?;
+    let bloch = validate_periodic(&spec, analysis)?;
     validate_surface_roles(&spec)?;
     // Duplicate / conflicting surface roles were rejected above
     // (`validate_surface_roles`).
@@ -1359,7 +1477,7 @@ pub fn load_parsed(
         err,
     })?;
     let mesh_sha256 = hex(&Sha256::digest(&bytes));
-    let tagged = read_tagged_tet_mesh(&bytes).map_err(|err| CliError::Mesh {
+    let mut tagged = read_tagged_tet_mesh(&bytes).map_err(|err| CliError::Mesh {
         path: mesh_path.clone(),
         err,
     })?;
@@ -1400,6 +1518,17 @@ pub fn load_parsed(
         .silver_muller
         .iter()
         .map(|n| resolve(2, n, "silver_muller"))
+        .collect();
+    let periodic_tags: Vec<[Option<i32>; 2]> = spec
+        .boundary_conditions
+        .periodic
+        .iter()
+        .map(|p| {
+            [
+                resolve(2, &p.master, "periodic master"),
+                resolve(2, &p.slave, "periodic slave"),
+            ]
+        })
         .collect();
     let upml_tags: Vec<Option<i32>> = spec
         .absorbing_regions
@@ -1453,7 +1582,7 @@ pub fn load_parsed(
         .sensitivity
         .iter()
         .flat_map(|sens| &sens.parameters)
-        .filter(|p| !p.kind.is_material())
+        .filter(|p| p.kind.is_shape())
     {
         for (g, role) in shape_groups(prm)
             .iter()
@@ -1481,6 +1610,21 @@ pub fn load_parsed(
             .collect();
         return Err(CliError::UnresolvedGroups { missing, available });
     }
+
+    // ---- periodic pairs (Epic #837 Phase 4a) -------------------------
+    // Matched before anything reads node coordinates: a near match snaps
+    // the slave nodes onto the exact translated images (the mesh is then
+    // exactly periodic; the warning reaches the report), and a mismatch
+    // fails here for `check` and the solve alike.
+    let periodic = if spec.boundary_conditions.periodic.is_empty() {
+        None
+    } else {
+        Some(build_periodic(
+            &spec.boundary_conditions.periodic,
+            &periodic_tags,
+            &mut tagged,
+        )?)
+    };
 
     // Faces (sorted node triples) of the tet mesh, built on first use.
     let tet_faces = std::cell::OnceCell::new();
@@ -1521,9 +1665,13 @@ pub fn load_parsed(
     let mut mu_by_tag: BTreeMap<i32, f64> = BTreeMap::new();
     let mut eps_diag_by_tag: BTreeMap<i32, [c64; 3]> = BTreeMap::new();
     let mut mu_diag_by_tag: BTreeMap<i32, [f64; 3]> = BTreeMap::new();
+    let mut sigma_by_tag: BTreeMap<i32, f64> = BTreeMap::new();
     let mut dispersion: Vec<DispersiveRegion> = Vec::new();
     for (m, tag) in spec.materials.iter().zip(&material_tags) {
         let tag = tag.expect("resolved above");
+        if let Some(s) = m.conductivity_s_m.filter(|&s| s > 0.0) {
+            sigma_by_tag.insert(tag, s);
+        }
         if let Some(d) = &m.eps_r_diag {
             eps_diag_by_tag.insert(tag, d.components().map(|[re, im]| c64::new(re, im)));
         }
@@ -1575,6 +1723,17 @@ pub fn load_parsed(
         .map(|t| eps_by_tag.get(t).copied().unwrap_or(vacuum))
         .collect();
     let mu_r = build_mu_r(&tagged.tet_physical_tags, &mu_by_tag);
+    // Natural-unit σ per tet (σ_SI·η₀·L_unit, like the Leontovich walls);
+    // empty when no region conducts, so σ-free specs are untouched.
+    let sigma_tet: Vec<f64> = if sigma_by_tag.is_empty() {
+        Vec::new()
+    } else {
+        tagged
+            .tet_physical_tags
+            .iter()
+            .map(|t| sigma_by_tag.get(t).map_or(0.0, |s| s * ETA_0_OHM * lu))
+            .collect()
+    };
     // Per-tet diagonal tensors, empty when no material is anisotropic.
     fn per_tet<T: Copy>(tags: &[i32], by_tag: &BTreeMap<i32, T>) -> Vec<Option<T>> {
         if by_tag.is_empty() {
@@ -1613,6 +1772,7 @@ pub fn load_parsed(
                 source,
                 eps_r_diag: eps_diag_by_tag.get(&tag).copied(),
                 mu_r_diag: mu_diag_by_tag.get(&tag).copied(),
+                sigma_s_m: sigma_by_tag.get(&tag).copied().unwrap_or(0.0),
             }
         })
         .collect();
@@ -1825,6 +1985,7 @@ pub fn load_parsed(
                 wave_ports: &wave_ports,
                 frequencies: &frequencies,
                 length_unit_m: spec.mesh.length_unit_m,
+                leontovich: &leontovich,
             },
         )?),
         None => None,
@@ -1842,6 +2003,7 @@ pub fn load_parsed(
         element_order,
         hcurl_space,
         eps,
+        sigma_tet,
         dispersion,
         mu_r,
         eps_diag,
@@ -1861,6 +2023,8 @@ pub fn load_parsed(
         capacitance,
         inductance,
         sensitivity,
+        periodic,
+        bloch,
     })
 }
 
@@ -2425,6 +2589,180 @@ fn ams_material_conflict(
     None
 }
 
+/// Match the spec's periodic pairs on `tagged` (snapping near-matching
+/// slave nodes in place) and keep the map.
+fn build_periodic(
+    specs: &[crate::spec::PeriodicSpec],
+    tags: &[[Option<i32>; 2]],
+    tagged: &mut TaggedTetMesh,
+) -> Result<PeriodicSetup, CliError> {
+    let mut setups = Vec::with_capacity(specs.len());
+    let mut pairs = Vec::with_capacity(specs.len());
+    for (spec, tag) in specs.iter().zip(tags) {
+        let [mt, st] = tag.map(|t| t.expect("resolved above"));
+        let face = |name: &str, tag: i32| -> Result<Surface, CliError> {
+            let triangles = tagged.triangles_with_tag(tag);
+            if triangles.is_empty() {
+                return Err(invalid(format!(
+                    "periodic surface `{name}` has no tagged triangles in the mesh"
+                )));
+            }
+            Ok(Surface {
+                name: name.to_string(),
+                tag,
+                triangles,
+            })
+        };
+        let master = face(&spec.master, mt)?;
+        let slave = face(&spec.slave, st)?;
+        pairs.push(PeriodicPair {
+            master: master.triangles.clone(),
+            slave: slave.triangles.clone(),
+            transform: spec.translation.map(PeriodicTransform::Translation),
+        });
+        setups.push(PeriodicPairSetup { master, slave });
+    }
+    let map = PeriodicMap::build(&mut tagged.mesh, &pairs, &PeriodicMatchOptions::default())
+        .map_err(|e| invalid(format!("boundary_conditions.periodic: {e}")))?;
+    Ok(PeriodicSetup { pairs: setups, map })
+}
+
+/// The wave vectors of a `bloch` path label (`G`/`Γ`, `X`, `Y`, `Z`, `M`,
+/// `R`) on an orthogonal lattice.
+fn bloch_label_k(label: &str, [a, b, c]: [f64; 3]) -> Option<[f64; 3]> {
+    use std::f64::consts::PI;
+    Some(match label {
+        "G" | "Γ" | "Gamma" => [0.0; 3],
+        "X" => [PI / a, 0.0, 0.0],
+        "Y" => [0.0, PI / b, 0.0],
+        "Z" => [0.0, 0.0, PI / c],
+        "M" => [PI / a, PI / b, 0.0],
+        "R" => [PI / a, PI / b, PI / c],
+        _ => return None,
+    })
+}
+
+/// Rules of the periodic boundary conditions and `eigen.bloch`
+/// (Epic #837 Phase 4a); returns the resolved Bloch target. Everything
+/// that needs the mesh (pair coverage, translation consistency) is the
+/// matcher's, in [`build_periodic`].
+fn validate_periodic(
+    spec: &ProblemSpec,
+    analysis: Analysis,
+) -> Result<Option<BlochTarget>, CliError> {
+    let periodic = &spec.boundary_conditions.periodic;
+    let bloch = spec.eigen.as_ref().and_then(|e| e.bloch.as_ref());
+    for (i, p) in periodic.iter().enumerate() {
+        if p.master == p.slave {
+            return Err(invalid(format!(
+                "boundary_conditions.periodic[{i}]: master and slave are both `{}`; a periodic \
+                 pair joins two different surfaces",
+                p.master
+            )));
+        }
+        if let Some(d) = p.translation
+            && !(d.iter().all(|x| x.is_finite()) && d.iter().any(|x| *x != 0.0))
+        {
+            return Err(invalid(format!(
+                "boundary_conditions.periodic[{i}].translation must be finite and non-zero"
+            )));
+        }
+    }
+    if bloch.is_none() {
+        if periodic.is_empty() {
+            return Ok(None);
+        }
+        return Err(invalid(if analysis == Analysis::Eigen {
+            "`boundary_conditions.periodic` needs `eigen.bloch` (a wave vector or k-path): a \
+             periodic eigen spec is a unit-cell band solve"
+        } else {
+            "`boundary_conditions.periodic` is supported by `eigen.bloch` specs only (periodic \
+             driven / Floquet-port analyses land with Epic #837 Phase 4b)"
+        }));
+    }
+    let bloch = bloch.expect("checked above");
+    if periodic.is_empty() {
+        return Err(invalid(
+            "`eigen.bloch` needs at least one `boundary_conditions.periodic` pair: a Bloch phase \
+             is meaningless without a lattice vector",
+        ));
+    }
+    if !spec.absorbing_regions.is_empty() {
+        return Err(invalid(
+            "`absorbing_regions` (UPML) cannot be combined with periodic boundaries: the stretch \
+             is not periodic along the periodic axis, and the Bloch pencil is lossless",
+        ));
+    }
+    if spec.sensitivity.is_some() {
+        return Err(invalid("`sensitivity` is not supported with `eigen.bloch`"));
+    }
+    for m in &spec.materials {
+        if m.eps_r[1] != 0.0
+            || m.dispersion.is_some()
+            || m.eps_r_diag
+                .as_ref()
+                .is_some_and(|d| d.components().iter().any(|c| c[1] != 0.0))
+        {
+            return Err(invalid(format!(
+                "materials[{}]: `eigen.bloch` solves the lossless Bloch pencil; use a real \
+                 `eps_r` (no loss, no dispersion)",
+                m.physical_group
+            )));
+        }
+    }
+    match bloch {
+        BlochSpec::Point(BlochPointSpec { k }) => {
+            if !k.iter().all(|x| x.is_finite()) {
+                return Err(invalid("eigen.bloch.k must be finite"));
+            }
+            Ok(Some(BlochTarget::Point(*k)))
+        }
+        BlochSpec::Path(BlochPathSpec {
+            path,
+            lattice,
+            points_per_segment,
+        }) => {
+            let period = |name: &str, v: f64| -> Result<f64, CliError> {
+                if v.is_finite() && v > 0.0 {
+                    Ok(v)
+                } else {
+                    Err(invalid(format!(
+                        "eigen.bloch.lattice.{name} must be finite and > 0 (got {v})"
+                    )))
+                }
+            };
+            let a = period("a", lattice.a)?;
+            let b = period("b", lattice.b.unwrap_or(a))?;
+            let c = period("c", lattice.c.unwrap_or(a))?;
+            if path.len() < 2 {
+                return Err(invalid("eigen.bloch.path needs at least two vertices"));
+            }
+            if *points_per_segment == 0 {
+                return Err(invalid("eigen.bloch.points_per_segment must be ≥ 1"));
+            }
+            let mut vertices = Vec::with_capacity(path.len());
+            for label in path {
+                let k = bloch_label_k(label, [a, b, c]).ok_or_else(|| {
+                    invalid(format!(
+                        "eigen.bloch.path: unknown vertex label `{label}` (use G, X, Y, Z, M or R)"
+                    ))
+                })?;
+                vertices.push((label.clone(), k));
+            }
+            if let Some(w) = vertices.windows(2).find(|w| w[0].1 == w[1].1) {
+                return Err(invalid(format!(
+                    "eigen.bloch.path: the segment {} → {} has zero length",
+                    w[0].0, w[1].0
+                )));
+            }
+            Ok(Some(BlochTarget::Path {
+                vertices,
+                points_per_segment: *points_per_segment,
+            }))
+        }
+    }
+}
+
 /// Eigen-spec rules (scalar, before the mesh is read). The eigen pencil
 /// must be **linear** in `λ = k₀²`: real or complex (passive) `ε_r` and
 /// box-UPML `absorbing_regions` (stretch frozen at the shift frequency)
@@ -2652,19 +2990,9 @@ fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), Cl
                 )));
             }
         }
-        Analysis::Eigen => {
-            if !spec.absorbing_regions.is_empty()
-                || spec.materials.iter().any(|m| m.eps_r[1] != 0.0)
-            {
-                return Err(invalid(
-                    "`sensitivity` on an eigen spec needs a lossless pencil (real `eps_r`, no \
-                     `absorbing_regions`): the library's eigenvalue sensitivity \
-                     (EigenSensitivity::deigenvalue_deps, Hellmann–Feynman) is real \
-                     symmetric-definite only — there is no complex-eigenvalue (frequency / Q) \
-                     gradient of a lossy or open pencil yet",
-                ));
-            }
-        }
+        // Lossless and lossy / open pencils both differentiate (the lossy path
+        // is the unconjugated Hellmann–Feynman of issue #1329).
+        Analysis::Eigen => {}
         Analysis::Inductance => {}
     }
     if sens.parameters.is_empty() {
@@ -2676,18 +3004,28 @@ fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), Cl
         use SensitivityParameterKind as K;
         let allowed: &[SensitivityParameterKind] = match analysis {
             Analysis::Inductance => &[K::NuR, K::MuR],
-            Analysis::Driven => &[K::EpsR, K::EpsRImag, K::TanDelta, K::Shape],
+            Analysis::Driven => &[
+                K::EpsR,
+                K::EpsRImag,
+                K::TanDelta,
+                K::Sigma,
+                K::Shape,
+                K::WallSigma,
+                K::WallRmsRoughness,
+                K::WallBallRadius,
+                K::WallBallDensity,
+            ],
             _ => &[K::EpsR],
         };
         let label = parameter_label(prm);
         if !allowed.contains(&prm.kind) {
             let names: Vec<&str> = allowed.iter().map(|k| k.name()).collect();
             let why = if analysis != Analysis::Driven
-                && matches!(prm.kind, K::EpsRImag | K::TanDelta | K::Shape)
+                && !matches!(prm.kind, K::EpsR | K::NuR | K::MuR)
             {
-                " (`eps_r_imag`, `tan_delta` and `shape` are driven-spec parameters of the N-port \
-                 S-matrix adjoint, Epic #841 Phase 5a; this analysis's adjoint has no loss or \
-                 shape gradient in the CLI yet)"
+                " (`eps_r_imag`, `tan_delta`, `sigma`, `shape` and the `wall_*` kinds are driven-spec \
+                 parameters of the N-port S-matrix adjoint, Epic #841 Phase 5a; this analysis's \
+                 adjoint has no loss, shape or wall gradient in the CLI yet)"
             } else {
                 ""
             };
@@ -2795,12 +3133,18 @@ pub fn is_n_port_sensitivity(spec: &ProblemSpec) -> bool {
             .any(|p| p.kind != SensitivityParameterKind::EpsR)
         || spec.ports.len() != 1
         || !spec.wave_ports.is_empty()
+        // The legacy one-port adjoint has no σ term: a conducting material
+        // needs the N-port adjoint (issue #1254).
+        || spec
+            .materials
+            .iter()
+            .any(|m| m.conductivity_s_m.is_some_and(|s| s > 0.0))
 }
 
 /// The report / message label of a sensitivity parameter: its volume group
 /// (material kinds), or its name (shape; default `motion(groups)`).
 pub fn parameter_label(prm: &crate::spec::SensitivityParameterSpec) -> String {
-    if prm.kind.is_material() {
+    if !prm.kind.is_shape() {
         return format!("`{}`", prm.physical_group.as_deref().unwrap_or("?"));
     }
     format!("`{}`", shape_name(prm))
@@ -2841,11 +3185,16 @@ fn validate_parameter_fields(
         ("axis", prm.axis.is_some()),
         ("pinned", prm.pinned.is_some()),
     ];
-    if prm.kind.is_material() {
+    if !prm.kind.is_shape() {
         if prm.physical_group.is_none() {
             return Err(invalid(format!(
-                "sensitivity.parameters[{i}]: kind `{}` needs `physical_group` (a volume group)",
-                prm.kind.name()
+                "sensitivity.parameters[{i}]: kind `{}` needs `physical_group` ({})",
+                prm.kind.name(),
+                if prm.kind.is_wall() {
+                    "a Leontovich wall's surface group"
+                } else {
+                    "a volume group"
+                }
             )));
         }
         if let Some((f, _)) = shape_fields.iter().find(|(_, set)| *set) {
@@ -2988,6 +3337,8 @@ struct SensitivityContext<'a> {
     frequencies: &'a [Frequency],
     /// Metres per mesh unit.
     length_unit_m: f64,
+    /// The resolved Leontovich walls (wall parameters, issue #1330).
+    leontovich: &'a [Leontovich],
 }
 
 /// Bind each sensitivity parameter to its volume region (the regions are
@@ -3011,8 +3362,11 @@ fn resolve_sensitivity(
         .iter()
         .zip(tags)
         .map(|(prm, tag)| {
-            if !prm.kind.is_material() {
+            if prm.kind.is_shape() {
                 return resolve_shape_parameter(prm, tagged, ctx.length_unit_m);
+            }
+            if prm.kind.is_wall() {
+                return resolve_wall_parameter(prm, ctx.leontovich, ctx.length_unit_m);
             }
             let group = prm.physical_group.clone().expect("validated");
             let tag = tag.expect("resolved above");
@@ -3028,7 +3382,8 @@ fn resolve_sensitivity(
                 SensitivityParameterKind::TanDelta => -r.eps_r.im / r.eps_r.re,
                 SensitivityParameterKind::NuR => 1.0 / r.mu_r,
                 SensitivityParameterKind::MuR => r.mu_r,
-                SensitivityParameterKind::Shape => unreachable!("handled above"),
+                SensitivityParameterKind::Sigma => r.sigma_s_m,
+                _ => unreachable!("handled above"),
             };
             Ok(SensitivityParameter {
                 physical_group: group,
@@ -3036,6 +3391,7 @@ fn resolve_sensitivity(
                 region,
                 value,
                 shape: None,
+                wall: None,
             })
         })
         .collect::<Result<Vec<_>, CliError>>()?;
@@ -3069,6 +3425,110 @@ fn resolve_sensitivity(
         n_port: analysis == Analysis::Driven && ctx.n_port,
         observables,
         frequency_indices,
+    })
+}
+
+/// A wall parameter's wall, library parameter, SI value and unit factor
+/// (issue #1330). Rejects a group that is not a Leontovich wall and a
+/// parameter the wall's model does not carry.
+fn resolve_wall_parameter(
+    prm: &crate::spec::SensitivityParameterSpec,
+    leontovich: &[Leontovich],
+    length_unit_m: f64,
+) -> Result<SensitivityParameter, CliError> {
+    use geode_core::driven::solve::WallParam;
+    let group = prm.physical_group.clone().expect("validated");
+    let label = parameter_label(prm);
+    let at = format!("sensitivity parameter {label} (kind `{}`)", prm.kind.name());
+    let wall = leontovich
+        .iter()
+        .position(|l| l.surface.name == group)
+        .ok_or_else(|| {
+            invalid(format!(
+                "{at}: `{group}` is not a `boundary_conditions.leontovich` wall (wall parameters \
+                 name the wall's dimension-2 `physical_group`)"
+            ))
+        })?;
+    let l = &leontovich[wall];
+    let needs = |what: &str| {
+        invalid(format!(
+            "{at}: wall `{group}` {what}; the parameter does not exist on it"
+        ))
+    };
+    let (param, value, si_factor, unit) = match (prm.kind, l.roughness) {
+        (SensitivityParameterKind::WallSigma, _) => (
+            WallParam::Sigma,
+            l.sigma_s_m,
+            ETA_0_OHM * length_unit_m,
+            "S/m",
+        ),
+        (SensitivityParameterKind::WallRmsRoughness, Some(RoughnessSpec::Hammerstad { rms_m })) => {
+            (WallParam::RmsRoughness, rms_m, 1.0 / length_unit_m, "m")
+        }
+        (SensitivityParameterKind::WallRmsRoughness, None) => {
+            return Err(needs("is smooth (no `roughness`)"));
+        }
+        (SensitivityParameterKind::WallRmsRoughness, Some(_)) => {
+            return Err(needs(
+                "has a Huray roughness (use `wall_ball_radius` / `wall_ball_density`)",
+            ));
+        }
+        (
+            SensitivityParameterKind::WallBallRadius,
+            Some(RoughnessSpec::Huray { ball_radius_m, .. }),
+        ) => (
+            WallParam::BallRadius,
+            ball_radius_m,
+            1.0 / length_unit_m,
+            "m",
+        ),
+        (
+            SensitivityParameterKind::WallBallDensity,
+            Some(RoughnessSpec::Huray {
+                n_balls,
+                tile_area_m2,
+                ..
+            }),
+        ) => (
+            WallParam::BallDensity,
+            n_balls / tile_area_m2,
+            length_unit_m * length_unit_m,
+            "1/m^2",
+        ),
+        (
+            SensitivityParameterKind::WallBallRadius | SensitivityParameterKind::WallBallDensity,
+            None,
+        ) => {
+            return Err(needs("is smooth (no `roughness`)"));
+        }
+        (
+            SensitivityParameterKind::WallBallRadius | SensitivityParameterKind::WallBallDensity,
+            Some(_),
+        ) => {
+            return Err(needs(
+                "has a Hammerstad roughness (use `wall_rms_roughness`)",
+            ));
+        }
+        _ => unreachable!("wall kinds only"),
+    };
+    if !(value.is_finite() && value > 0.0) {
+        return Err(invalid(format!(
+            "{at}: the parameter's value is {value:e}; the finite-difference scale and the \
+             gradient need a positive value"
+        )));
+    }
+    Ok(SensitivityParameter {
+        physical_group: group,
+        kind: prm.kind,
+        region: usize::MAX,
+        value,
+        shape: None,
+        wall: Some(WallParameterDef {
+            wall,
+            param,
+            si_factor,
+            unit,
+        }),
     })
 }
 
@@ -3121,6 +3581,7 @@ fn resolve_shape_parameter(
         physical_group: groups.join(","),
         kind: SensitivityParameterKind::Shape,
         region: usize::MAX,
+        wall: None,
         value: value_mesh * length_unit_m,
         shape: Some(ShapeParameterDef {
             name,
@@ -4021,7 +4482,7 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
         ),
         None => (Vec::new(), Vec::new()),
     };
-    let lists: [(&'static str, Vec<&str>); 9] = [
+    let lists: [(&'static str, Vec<&str>); 10] = [
         (
             "port",
             spec.ports
@@ -4047,6 +4508,13 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
         (
             "Silver-Müller wall",
             bcs.silver_muller.iter().map(String::as_str).collect(),
+        ),
+        (
+            "periodic face",
+            bcs.periodic
+                .iter()
+                .flat_map(|p| [p.master.as_str(), p.slave.as_str()])
+                .collect(),
         ),
         ("capacitance terminal", terminals),
         ("capacitance ground surface", ground),
@@ -4090,8 +4558,8 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
                     return Err(invalid(format!(
                         "physical group `{name}` is both {a_prev} {prev} and {a_role} {role}{why}; a surface \
                          carries at most one of port / wave port / PEC / Leontovich / \
-                         Silver-Müller / capacitance terminal / capacitance ground / inductance \
-                         source / inductance sink"
+                         Silver-Müller / periodic face / capacitance terminal / capacitance ground / \
+                         inductance source / inductance sink"
                     )));
                 }
             }

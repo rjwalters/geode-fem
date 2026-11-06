@@ -101,6 +101,10 @@ pub enum CliError {
     /// degenerate-shift guard (issue #706).
     #[error("eigen solve failed: {0}")]
     LossyEigenSolve(LossyCavityError),
+    /// The Bloch (periodic unit-cell) solve failed: constraint assembly,
+    /// factorization, or the Krylov basis cap (Epic #837 Phase 4a).
+    #[error("Bloch eigen solve failed: {0}")]
+    BlochSolve(String),
     /// The electrostatic (capacitance) solve failed: assembly, or the
     /// sparse LU of the reduced system.
     #[error("electrostatic solve failed: {0}")]
@@ -267,6 +271,31 @@ impl From<LossyCavityError> for CliError {
     }
 }
 
+impl From<geode_core::eigen::bloch::BlochError> for CliError {
+    /// Caller-data problems (a bad path, a `k` too close to Γ to resolve,
+    /// an unsupported feature) are `invalid_spec`; numerical failures are
+    /// `solve_failed`.
+    fn from(e: geode_core::eigen::bloch::BlochError) -> Self {
+        use geode_core::eigen::bloch::BlochError as E;
+        match e {
+            E::Unsupported { .. } | E::InvalidInput(_) => CliError::InvalidSpec(e.to_string()),
+            other => CliError::BlochSolve(other.to_string()),
+        }
+    }
+}
+
+impl From<geode_core::assembly::periodic::PeriodicError> for CliError {
+    fn from(e: geode_core::assembly::periodic::PeriodicError) -> Self {
+        use geode_core::assembly::periodic::PeriodicError as E;
+        match e {
+            E::Unsupported { .. } | E::Mismatch(_) | E::Match(_) | E::PortOnPeriodicFace { .. } => {
+                CliError::InvalidSpec(e.to_string())
+            }
+            other => CliError::BlochSolve(other.to_string()),
+        }
+    }
+}
+
 impl From<ElectrostaticError> for CliError {
     fn from(e: ElectrostaticError) -> Self {
         CliError::Electrostatic(e)
@@ -304,6 +333,7 @@ impl CliError {
             | CliError::WavePort { .. }
             | CliError::EigenSolve(_)
             | CliError::LossyEigenSolve(_)
+            | CliError::BlochSolve(_)
             | CliError::Electrostatic(_)
             | CliError::CurrentPath(_)
             | CliError::Magnetostatic(_)

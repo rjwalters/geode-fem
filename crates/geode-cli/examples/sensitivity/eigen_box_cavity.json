@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "mesh": {
+    "path": "../../../geode-core/tests/fixtures/guide_box_905_3x1x4p06_lc090.msh",
+    "length_unit_m": 0.01
+  },
+  "materials": [
+    {
+      "physical_group": "domain",
+      "eps_r": [
+        2.0,
+        0.0
+      ]
+    }
+  ],
+  "boundary_conditions": {
+    "pec": [
+      "walls"
+    ]
+  },
+  "eigen": {
+    "n_modes": 4,
+    "unit": "k0",
+    "shift": 1.5
+  },
+  "sensitivity": {
+    "parameters": [
+      {
+        "kind": "eps_r",
+        "physical_group": "domain"
+      }
+    ],
+    "modes": [
+      0,
+      1
+    ],
+    "fd_check": {}
+  }
+}

@@ -37,6 +37,7 @@
 
 pub mod driver;
 pub mod dwr;
+pub mod dwr_wave;
 pub mod estimator;
 pub mod goal;
 pub mod refine;

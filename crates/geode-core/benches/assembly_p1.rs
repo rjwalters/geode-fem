@@ -52,7 +52,7 @@ fn bench_assembly_p1(c: &mut Criterion) {
                     // `assemble_global_p1` in this crate (the eigensolve
                     // path always converts to faer before consuming K, M).
                     let k_host = burn_matrix_to_faer(sys.k);
-                    criterion::black_box(k_host);
+                    std::hint::black_box(k_host);
                 },
                 BatchSize::SmallInput,
             );

@@ -348,6 +348,71 @@ pub fn parse(xml: &str) -> Result<Stackup, StackupError> {
     })
 }
 
+impl Stackup {
+    /// Fill the gaps of a layout document (as a JSON value, before it is
+    /// deserialised into [`super::layout::Layout`]) from this stackup.
+    ///
+    /// Only what the layout omits is filled; anything the layout states
+    /// wins:
+    /// - `dielectrics` absent or empty → every stackup dielectric, with
+    ///   `eps_r = [ε, 0]`;
+    /// - each `conductors[]` entry whose `name` matches a stackup conductor
+    ///   gets that layer's `z_bottom`, `thickness` and (when the stackup
+    ///   gives one) `conductivity_s_m`, each only if absent.
+    ///
+    /// Stackup z values are converted from `unit_m` to the layout's
+    /// `length_unit_m`. Entries that match nothing are left untouched, so
+    /// the layout's own validation still reports what is missing. A
+    /// document without a numeric `length_unit_m` is left unchanged.
+    pub fn fill_layout(&self, layout: &mut serde_json::Value) {
+        use serde_json::{Value, json};
+        let Some(root) = layout.as_object_mut() else {
+            return;
+        };
+        let Some(length_unit_m) = root.get("length_unit_m").and_then(Value::as_f64) else {
+            return;
+        };
+        let scale = self.unit_m / length_unit_m;
+        let no_dielectrics = match root.get("dielectrics") {
+            None => true,
+            Some(v) => v.as_array().is_some_and(Vec::is_empty),
+        };
+        if no_dielectrics {
+            let slabs: Vec<Value> = self
+                .dielectrics
+                .iter()
+                .map(|d| {
+                    json!({
+                        "name": d.name,
+                        "z_bottom": d.z_bottom * scale,
+                        "thickness": d.thickness * scale,
+                        "eps_r": [d.eps_r, 0.0],
+                    })
+                })
+                .collect();
+            root.insert("dielectrics".into(), Value::Array(slabs));
+        }
+        let Some(Value::Array(conductors)) = root.get_mut("conductors") else {
+            return;
+        };
+        for c in conductors.iter_mut().filter_map(Value::as_object_mut) {
+            let Some(name) = c.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(s) = self.conductors.iter().find(|s| s.name == name) else {
+                continue;
+            };
+            c.entry("z_bottom")
+                .or_insert_with(|| json!(s.z_bottom * scale));
+            c.entry("thickness")
+                .or_insert_with(|| json!(s.thickness * scale));
+            if let Some(sigma) = s.sigma_s_m {
+                c.entry("conductivity_s_m").or_insert_with(|| json!(sigma));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -482,5 +547,85 @@ mod tests {
             parse(x),
             Err(StackupError::UnknownMaterialType { .. })
         ));
+    }
+
+    fn layout_value(with_dielectrics: bool) -> serde_json::Value {
+        let mut v = serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "margin": 5.0,
+            "conductors": [
+                {"name": "m1", "polygons": [{"outer": [[0,0],[10,0],[10,10],[0,10]]}]},
+                {"name": "via_sheet", "thickness": 0.0, "z_bottom": 3.5,
+                 "polygons": [{"outer": [[0,0],[10,0],[10,10],[0,10]]}]}
+            ],
+            "mesh": {"size_max": 5.0, "size_conductor": 1.0}
+        });
+        if with_dielectrics {
+            v["dielectrics"] = serde_json::json!([]);
+        }
+        v
+    }
+
+    #[test]
+    fn fill_layout_matches_hand_written_dielectrics_and_conductors() {
+        use crate::mesh_cmd::layout::Layout;
+        let st = parse(EXAMPLE).unwrap();
+        // Absent and empty `dielectrics` both get filled.
+        for with in [false, true] {
+            let mut v = layout_value(with);
+            st.fill_layout(&mut v);
+            let l: Layout = serde_json::from_value(v).unwrap();
+            let names: Vec<_> = l.dielectrics.iter().map(|d| d.name.as_str()).collect();
+            assert_eq!(names, ["substrate", "oxide", "passivation"]);
+            assert_eq!(l.dielectrics[1].z_bottom, 0.0);
+            assert_eq!(l.dielectrics[1].thickness, 8.0);
+            assert_eq!(l.dielectrics[1].eps_r, [4.1, 0.0]);
+            // m1 omitted everything → from the stackup.
+            assert_eq!(l.conductors[0].z_bottom, 2.0);
+            assert_eq!(l.conductors[0].thickness, 1.0);
+            assert_eq!(l.conductors[0].conductivity_s_m, Some(5.8e7));
+            // via_sheet stated z_bottom / thickness → the layout wins;
+            // σ was omitted → from the stackup.
+            assert_eq!(l.conductors[1].z_bottom, 3.5);
+            assert_eq!(l.conductors[1].thickness, 0.0);
+            assert_eq!(l.conductors[1].conductivity_s_m, Some(5.8e7));
+        }
+    }
+
+    #[test]
+    fn fill_layout_converts_units_and_keeps_stated_dielectrics() {
+        let st = parse(EXAMPLE).unwrap();
+        let mut v = layout_value(false);
+        v["length_unit_m"] = serde_json::json!(1e-3); // mm: 1 µm = 1e-3
+        st.fill_layout(&mut v);
+        let z = v["conductors"][0]["z_bottom"].as_f64().unwrap();
+        assert!((z - 2e-3).abs() < 1e-15, "{z}");
+
+        let mut own = layout_value(false);
+        own["dielectrics"] =
+            serde_json::json!([{"name": "mine", "z_bottom": 0.0, "thickness": 1.0}]);
+        st.fill_layout(&mut own);
+        assert_eq!(own["dielectrics"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn read_layout_with_stackup_reads_files_and_names_stackup_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut v = layout_value(false);
+        v["conductors"][1]["name"] = serde_json::json!("m1");
+        v["conductors"].as_array_mut().unwrap().truncate(1);
+        let lp = dir.path().join("l.json");
+        std::fs::write(&lp, v.to_string()).unwrap();
+        let xp = dir.path().join("s.xml");
+        std::fs::write(&xp, EXAMPLE).unwrap();
+        let (l, _) = crate::mesh_cmd::read_layout(&lp, Some(&xp)).unwrap();
+        assert_eq!(l.dielectrics.len(), 3);
+        // Without the stackup the same layout is rejected.
+        assert!(crate::mesh_cmd::read_layout(&lp, None).is_err());
+        // A bad stackup surfaces its own error naming the XML file.
+        std::fs::write(&xp, "<Stackup").unwrap();
+        let e = crate::mesh_cmd::read_layout(&lp, Some(&xp)).unwrap_err();
+        assert!(e.to_string().contains("s.xml"), "{e}");
     }
 }

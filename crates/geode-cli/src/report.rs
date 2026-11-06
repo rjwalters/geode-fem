@@ -669,7 +669,9 @@ pub struct WarningResult {
     /// `"sensitivity_shape_moves_interface"` (issue #893: the motion's
     /// extension drags a material interface the parameter does not own
     /// along its normal; `physical_group` is `null`, the message names the
-    /// two volume groups).
+    /// two volume groups) and `"sensitivity_wall_saturated"` (issue #1330:
+    /// a wall roughness parameter whose loss factor sits on its plateau, so
+    /// its column is ~0 by saturation; `physical_group` is the wall).
     pub kind: &'static str,
     /// Wave-port index (spec order), if the warning is about one port.
     pub wave_port: Option<usize>,
@@ -762,6 +764,21 @@ pub struct EigenSettingsSummary {
     pub tol: f64,
     /// Per-mode relative-residual acceptance bound.
     pub residual_tol: f64,
+    /// The Bloch request (`eigen.bloch` specs only; additive in v1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bloch: Option<BlochRequestSummary>,
+}
+
+/// The wave vectors an `eigen.bloch` spec asks for.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct BlochRequestSummary {
+    /// `"point"` or `"path"`.
+    pub mode: &'static str,
+    /// Number of k-points to solve.
+    pub n_k_points: usize,
+    /// The path's vertex labels (path mode).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<Vec<String>>,
 }
 
 /// Echo of a resolved `extract` spec section.
@@ -825,6 +842,10 @@ pub struct CheckReport {
     /// The resolved `inductance` section with its edge-DOF counts, `null`
     /// unless an inductance spec (additive in v1, issue #714).
     pub inductance: Option<InductanceSettingsSummary>,
+    /// The periodic pairing, matched **before** any solve (additive in v1,
+    /// Epic #837 Phase 4a; present only with `boundary_conditions.periodic`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub periodic: Option<PeriodicSummary>,
     /// Up-front memory / cost estimate for the solve (additive in v1;
     /// order-of-magnitude only — see [`ResourceEstimate`]). `null` for a
     /// capacitance spec: the estimate is calibrated on the complex / real
@@ -1736,6 +1757,99 @@ pub struct ModeResult {
     pub field_file: Option<FileRef>,
 }
 
+/// One matched periodic pair (`check` / Bloch `eigen` reports; additive in
+/// v1, Epic #837 Phase 4a).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct PeriodicPairSummary {
+    /// Master surface group.
+    pub master: String,
+    /// Slave surface group.
+    pub slave: String,
+    /// Translation master → slave (mesh length units): the spec's, or the
+    /// one inferred from the mesh.
+    pub translation: [f64; 3],
+    /// `true` if `translation` was inferred (the spec omitted it).
+    pub translation_inferred: bool,
+    /// RMS residual of the inferred-translation fit (`0` for a given
+    /// translation).
+    pub translation_residual: f64,
+    /// Matched node pairs.
+    pub n_nodes: usize,
+    /// Matched edge pairs.
+    pub n_edges: usize,
+    /// Matched face (triangle) pairs.
+    pub n_faces: usize,
+    /// Slave nodes snapped onto the exact translated image of their
+    /// master (a warning when nonzero).
+    pub n_snapped: usize,
+    /// Largest snap displacement (mesh length units).
+    pub max_snap_displacement: f64,
+    /// Edge pairs whose orientation is reversed (`σ = −1`).
+    pub n_orientation_reversed: usize,
+}
+
+/// The periodic pairing report: what `geode check` shows **before** any
+/// solve, and the Bloch `eigen` report echoes (additive in v1, Epic #837
+/// Phase 4a).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct PeriodicSummary {
+    /// The matched pairs, in spec order.
+    pub pairs: Vec<PeriodicPairSummary>,
+    /// The periodic axes (`"x"`, `"y"`, `"z"`).
+    pub axes: Vec<&'static str>,
+    /// Entities chained through two or more pairs (corner nodes / edges).
+    pub n_chained_nodes: usize,
+    /// Edges chained through two or more pairs.
+    pub n_chained_edges: usize,
+    /// Snap / mismatch warnings of the matcher (also in `warnings` of the
+    /// report where it has one).
+    pub warnings: Vec<String>,
+}
+
+/// One row of a Bloch band table: all bands at one wave vector.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct BandRow {
+    /// Row index (k-point index along the path).
+    pub index: usize,
+    /// Wave vector `[kx, ky, kz]` (rad per mesh length unit).
+    pub k: [f64; 3],
+    /// Arc length along the k-path (rad per mesh length unit); `null` for
+    /// a single-`k` request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub s: Option<f64>,
+    /// The path vertex label at this row, if it is a vertex.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Frequency (Hz) of each band: ascending for a single `k`, the
+    /// overlap-tracked bands (band `b` starts as the `b`-th lowest at the
+    /// first point) along a path.
+    pub frequency_hz: Vec<f64>,
+    /// Relative eigen-residual `‖K x − λ M x‖ / (|λ| ‖M x‖)` of each band.
+    pub residual_rel: Vec<f64>,
+    /// Group velocity of each band along the path direction in units of
+    /// `c` (`∂ω/∂k`; `null` for a static `ω = 0` mode). Present for a
+    /// k-path only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v_g_over_c: Option<Vec<Option<f64>>>,
+}
+
+/// The Bloch band table of an `eigen.bloch` report.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct BlochBands {
+    /// `"point"` or `"path"`.
+    pub mode: &'static str,
+    /// Bands per row.
+    pub n_bands: usize,
+    /// Full DOFs of the unit cell.
+    pub n_full: usize,
+    /// DOFs after the periodic / PEC reduction (the pencil dimension).
+    pub n_reduced: usize,
+    /// One row per wave vector.
+    pub rows: Vec<BandRow>,
+    /// Solver and tracking warnings (also the periodic snap warnings).
+    pub warnings: Vec<String>,
+}
+
 /// `geode eigen` report (`kind = "eigen"`).
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct EigenReport {
@@ -1763,8 +1877,16 @@ pub struct EigenReport {
     pub absorbing_regions: Vec<UpmlSummary>,
     /// Solver statistics.
     pub solver: EigenSolverStats,
-    /// Physical modes, ascending in frequency.
+    /// Physical modes, ascending in frequency (empty for an
+    /// `eigen.bloch` spec: its result is [`EigenReport::bands`]).
     pub modes: Vec<ModeResult>,
+    /// The periodic pairing (`eigen.bloch` specs only; additive in v1,
+    /// Epic #837 Phase 4a).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub periodic: Option<PeriodicSummary>,
+    /// The Bloch band table (`eigen.bloch` specs only; additive in v1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bands: Option<BlochBands>,
     /// `∂f/∂ε_r` of the `sensitivity.modes` resonant frequencies (additive
     /// in v1, issue #707; present only with a spec `sensitivity` section,
     /// lossless pencil only).
@@ -1790,7 +1912,8 @@ pub struct SensitivityReport {
     /// capacitance — distinct from, and about the P1 discretization
     /// error off, the report's own `c_farad`), `"l_henry"`
     /// (inductance-matrix entries), `"frequency_hz"` (eigenmode
-    /// resonant frequency) or `"s11_mag_sq"` (driven: the squared
+    /// resonant frequency; on a lossy / open pencil each entry also carries
+    /// `∂Q/∂parameter`, `q_gradient`) or `"s11_mag_sq"` (driven: the squared
     /// reflection magnitude `|S11|²` of the single lumped port).
     pub observable: &'static str,
     /// Unit of every entry's `value` and `gradient`: `"F"`, `"H"`, `"Hz"`
@@ -1874,11 +1997,13 @@ pub struct SensitivityObservableSummary {
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct SensitivityParameterSummary {
     /// Volume physical-group name (a shape parameter: its moving groups,
-    /// comma-joined).
+    /// comma-joined; a wall parameter: the Leontovich wall's group).
     pub physical_group: String,
     /// `"eps_r"` (real relative permittivity), `"eps_r_imag"` (loss
     /// `ε″ = −Im ε_r`), `"tan_delta"`, `"nu_r"` (relative reluctivity
-    /// `1/μ_r`), `"mu_r"` (relative permeability) or `"shape"`.
+    /// `1/μ_r`), `"mu_r"` (relative permeability), `"shape"`, or (issue
+    /// #1330) a Leontovich wall parameter: `"wall_sigma"`,
+    /// `"wall_rms_roughness"`, `"wall_ball_radius"`, `"wall_ball_density"`.
     pub kind: &'static str,
     /// Parameter value at which the gradient was taken (dimensionless; a
     /// shape parameter in metres: the stretch extent, or `0` for a
@@ -1901,7 +2026,8 @@ pub struct SensitivityParameterSummary {
     /// that no surface you meant to keep fixed is listed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved_groups: Option<Vec<String>>,
-    /// Unit of the parameter (`"1"` material, `"m"` shape); present on the
+    /// Unit of the parameter (`"1"` material, `"m"` shape, `"S/m"` / `"m"` /
+    /// `"1/m^2"` wall); present on the
     /// N-port path. Gradients are in observable unit per parameter unit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unit: Option<&'static str>,
@@ -1940,6 +2066,24 @@ pub struct SensitivityEntry {
     /// central-difference round-off (present only with `fd_check`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fd_rel_error: Option<f64>,
+    /// Lossy / open eigen path (issue #1329): the mode's quality factor
+    /// `Q = Re k₀ / (2|Im k₀|)` at the base point. Absent on every other
+    /// path and for a numerically lossless mode (`Q = ∞`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub q_value: Option<f64>,
+    /// Lossy / open eigen path: `∂Q/∂parameter` (per unit parameter),
+    /// from the unconjugated Hellmann–Feynman `∂λ/∂p` chained through the
+    /// cancellation-free `Im k₀`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub q_gradient: Option<f64>,
+    /// Lossy / open eigen path with `fd_check`: central finite-difference
+    /// estimate of `∂Q/∂parameter`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub q_fd_gradient: Option<f64>,
+    /// Lossy / open eigen path with `fd_check`: relative disagreement of
+    /// `q_gradient` and `q_fd_gradient` (same floor rule as `fd_rel_error`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub q_fd_rel_error: Option<f64>,
 }
 
 /// Finite-difference self-check summary of a [`SensitivityReport`].

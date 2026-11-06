@@ -58,12 +58,13 @@ use std::time::Instant;
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::assembly::hcurl_space::HcurlSpace;
+use geode_core::constants::ETA_0_OHM;
 use geode_core::driven::ports::WavePortSpec;
 use geode_core::driven::s_sensitivity::{
     MaterialDesign, PortModeObservables, SDesign, SNetwork, SSensitivityError, SSensitivityOptions,
     SSensitivitySweep, ShapeDesign, s_matrix_sensitivity_sweep,
 };
-use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, ElementOrder};
+use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, ElementOrder, WallParam};
 
 use crate::backend::CompiledBackend;
 use crate::error::CliError;
@@ -76,7 +77,8 @@ use crate::report::{
 };
 use crate::sensitivity::{FD_SCALE_FLOOR, rel_error};
 use crate::spec::{
-    ImpedanceDefinition, ObservableForm, ObservableQuantity, SensitivityParameterKind,
+    ImpedanceDefinition, ObservableForm, ObservableQuantity, RoughnessSpec,
+    SensitivityParameterKind,
 };
 
 /// Largest accepted relative difference between the sensitivity's S matrix
@@ -146,13 +148,14 @@ fn lib_error(e: SSensitivityError) -> CliError {
 /// per shape parameter.
 fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
     let mut regions: Vec<usize> = Vec::new();
-    let (mut need_prime, mut need_dprime) = (false, false);
+    let (mut need_prime, mut need_dprime, mut need_sigma) = (false, false, false);
     for prm in sens.parameters.iter().filter(|q| q.kind.is_material()) {
         if !regions.contains(&prm.region) {
             regions.push(prm.region);
         }
         match prm.kind {
             SensitivityParameterKind::EpsR => need_prime = true,
+            SensitivityParameterKind::Sigma => need_sigma = true,
             _ => need_dprime = true,
         }
     }
@@ -168,7 +171,8 @@ fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
         Some(
             MaterialDesign::from_regions(labels, names)
                 .map_err(lib_error)?
-                .with_components(need_prime, need_dprime),
+                .with_components(need_prime, need_dprime)
+                .with_sigma(need_sigma),
         )
     };
     // A geometric port filled by a design region follows it (#777): bind it.
@@ -204,23 +208,34 @@ fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
             None => columns.push(None),
         }
     }
+    let shape_cols_len = shape_cols.len();
     let shape = if shape_cols.is_empty() {
         None
     } else {
         Some(ShapeDesign::from_columns(shape_cols, shape_names).map_err(lib_error)?)
     };
+    // Wall columns (issue #1330), in spec order.
+    let wall_params: Vec<(usize, WallParam)> = sens
+        .parameters
+        .iter()
+        .filter_map(|prm| prm.wall.as_ref().map(|w| (w.wall, w.param)))
+        .collect();
+    let n_shape = shape_cols_len;
     let sdesign = SDesign {
         material,
         shape,
         port_fill,
-        wall_params: vec![],
+        wall_params,
     };
     // The library's flat order: every region's ε′ (if selected), then ε″,
-    // then the shape columns.
+    // then the shape columns, then the wall columns.
     let n_reg = regions.len();
     let dprime_base = if need_prime { n_reg } else { 0 };
-    let shape_base = dprime_base + if need_dprime { n_reg } else { 0 };
+    let sigma_base = dprime_base + if need_dprime { n_reg } else { 0 };
+    let shape_base = sigma_base + if need_sigma { n_reg } else { 0 };
+    let wall_base = shape_base + n_shape;
     let mut next_shape = 0;
+    let mut next_wall = 0;
     let map = sens
         .parameters
         .iter()
@@ -239,12 +254,31 @@ fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
                     index: dprime_base + slot(prm.region),
                     factor: p.regions[prm.region].eps_r.re,
                 },
+                // The library differentiates the natural-unit σ_nat = σ·η₀·L:
+                // ∂/∂σ[S/m] = η₀·L · ∂/∂σ_nat.
+                SensitivityParameterKind::Sigma => ParamMap {
+                    index: sigma_base + slot(prm.region),
+                    factor: geode_core::constants::ETA_0_OHM * p.length_unit_m(),
+                },
                 SensitivityParameterKind::Shape => {
                     let m = ParamMap {
                         index: shape_base + next_shape,
                         factor: 1.0 / p.length_unit_m(),
                     };
                     next_shape += 1;
+                    m
+                }
+                SensitivityParameterKind::WallSigma
+                | SensitivityParameterKind::WallRmsRoughness
+                | SensitivityParameterKind::WallBallRadius
+                | SensitivityParameterKind::WallBallDensity => {
+                    // The library differentiates in natural units; the
+                    // report is per SI parameter.
+                    let m = ParamMap {
+                        index: wall_base + next_wall,
+                        factor: prm.wall.as_ref().expect("a wall parameter").si_factor,
+                    };
+                    next_wall += 1;
                     m
                 }
                 SensitivityParameterKind::NuR | SensitivityParameterKind::MuR => {
@@ -308,7 +342,7 @@ fn library_sweep(
         space: &space,
         mesh,
         materials: DrivenMaterials::Scalar(&p.eps),
-        sigma_tet: None,
+        sigma_tet: p.sigma(),
         bcs: &bcs,
         lumped: &lumped,
         wave: &wave,
@@ -1113,7 +1147,11 @@ fn parameter_summary(
         }),
         pinned: sh.map(|s| s.pinned.clone()).unwrap_or_default(),
         moved_groups: col.map(|c| moved_groups(p, c)),
-        unit: Some(if sh.is_some() { "m" } else { "1" }),
+        unit: Some(match (&prm.wall, sh) {
+            (Some(w), _) => w.unit,
+            (None, Some(_)) => "m",
+            (None, None) => "1",
+        }),
     }
 }
 
@@ -1128,6 +1166,10 @@ fn parameter_scale(p: &Problem, prm: &SensitivityParameter) -> f64 {
         (Some(sh), _) => sh.fd_length * p.length_unit_m(),
         (None, SensitivityParameterKind::EpsRImag) => p.regions[prm.region].eps_r.norm(),
         (None, SensitivityParameterKind::TanDelta) => 1.0,
+        // σ = 0 at the design point has no relative scale: a step of 1 S/m
+        // (a lossy-silicon scale) is tiny against the 10 S/m cookbook value
+        // and keeps the FD above round-off; a σ > 0 steps relative to itself.
+        (None, SensitivityParameterKind::Sigma) => prm.value.abs().max(1.0),
         _ => prm.value.abs(),
     }
 }
@@ -1160,6 +1202,51 @@ fn perturbed(
                     prm.physical_group
                 )));
             }
+        }
+        (SensitivityParameterKind::Sigma, _) => {
+            // The region's σ (S/m) moved by `delta`; σ_nat = σ·η₀·L.
+            let tags = &p.sensitivity.as_ref().expect("a target").region_of_tet;
+            if q.sigma_tet.is_empty() {
+                q.sigma_tet = vec![0.0; tags.len()];
+            }
+            let nat = geode_core::constants::ETA_0_OHM * p.length_unit_m();
+            for (s, &r) in q.sigma_tet.iter_mut().zip(tags) {
+                if r == prm.region {
+                    *s = (prm.value + delta) * nat;
+                }
+            }
+        }
+        (kind, _) if kind.is_wall() => {
+            let w = prm.wall.as_ref().expect("a wall parameter");
+            let l = &mut q.leontovich[w.wall];
+            let v = prm.value + delta;
+            let lu = p.length_unit_m();
+            match (kind, &mut l.roughness) {
+                (SensitivityParameterKind::WallSigma, _) => {
+                    l.sigma_s_m = v;
+                    l.sigma_natural = v * ETA_0_OHM * lu;
+                }
+                (
+                    SensitivityParameterKind::WallRmsRoughness,
+                    Some(RoughnessSpec::Hammerstad { rms_m }),
+                ) => *rms_m = v,
+                (
+                    SensitivityParameterKind::WallBallRadius,
+                    Some(RoughnessSpec::Huray { ball_radius_m, .. }),
+                ) => *ball_radius_m = v,
+                (
+                    SensitivityParameterKind::WallBallDensity,
+                    Some(RoughnessSpec::Huray {
+                        n_balls,
+                        tile_area_m2,
+                        ..
+                    }),
+                ) => *n_balls = v * *tile_area_m2,
+                _ => unreachable!("validated at load"),
+            }
+            l.roughness_natural = l
+                .roughness
+                .map(|r| crate::problem::roughness_natural(r, lu));
         }
         (kind, _) => {
             for (e, &r) in q
@@ -1247,6 +1334,8 @@ pub fn driven(
         .filter_map(|(prm, col)| Some(shape_warnings(p, prm, col.as_ref()?, faces.as_ref()?)))
         .flatten()
         .collect();
+    // Frequencies (Hz) at which parameter k's roughness has saturated.
+    let mut wall_saturated: Vec<Vec<f64>> = vec![Vec::new(); sens.parameters.len()];
     for &fi in &sens.frequency_indices {
         let pt = point_of(fi);
         let row = &rows[fi];
@@ -1291,6 +1380,17 @@ pub fn driven(
                 }
             }
         }
+        for note in &pt.wall_notes {
+            for (k, prm) in sens.parameters.iter().enumerate() {
+                if prm
+                    .wall
+                    .as_ref()
+                    .is_some_and(|w| w.wall == note.wall && w.param == note.param)
+                {
+                    wall_saturated[k].push(row.frequency_hz);
+                }
+            }
+        }
         for note in &pt.port_mode_warnings {
             let w = &p.wave_ports[note.port];
             warnings.push(WarningResult {
@@ -1305,6 +1405,28 @@ pub fn driven(
                 ),
             });
         }
+    }
+    for (prm, freqs) in sens.parameters.iter().zip(&wall_saturated) {
+        if freqs.is_empty() {
+            continue;
+        }
+        let w = WarningResult {
+            kind: "sensitivity_wall_saturated",
+            wave_port: None,
+            physical_group: Some(prm.physical_group.clone()),
+            message: format!(
+                "wall parameter {}: the roughness loss factor has reached its plateau at {} Hz \
+                 — the gradient there is ~0 by saturation, not by error",
+                display(prm),
+                freqs
+                    .iter()
+                    .map(|f| format!("{f}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        };
+        eprintln!("warning: {}", w.message);
+        warnings.push(w);
     }
     if parity.is_nan() || parity > FORWARD_PARITY_TOL {
         return Err(CliError::SensitivitySolve(format!(
@@ -1350,6 +1472,10 @@ pub fn driven(
                     frequency_hz: Some(p.frequencies[fi].hz),
                     fd_gradient: None,
                     fd_rel_error: None,
+                    q_value: None,
+                    q_gradient: None,
+                    q_fd_gradient: None,
+                    q_fd_rel_error: None,
                 });
             }
         }
@@ -1375,7 +1501,9 @@ pub fn driven(
                 let one_sided = prm.value < h
                     && matches!(
                         prm.kind,
-                        SensitivityParameterKind::EpsRImag | SensitivityParameterKind::TanDelta
+                        SensitivityParameterKind::EpsRImag
+                            | SensitivityParameterKind::TanDelta
+                            | SensitivityParameterKind::Sigma
                     );
                 let run = |delta: f64| -> Result<Vec<FrequencyResult>, CliError> {
                     let mut q = perturbed(p, prm, col, delta)?;
@@ -1490,6 +1618,7 @@ pub fn driven(
 fn display(prm: &SensitivityParameter) -> String {
     match &prm.shape {
         Some(sh) => format!("`{}`", sh.name),
+        None if prm.wall.is_some() => format!("`{}` of `{}`", prm.kind.name(), prm.physical_group),
         None => format!("`{}`", prm.physical_group),
     }
 }

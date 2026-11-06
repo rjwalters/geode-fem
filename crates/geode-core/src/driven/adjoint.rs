@@ -101,6 +101,7 @@ use faer::linalg::solvers::Solve;
 use faer::sparse::{SparseColMat, Triplet};
 use faer::{Mat, c64};
 
+use crate::adapt::goal::GoalFunctional;
 use crate::assembly::hcurl_space::HcurlSpace;
 use crate::assembly::nedelec::{
     NedelecScatterMap, assemble_global_nedelec_with_complex_epsilon_sparse,
@@ -1289,6 +1290,30 @@ where
     }
     let op = problem.assemble_p2_operator()?;
     material_gradient_p2_core(problem, &op, None, region_of_tet, n_regions, objective)
+}
+
+/// Adapt a shared [`GoalFunctional`] to the real objective `G` the adjoint
+/// gradients take (`Fn(&[c64]) -> (g, ∂g/∂x)`), so one goal serves the design
+/// gradient and the goal-error estimate ([`crate::adapt::dwr`], Epic #835
+/// Phase 4).
+///
+/// The adjoint objective is the real quantity `g = Re J(x)`. For a
+/// holomorphic `J` the un-conjugated Wirtinger cotangent of `g` is
+/// `∂g/∂x_i = ½ ∂J/∂x_i`, so the returned cotangent is `½ · goal.rhs(x)`:
+/// the DWR dual solves `A z = goal.rhs(x)` and the gradient's adjoint solves
+/// with half of that right-hand side. A goal that is not holomorphic must
+/// document its own convention in [`GoalFunctional::rhs`] (see
+/// [`crate::adapt::goal`]).
+pub fn goal_objective<'a, J: GoalFunctional + ?Sized>(
+    goal: &'a J,
+) -> impl Fn(&[c64]) -> (f64, Vec<c64>) + 'a {
+    move |x: &[c64]| {
+        let half = 0.5;
+        (
+            goal.value(x).re,
+            goal.rhs(x).into_iter().map(|g| g * half).collect(),
+        )
+    }
 }
 
 /// The p=2 per-tet **unit mass** `∂M/∂s` of tet `t` (sorted-vertex layout):

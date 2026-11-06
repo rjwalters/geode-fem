@@ -36,7 +36,8 @@ fn load(rel: &str) -> toml::Value {
     let p = v6().join(rel);
     std::fs::read_to_string(&p)
         .unwrap_or_else(|e| panic!("read {}: {e}", p.display()))
-        .parse()
+        .parse::<toml::Table>()
+        .map(toml::Value::Table)
         .unwrap_or_else(|e| panic!("parse {}: {e}", p.display()))
 }
 
