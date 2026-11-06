@@ -1628,6 +1628,23 @@ pub fn build_anisotropic_pml_tensor_diag(
         .collect()
 }
 
+/// Centroid `(x, y, z)` (mean of the four vertices) of tet `t` in `mesh`.
+///
+/// The single-tet form of [`tet_centroids`]; both share this arithmetic.
+pub fn tet_centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
+    let mut c = [0.0_f64; 3];
+    for &v in &mesh.tets[t] {
+        let p = mesh.nodes[v as usize];
+        c[0] += p[0];
+        c[1] += p[1];
+        c[2] += p[2];
+    }
+    c[0] *= 0.25;
+    c[1] *= 0.25;
+    c[2] *= 0.25;
+    c
+}
+
 /// Compute per-tet centroids `(x, y, z)` for every tet in `mesh`.
 ///
 /// Returned in `mesh.tets` order; companion to [`tet_centroid_radii`]
@@ -1635,21 +1652,8 @@ pub fn build_anisotropic_pml_tensor_diag(
 /// anisotropic PML tensor builder, which needs the radial direction
 /// not just its magnitude).
 pub fn tet_centroids(mesh: &TetMesh) -> Vec<[f64; 3]> {
-    mesh.tets
-        .iter()
-        .map(|tet| {
-            let mut c = [0.0_f64; 3];
-            for &v in tet {
-                let p = mesh.nodes[v as usize];
-                c[0] += p[0];
-                c[1] += p[1];
-                c[2] += p[2];
-            }
-            c[0] *= 0.25;
-            c[1] *= 0.25;
-            c[2] *= 0.25;
-            c
-        })
+    (0..mesh.tets.len())
+        .map(|t| tet_centroid(mesh, t))
         .collect()
 }
 
