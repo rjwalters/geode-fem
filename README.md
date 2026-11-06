@@ -282,7 +282,7 @@ crates/
   geode-util/        # pre-core staging layer above geode-core: shared
                      # math / convert / interop / fixture / viz helpers
                      # (Epic #414)
-  geode-app/         # shared application spine (logging / verbosity seam)
+  geode-app/         # shared application spine (clap harness / arg groups)
                      # for the GEODE-FEM example binaries
   geode-cli/         # the `geode` binary: headless JSON/TOML problem spec
                      # in, versioned JSON report out (check / driven /
