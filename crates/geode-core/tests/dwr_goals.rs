@@ -571,11 +571,13 @@ fn box_mesh(
 
 /// A plate waveguide (`x ∈ (−1, 1)`, `y ∈ (0, 1)`, thickness `1/4`) with a
 /// closed resonant pocket below it (`x ∈ (−1/2, 1/2)`, `y ∈ (−1, −1/4)`)
-/// joined by a one-cell slit (`x ∈ (−1/4, 1/4)`). The pocket holds a large
+/// joined by a slit of `2 * hw` cells centred on `x = 0` (`hw = m / 4`:
+/// `x ∈ (−1/4, 1/4)`). The pocket holds a large
 /// resonant field and the slit mouth has re-entrant edges, so the energy
 /// error concentrates there; the transmission `S₂₁` between the two end
-/// ports barely depends on it.
-fn stub_guide(m: usize) -> TaggedTetMesh {
+/// ports was expected to barely depend on it (see
+/// [`golden2_narrow_slit_measurement`] for why that did not pan out).
+fn stub_guide_with(m: usize, hw: usize) -> TaggedTetMesh {
     let q = m / 4; // cells per quarter unit
     let mesh = box_mesh(
         [2 * m, 2 * m, 1],
@@ -584,7 +586,7 @@ fn stub_guide(m: usize) -> TaggedTetMesh {
         |i, j, _| {
             let channel = j >= m;
             let pocket = (2 * q..=6 * q - 1).contains(&i) && j < m - q;
-            let slit = (3 * q..=5 * q - 1).contains(&i) && (m - q..m).contains(&j);
+            let slit = (4 * q - hw..=4 * q + hw - 1).contains(&i) && (m - q..m).contains(&j);
             channel || pocket || slit
         },
     );
@@ -615,13 +617,21 @@ fn far_port_run(
     marking: Marking,
     m: usize,
     omega: f64,
+    hw: usize,
     max_dofs: usize,
     levels: usize,
 ) -> AdaptReport {
     let eps = |_: &TetCtx| c64::new(1.0, 0.0);
     let current = |_: &TetCtx, _: [f64; 3]| [c64::new(0.0, 0.0); 3];
     let div = |_: &TetCtx, _: [f64; 3]| c64::new(0.0, 0.0);
-    let mut spec = DrivenAdaptSpec::new(stub_guide(m), omega, &eps, &far_ports_bc, &current, &div);
+    let mut spec = DrivenAdaptSpec::new(
+        stub_guide_with(m, hw),
+        omega,
+        &eps,
+        &far_ports_bc,
+        &current,
+        &div,
+    );
     spec.lumped_ports = vec![
         LumpedPortSpec {
             e_hat: [0.0, 0.0, 1.0],
@@ -666,7 +676,7 @@ fn golden2_measurement() {
         ("energy", Marking::Dorfler { theta: 0.5 }),
         ("goal", Marking::Goal { theta: 0.5 }),
     ] {
-        let r = far_port_run(marking, 4, 4.0, 60_000, 9);
+        let r = far_port_run(marking, 4, 4.0, 1, 60_000, 9);
         println!("== {tag} (estimator {})", r.estimator);
         for h in &r.history {
             let g = h.goal.as_ref().expect("goal data");
@@ -995,6 +1005,45 @@ fn goal_marking_labels_the_product_fallback_and_requires_a_goal() {
     )
     .unwrap_err();
     assert!(e.to_string().contains("goal estimate"), "{e}");
+}
+
+/// Golden 2, narrow-slit variants (#1413; NOT a gate). The pocket is joined
+/// by a slit half as wide as in [`golden2_measurement`] (`m = 8`, half-width
+/// 1 cell: width `2*hw/m = 0.25` vs `0.5` at `m = 4`) and `S₂₁` is measured at
+/// the pocket's (0,1) resonance (`ω = 4.19`) and at its (1,1) resonance
+/// (`ω = 5.24`), where the pocket field is large. Measured result (debug
+/// build, ~2.5 min per ω, final levels): at both frequencies the goal and
+/// energy runs track each other (|ΔS|_est ≈ 2.5e-2 vs 2.6e-2 at ω = 4.19 with
+/// 5.1k vs 5.7k DOFs; 4.4e-2 vs 3.9e-2 at ω = 5.24 with 5.2k vs 5.3k DOFs).
+/// The conclusion is scoped to this 2× narrower coupling; a still narrower
+/// iris (e.g. `m = 16`) was not tried. Caveats: the table uses the DWR
+/// estimate, not a true error against a reference, and the attribution of the
+/// `S₂₁` error to the channel's phase (dispersion) error, which both
+/// indicators refine, is inferred, not measured here. No DOF advantage
+/// appears, so the Golden 2 gate is still open.
+#[test]
+#[ignore = "measurement only: minutes, prints a table"]
+fn golden2_narrow_slit_measurement() {
+    for omega in [4.19, 5.24] {
+        for (tag, marking) in [
+            ("energy", Marking::Dorfler { theta: 0.5 }),
+            ("goal", Marking::Goal { theta: 0.5 }),
+        ] {
+            let r = far_port_run(marking, 8, omega, 1, 60_000, 5);
+            println!("== {tag} omega {omega} (estimator {})", r.estimator);
+            for h in &r.history {
+                let g = h.goal.as_ref().expect("goal data");
+                println!(
+                    "L{} dofs {:>6} S21 = {:.5}{:+.5}i  |dS|_est = {:.3e}",
+                    h.level,
+                    h.n_dofs,
+                    g.value.re,
+                    g.value.im,
+                    g.signed.map_or(0.0, |d| d.norm())
+                );
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
