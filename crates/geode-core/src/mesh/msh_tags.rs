@@ -269,6 +269,7 @@ pub(super) fn parse_elements_with_entity_tags(
 /// The tet scanner above skips line rows; 2-D meshes need them for
 /// tagged boundary curves (Dirichlet arcs, periodic edges, the sliding-
 /// band coupling circle).
+#[cfg_attr(not(feature = "tensor"), allow(dead_code))]
 pub(super) fn parse_line_elements_with_entity_tags(
     text: &str,
     entity_phys: &BTreeMap<(i32, i32), i32>,
@@ -326,6 +327,7 @@ pub(super) fn parse_line_elements_with_entity_tags(
 /// (`elementType -> numElements`, summed over blocks). Used by the 2-D
 /// tagged reader to reject element types it does not parse instead of
 /// silently skipping them (issue #1162 review).
+#[cfg_attr(not(feature = "tensor"), allow(dead_code))]
 pub(super) fn element_type_counts(text: &str) -> Result<BTreeMap<i32, usize>, MeshError> {
     let Some(start) = text.find("$Elements") else {
         return Err(MeshError::Parse("missing $Elements section".into()));

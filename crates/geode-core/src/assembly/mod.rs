@@ -69,23 +69,42 @@
 //!   Arkkio's volume-averaged variant (Epic #448 Phase 3), with the shared
 //!   contour/triangle-location sampler they build on.
 
+#[cfg(feature = "tensor")]
 pub mod current_path;
+#[cfg(feature = "tensor")]
 mod dense_scatter;
 pub mod electrostatic;
 pub mod electrostatic_dual;
+#[cfg(feature = "tensor")]
 pub mod fe;
+#[cfg(feature = "tensor")]
 pub mod hcurl_space;
+#[cfg(feature = "tensor")]
 pub mod magnetostatic;
+#[cfg(feature = "tensor")]
 pub mod magnetostatic3d;
+#[cfg(feature = "tensor")]
 pub mod magnetostatic_nonlinear;
+#[cfg(feature = "tensor")]
 pub mod magnetostatic_sector;
+#[cfg(feature = "tensor")]
 pub mod magnetostatic_shape;
+#[cfg(feature = "tensor")]
 pub mod nedelec;
+#[cfg(feature = "tensor")]
 pub mod nedelec_matvec;
+#[cfg(feature = "tensor")]
 pub mod nedelec_p2;
+#[cfg(feature = "tensor")]
 pub mod p1;
+#[cfg(feature = "tensor")]
 pub mod periodic;
+#[cfg(feature = "tensor")]
 pub mod sparse;
+pub mod sparsity;
+#[cfg(feature = "tensor")]
 pub mod surface;
+#[cfg(feature = "tensor")]
 pub mod surface_p2;
+#[cfg(feature = "tensor")]
 pub mod torque;

@@ -95,7 +95,7 @@
 use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
-pub use crate::assembly::p1::SparsityPattern;
+pub use crate::assembly::sparsity::SparsityPattern;
 use crate::eigen::gauge::TreeCotreeGauge;
 use crate::mesh::{TET_LOCAL_EDGES, TetMesh};
 

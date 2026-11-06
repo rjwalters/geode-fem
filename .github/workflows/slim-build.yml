@@ -1,0 +1,45 @@
+name: slim-build
+
+# Issue #1365 — guard the burn-free ("slim") geode-core build.
+#
+# `--no-default-features` drops the default-on `tensor` feature, so the
+# electrostatic assembly, `mesh::TetMesh` + MSH reader and `faer` compile
+# without `burn*`, `bunsen*` or `colored`. This lane keeps that true: it
+# builds the slim config (warnings are errors) and fails if any tensor crate
+# reappears in its normal-dependency graph.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  slim:
+    name: cargo check -p geode-core --no-default-features
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Slim dependency graph has no tensor crates
+        run: |
+          cargo tree -p geode-core --no-default-features -e normal > slim-tree.txt
+          if grep -E '(^|[^a-z_-])(burn|bunsen|colored)[a-z_-]* v' slim-tree.txt; then
+            echo "::error::burn/bunsen/colored leaked into the slim geode-core graph"
+            exit 1
+          fi
+
+      # `cargo rustc ... -- -D warnings` applies the flag to geode-core only.
+      # A job-level RUSTFLAGS would also reach the vendored path crate
+      # `vendor/mshio` (cargo does not cap lints on path crates), which trips
+      # `non_local_definitions` from its `FromPrimitive` derive.
+      - name: Build the slim config
+        run: cargo rustc -p geode-core --no-default-features --lib -- -D warnings

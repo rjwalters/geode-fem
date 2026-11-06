@@ -843,6 +843,7 @@ pub(crate) enum CoarseSolve {
     /// configured count (issue #963: the driven vector-nodal block's
     /// measurement option, independent of the process-global
     /// `GEODE_AMG_CYCLES`).
+    #[cfg_attr(not(feature = "tensor"), allow(dead_code))]
     AmgCycles(usize),
 }
 
@@ -2039,6 +2040,7 @@ impl AmsLitePreconditioner {
     }
 
     /// The V-cycle structure this preconditioner was built with (issue #963).
+    #[cfg_attr(not(feature = "tensor"), allow(dead_code))]
     pub(crate) fn vcycle(&self) -> VCycleOptions {
         self.vcycle
     }
@@ -2137,6 +2139,7 @@ impl AmsLitePreconditioner {
     }
 
     /// The V-cycle smoother weight and the estimate behind it (issue #945).
+    #[cfg_attr(not(feature = "tensor"), allow(dead_code))]
     pub(crate) fn smoother(&self) -> &SmootherWeight {
         &self.smoother
     }
