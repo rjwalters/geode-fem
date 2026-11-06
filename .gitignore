@@ -187,3 +187,8 @@ papers/**/*.vision/pages/
 
 # #1084: flat companions of bent patch fixtures are regenerated, not committed
 crates/geode-core/tests/fixtures/*.flat.msh
+
+# #1410: cargo ignores a dependency's own Cargo.lock (the root Cargo.lock is
+# authoritative) but rewrites one inside vendored crates whenever it resolves
+# there, which dirtied the checkout. Never track them.
+vendor/*/Cargo.lock

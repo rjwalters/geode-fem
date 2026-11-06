@@ -34,7 +34,8 @@ def verify_sources():
     for crate in provenance["crates"]:
         name = f"{crate['name']}-{crate['version']}"
         actual = {f"{name}/{p.relative_to(REPO / 'vendor' / name)}"
-                  for p in (REPO / "vendor" / name).rglob("*") if p.is_file()}
+                  for p in (REPO / "vendor" / name).rglob("*")
+                  if p.is_file() and p.name != "Cargo.lock"}
         expected = {p for p in provenance["vendored"] if p.startswith(name + "/")}
         if actual != expected:
             raise RuntimeError(f"unexpected or missing files in vendored {name}")
