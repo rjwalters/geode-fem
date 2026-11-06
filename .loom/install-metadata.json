@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1264",
-  "loom_commit": "9e3ef4f96e11227c9119f1d551489e578c9e2f22",
+  "loom_version": "0.19.1270",
+  "loom_commit": "db33bfde17c210bfbacb1d2272e47c2903005e5a",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -795,8 +795,11 @@
     ".loom/docs/ratification-lane.md",
     ".loom/scripts/tests/test-doctor-champion-hold-conflict.sh",
     ".loom/scripts/tests/test-champion-merged-before-hold.sh",
-    ".loom/scripts/tests/test-merge-pr-release-hold.sh"
+    ".loom/scripts/tests/test-merge-pr-release-hold.sh",
+    ".loom/scripts/tests/test-guide-awaiting-revision-park.sh",
+    ".loom/scripts/tests/test-guide-transient-first-at.sh",
+    ".loom/scripts/tests/test-resync-installed-agents-md-create.sh"
   ],
-  "last_resync": "2026-11-05",
+  "last_resync": "2026-11-06",
   "requires_daemon": "0.19.1146"
 }
