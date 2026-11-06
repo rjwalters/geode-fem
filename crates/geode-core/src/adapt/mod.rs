@@ -35,10 +35,11 @@
 //!   heuristic `dwr-product` fallback, the `dwr-p2` weights, the lumped and
 //!   wave-port S-parameter goals, and the goal-oriented loop marking
 //!   ([`driver::Marking::Goal`], [`driver::DrivenGoal`]). The eigenfrequency
-//!   goal is a later step.
+//!   goal ([`dwr_eigen`]) is step 5.
 
 pub mod driver;
 pub mod dwr;
+pub mod dwr_eigen;
 pub mod dwr_wave;
 pub mod estimator;
 pub mod goal;

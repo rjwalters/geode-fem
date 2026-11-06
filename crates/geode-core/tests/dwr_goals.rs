@@ -8,15 +8,16 @@
 //! `dwr-p2` on `S_kj`, and the `GoalFunctional` bridge to the adjoint
 //! gradient. Step 4: the goal-oriented loop marking ([`Marking::Goal`]) and
 //! its report fields; the Golden 2 DOF comparison is an `#[ignore]`d
-//! measurement here (see the PR). The eigenfrequency golden is step 5.
+//! measurement here (see the PR). Step 5: the eigenfrequency goal (`dwr_eigen`) and Golden 3.
 
 use faer::c64;
 use geode_core::adapt::driver::{
-    AdaptError, AdaptOptions, AdaptReport, DrivenAdaptSpec, DrivenGoal, FaceBc, FaceCtx, GoalLevel,
-    LevelContext, LevelOutcome, LevelQuantities, LevelSolver, LumpedPortSpec, Marking, TetCtx,
-    adapt_driven, adapt_with, bisection_mesh, space_dofs,
+    AdaptError, AdaptOptions, AdaptReport, DrivenAdaptSpec, DrivenGoal, EigenAdaptSpec, FaceBc,
+    FaceCtx, GoalLevel, LevelContext, LevelOutcome, LevelQuantities, LevelSolver, LumpedPortSpec,
+    Marking, TetCtx, adapt_driven, adapt_eigen, adapt_with, bisection_mesh, space_dofs,
 };
 use geode_core::adapt::dwr::{DwrEstimator, P2Enrichment, dwr_p2};
+use geode_core::adapt::dwr_eigen::dwr_eigen_p2;
 use geode_core::adapt::estimator::{ErrorEstimate, EstimateComponents, EstimatorCoverage};
 use geode_core::adapt::goal::{GoalFunctional, LinearGoal, SParamGoal};
 use geode_core::adapt::refine::Refined;
@@ -1043,5 +1044,142 @@ fn golden2_narrow_slit_measurement() {
                 );
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Step 5: eigenfrequency goal (Golden 3)
+// ---------------------------------------------------------------------------
+
+const DAUGE_L1: f64 = 1.475_621_824_08;
+const THICK: f64 = 0.25;
+
+/// The thick-L prism `((−1,1)² \ [0,1]×[−1,0]) × (0, THICK)`, `m` cells per
+/// unit length in-plane, `nz` layers (the `adapt_loop.rs` Golden 1 mesh).
+fn thick_l(m: usize, nz: usize) -> TaggedTetMesh {
+    let mesh = box_mesh(
+        [2 * m, 2 * m, nz],
+        [2.0, 2.0, THICK],
+        [-1.0, -1.0, 0.0],
+        |i, j, _| !(i >= m && j < m),
+    );
+    let n = mesh.n_tets();
+    TaggedTetMesh {
+        mesh,
+        tet_physical_tags: vec![1; n],
+        boundary_triangles: Vec::new(),
+        triangle_physical_tags: Vec::new(),
+    }
+}
+
+/// PEC on the side walls, natural (PMC) on the top and bottom.
+fn thick_l_bc(f: &FaceCtx) -> FaceBc {
+    let on = |z: f64| f.points.iter().all(|p| (p[2] - z).abs() < 1e-12);
+    if on(0.0) || on(THICK) {
+        FaceBc::Natural
+    } else {
+        FaceBc::Pec
+    }
+}
+
+/// The eigenfrequency DWR estimate `Δλ` and the actual p=1 eigenvalue error
+/// of the tracked mode on the mesh `adapt_eigen` reaches after `iters`
+/// Dörfler iterations from `thick_l(4, 1)`.
+fn thick_l_dwr(
+    iters: usize,
+) -> (
+    usize,
+    f64,
+    f64,
+    geode_core::adapt::dwr_eigen::EigenDwrEstimate,
+) {
+    let eps = |_: &TetCtx| 1.0;
+    let spec = EigenAdaptSpec::new(thick_l(4, 1), 1.2, 1, &eps, &thick_l_bc);
+    let opts = AdaptOptions {
+        target_rel_error: 0.0,
+        max_iterations: iters,
+        max_dofs: 100_000,
+        marking: Marking::Dorfler { theta: 0.5 },
+        ..AdaptOptions::default()
+    };
+    let r = adapt_eigen::<B>(&spec, &opts, &device()).expect("thick-L adapt");
+    let mesh = &r.mesh.mesh;
+    let mode = &r.modes[0];
+
+    let sp1 = HcurlSpace::build(mesh, ElementOrder::P1);
+    let sp2 = HcurlSpace::build(mesh, ElementOrder::P2);
+    let walls: Vec<Vec<[u32; 3]>> = mesh
+        .boundary_faces()
+        .into_iter()
+        .filter(|f| {
+            let on = |z: f64| {
+                f.iter()
+                    .all(|&n| (mesh.nodes[n as usize][2] - z).abs() < 1e-12)
+            };
+            !(on(0.0) || on(THICK))
+        })
+        .map(|f| vec![f])
+        .collect();
+    let refs: Vec<&[[u32; 3]]> = walls.iter().map(Vec::as_slice).collect();
+    let mask = sp2.pec_interior_mask(mesh, &refs).unwrap();
+    let eps_t = vec![c64::new(1.0, 0.0); mesh.n_tets()];
+    let zero_src = CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+    };
+    let op2 = DrivenOperator::assemble_with_space::<B>(
+        &sp2,
+        mesh,
+        DrivenMaterials::Scalar(&eps_t),
+        None,
+        &DrivenBcs {
+            pec_interior_mask: &mask,
+        },
+        &[],
+        &[],
+        DrivenSource::Constant(&zero_src),
+        &device(),
+    )
+    .expect("p=2 operator");
+    let x: Vec<c64> = mode.vector.iter().map(|&v| c64::new(v, 0.0)).collect();
+    assert_eq!(x.len(), sp1.n_dofs());
+    let est = dwr_eigen_p2(&sp2, &op2, &x, mode.lambda).expect("eigen dwr");
+    (sp1.n_dofs(), mode.lambda, mode.lambda - DAUGE_L1, est)
+}
+
+/// Golden 3: on the thick-L prism the eigenfrequency DWR tracks the actual
+/// p=1 eigenvalue error `|λ − λ_h|` (Dauge's λ₁ is the reference) with
+/// effectivity within a factor of 2 on every adaptive level, with the right
+/// sign, and its `Re k` image tracks `|Δk|` the same way. The mode is
+/// lossless, so `Q = ∞` and no `Q` error is reported. Measured effectivities
+/// are 0.88–0.90 (levels 1, 3, 5, 7 of the Dörfler loop; the table is
+/// printed with `--nocapture`).
+#[test]
+fn golden3_thick_l_eigenfrequency_effectivity_is_within_2x() {
+    for iters in [1, 3, 5] {
+        let (n, lam, err, est) = thick_l_dwr(iters);
+        let actual = DAUGE_L1 - lam; // λ − λ_h > 0: p=1 undershoots
+        let eff = est.d_lambda.re / actual;
+        let k_actual = DAUGE_L1.sqrt() - lam.sqrt();
+        let k_eff = est.goal.d_re_k / k_actual;
+        eprintln!(
+            "iters {iters}: dofs {n} λ_h {lam:.6} |Δλ| {:.3e} est {:.3e} eff {eff:.3} \
+             Re k eff {k_eff:.3}",
+            err.abs(),
+            est.d_lambda.re
+        );
+        assert!(est.d_lambda.im.abs() < 1e-9 * est.d_lambda.re.abs());
+        assert!(
+            (0.5..=2.0).contains(&eff),
+            "level {iters}: effectivity {eff} outside [0.5, 2]"
+        );
+        assert!(
+            (0.5..=2.0).contains(&k_eff),
+            "level {iters}: Re k effectivity {k_eff} outside [0.5, 2]"
+        );
+        assert!(est.goal.d_q.is_none(), "a lossless mode has Q = ∞");
+        assert_eq!(est.dwr.estimator, DwrEstimator::P2Enrichment);
+        assert!(est.dwr.summary().contains("dwr-p2"));
+        let terms_sum: c64 = est.dwr.terms.as_ref().unwrap().iter().sum();
+        assert!((terms_sum - est.d_lambda).norm() <= 1e-9 * est.d_lambda.norm());
     }
 }

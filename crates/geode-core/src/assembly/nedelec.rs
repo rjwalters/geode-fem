@@ -607,42 +607,6 @@ pub struct NedelecSparseFullTensorSystem<B: Backend> {
     pub m_im_vals: Tensor<B, 1>,
 }
 
-/// Node-based PEC edge mask: an edge is eliminated iff **both** endpoints
-/// are flagged in `on_boundary`.
-///
-/// # Deprecated: over-eliminates interior chords (issue #771)
-///
-/// "Both endpoints on the boundary" is **not** "the edge lies on the
-/// boundary". An interior edge whose two endpoints sit on *different* wall
-/// faces — a chord across a cube's edge, a cylinder's rim between the cap
-/// and the side wall, the body diagonal of `cube_tet_mesh(1, ..)` — passes
-/// the node test but is not on the PEC surface, so this rule pins a DOF
-/// that `n × E = 0` does not constrain. On `cube_tet_mesh(n, ..)` it
-/// wrongly eliminates `12(n − 1)` interior edges (n ≥ 2): an artificial
-/// O(h) constraint that biases the coarse-mesh solution and inflates the
-/// first-order error.
-///
-/// Use the face-exact [`boundary_pec_interior_edges`] (edges of boundary
-/// faces, optionally filtered by position) or
-/// [`crate::mesh::pec_interior_mask_from_triangles`] (edges of tagged
-/// triangles) instead. Retained only for out-of-tree callers; no in-tree
-/// code uses it.
-#[deprecated(
-    since = "0.7.1",
-    note = "over-eliminates interior chords between boundary faces (issue #771); \
-            use `boundary_pec_interior_edges` or `pec_interior_mask_from_triangles`"
-)]
-pub fn pec_interior_edge_mask(edges: &[[u32; 2]], on_boundary: &[bool]) -> Vec<bool> {
-    edges
-        .iter()
-        .map(|e| {
-            let a = e[0] as usize;
-            let b = e[1] as usize;
-            !(on_boundary[a] && on_boundary[b])
-        })
-        .collect()
-}
-
 /// **Face-exact** PEC interior-edge mask over the mesh's outer surface.
 ///
 /// An edge is PEC-eliminated (`mask[e] == false`) iff it is an edge of a
@@ -653,9 +617,10 @@ pub fn pec_interior_edge_mask(edges: &[[u32; 2]], on_boundary: &[bool]) -> Vec<b
 ///
 /// For PEC (perfect electric conductor) BC, `n × E = 0` on the wall forces
 /// every edge DOF *lying in* the wall to zero — exactly the edges of the
-/// wall's triangles. Unlike the deprecated node-based
-/// [`pec_interior_edge_mask`], interior chords whose endpoints happen to
-/// lie on two different wall faces stay free (issue #771).
+/// wall's triangles. Unlike a node-based rule
+/// (eliminate every edge whose two endpoints are on the boundary), interior
+/// chords whose endpoints happen to lie on two different wall faces stay
+/// free (issue #771).
 ///
 /// Returns `(edges, interior_mask)` with `edges = mesh.edges()`, so the
 /// caller can locate the interior edge indices without re-deriving the
