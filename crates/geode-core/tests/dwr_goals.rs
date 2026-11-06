@@ -6,15 +6,23 @@
 //! the p=1 Galerkin solution to the p=2 one on the same mesh. The goldens
 //! Step 3: the lumped-port `S_ij` goal ([`SParamGoal`]), its reciprocity dual,
 //! `dwr-p2` on `S_kj`, and the `GoalFunctional` bridge to the adjoint
-//! gradient. The goldens of steps 4-5 (S-parameter, goal-adaptive DOF count, eigenfrequency) are
-//! added here as they land.
+//! gradient. Step 4: the goal-oriented loop marking ([`Marking::Goal`]) and
+//! its report fields; the Golden 2 DOF comparison is an `#[ignore]`d
+//! measurement here (see the PR). The eigenfrequency golden is step 5.
 
 mod common;
 use common::boundary_plane_faces;
 
 use faer::c64;
+use geode_core::adapt::driver::{
+    AdaptError, AdaptOptions, AdaptReport, DrivenAdaptSpec, DrivenGoal, FaceBc, FaceCtx, GoalLevel,
+    LevelContext, LevelOutcome, LevelQuantities, LevelSolver, LumpedPortSpec, Marking, TetCtx,
+    adapt_driven, adapt_with, bisection_mesh, space_dofs,
+};
 use geode_core::adapt::dwr::{DwrEstimator, P2Enrichment, dwr_p2};
+use geode_core::adapt::estimator::{ErrorEstimate, EstimateComponents, EstimatorCoverage};
 use geode_core::adapt::goal::{GoalFunctional, LinearGoal, SParamGoal};
+use geode_core::adapt::refine::Refined;
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::driven::adjoint::{driven_material_adjoint_gradient, goal_objective};
 use geode_core::driven::ports::LumpedPort;
@@ -22,7 +30,7 @@ use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, DrivenSource,
 };
 use geode_core::elements::ElementOrder;
-use geode_core::mesh::{TetMesh, cube_tet_mesh};
+use geode_core::mesh::{TaggedTetMesh, TetMesh, cube_tet_mesh};
 use geode_core::testing::TestBackend;
 
 use burn::tensor::backend::BackendTypes;
@@ -480,4 +488,510 @@ mod wave_port_golden {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Step 4: goal-adaptive marking (Golden 2)
+// ---------------------------------------------------------------------------
+
+/// A structured box `origin + [0, len]` with `n` cells per axis, each hex
+/// split into 6 tets, keeping the cells where `keep(i, j, k)`.
+fn box_mesh(
+    n: [usize; 3],
+    len: [f64; 3],
+    origin: [f64; 3],
+    keep: impl Fn(usize, usize, usize) -> bool,
+) -> TetMesh {
+    let np = [n[0] + 1, n[1] + 1, n[2] + 1];
+    let idx = |i: usize, j: usize, k: usize| (i + j * np[0] + k * np[0] * np[1]) as u32;
+    let mut nodes = Vec::new();
+    for k in 0..np[2] {
+        for j in 0..np[1] {
+            for i in 0..np[0] {
+                nodes.push([
+                    origin[0] + len[0] * i as f64 / n[0] as f64,
+                    origin[1] + len[1] * j as f64 / n[1] as f64,
+                    origin[2] + len[2] * k as f64 / n[2] as f64,
+                ]);
+            }
+        }
+    }
+    let mut tets = Vec::new();
+    for k in 0..n[2] {
+        for j in 0..n[1] {
+            for i in 0..n[0] {
+                if !keep(i, j, k) {
+                    continue;
+                }
+                let q = [
+                    idx(i, j, k),
+                    idx(i + 1, j, k),
+                    idx(i + 1, j + 1, k),
+                    idx(i, j + 1, k),
+                    idx(i, j, k + 1),
+                    idx(i + 1, j, k + 1),
+                    idx(i + 1, j + 1, k + 1),
+                    idx(i, j + 1, k + 1),
+                ];
+                tets.push([q[0], q[1], q[2], q[6]]);
+                tets.push([q[0], q[2], q[3], q[6]]);
+                tets.push([q[0], q[3], q[7], q[6]]);
+                tets.push([q[0], q[7], q[4], q[6]]);
+                tets.push([q[0], q[4], q[5], q[6]]);
+                tets.push([q[0], q[5], q[1], q[6]]);
+            }
+        }
+    }
+    let mut used = vec![false; nodes.len()];
+    for t in &tets {
+        for &v in t {
+            used[v as usize] = true;
+        }
+    }
+    let mut remap = vec![u32::MAX; nodes.len()];
+    let mut kept = Vec::new();
+    for (i, p) in nodes.iter().enumerate() {
+        if used[i] {
+            remap[i] = kept.len() as u32;
+            kept.push(*p);
+        }
+    }
+    for t in &mut tets {
+        for v in t.iter_mut() {
+            *v = remap[*v as usize];
+        }
+    }
+    TetMesh {
+        nodes: kept,
+        tets,
+        physical_groups: Default::default(),
+    }
+}
+
+/// A plate waveguide (`x ∈ (−1, 1)`, `y ∈ (0, 1)`, thickness `1/4`) with a
+/// closed resonant pocket below it (`x ∈ (−1/2, 1/2)`, `y ∈ (−1, −1/4)`)
+/// joined by a one-cell slit (`x ∈ (−1/4, 1/4)`). The pocket holds a large
+/// resonant field and the slit mouth has re-entrant edges, so the energy
+/// error concentrates there; the transmission `S₂₁` between the two end
+/// ports barely depends on it.
+fn stub_guide(m: usize) -> TaggedTetMesh {
+    let q = m / 4; // cells per quarter unit
+    let mesh = box_mesh(
+        [2 * m, 2 * m, 1],
+        [2.0, 2.0, 0.25],
+        [-1.0, -1.0, 0.0],
+        |i, j, _| {
+            let channel = j >= m;
+            let pocket = (2 * q..=6 * q - 1).contains(&i) && j < m - q;
+            let slit = (3 * q..=5 * q - 1).contains(&i) && (m - q..m).contains(&j);
+            channel || pocket || slit
+        },
+    );
+    let n = mesh.n_tets();
+    TaggedTetMesh {
+        mesh,
+        tet_physical_tags: vec![1; n],
+        boundary_triangles: Vec::new(),
+        triangle_physical_tags: Vec::new(),
+    }
+}
+
+/// The two end ports: port 0 on `x = −1`, port 1 on `x = 1` (both
+/// `y ∈ [0, 1]`, `ê = z`, the parallel-plate TEM mode).
+fn far_ports_bc(f: &FaceCtx) -> FaceBc {
+    let on = |axis: usize, v: f64| f.points.iter().all(|p| (p[axis] - v).abs() < 1e-12);
+    let channel = f.points.iter().all(|p| p[1] >= -1e-12);
+    if on(0, -1.0) && channel {
+        FaceBc::LumpedPort(0)
+    } else if on(0, 1.0) && channel {
+        FaceBc::LumpedPort(1)
+    } else {
+        FaceBc::Pec
+    }
+}
+
+fn far_port_run(
+    marking: Marking,
+    m: usize,
+    omega: f64,
+    max_dofs: usize,
+    levels: usize,
+) -> AdaptReport {
+    let eps = |_: &TetCtx| c64::new(1.0, 0.0);
+    let current = |_: &TetCtx, _: [f64; 3]| [c64::new(0.0, 0.0); 3];
+    let div = |_: &TetCtx, _: [f64; 3]| c64::new(0.0, 0.0);
+    let mut spec = DrivenAdaptSpec::new(stub_guide(m), omega, &eps, &far_ports_bc, &current, &div);
+    spec.lumped_ports = vec![
+        LumpedPortSpec {
+            e_hat: [0.0, 0.0, 1.0],
+            resistance: 0.25,
+            width: 1.0,
+            length: 0.25,
+            v_inc: c64::new(1.0, 0.0),
+        },
+        LumpedPortSpec {
+            e_hat: [0.0, 0.0, 1.0],
+            resistance: 0.25,
+            width: 1.0,
+            length: 0.25,
+            v_inc: c64::new(0.0, 0.0),
+        },
+    ];
+    spec.goal = Some(DrivenGoal {
+        output_port: 1,
+        input_port: 0,
+    });
+    let opts = AdaptOptions {
+        target_rel_error: 0.0,
+        max_iterations: levels,
+        max_dofs,
+        marking,
+        ..AdaptOptions::default()
+    };
+    adapt_driven::<B>(&spec, &opts, &device())
+        .expect("adaptive run")
+        .report
+}
+
+/// Golden 2 measurement (NOT a gate; see the PR for why): the energy-norm
+/// and the goal-oriented loops side by side on the plate waveguide with a
+/// pocket, printing DOFs, `S₂₁` and the `dwr-p2` estimate per level.
+/// Run with `cargo test --test dwr_goals golden2_measurement -- --ignored
+/// --nocapture`.
+#[test]
+#[ignore = "measurement only: minutes, prints a table"]
+fn golden2_measurement() {
+    for (tag, marking) in [
+        ("energy", Marking::Dorfler { theta: 0.5 }),
+        ("goal", Marking::Goal { theta: 0.5 }),
+    ] {
+        let r = far_port_run(marking, 4, 4.0, 60_000, 9);
+        println!("== {tag} (estimator {})", r.estimator);
+        for h in &r.history {
+            let g = h.goal.as_ref().expect("goal data");
+            println!(
+                "L{} dofs {:>6} S21 = {:.5}{:+.5}i  |dS|_est = {:.3e}",
+                h.level,
+                h.n_dofs,
+                g.value.re,
+                g.value.im,
+                g.signed.map_or(0.0, |d| d.norm())
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Step 4: the loop mechanics (cheap, always run)
+// ---------------------------------------------------------------------------
+
+/// A unit cube with port 0 on the whole `z = 0` face (`ê = y`, driven) and
+/// port 1 on the whole `x = 1` face (`ê = y`, passive); PEC elsewhere.
+fn cube_port_bc(f: &FaceCtx) -> FaceBc {
+    let on = |axis: usize, v: f64| f.points.iter().all(|p| (p[axis] - v).abs() < 1e-12);
+    if on(2, 0.0) {
+        FaceBc::LumpedPort(0)
+    } else if on(0, 1.0) {
+        FaceBc::LumpedPort(1)
+    } else {
+        FaceBc::Pec
+    }
+}
+
+fn cube_two_port_spec<'a>(
+    eps: &'a (dyn Fn(&TetCtx) -> c64 + Sync),
+    current: &'a (dyn Fn(&TetCtx, [f64; 3]) -> [c64; 3] + Sync),
+    div: &'a (dyn Fn(&TetCtx, [f64; 3]) -> c64 + Sync),
+) -> DrivenAdaptSpec<'a> {
+    let mesh = cube_tet_mesh(3, 1.0);
+    let n = mesh.n_tets();
+    let tagged = TaggedTetMesh {
+        mesh,
+        tet_physical_tags: vec![1; n],
+        boundary_triangles: Vec::new(),
+        triangle_physical_tags: Vec::new(),
+    };
+    let mut spec = DrivenAdaptSpec::new(tagged, 2.0, eps, &cube_port_bc, current, div);
+    let port = |r: f64, v: f64| LumpedPortSpec {
+        e_hat: [0.0, 1.0, 0.0],
+        resistance: r,
+        width: 1.0,
+        length: 1.0,
+        v_inc: c64::new(v, 0.0),
+    };
+    spec.lumped_ports = vec![port(1.0, 1.0), port(1.7, 0.0)];
+    spec.goal = Some(DrivenGoal {
+        output_port: 1,
+        input_port: 0,
+    });
+    spec
+}
+
+fn run_cube(marking: Marking, mutate: impl FnOnce(&mut DrivenAdaptSpec<'_>)) -> AdaptReport {
+    let eps = |_: &TetCtx| c64::new(1.0, 0.0);
+    let current = |_: &TetCtx, _: [f64; 3]| [c64::new(0.0, 0.0); 3];
+    let div = |_: &TetCtx, _: [f64; 3]| c64::new(0.0, 0.0);
+    let mut spec = cube_two_port_spec(&eps, &current, &div);
+    mutate(&mut spec);
+    let opts = AdaptOptions {
+        target_rel_error: 0.0,
+        max_iterations: 3,
+        marking,
+        ..AdaptOptions::default()
+    };
+    adapt_driven::<B>(&spec, &opts, &device())
+        .expect("adaptive run")
+        .report
+}
+
+/// `Marking::Goal` runs end to end on a driven two-port problem: the report
+/// names `dwr-p2`, every level carries the goal value and a finite signed
+/// estimate, level 0 (same mesh) agrees with the energy-norm run, and the
+/// two markings refine differently afterwards.
+#[test]
+fn goal_marking_runs_and_reports_the_estimator() {
+    let goal = run_cube(Marking::Goal { theta: 0.5 }, |_| {});
+    let energy = run_cube(Marking::Dorfler { theta: 0.5 }, |_| {});
+    assert_eq!(goal.estimator, "dwr-p2");
+    assert_eq!(energy.estimator, "energy-norm");
+    assert!(goal.summary().contains("dwr-p2"), "{}", goal.summary());
+    assert!(!goal.summary().contains("HEURISTIC"));
+    assert!(!energy.summary().contains("marking by estimator"));
+    for h in goal.history.iter().chain(&energy.history) {
+        let g = h.goal.as_ref().expect("goal data on every level");
+        assert_eq!(g.name, "s21");
+        assert_eq!(g.estimator, "dwr-p2");
+        assert!(!g.heuristic);
+        assert!(g.value.is_finite());
+        assert!(g.signed.expect("signed").is_finite());
+        assert!(g.eta_sum > 0.0);
+    }
+    // Level 0 is the same mesh: same goal value and estimate.
+    let (g0, e0) = (
+        goal.history[0].goal.as_ref().unwrap(),
+        energy.history[0].goal.as_ref().unwrap(),
+    );
+    assert_eq!(g0.value, e0.value);
+    assert_eq!(g0.signed, e0.signed);
+    // The goal indicator is not the energy indicator: the first refinement
+    // step differs.
+    let (rg, re) = (
+        goal.history[0].refinement.unwrap(),
+        energy.history[0].refinement.unwrap(),
+    );
+    assert!(
+        (rg.n_marked, rg.n_tets_after) != (re.n_marked, re.n_tets_after),
+        "goal marking {rg:?} equals energy marking {re:?}"
+    );
+}
+
+#[test]
+fn goal_marking_needs_a_goal_and_a_clean_excitation() {
+    let eps = |_: &TetCtx| c64::new(1.0, 0.0);
+    let current = |_: &TetCtx, _: [f64; 3]| [c64::new(0.0, 0.0); 3];
+    let div = |_: &TetCtx, _: [f64; 3]| c64::new(0.0, 0.0);
+    let opts = AdaptOptions {
+        marking: Marking::Goal { theta: 0.5 },
+        max_iterations: 2,
+        ..AdaptOptions::default()
+    };
+    // No goal on the spec.
+    let mut spec = cube_two_port_spec(&eps, &current, &div);
+    spec.goal = None;
+    let e = adapt_driven::<B>(&spec, &opts, &device()).unwrap_err();
+    assert!(e.to_string().contains("DrivenAdaptSpec::goal"), "{e}");
+    // The other port is also driven: the level solution is not S_{k0}'s.
+    let mut spec = cube_two_port_spec(&eps, &current, &div);
+    spec.lumped_ports[1].v_inc = c64::new(1.0, 0.0);
+    let e = adapt_driven::<B>(&spec, &opts, &device()).unwrap_err();
+    assert!(e.to_string().contains("also driven"), "{e}");
+    // A port that does not exist.
+    let mut spec = cube_two_port_spec(&eps, &current, &div);
+    spec.goal = Some(DrivenGoal {
+        output_port: 5,
+        input_port: 0,
+    });
+    assert!(adapt_driven::<B>(&spec, &opts, &device()).is_err());
+}
+
+/// A level solver whose energy indicator peaks at one corner and whose goal
+/// indicator at the opposite one: `Marking::Goal` must follow the goal
+/// indicator, label the report with the estimator it was given, and flag
+/// the product fallback as heuristic in the summary.
+struct TwoFoci {
+    estimator: DwrEstimator,
+    give_goal: bool,
+}
+
+impl TwoFoci {
+    fn indicator(m: &TetMesh, focus: [f64; 3]) -> Vec<f64> {
+        m.tets
+            .iter()
+            .map(|t| {
+                let c: [f64; 3] = std::array::from_fn(|d| {
+                    t.iter().map(|&n| m.nodes[n as usize][d]).sum::<f64>() / 4.0
+                });
+                let d2: f64 = (0..3).map(|d| (c[d] - focus[d]).powi(2)).sum();
+                1.0 / (d2 + 1e-2)
+            })
+            .collect()
+    }
+}
+
+impl LevelSolver for TwoFoci {
+    fn order(&self) -> ElementOrder {
+        ElementOrder::P1
+    }
+
+    fn solve_level(&mut self, ctx: &LevelContext<'_>) -> Result<LevelOutcome, AdaptError> {
+        let m = &ctx.mesh.mesh;
+        let n = m.n_tets();
+        let eta_t2 = Self::indicator(m, [0.0; 3]);
+        let est = ErrorEstimate {
+            eta_t2_terms: eta_t2
+                .iter()
+                .map(|&v| EstimateComponents {
+                    volume: v,
+                    ..Default::default()
+                })
+                .collect(),
+            eta_t2,
+            eta: 1.0,
+            eta_rel: 1.0,
+            energy_norm: 1.0,
+            components: EstimateComponents::default(),
+            kh_max: 0.5,
+            min_points_per_wavelength: 20.0,
+            pre_asymptotic: false,
+            coverage: EstimatorCoverage {
+                n_tets: n,
+                ..Default::default()
+            },
+        };
+        Ok(LevelOutcome {
+            estimates: vec![est],
+            n_dofs: space_dofs(m, ElementOrder::P1),
+            eligible: None,
+            upml: None,
+            quantities: LevelQuantities::Custom(Vec::new()),
+            solve_s: 0.0,
+            estimate_s: 0.0,
+        })
+    }
+
+    fn prolong(&mut self, _coarse: &TetMesh, _step: &Refined) -> Result<(), AdaptError> {
+        Ok(())
+    }
+}
+
+struct TwoFociGoal(TwoFoci, Vec<f64>);
+
+impl LevelSolver for TwoFociGoal {
+    fn order(&self) -> ElementOrder {
+        ElementOrder::P1
+    }
+
+    fn solve_level(&mut self, ctx: &LevelContext<'_>) -> Result<LevelOutcome, AdaptError> {
+        self.1 = TwoFoci::indicator(&ctx.mesh.mesh, [1.0; 3]);
+        self.0.solve_level(ctx)
+    }
+
+    fn prolong(&mut self, c: &TetMesh, s: &Refined) -> Result<(), AdaptError> {
+        self.0.prolong(c, s)
+    }
+
+    fn goal_level(&mut self, _level: usize) -> Option<GoalLevel> {
+        self.0.give_goal.then(|| GoalLevel {
+            name: "probe".into(),
+            estimator: self.0.estimator,
+            eta_t: self.1.clone(),
+            value: c64::new(1.0, 0.0),
+            signed: (!self.0.estimator.is_heuristic()).then(|| c64::new(0.1, 0.0)),
+        })
+    }
+}
+
+fn two_foci(
+    estimator: DwrEstimator,
+    give_goal: bool,
+    marking: Marking,
+) -> Result<(AdaptReport, TetMesh), AdaptError> {
+    let bm = bisection_mesh(
+        TaggedTetMesh {
+            mesh: cube_tet_mesh(3, 1.0),
+            tet_physical_tags: vec![1; cube_tet_mesh(3, 1.0).n_tets()],
+            boundary_triangles: Vec::new(),
+            triangle_physical_tags: Vec::new(),
+        },
+        None,
+    )?;
+    let opts = AdaptOptions {
+        target_rel_error: 0.0,
+        max_iterations: 2,
+        marking,
+        ..AdaptOptions::default()
+    };
+    let mut solver = TwoFociGoal(
+        TwoFoci {
+            estimator,
+            give_goal,
+        },
+        Vec::new(),
+    );
+    adapt_with(bm, &opts, &mut solver).map(|(r, bm)| (r, bm.mesh().mesh.clone()))
+}
+
+#[test]
+fn goal_marking_follows_the_goal_indicator_not_the_energy_one() {
+    let (goal, goal_mesh) = two_foci(
+        DwrEstimator::P2Enrichment,
+        true,
+        Marking::Goal { theta: 0.3 },
+    )
+    .unwrap();
+    let (energy, energy_mesh) = two_foci(
+        DwrEstimator::P2Enrichment,
+        true,
+        Marking::Dorfler { theta: 0.3 },
+    )
+    .unwrap();
+    assert_eq!(goal.estimator, "dwr-p2");
+    assert_eq!(energy.estimator, "energy-norm");
+    assert!(goal.history[0].refinement.unwrap().n_marked > 0);
+    // The foci are at opposite corners: the refined meshes differ, and the
+    // goal run put its new nodes near its own focus (1, 1, 1).
+    assert_ne!(goal_mesh.nodes, energy_mesh.nodes);
+    let near = |m: &TetMesh, f: [f64; 3]| {
+        m.nodes
+            .iter()
+            .filter(|p| (0..3).map(|d| (p[d] - f[d]).powi(2)).sum::<f64>() < 0.25)
+            .count()
+    };
+    assert!(
+        near(&goal_mesh, [1.0; 3]) > near(&energy_mesh, [1.0; 3]),
+        "goal run not refined toward the goal focus"
+    );
+    assert!(
+        near(&energy_mesh, [0.0; 3]) > near(&goal_mesh, [0.0; 3]),
+        "energy run not refined toward the energy focus"
+    );
+}
+
+/// Negative control: the product fallback must be labelled heuristic in the
+/// report and its summary; a solver that gives no goal cannot be marked by
+/// one.
+#[test]
+fn goal_marking_labels_the_product_fallback_and_requires_a_goal() {
+    let (r, _) = two_foci(DwrEstimator::Product, true, Marking::Goal { theta: 0.5 }).unwrap();
+    assert_eq!(r.estimator, "dwr-product");
+    assert!(r.history[0].goal.as_ref().unwrap().heuristic);
+    assert!(r.summary().contains("dwr-product"), "{}", r.summary());
+    assert!(r.summary().contains("HEURISTIC"), "{}", r.summary());
+    let e = two_foci(
+        DwrEstimator::P2Enrichment,
+        false,
+        Marking::Goal { theta: 0.5 },
+    )
+    .unwrap_err();
+    assert!(e.to_string().contains("goal estimate"), "{e}");
 }

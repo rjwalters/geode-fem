@@ -42,6 +42,7 @@ use faer::{Mat, Side};
 
 use geode_core::analytic::loaded_guide::{LsFamily, SlabLoadedGuide};
 use geode_core::assembly::hcurl_space::HcurlSpace;
+use geode_core::assembly::nedelec::tet_centroid as centroid;
 use geode_core::driven::solve::{DrivenError, SurfaceImpedanceBc, SurfaceImpedanceModel};
 use geode_core::eigen::hcurl_null::GradientNullSpace;
 use geode_core::eigen::lossy_cavity::{
@@ -177,11 +178,6 @@ fn box_walls(mesh: &TetMesh, len: [f64; 3]) -> Vec<Vec<[u32; 3]>> {
 
 fn refs(lists: &[Vec<[u32; 3]>]) -> Vec<&[[u32; 3]]> {
     lists.iter().map(Vec::as_slice).collect()
-}
-
-fn centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
-    let tet = mesh.tets[t];
-    std::array::from_fn(|d| tet.iter().map(|&v| mesh.nodes[v as usize][d]).sum::<f64>() / 4.0)
 }
 
 fn fixture(name: &str) -> TaggedTetMesh {

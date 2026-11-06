@@ -32,8 +32,10 @@
 //!
 //! - [`dwr`]: the dual-weighted-residual goal-oriented core (Phase 4, issue
 //!   #1266, step 1): the signed `Σ ρ_T ω_T` estimate and the labelled
-//!   heuristic `dwr-product` fallback. The `dwr-p2` weights, S-parameter and
-//!   eigenfrequency goals and the loop hook are later steps.
+//!   heuristic `dwr-product` fallback, the `dwr-p2` weights, the lumped and
+//!   wave-port S-parameter goals, and the goal-oriented loop marking
+//!   ([`driver::Marking::Goal`], [`driver::DrivenGoal`]). The eigenfrequency
+//!   goal is a later step.
 
 pub mod driver;
 pub mod dwr;

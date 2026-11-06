@@ -10,8 +10,10 @@ archive semantics. The accepted 15-file patch has SHA256
 `provenance.json` records each crates.io archive checksum, all published
 baseline file hashes, every vendored file hash, and the test-support hashes.
 The complete published source and MIT/Apache notices are retained. The
-published consumer lockfiles are also retained for provenance; Cargo ignores
-a dependency's own lockfile. Test-only resolved locks live in `test-locks/`.
+published consumer lockfiles are not vendored (Cargo ignores a dependency's
+own lockfile, and cargo regenerates ignored ones in place, so they are
+untracked and skipped by the file-set check; the baseline hashes still record
+them). Test-only resolved locks live in `test-locks/`.
 The root `Cargo.lock` is the application's dependency resolution.
 
 ## Compatibility contract
