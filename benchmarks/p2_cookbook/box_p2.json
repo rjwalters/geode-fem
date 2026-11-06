@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "geode_version": "0.9.0",
+  "git_sha": "fa2866a05ee5",
+  "backend": "ndarray",
+  "threads": null,
+  "spec_path": "crates/geode-cli/examples/eigen/box_cavity_p2.json",
+  "kind": "eigen",
+  "status": "ok",
+  "mesh": {
+    "path": "crates/geode-cli/examples/eigen/../../../geode-core/tests/fixtures/guide_box_lc030.msh",
+    "sha256": "bd42e9a72840fef0d0a3da3c339cb595bdacde5909184751f1a82f6ba6839d8c",
+    "length_unit_m": 0.01,
+    "n_nodes": 183,
+    "n_tets": 526,
+    "n_edges": 868,
+    "n_interior": 2560,
+    "element_order": 2,
+    "n_dofs": 4160
+  },
+  "regions": [
+    {
+      "physical_group": "domain",
+      "tag": 1,
+      "n_tets": 526,
+      "eps_r": [
+        1.0,
+        0.0
+      ],
+      "eps_r_source": "spec",
+      "mu_r": 1.0
+    }
+  ],
+  "pec": [
+    {
+      "physical_group": "walls",
+      "tag": 2,
+      "n_triangles": 320
+    }
+  ],
+  "eigen": {
+    "n_modes": 4,
+    "shift_hz": 7157017738.855413,
+    "shift_k0": 1.5,
+    "sigma": 2.25,
+    "max_iters": 160,
+    "tol": 1e-9,
+    "residual_tol": 1e-6
+  },
+  "solver": {
+    "method": "shift_invert_lanczos",
+    "inner": "direct_lu",
+    "n_null_filtered": 21,
+    "residual_rel_max": 7.251906954342387e-14,
+    "wall_time_s": 0.527227109,
+    "pencil": "real_symmetric"
+  },
+  "modes": [
+    {
+      "index": 0,
+      "lambda": 12.343624636833765,
+      "k0": 3.5133494897083275,
+      "frequency_hz": 16763403080.42741,
+      "omega_rad_s": 105327567933.27052,
+      "q": null,
+      "residual_rel": 2.0012985285429102e-14
+    },
+    {
+      "index": 1,
+      "lambda": 14.661077180145623,
+      "k0": 3.8289786079509014,
+      "frequency_hz": 18269378545.86834,
+      "omega_rad_s": 114789890850.7019,
+      "q": null,
+      "residual_rel": 4.5354089478085384e-14
+    },
+    {
+      "index": 2,
+      "lambda": 19.75333911682623,
+      "k0": 4.444472872774254,
+      "frequency_hz": 21206114126.87134,
+      "omega_rad_s": 133241944704.33147,
+      "q": null,
+      "residual_rel": 5.007186865805051e-14
+    },
+    {
+      "index": 3,
+      "lambda": 22.068919183723033,
+      "k0": 4.697756824668879,
+      "frequency_hz": 22414619284.656166,
+      "omega_rad_s": 140835206555.37582,
+      "q": null,
+      "residual_rel": 7.251906954342387e-14
+    }
+  ]
+}

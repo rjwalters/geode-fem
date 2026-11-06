@@ -24,3 +24,14 @@ measurement, so **no p=2 anchor constant is recorded**: the p=1 anchor model
 stays in force and flagged `order_of_magnitude`. A real anchor needs a
 completed run on a box with headroom (e.g. the 128 GB cloud box used for the
 p=1 anchor).
+
+## Second data point: driven spiral smoke at p=2 (2026-11-06, loom-worker-2)
+
+`geode driven` on `examples/driven/spiral_inductor.json` with
+`"element_order": 2` (73 052 interior DOFs, nnz(A) 3 061 380, direct LU):
+**349 s wall, 7.84 GB peak RSS** (GNU `/usr/bin/time -v`), against 3.1 s and
+0.29 GB at p=1. `geode check` predicted ~28.2 GB for it, so the p=1-anchor
+model is **3.6x HIGH** on memory here as well. Like the eigen run above this is
+one point on a shared host, well below anchor scale (nnz ratio ~0.35), so it
+does not calibrate the model: no constant is recorded and
+`peak_memory_confidence` stays `order_of_magnitude`.
