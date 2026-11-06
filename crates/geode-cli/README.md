@@ -1334,7 +1334,7 @@ consumed by that subcommand.
 | `inductance` | every `L_ij` (H) | `nu_r` (= `1/μ_r`), `mu_r` | self-adjoint energy form (`inductance_adjoint_sensitivity`), `∂L/∂μ_r = −ν_r² ∂L/∂ν_r` | the forward solves again on one factorization; no adjoint solve |
 | `eigen`, **lossless** (real `eps_r`, no `absorbing_regions`) | `frequency_hz` of each `modes[]` entry | `eps_r` | Hellmann–Feynman (`EigenSensitivity::deigenvalue_deps`), `∂f/∂ε = (f/2λ) ∂λ/∂ε` | a local contraction; no solve |
 | `driven`, **exactly one** lumped port, no `wave_ports` / `absorbing_regions`, direct solver, dense sweep (issue #739) | `s11_mag_sq` = `\|S11\|²` at **every** swept frequency (dimensionless) | `eps_r` | port-loaded discrete adjoint (`driven_material_adjoint_gradient_ports` + `s11_sq_objective`) | per frequency: one assembly + LU of the port-loaded `A(ω)`, one forward + one adjoint back-solve |
-| `driven` with `observables`, `frequencies`, a non-`eps_r` kind or any other port set — lumped, wave (geometric, filled), mixed, walled, hybrid (issue #883) | `driven_observables`: any `S_ij` (`mag` / `mag_sq` / `db` / `phase_deg` / `real` / `imag`), `Σ\|S_ij\|²`, a hybrid port's `z0` / `eps_eff` | `eps_r`, `eps_r_imag`, `tan_delta`, `sigma`, `shape`, `wall_sigma`, `wall_rms_roughness`, `wall_ball_radius`, `wall_ball_density` | N-port S-matrix adjoint (`s_matrix_sensitivity_sweep`; reciprocity) | per frequency: one LU (the forward's own excitation solves, **zero** extra solves) — see [N-port driven sensitivities](#n-port-driven-sensitivities-issue-883) |
+| `driven` with `observables`, `frequencies`, a non-`eps_r` kind or any other port set — lumped, wave (geometric, filled), mixed, walled, hybrid (issue #883) | `driven_observables`: any `S_ij` (`mag` / `mag_sq` / `db` / `phase_deg` / `real` / `imag`), `Σ\|S_ij\|²`, a hybrid port's `z0` / `eps_eff` | `eps_r`, `eps_r_imag`, `tan_delta`, `sigma`, `shape`, `wall_sigma`, `wall_rms_roughness`, `wall_ball_radius`, `wall_ball_density`, `dispersion` (lumped ports) | N-port S-matrix adjoint (`s_matrix_sensitivity_sweep`; reciprocity) | per frequency: one LU (the forward's own excitation solves, **zero** extra solves) — see [N-port driven sensitivities](#n-port-driven-sensitivities-issue-883) |
 
 - **Parameters.** `physical_group` is any dimension-3 group (listed in
   `materials` or not — an unlisted group is differentiated at its vacuum
@@ -1476,6 +1476,17 @@ lumped-port spec whose parameters are all `eps_r` and that has no
   `ε″` held; `eps_r_imag` is `ε″` (`ε_r = ε′ − jε″`) with `ε′` held — at a
   lossless point the gradient is the passive-side (`ε″ → 0⁺`) one;
   `tan_delta` is `tan δ = ε″/ε′` with `ε′` held (`∂/∂tan δ = ε′·∂/∂ε″`).
+  `dispersion` (issue #1259; lumped-port specs) differentiates a parameter of
+  the group's `materials[].dispersion` model, named by `model_parameter`:
+  `eps_r` / `tan_delta` (`djordjevic_sarkar`), `eps_inf` / `delta_eps` /
+  `tau_s` (`debye`; the last two need `pole`, the 0-based pole index) or
+  `eps_inf` / `omega_p_rad_s` / `gamma_rad_s` (`drude`), in the model's own
+  unit. The adjoint runs per frequency at the forward's own `ε(ω)` and
+  contracts the model's `∂ε(ω)/∂θ` with the region mass, so it still costs no
+  extra solves; `--check-gradient` re-runs the shipped dispersive forward with
+  the parameter moved. A dispersive group admits `dispersion` parameters only
+  (a constant-`ε` kind on it is `invalid_spec`), and a spec with `wave_ports`
+  and a dispersive material is not differentiable yet.
   `sigma` is the volumetric conductivity `materials[].conductivity_s_m` in
   S/m (absent = 0, the design point; issue #1254): `∂A/∂σ = jωM` through
   the same zero-extra-solve adjoint, gradient per S/m. At `σ = 0` the

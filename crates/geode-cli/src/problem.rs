@@ -549,6 +549,19 @@ pub struct SensitivityParameter {
     /// parameter (`region` is then `usize::MAX`, `physical_group` the
     /// wall's group; `value` is in SI).
     pub wall: Option<WallParameterDef>,
+    /// Dispersion-model parameters (issue #1259): which parameter of the
+    /// group's `dispersion` model (`value` is its value in the model's own
+    /// unit).
+    pub dispersion: Option<DispersionParameterDef>,
+}
+
+/// A resolved `kind = "dispersion"` sensitivity parameter (issue #1259).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DispersionParameterDef {
+    /// The model parameter.
+    pub param: crate::spec::DispersionParameter,
+    /// Debye pole index (`delta_eps` / `tau_s`); `0` otherwise.
+    pub pole: usize,
 }
 
 /// The resolved `sensitivity` section (issue #707).
@@ -1986,6 +1999,7 @@ pub fn load_parsed(
                 frequencies: &frequencies,
                 length_unit_m: spec.mesh.length_unit_m,
                 leontovich: &leontovich,
+                dispersion: &dispersion,
             },
         )?),
         None => None,
@@ -2378,12 +2392,16 @@ fn validate_dispersion(
             analysis.name()
         )));
     }
-    if spec.sensitivity.is_some() {
+    if spec.sensitivity.is_some() && !spec.wave_ports.is_empty() {
+        // Lumped ports only for now: a wave port's face solves are built at
+        // one frequency, so a dispersive fill or a dispersive volume next
+        // to a port would differentiate a different forward than the
+        // report's (Epic #841 Phase 2a, issue #1259).
         return Err(invalid(format!(
-            "{at} cannot be combined with a `sensitivity` section: the adjoint differentiates \
-             a frequency-independent permittivity, so its forward solve would not be the \
-             dispersive problem, and a dispersion model's parameters have no gradient chain \
-             yet (Epic #841 Phase 2a; drop `sensitivity`, or use a constant `eps_r`)"
+            "{at} cannot be combined with a `sensitivity` section on a spec with `wave_ports`: \
+             the N-port adjoint differentiates the dispersive forward per frequency for lumped \
+             ports only (a dispersive wave-port fill is the remaining part of issue #1259; use \
+             lumped `ports`, or a constant `eps_r`)"
         )));
     }
     if spec.sweep.as_ref().is_some_and(|s| s.adaptive.is_some()) {
@@ -3014,6 +3032,7 @@ fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), Cl
                 K::WallRmsRoughness,
                 K::WallBallRadius,
                 K::WallBallDensity,
+                K::Dispersion,
             ],
             _ => &[K::EpsR],
         };
@@ -3041,6 +3060,11 @@ fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Result<(), Cl
         let dup = sens.parameters[..i].iter().any(|q| {
             if prm.kind == K::Shape || q.kind == K::Shape {
                 prm.kind == q.kind && parameter_label(q) == label
+            } else if prm.kind == K::Dispersion || q.kind == K::Dispersion {
+                prm.kind == q.kind
+                    && q.physical_group == prm.physical_group
+                    && q.model_parameter == prm.model_parameter
+                    && q.pole == prm.pole
             } else {
                 q.physical_group == prm.physical_group
                     && (q.kind == prm.kind || analysis == Analysis::Inductance)
@@ -3133,6 +3157,9 @@ pub fn is_n_port_sensitivity(spec: &ProblemSpec) -> bool {
             .any(|p| p.kind != SensitivityParameterKind::EpsR)
         || spec.ports.len() != 1
         || !spec.wave_ports.is_empty()
+        // The legacy one-port adjoint differentiates a constant ε: a
+        // dispersive material needs the N-port adjoint (issue #1259).
+        || spec.materials.iter().any(|m| m.dispersion.is_some())
         // The legacy one-port adjoint has no σ term: a conducting material
         // needs the N-port adjoint (issue #1254).
         || spec
@@ -3185,6 +3212,20 @@ fn validate_parameter_fields(
         ("axis", prm.axis.is_some()),
         ("pinned", prm.pinned.is_some()),
     ];
+    if prm.kind == crate::spec::SensitivityParameterKind::Dispersion {
+        if prm.model_parameter.is_none() {
+            return Err(invalid(format!(
+                "sensitivity.parameters[{i}]: kind `dispersion` needs `model_parameter` (`eps_r`, \
+                 `tan_delta`, `eps_inf`, `delta_eps`, `tau_s`, `omega_p_rad_s` or `gamma_rad_s`)"
+            )));
+        }
+    } else if prm.model_parameter.is_some() || prm.pole.is_some() {
+        return Err(invalid(format!(
+            "sensitivity.parameters[{i}]: `model_parameter` / `pole` apply to `kind = \
+             \"dispersion\"` parameters only (this one is `{}`)",
+            prm.kind.name()
+        )));
+    }
     if !prm.kind.is_shape() {
         if prm.physical_group.is_none() {
             return Err(invalid(format!(
@@ -3339,6 +3380,8 @@ struct SensitivityContext<'a> {
     length_unit_m: f64,
     /// The resolved Leontovich walls (wall parameters, issue #1330).
     leontovich: &'a [Leontovich],
+    /// The dispersive regions (`kind = "dispersion"` parameters, #1259).
+    dispersion: &'a [DispersiveRegion],
 }
 
 /// Bind each sensitivity parameter to its volume region (the regions are
@@ -3376,6 +3419,17 @@ fn resolve_sensitivity(
                 ))
             })?;
             let r = &regions[region];
+            if prm.kind == SensitivityParameterKind::Dispersion {
+                return resolve_dispersion_parameter(prm, &group, region, tag, ctx.dispersion);
+            }
+            if ctx.dispersion.iter().any(|d| d.tag == tag) {
+                return Err(invalid(format!(
+                    "sensitivity parameter `{group}` ({}): the group has a `dispersion` model, \
+                     whose permittivity is ε(ω) rather than a constant — differentiate its \
+                     model parameters with `kind = \"dispersion\"` (`model_parameter`)",
+                    prm.kind.name()
+                )));
+            }
             let value = match prm.kind {
                 SensitivityParameterKind::EpsR => r.eps_r.re,
                 SensitivityParameterKind::EpsRImag => -r.eps_r.im,
@@ -3392,6 +3446,7 @@ fn resolve_sensitivity(
                 value,
                 shape: None,
                 wall: None,
+                dispersion: None,
             })
         })
         .collect::<Result<Vec<_>, CliError>>()?;
@@ -3523,12 +3578,83 @@ fn resolve_wall_parameter(
         region: usize::MAX,
         value,
         shape: None,
+        dispersion: None,
         wall: Some(WallParameterDef {
             wall,
             param,
             si_factor,
             unit,
         }),
+    })
+}
+
+/// A `kind = "dispersion"` parameter: the named parameter of the group's
+/// model, at its design value (issue #1259).
+fn resolve_dispersion_parameter(
+    prm: &crate::spec::SensitivityParameterSpec,
+    group: &str,
+    region: usize,
+    tag: i32,
+    dispersion: &[DispersiveRegion],
+) -> Result<SensitivityParameter, CliError> {
+    use crate::spec::{DispersionParameter as P, DispersionSpec as D};
+    let param = prm.model_parameter.expect("validated");
+    let d = dispersion.iter().find(|d| d.tag == tag).ok_or_else(|| {
+        invalid(format!(
+            "sensitivity parameter `{group}` (dispersion): the group has no \
+             `materials[].dispersion` model (a constant `eps_r` is differentiated with `eps_r`, \
+             `eps_r_imag`, `tan_delta`)"
+        ))
+    })?;
+    let bad = |why: String| {
+        invalid(format!(
+            "sensitivity parameter `{group}` (dispersion, `{}`): {why}",
+            param.name()
+        ))
+    };
+    let (value, pole) = match (&d.spec, param) {
+        (D::DjordjevicSarkar { eps_r, .. }, P::EpsR) => (*eps_r, 0),
+        (D::DjordjevicSarkar { tan_delta, .. }, P::TanDelta) => (*tan_delta, 0),
+        (D::Debye { eps_inf, .. } | D::Drude { eps_inf, .. }, P::EpsInf) => (*eps_inf, 0),
+        (D::Debye { poles, .. }, P::DeltaEps | P::TauS) => {
+            let k = prm.pole.ok_or_else(|| {
+                bad("a Debye pole parameter needs `pole` (the 0-based pole index)".into())
+            })?;
+            let pole = poles.get(k).ok_or_else(|| {
+                bad(format!(
+                    "`pole` = {k} is out of range: the model has {} pole(s)",
+                    poles.len()
+                ))
+            })?;
+            (
+                if param == P::DeltaEps {
+                    pole.delta_eps
+                } else {
+                    pole.tau_s
+                },
+                k,
+            )
+        }
+        (D::Drude { omega_p_rad_s, .. }, P::OmegaPRadS) => (*omega_p_rad_s, 0),
+        (D::Drude { gamma_rad_s, .. }, P::GammaRadS) => (*gamma_rad_s, 0),
+        _ => {
+            return Err(bad(format!(
+                "the group's `{}` model has no such parameter",
+                d.model.name()
+            )));
+        }
+    };
+    if prm.pole.is_some() && !matches!(param, P::DeltaEps | P::TauS) {
+        return Err(bad("`pole` applies to `delta_eps` / `tau_s` only".into()));
+    }
+    Ok(SensitivityParameter {
+        physical_group: group.to_string(),
+        kind: SensitivityParameterKind::Dispersion,
+        region,
+        value,
+        shape: None,
+        wall: None,
+        dispersion: Some(DispersionParameterDef { param, pole }),
     })
 }
 
@@ -3582,6 +3708,7 @@ fn resolve_shape_parameter(
         kind: SensitivityParameterKind::Shape,
         region: usize::MAX,
         wall: None,
+        dispersion: None,
         value: value_mesh * length_unit_m,
         shape: Some(ShapeParameterDef {
             name,
@@ -6170,10 +6297,12 @@ mod tests {
                 "sweep.adaptive",
             ),
             (
+                // Lumped ports differentiate a dispersive forward (#1259); a
+                // wave port's face solves are single-frequency.
                 serde_json::json!({"sensitivity": {"parameters": [
-                    {"physical_group": "sub", "kind": "eps_r"}
-                ]}}),
-                "sensitivity",
+                    {"physical_group": "sub", "kind": "dispersion", "model_parameter": "eps_r"}
+                ]}, "wave_ports": [{"physical_group": "w"}]}),
+                "wave_ports",
             ),
         ] {
             let m = msg(spec(mat(ds.clone()), extra.clone()));
