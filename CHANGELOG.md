@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Goldens in `tests/floquet_ports.rs`: an empty cell with a propagating non-specular order (the Hermitian-pairing pin), a lamellar dielectric grating (orders −1, 0, +1, TE and TM) against a new test-only 1-D RCWA oracle (`tests/common/rcwa1d.rs`, agreement 4e-3), an inductive strip grating against Marcuvitz, the warning thresholds and the fixed-label accessor.
 - **Differentiable EDA (Epic #841):** `geode eigen` accepts `sensitivity` on lossy and open (UPML) specs. The unconjugated Hellmann–Feynman gradient of the complex-symmetric pencil gives `∂f/∂ε_r` and `∂Q/∂ε_r` per mode (`q_gradient` in the report, additive); the library adds `LossyEigenSensitivity` with `∂/∂ε″`, `∂/∂σ_wall` and `∂/∂λ_L` pencil derivatives (#1329).
 
+### Removed
+
+- **Breaking (`geode-core` library):** the deprecated `assembly::nedelec::pec_interior_edge_mask` (deprecated since 0.7.1, #771; it over-eliminated interior chords, use `boundary_pec_interior_edges` or `pec_interior_mask_from_triangles`) and `mesh::PHYS_VACUUM_BUFFER` (deprecated since 0.2.0, use `PHYS_VACUUM_GAP` / `PHYS_PML_SHELL`) are removed. Neither had in-tree callers (#1350).
+
 ### Changed
 
 - **Breaking (`geode-core` library):** `FloquetError::HigherOrderPropagates` is removed. A non-specular order at cutoff to the numerical floor (`CUTOFF_TOL`) is now `FloquetError::RayleighAnomaly`, with a hint to step the frequency or angle off the anomaly, and maps to `solve_failed`. Propagating orders and orders near cutoff (which only warn, `|k_z|/k < rayleigh_warn`) no longer error.
