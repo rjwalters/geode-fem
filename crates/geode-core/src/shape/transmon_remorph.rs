@@ -63,6 +63,7 @@ use crate::assembly::electrostatic::{
     assemble_electrostatic, assemble_electrostatic_p2_sheets, extract_capacitance,
     extract_capacitance_amg_pcg, extract_capacitance_p2_amg_pcg_dofs, extract_capacitance_p2_dofs,
 };
+use crate::assembly::nedelec::tet_centroid;
 use crate::mesh::TetMesh;
 use crate::mesh::red_refine::red_refine;
 use crate::quantum::diffopt::{MultiEval, MultiParamProblem, StepCheck, StepConstraint};
@@ -347,16 +348,6 @@ pub struct RemorphBudget {
     pub worst_tet: usize,
     /// `X⁰` centroid of the worst tet at `theta`.
     pub worst_centroid: [f64; 3],
-}
-
-fn tet_centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
-    let mut c = [0.0_f64; 3];
-    for &v in &mesh.tets[t] {
-        for (cd, x) in c.iter_mut().zip(mesh.nodes[v as usize]) {
-            *cd += 0.25 * x;
-        }
-    }
-    c
 }
 
 /// March parameter `param` of `family` in the sign of `sign` from `base`,
