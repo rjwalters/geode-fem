@@ -11,6 +11,10 @@
 //!   extraction (energy method + surface-flux cross-check), `E = −∇φ`
 //!   recovery, and field-energy postprocessing (Epic #475, Palace
 //!   `Electrostatic` parity).
+//! - [`electrostatic_2d`]: the planar (`TriMesh`, P1) sibling of
+//!   [`electrostatic`] with the same contract — per-triangle `ε_r`/`ρ`,
+//!   electrode node sets, `Result` errors, `E = −∇φ` recovery and the
+//!   per-unit-length Maxwell capacitance matrix (issue #1362).
 //! - [`electrostatic_dual`]: guaranteed **lower** bounds on a capacitance
 //!   from the complementary (flux, `H(div)`) principle — a certificate for
 //!   any piecewise-polynomial flux, Raviart–Thomas patch equilibration of a
@@ -72,6 +76,7 @@
 pub mod current_path;
 mod dense_scatter;
 pub mod electrostatic;
+pub mod electrostatic_2d;
 pub mod electrostatic_dual;
 pub mod fe;
 pub mod hcurl_space;

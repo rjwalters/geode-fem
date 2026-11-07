@@ -474,7 +474,12 @@ pub fn build(p: &Problem, inp: SampleInputs<'_>) -> Result<Sample, CliError> {
     );
 
     let spec_sha256 = std::fs::read(&inp.provenance.spec_path)
-        .map(|b| format!("{:x}", Sha256::digest(&b)))
+        .map(|b| {
+            Sha256::digest(&b)
+                .iter()
+                .map(|x| format!("{x:02x}"))
+                .collect::<String>()
+        })
         .map_err(|err| CliError::Io {
             path: PathBuf::from(&inp.provenance.spec_path),
             err,

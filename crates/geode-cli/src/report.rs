@@ -1542,6 +1542,53 @@ pub struct DrivenReport {
     /// present only with a spec `adaptive_mesh` section).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adaptive_mesh: Option<AdaptiveMeshReport>,
+    /// Accuracy diagnostics (additive in v1, issue #1265); present only for
+    /// an `element_order = 2` lumped-port sweep.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accuracy: Option<DrivenAccuracy>,
+}
+
+/// Accuracy diagnostics of a driven report (issue #1265).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct DrivenAccuracy {
+    /// Same-mesh order-1 vs order-2 comparison.
+    pub order_estimate: DrivenOrderEstimate,
+}
+
+/// Same-mesh p=1 vs p=2 S-matrix difference (issue #1265): an indicator of
+/// the order-1 discretization error on this mesh, **not** a rigorous bound
+/// on the order-2 error. The goal-oriented DWR estimator of Epic #835
+/// (`adapt/dwr.rs`) needs a goal functional and an adjoint solve per
+/// frequency; the direct order-1 solve of the same operator is the
+/// cheaper indicator the issue asks for, and matches the eigen report's.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct DrivenOrderEstimate {
+    /// The comparison order, always `1`.
+    pub reference_order: u8,
+    /// One entry per frequency, in report order.
+    pub points: Vec<DrivenOrderEstimatePoint>,
+    /// `max` over frequencies of `delta_s_max`.
+    pub delta_s_max: f64,
+    /// Warning threshold on `delta_s_max` (absolute, S is dimensionless).
+    pub threshold: f64,
+    /// `delta_s_max > threshold`.
+    pub above_threshold: bool,
+    /// Human-readable warning (also printed to stderr) when above threshold.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+/// One frequency of a [`DrivenOrderEstimate`].
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct DrivenOrderEstimatePoint {
+    /// Index into the report's `results`.
+    pub index: usize,
+    /// The frequency (Hz).
+    pub frequency_hz: f64,
+    /// `max_ij |S2_ij − S1_ij|` over the S-matrix entries.
+    pub delta_s_max: f64,
+    /// `|S2_11 − S1_11|`, the first port's reflection.
+    pub delta_s11: f64,
 }
 
 /// Adaptive mesh refinement record of a `driven` / `eigen` report (additive
@@ -1896,6 +1943,51 @@ pub struct EigenReport {
     /// present only with a spec `adaptive_mesh` section).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adaptive_mesh: Option<AdaptiveMeshReport>,
+    /// Accuracy diagnostics (additive in v1, issue #1265); present only for
+    /// a lossless `element_order = 2` eigen solve.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accuracy: Option<EigenAccuracy>,
+}
+
+/// Accuracy diagnostics of an eigen report (issue #1265).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct EigenAccuracy {
+    /// Same-mesh order-1 vs order-2 comparison.
+    pub order_estimate: OrderEstimate,
+}
+
+/// Same-mesh p=1 vs p=2 resonant-frequency difference (issue #1265): an
+/// indicator of the order-1 discretization error on this mesh, **not** a
+/// rigorous bound on the order-2 error (the p=2 result is only presumed
+/// closer to the truth). Modes are paired by ascending index.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct OrderEstimate {
+    /// The comparison order, always `1`.
+    pub reference_order: u8,
+    /// Per-mode differences.
+    pub modes: Vec<OrderEstimateMode>,
+    /// `max_i |Δf_i| / f_i` (p=2 as the denominator).
+    pub delta_f_rel_max: f64,
+    /// Warning threshold on `delta_f_rel_max`.
+    pub threshold: f64,
+    /// `delta_f_rel_max > threshold`.
+    pub above_threshold: bool,
+    /// Human-readable warning (also printed to stderr) when above threshold.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+/// One mode of an [`OrderEstimate`].
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct OrderEstimateMode {
+    /// Mode index (ascending frequency).
+    pub index: usize,
+    /// The order-1 resonant frequency on the same mesh (Hz).
+    pub frequency_hz_p1: f64,
+    /// `f_p2 − f_p1` (Hz).
+    pub delta_f_hz: f64,
+    /// `|f_p2 − f_p1| / f_p2`.
+    pub delta_f_rel: f64,
 }
 
 /// Material design sensitivities of a report's observable (additive in

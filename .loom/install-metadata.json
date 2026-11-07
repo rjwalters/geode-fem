@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1264",
-  "loom_commit": "9e3ef4f96e11227c9119f1d551489e578c9e2f22",
+  "loom_version": "0.19.1273",
+  "loom_commit": "f671f0ff42ca26ef4716254e5dd1be500273abd6",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -273,7 +273,6 @@
     ".loom/scripts/cli/loom-daemon-watchdog.sh",
     ".loom/scripts/cli/loom-help.sh",
     ".loom/scripts/cli/loom-logs.sh",
-    ".loom/scripts/cli/loom-scale.sh",
     ".loom/scripts/cli/loom-send.sh",
     ".loom/scripts/cli/loom-start.sh",
     ".loom/scripts/cli/loom-status.sh",
@@ -795,8 +794,13 @@
     ".loom/docs/ratification-lane.md",
     ".loom/scripts/tests/test-doctor-champion-hold-conflict.sh",
     ".loom/scripts/tests/test-champion-merged-before-hold.sh",
-    ".loom/scripts/tests/test-merge-pr-release-hold.sh"
+    ".loom/scripts/tests/test-merge-pr-release-hold.sh",
+    ".loom/scripts/tests/test-guide-awaiting-revision-park.sh",
+    ".loom/scripts/tests/test-guide-transient-first-at.sh",
+    ".loom/scripts/tests/test-resync-installed-agents-md-create.sh",
+    ".claude/commands/loom/accelerate.md",
+    ".loom/scripts/tests/test-guide-split-parent-unblock.sh"
   ],
-  "last_resync": "2026-11-05",
+  "last_resync": "2026-11-07",
   "requires_daemon": "0.19.1146"
 }

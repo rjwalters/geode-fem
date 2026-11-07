@@ -35,7 +35,7 @@ costs.
 | [[browser]] | Check the environment's browser-automation stack — Browser Use CLI, official agent skill, auth, cloud credit/concurrency health — and offer confirm-gated installs; report-first, provisions only (never drives a browser) |
 | [[sudo]] | Opt-in passwordless-sudo setup for a dev machine — install a `visudo`-validated `/etc/sudoers.d` drop-in (blanket `ALL` or a scoped command list) so an agent over SSH isn't blocked on password prompts; always confirmed first, validated with rollback on failure |
 | [[update-tools]] | Check installed tool packages (Loom, Anvil, …) against their sources and offer updates |
-| [[deps]] | Third-party dependency currency — reconcile organization policy, Renovate or Dependabot setup, and bot PRs; report-only under `--check` |
+| [[deps]] | Third-party dependency currency — reconcile organization policy, Dependabot-first setup with cooldown (Renovate opt-in), and bot PRs; report-only under `--check` |
 | [[optimize-ci]] | Audit GitHub Actions for wasted CI minutes — change-relevance path filtering (required-check safe), cache keys, superseded runs; ranked by measured savings, report-only unless `--apply`. Its deterministic half is `scripts/repo/repo-optimize-ci.py` (installed to `.claude/skills/repo/scripts/`) |
 | [[org-policy]] | Preview or deploy canonical rjwalters/repo preferences to the client's GitHub owner/.github repository through a policy PR |
 | [[decide]] | Put operator decisions to the operator as ranked options — best to worst, each with why — so they can answer with a number |
@@ -195,6 +195,7 @@ All toggles resolve: `REPO_*` env var (wins) → legacy `LOOM_*` env var →
 | Cloud CLI (mutating-verb asks + `az`/`gcloud` delete denies) | `REPO_GUARD_CLOUD` | `LOOM_GUARD_CLOUD` | `guards.cloudCli` | on |
 | Reversible-GitHub asks (`gh pr/issue close`, `gh label delete`) | `REPO_GUARD_REVERSIBLE_GH` | `LOOM_GUARD_REVERSIBLE_GH` | `guards.reversibleGh` | **off** (opt-in) |
 | rm scope (`repo` denies outside-repo/temp targets; `off`/`permissive` restores legacy) | `REPO_RM_SCOPE` | `LOOM_RM_SCOPE` | `guards.rmScope` | `repo` |
+| rm allowed dirs outside the repo (extra directories where `rm` stays allowed under `rmScope=repo`; absolute, lexical match, no symlink resolution; `/`, `$HOME`, single-segment, `..`/`$` entries ignored) | — (config-only) | — | `guards.rmAllowDirs` (array) | `[]` |
 | Force-op branch scope (`all` / `protected` / `off`) | `REPO_FORCE_SCOPE` | `LOOM_FORCE_SCOPE` | `guards.forceScope` | `all` |
 | tmpfs build/scratch dir (deny a build dir that resolves onto a RAM-backed mount) | `REPO_GUARD_TMPFS_SCRATCH` | `LOOM_GUARD_TMPFS_SCRATCH` | `guards.tmpfsScratch` | on |
 | Decision telemetry log | `REPO_GUARD_DECISION_LOG` (path: `REPO_GUARD_DECISION_LOG_FILE`) | `LOOM_GUARD_DECISION_LOG` (`…_FILE`) | `guards.decisionLog` | **off** (opt-in) |

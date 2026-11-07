@@ -5,6 +5,9 @@
 //! curl-curl annihilates global P2 gradients on a random tagged mesh; the
 //! hierarchical injection `prolong_p1` reproduces the p=1 field.
 
+mod common;
+use common::boundary_plane_faces;
+
 use std::collections::BTreeSet;
 
 use faer::c64;
@@ -59,17 +62,6 @@ fn jittered_cube(n: usize, seed: u64) -> TetMesh {
     mesh
 }
 
-/// Boundary faces lying in the plane `coord[axis] == value`.
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.boundary_faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
 fn sorted_edge(a: u32, b: u32) -> (u32, u32) {
     if a < b { (a, b) } else { (b, a) }
 }
@@ -93,8 +85,8 @@ fn p1_space_reproduces_the_pre_838_tables_and_mask_bit_for_bit() {
         }
         // Several tagged wall lists, including partial walls.
         let all = mesh.boundary_faces();
-        let z0 = plane_faces(&mesh, 2, 0.0);
-        let x1 = plane_faces(&mesh, 0, 1.0);
+        let z0 = boundary_plane_faces(&mesh, 2, 0.0);
+        let x1 = boundary_plane_faces(&mesh, 0, 1.0);
         for walls in [
             vec![all.as_slice()],
             vec![z0.as_slice()],
@@ -250,7 +242,7 @@ fn p2_pec_mask_is_face_exact_and_never_eliminates_chords() {
 fn p2_partial_tagged_walls_leave_other_boundaries_free() {
     let mesh = jittered_cube(3, 5);
     let space = HcurlSpace::build(&mesh, ElementOrder::P2);
-    let z0 = plane_faces(&mesh, 2, 0.0);
+    let z0 = boundary_plane_faces(&mesh, 2, 0.0);
     let mask = space.pec_interior_mask(&mesh, &[z0.as_slice()]).unwrap();
     let z0_set: BTreeSet<[u32; 3]> = z0.iter().copied().collect();
     for (gf, f) in space.faces().iter().enumerate() {
@@ -260,7 +252,7 @@ fn p2_partial_tagged_walls_leave_other_boundaries_free() {
         }
     }
     // A boundary face on another wall is free.
-    let x1 = plane_faces(&mesh, 0, 1.0);
+    let x1 = boundary_plane_faces(&mesh, 0, 1.0);
     let gf = space.faces().iter().position(|f| *f == x1[0]).unwrap();
     assert!(space.face_dofs(gf).iter().all(|&d| mask[d as usize]));
 }
@@ -467,8 +459,8 @@ fn k_times(op: &DrivenOperator, g_full: &[c64]) -> (Vec<c64>, f64, f64) {
 fn assembled_p2_curl_curl_annihilates_global_p2_gradients_on_a_tagged_mesh() {
     let mesh = jittered_cube(3, 13);
     let space = HcurlSpace::build(&mesh, ElementOrder::P2);
-    let walls_z0 = plane_faces(&mesh, 2, 0.0);
-    let walls_x1 = plane_faces(&mesh, 0, 1.0);
+    let walls_z0 = boundary_plane_faces(&mesh, 2, 0.0);
+    let walls_x1 = boundary_plane_faces(&mesh, 0, 1.0);
     let wall_nodes: BTreeSet<u32> = walls_z0
         .iter()
         .chain(&walls_x1)

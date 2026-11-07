@@ -38,6 +38,9 @@
 //!    solutions exactly (bit-for-bit: same arithmetic, same triplet
 //!    stream).
 
+mod common;
+use common::{all_plane_faces, pec_mask_for_planes};
+
 use std::collections::BTreeMap;
 
 use burn::tensor::backend::BackendTypes;
@@ -67,33 +70,6 @@ fn zero_source(mesh: &TetMesh) -> CurrentSource {
     CurrentSource {
         j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
     }
-}
-
-/// Boundary faces of the mesh lying entirely in the plane
-/// `coord[axis] == value`.
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
-/// PEC interior-edge mask eliminating every edge whose **both**
-/// endpoints lie on the same listed plane `(axis, value)`.
-fn pec_mask_for_planes(mesh: &TetMesh, edges: &[[u32; 2]], planes: &[(usize, f64)]) -> Vec<bool> {
-    edges
-        .iter()
-        .map(|e| {
-            let a = mesh.nodes[e[0] as usize];
-            let b = mesh.nodes[e[1] as usize];
-            !planes.iter().any(|&(axis, value)| {
-                (a[axis] - value).abs() < 1e-12 && (b[axis] - value).abs() < 1e-12
-            })
-        })
-        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -375,7 +351,7 @@ fn wire_loop_inductance_correction_scales_as_omega_squared() {
 fn resistor_sweep(n: usize, sigma: f64, omegas: &[f64]) -> Vec<c64> {
     let mesh = geode_core::mesh::cube_tet_mesh(n, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
     let eps = vacuum(&mesh);
     let sigma_tet = vec![sigma; mesh.n_tets()];
@@ -454,7 +430,7 @@ fn matched_load_s11_is_near_zero() {
 fn stub_z(n: usize, omega: f64, shorted: bool) -> c64 {
     let mesh = geode_core::mesh::cube_tet_mesh(n, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     let mut planes = vec![(1usize, 0.0f64), (1, 1.0)];
     if shorted {
         planes.push((2, 1.0));
@@ -516,7 +492,7 @@ fn srf_detected_at_stub_half_wave_resonance() {
     let n = 6;
     let mesh = geode_core::mesh::cube_tet_mesh(n, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0), (2, 1.0)]);
     let eps = vacuum(&mesh);
     let port = LumpedPort {
@@ -564,7 +540,7 @@ fn srf_detected_at_stub_half_wave_resonance() {
 fn operator_sweep_matches_single_solves_with_ports() {
     let mesh = geode_core::mesh::cube_tet_mesh(2, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0), (2, 1.0)]);
     let eps: Vec<c64> = vec![c64::new(1.5, -0.02); mesh.n_tets()];
     let sigma_tet = vec![0.3; mesh.n_tets()];
@@ -655,7 +631,7 @@ fn one_port_s_parameter_sweep_matches_s11_bitwise() {
     let n = 4;
     let mesh = geode_core::mesh::cube_tet_mesh(n, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0), (2, 1.0)]);
     let eps = vacuum(&mesh);
     let resistance = 1.0;
@@ -721,7 +697,7 @@ fn one_port_s_parameter_sweep_matches_s11_bitwise() {
 fn s_parameter_sweep_rejects_unexcitable_ports() {
     let mesh = geode_core::mesh::cube_tet_mesh(2, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0), (2, 1.0)]);
     let eps = vacuum(&mesh);
     let bcs = DrivenBcs {
@@ -771,7 +747,7 @@ fn s_parameter_sweep_rejects_unexcitable_ports() {
 fn factored_operator_solves_match_solve_at_bitwise() {
     let mesh = geode_core::mesh::cube_tet_mesh(2, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0), (2, 1.0)]);
     let eps = vacuum(&mesh);
     let port = LumpedPort {
@@ -830,7 +806,7 @@ fn operator_sweep_matches_single_solves_with_leontovich_surface() {
     let bcs = DrivenBcs {
         pec_interior_mask: &mask,
     };
-    let wall = plane_faces(&mesh, 2, 1.0);
+    let wall = all_plane_faces(&mesh, 2, 1.0);
     let surfaces = [SurfaceImpedanceBc {
         triangles: &wall,
         model: SurfaceImpedanceModel::GoodConductor { sigma: 40.0 },
