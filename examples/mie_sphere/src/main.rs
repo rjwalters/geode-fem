@@ -114,7 +114,7 @@ use burn::tensor::backend::BackendTypes;
 use clap::Parser;
 use faer::sparse::{SparseColMat, Triplet};
 
-use geode_app::{App, OutputDir, Verbosity};
+use geode_app::{App, OutputDir};
 use geode_core::analytic::mie::{MieRoot, mie_roots_catalog, open_space_wgm_roots_n15};
 use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_anisotropic_epsilon, assemble_global_nedelec_with_complex_epsilon,
@@ -982,9 +982,6 @@ struct Args {
 
     #[command(flatten)]
     out: OutputDir,
-
-    #[command(flatten)]
-    verbose: Verbosity,
 }
 
 impl App for Args {
@@ -1154,10 +1151,6 @@ impl App for Args {
 
         eprintln!("=== Done ===");
         Ok(())
-    }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
     }
 }
 

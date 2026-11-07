@@ -65,7 +65,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
-use geode_app::{App, Verbosity};
+use geode_app::App;
 use geode_core::eigen::parallel::{NUM_THREADS_ENV, ParallelismGuard};
 use serde::Serialize;
 
@@ -82,9 +82,6 @@ const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GEODE_GIT_S
 struct Cli {
     #[command(subcommand)]
     command: Command,
-
-    #[command(flatten)]
-    verbose: Verbosity,
 }
 
 #[derive(Subcommand)]
@@ -465,10 +462,6 @@ impl App for Cli {
             Command::Mesh(a) => mesh_cmd::dispatch(a),
             Command::Schema(a) => schema::run(a),
         }
-    }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
     }
 }
 
