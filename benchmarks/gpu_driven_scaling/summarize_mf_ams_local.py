@@ -36,6 +36,8 @@ import re
 import sys
 import tomllib
 
+from _summarize_common import fragment, keyvals, q, sci, time_file
+
 d = pathlib.Path(sys.argv[1])
 here = pathlib.Path(__file__).resolve().parent
 r6i_path = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else here / "results_ams_cpu_r6i.toml"
@@ -48,51 +50,6 @@ CONFIGS = [
     ("mf_ams", "mfams", "6_matrix_free_ams", "matrix-free (Burn ndarray f64) COCG + host-side AMS"),
 ]
 ACCEPT_FACTOR = 1.5  # issue #966: matrix-free AMS iterations within 1.5x of assembled AMS
-
-
-def fragment(path):
-    """The [[cell]] tables of one leg's stdout ([] if the leg did not finish)."""
-    if not path.exists():
-        return []
-    m = re.search(
-        r"# ---- gpu_driven_scaling TOML fragment.*?\n(.*?)# ---- end fragment ----",
-        path.read_text(),
-        re.S,
-    )
-    return tomllib.loads(m.group(1)).get("cell", []) if m else []
-
-
-def time_file(path):
-    """wall / user / sys seconds and max RSS bytes, macOS -l or GNU -v format."""
-    out = {}
-    if not path.exists():
-        return out
-    txt = path.read_text()
-    m = re.search(r"([\d.]+) real\s+([\d.]+) user\s+([\d.]+) sys", txt)
-    if m:
-        out["wall_s"], out["user_s"], out["sys_s"] = (float(g) for g in m.groups())
-        out["max_rss_bytes"] = int(re.search(r"(\d+)\s+maximum resident set size", txt).group(1))
-        return out
-    m = re.search(r"Elapsed \(wall clock\) time.*: ([\d:.]+)", txt)
-    if m:
-        parts = [float(p) for p in m.group(1).split(":")]
-        out["wall_s"] = sum(p * 60**i for i, p in enumerate(reversed(parts)))
-        out["user_s"] = float(re.search(r"User time \(seconds\): ([\d.]+)", txt).group(1))
-        out["sys_s"] = float(re.search(r"System time \(seconds\): ([\d.]+)", txt).group(1))
-        out["max_rss_bytes"] = 1024 * int(
-            re.search(r"Maximum resident set size \(kbytes\): (\d+)", txt).group(1)
-        )
-    return out
-
-
-def keyvals(path):
-    out = {}
-    if path.exists():
-        for line in path.read_text().splitlines():
-            k, sep, v = line.partition("=")
-            if sep and " " not in k:
-                out[k] = v
-    return out
 
 
 def profile(path):
@@ -111,14 +68,6 @@ def profile(path):
         "vcycle_s": float(m.group(3)),
         "transfer_s": float(m.group(4)),
     }
-
-
-def q(s):
-    return '"' + str(s).replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-
-def sci(x, digits=3):
-    return "nan" if x != x else f"{x:.{digits}e}"
 
 
 def f3(x):
