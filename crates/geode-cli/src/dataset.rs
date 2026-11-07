@@ -22,11 +22,6 @@
 //! The gradients are the in-memory [`SensitivityReport`] entries, serialised
 //! unchanged, so they equal the same run's `-o` report bit for bit.
 
-// The binary only writes samples: the reader and the schema's dtype / kind
-// metadata are the module's read-side API, exercised by the unit tests
-// (this is a bin-only crate, so they would otherwise warn as dead code).
-#![cfg_attr(not(test), allow(dead_code))]
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -63,22 +58,6 @@ impl Dtype {
             Dtype::I32 => "<i4",
         }
     }
-
-    fn parse(s: &str) -> Option<Self> {
-        match s {
-            "<f8" => Some(Dtype::F64),
-            "<u4" => Some(Dtype::U32),
-            "<i4" => Some(Dtype::I32),
-            _ => None,
-        }
-    }
-
-    fn size(self) -> usize {
-        match self {
-            Dtype::F64 => 8,
-            Dtype::U32 | Dtype::I32 => 4,
-        }
-    }
 }
 
 /// Which `kind`s of sample carry an array.
@@ -92,8 +71,12 @@ pub enum Kinds {
 /// Schema entry of one array: path, dtype, named dimensions, kinds.
 pub struct ArraySpec {
     pub path: &'static str,
+    // `dtype` and `kinds` are schema metadata that only the drift test
+    // against `docs/dataset-schema.md` reads (bin-only crate).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub dtype: Dtype,
     pub dims: &'static [&'static str],
+    #[cfg_attr(not(test), allow(dead_code))]
     pub kinds: Kinds,
 }
 
@@ -186,32 +169,6 @@ impl Data {
             Data::I32(v) => v.iter().flat_map(|x| x.to_le_bytes()).collect(),
         }
     }
-
-    fn from_le_bytes(dtype: Dtype, b: &[u8]) -> Self {
-        match dtype {
-            Dtype::F64 => Data::F64(
-                b.as_chunks::<8>()
-                    .0
-                    .iter()
-                    .map(|c| f64::from_le_bytes(*c))
-                    .collect(),
-            ),
-            Dtype::U32 => Data::U32(
-                b.as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|c| u32::from_le_bytes(*c))
-                    .collect(),
-            ),
-            Dtype::I32 => Data::I32(
-                b.as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|c| i32::from_le_bytes(*c))
-                    .collect(),
-            ),
-        }
-    }
 }
 
 /// One stored array: C-order `data` of `shape`.
@@ -225,14 +182,6 @@ impl Array {
     fn new(shape: Vec<usize>, data: Data) -> Self {
         debug_assert_eq!(shape.iter().product::<usize>(), data.len());
         Self { shape, data }
-    }
-
-    /// The `f64` payload (panics on another dtype).
-    pub fn f64s(&self) -> &[f64] {
-        match &self.data {
-            Data::F64(v) => v,
-            d => panic!("array is {:?}, not f64", d.dtype()),
-        }
     }
 }
 
@@ -263,11 +212,6 @@ fn write_json(path: &Path, v: &Value) -> Result<(), CliError> {
     let mut s = serde_json::to_string_pretty(v)?;
     s.push('\n');
     std::fs::write(path, s).map_err(|e| io_err(path, e))
-}
-
-fn read_json(path: &Path) -> Result<Value, CliError> {
-    let bytes = std::fs::read(path).map_err(|e| io_err(path, e))?;
-    serde_json::from_slice(&bytes).map_err(|e| bad(path, e))
 }
 
 /// Zarr chunk key of a single-chunk array of rank `rank`: `0.0…0`.
@@ -312,41 +256,6 @@ pub fn write(dir: &Path, sample: &Sample) -> Result<(), CliError> {
         std::fs::write(&chunk, arr.data.to_le_bytes()).map_err(|e| io_err(&chunk, e))?;
     }
     Ok(())
-}
-
-/// Read a sample back from `dir` (every schema array that is present).
-pub fn read(dir: &Path) -> Result<Sample, CliError> {
-    let attrs = read_json(&dir.join(".zattrs"))?;
-    let mut arrays = BTreeMap::new();
-    for spec in ARRAYS {
-        let ad = dir.join(spec.path);
-        if !ad.join(".zarray").exists() {
-            continue;
-        }
-        let meta = read_json(&ad.join(".zarray"))?;
-        let dtype = meta["dtype"]
-            .as_str()
-            .and_then(Dtype::parse)
-            .ok_or_else(|| bad(&ad, "unsupported dtype"))?;
-        let shape: Vec<usize> = meta["shape"]
-            .as_array()
-            .ok_or_else(|| bad(&ad, "missing shape"))?
-            .iter()
-            .map(|v| v.as_u64().map(|n| n as usize))
-            .collect::<Option<_>>()
-            .ok_or_else(|| bad(&ad, "bad shape"))?;
-        let chunk = ad.join(chunk_key(shape.len()));
-        let bytes = std::fs::read(&chunk).map_err(|e| io_err(&chunk, e))?;
-        let n: usize = shape.iter().product();
-        if bytes.len() != n * dtype.size() {
-            return Err(bad(&chunk, "chunk size does not match shape"));
-        }
-        arrays.insert(
-            spec.path.to_string(),
-            Array::new(shape, Data::from_le_bytes(dtype, &bytes)),
-        );
-    }
-    Ok(Sample { attrs, arrays })
 }
 
 /// Evaluate the lowest-order Nédélec (Whitney) interpolant of `e_edges`
@@ -667,23 +576,27 @@ mod tests {
         );
     }
 
+    /// `write()` stores each dtype as raw little-endian bytes, bit for bit,
+    /// including the values a lossy text round trip would damage (NaN,
+    /// -0.0, inf, `u32::MAX`). The bytes are decoded here without any
+    /// writer code.
     #[test]
-    fn write_read_round_trips_every_dtype_bitwise() {
+    fn write_stores_every_dtype_as_exact_little_endian_bytes() {
+        let nodes = [0.1, -0.0, f64::NAN, 1e-300, 2.0, f64::INFINITY];
+        let tets = [0u32, 1, 2, u32::MAX];
+        let obs = [-1i32, 7];
         let mut arrays = BTreeMap::new();
         arrays.insert(
             "mesh/nodes".to_string(),
-            Array::new(
-                vec![2, 3],
-                Data::F64(vec![0.1, -0.0, f64::NAN, 1e-300, 2.0, f64::INFINITY]),
-            ),
+            Array::new(vec![2, 3], Data::F64(nodes.to_vec())),
         );
         arrays.insert(
             "mesh/tets".to_string(),
-            Array::new(vec![1, 4], Data::U32(vec![0, 1, 2, u32::MAX])),
+            Array::new(vec![1, 4], Data::U32(tets.to_vec())),
         );
         arrays.insert(
             "grad/entry_observable".to_string(),
-            Array::new(vec![2], Data::I32(vec![-1, 7])),
+            Array::new(vec![2], Data::I32(obs.to_vec())),
         );
         let sample = Sample {
             attrs: json!({"format": FORMAT}),
@@ -691,21 +604,32 @@ mod tests {
         };
         let dir = tempfile_dir("unit-roundtrip");
         write(&dir, &sample).unwrap();
-        let back = read(&dir).unwrap();
-        assert_eq!(back.attrs, sample.attrs);
-        let bits = |s: &Sample| -> Vec<u64> {
-            s.arrays["mesh/nodes"]
-                .f64s()
-                .iter()
-                .map(|x| x.to_bits())
-                .collect()
-        };
-        assert_eq!(bits(&back), bits(&sample));
-        assert_eq!(back.arrays["mesh/tets"], sample.arrays["mesh/tets"]);
-        assert_eq!(
-            back.arrays["grad/entry_observable"],
-            sample.arrays["grad/entry_observable"]
-        );
+        let attrs: Value =
+            serde_json::from_slice(&std::fs::read(dir.join(".zattrs")).unwrap()).unwrap();
+        assert_eq!(attrs, sample.attrs);
+        let chunk =
+            |path: &str, rank: usize| std::fs::read(dir.join(path).join(chunk_key(rank))).unwrap();
+        let f64_bits: Vec<u64> = chunk("mesh/nodes", 2)
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|c| u64::from_le_bytes(*c))
+            .collect();
+        assert_eq!(f64_bits, nodes.map(f64::to_bits));
+        let u32s: Vec<u32> = chunk("mesh/tets", 2)
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c))
+            .collect();
+        assert_eq!(u32s, tets);
+        let i32s: Vec<i32> = chunk("grad/entry_observable", 1)
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| i32::from_le_bytes(*c))
+            .collect();
+        assert_eq!(i32s, obs);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

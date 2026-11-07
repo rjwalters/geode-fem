@@ -15,7 +15,9 @@
 //! * validation: a spec without `sensitivity` fails `invalid_spec` before
 //!   writing anything, and `geode extract` rejects the flag.
 //!
-//! Write → read exactness is the unit test `dataset::tests`.
+//! Byte-exact encoding of NaN, -0.0, inf and `u32::MAX` (values the real
+//! samples never contain) is the unit test `dataset::tests`, which checks
+//! `write()` against raw little-endian bytes.
 
 #[path = "support/scratch.rs"]
 mod scratch_support;
