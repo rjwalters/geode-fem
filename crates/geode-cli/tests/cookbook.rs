@@ -528,3 +528,27 @@ fn p2_box_cavity_beats_p1_at_equal_accuracy() {
     assert!(e1 > 3e-3, "p=1 error {e1:.5}");
     assert!(e2 * 5.0 < e1, "p=2 {e2:.5} vs p=1 {e1:.5}");
 }
+
+/// Issue #1265: `accuracy.order_estimate` — the coarse-mesh p=2 cookbook box
+/// trips the same-mesh p=1 vs p=2 warning; a p=1 report carries no `accuracy`.
+#[test]
+fn p2_eigen_reports_same_mesh_order_estimate() {
+    let run = |name: &str| {
+        ok(
+            geode(&["eigen", s(&examples().join("eigen").join(name))]),
+            name,
+        )
+    };
+    let p2 = run("box_cavity_p2.json");
+    let est = &p2["accuracy"]["order_estimate"];
+    assert_eq!(est["reference_order"], 1);
+    assert_eq!(
+        est["modes"].as_array().unwrap().len(),
+        p2["modes"].as_array().unwrap().len()
+    );
+    let max = est["delta_f_rel_max"].as_f64().unwrap();
+    assert!(max > 5e-3 && max < 0.1, "delta_f_rel_max {max}");
+    assert_eq!(est["above_threshold"], true);
+    assert!(est["warning"].as_str().unwrap().contains("order-1"));
+    assert!(run("box_cavity_p1.json").get("accuracy").is_none());
+}

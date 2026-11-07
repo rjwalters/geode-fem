@@ -2695,6 +2695,15 @@ against order 1 on the same mesh, and `fits_direct_lu` with a plain verdict
 anchor linear in `nnz`; there is **no order-2 anchor measurement yet**, so
 `peak_memory_confidence` stays `"order_of_magnitude"`.
 
+A lossless order-2 `geode eigen` report also carries
+`accuracy.order_estimate`: the same pencil is re-solved at order 1 on the
+same mesh and each mode's `delta_f_hz` / `delta_f_rel` (`|f_p2 − f_p1| / f_p2`)
+is reported, with `delta_f_rel_max` against a fixed `threshold` of 0.5 %. Above
+it, `above_threshold` is `true` and a `warning` is added (also on stderr).
+This is an indicator of the order-1 error on that mesh, not a certified bound
+on the order-2 error. It is absent at order 1, for lossy / open pencils and for
+`eigen.bloch`; the driven `|ΔS|` counterpart is not implemented.
+
 ## Resource estimate (`geode check`, issue #703)
 
 `geode check` reports a `resources` block so an agent can pick mesh and

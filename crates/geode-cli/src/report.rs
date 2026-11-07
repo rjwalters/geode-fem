@@ -1896,6 +1896,51 @@ pub struct EigenReport {
     /// present only with a spec `adaptive_mesh` section).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adaptive_mesh: Option<AdaptiveMeshReport>,
+    /// Accuracy diagnostics (additive in v1, issue #1265); present only for
+    /// a lossless `element_order = 2` eigen solve.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accuracy: Option<EigenAccuracy>,
+}
+
+/// Accuracy diagnostics of an eigen report (issue #1265).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct EigenAccuracy {
+    /// Same-mesh order-1 vs order-2 comparison.
+    pub order_estimate: OrderEstimate,
+}
+
+/// Same-mesh p=1 vs p=2 resonant-frequency difference (issue #1265): an
+/// indicator of the order-1 discretization error on this mesh, **not** a
+/// rigorous bound on the order-2 error (the p=2 result is only presumed
+/// closer to the truth). Modes are paired by ascending index.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct OrderEstimate {
+    /// The comparison order, always `1`.
+    pub reference_order: u8,
+    /// Per-mode differences.
+    pub modes: Vec<OrderEstimateMode>,
+    /// `max_i |Δf_i| / f_i` (p=2 as the denominator).
+    pub delta_f_rel_max: f64,
+    /// Warning threshold on `delta_f_rel_max`.
+    pub threshold: f64,
+    /// `delta_f_rel_max > threshold`.
+    pub above_threshold: bool,
+    /// Human-readable warning (also printed to stderr) when above threshold.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+/// One mode of an [`OrderEstimate`].
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct OrderEstimateMode {
+    /// Mode index (ascending frequency).
+    pub index: usize,
+    /// The order-1 resonant frequency on the same mesh (Hz).
+    pub frequency_hz_p1: f64,
+    /// `f_p2 − f_p1` (Hz).
+    pub delta_f_hz: f64,
+    /// `|f_p2 − f_p1| / f_p2`.
+    pub delta_f_rel: f64,
 }
 
 /// Material design sensitivities of a report's observable (additive in
