@@ -192,3 +192,6 @@ crates/geode-core/tests/fixtures/*.flat.msh
 # authoritative) but rewrites one inside vendored crates whenever it resolves
 # there, which dirtied the checkout. Never track them.
 vendor/*/Cargo.lock
+
+# Repo Skills Codex-side machine-local install metadata (never committed)
+.agents/skills/repo/.install-local.json
