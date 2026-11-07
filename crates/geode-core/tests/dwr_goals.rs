@@ -7,8 +7,8 @@
 //! Step 3: the lumped-port `S_ij` goal ([`SParamGoal`]), its reciprocity dual,
 //! `dwr-p2` on `S_kj`, and the `GoalFunctional` bridge to the adjoint
 //! gradient. Step 4: the goal-oriented loop marking ([`Marking::Goal`]) and
-//! its report fields; the Golden 2 DOF comparison is an `#[ignore]`d
-//! measurement here (see the PR). Step 5: the eigenfrequency goal (`dwr_eigen`) and Golden 3.
+//! its report fields; the Golden 2 DOF comparison is a pocket-decoupled gate
+//! (#1413) plus `#[ignore]`d measurements. Step 5: the eigenfrequency goal (`dwr_eigen`) and Golden 3.
 
 mod common;
 use common::boundary_plane_faces;
@@ -618,11 +618,17 @@ fn far_port_run(
     m: usize,
     omega: f64,
     hw: usize,
+    drive: f64,
     max_dofs: usize,
     levels: usize,
 ) -> AdaptReport {
     let eps = |_: &TetCtx| c64::new(1.0, 0.0);
-    let current = |_: &TetCtx, _: [f64; 3]| [c64::new(0.0, 0.0); 3];
+    // `drive` is a uniform `ê = z` current density in the pocket (`y < 0`);
+    // 0 leaves the pocket passive.
+    let current = |t: &TetCtx, _: [f64; 3]| {
+        let jz = if t.centroid[1] < 0.0 { drive } else { 0.0 };
+        [c64::new(0.0, 0.0), c64::new(0.0, 0.0), c64::new(jz, 0.0)]
+    };
     let div = |_: &TetCtx, _: [f64; 3]| c64::new(0.0, 0.0);
     let mut spec = DrivenAdaptSpec::new(
         stub_guide_with(m, hw),
@@ -676,7 +682,7 @@ fn golden2_measurement() {
         ("energy", Marking::Dorfler { theta: 0.5 }),
         ("goal", Marking::Goal { theta: 0.5 }),
     ] {
-        let r = far_port_run(marking, 4, 4.0, 1, 60_000, 9);
+        let r = far_port_run(marking, 4, 4.0, 1, 0.0, 60_000, 9);
         println!("== {tag} (estimator {})", r.estimator);
         for h in &r.history {
             let g = h.goal.as_ref().expect("goal data");
@@ -690,6 +696,58 @@ fn golden2_measurement() {
             );
         }
     }
+}
+
+/// Golden 2 (#1413): goal marking beats energy-norm marking where the energy
+/// error is large but irrelevant to the measured `S₂₁`.
+///
+/// The plate channel carries ports 0 and 1. Below it sits the resonant
+/// pocket, *disconnected* from the channel (`hw = 0`: the decoupled limit of
+/// the weakly coupled pocket, so `S₂₁` is exactly independent of it) and
+/// driven near its (1,1) resonance (`ω = 5`, mode at `5.24`) by a strong
+/// current (`drive = 1e3`). The pocket field then dominates the energy-norm
+/// error, while the `S₂₁` dual vanishes there, so the goal indicator never
+/// marks it. (With the pocket passive, or driven at 1, both markings track
+/// each other as in [`golden2_narrow_slit_measurement`]: the channel's own
+/// dispersion error dominates both.)
+///
+/// Reference: `S₂₁ = 0.0546 − 0.7819i`, the last level (22.6k DOFs, DWR
+/// estimate 2.7e-3) of an energy-marked run with the pocket passive; the
+/// pocket cannot change `S₂₁`, so the same value serves the driven runs.
+/// Target `|S₂₁ − S_ref| ≤ 0.03`. Both loops are capped at `CAP` DOFs; a loop
+/// that never reaches the target counts as its final DOF total (a lower
+/// bound), so `goal_dofs < energy_dofs` cannot pass by the cap alone.
+#[test]
+fn golden2_goal_marking_beats_energy_marking_on_an_irrelevant_resonant_pocket() {
+    const CAP: usize = 3_000;
+    let s_ref = c64::new(0.0546, -0.7819);
+    let tol = 0.03;
+    let dofs_to_target = |marking: Marking| {
+        let r = far_port_run(marking, 4, 5.0, 0, 1.0e3, CAP, 14);
+        println!("== {} ", r.estimator);
+        let mut hit = None;
+        for h in &r.history {
+            let g = h.goal.as_ref().expect("goal data");
+            let err = (g.value - s_ref).norm();
+            println!(
+                "L{} dofs {:>6} S21 = {:.5}{:+.5}i  |S-S_ref| = {:.3e}",
+                h.level, h.n_dofs, g.value.re, g.value.im, err
+            );
+            if hit.is_none() && err <= tol {
+                hit = Some(h.n_dofs);
+            }
+        }
+        (hit, r.history.last().unwrap().n_dofs)
+    };
+    let (goal_hit, _) = dofs_to_target(Marking::Goal { theta: 0.5 });
+    let (energy_hit, energy_last) = dofs_to_target(Marking::Dorfler { theta: 0.5 });
+    let goal_dofs = goal_hit.expect("goal marking must reach the target within the cap");
+    let energy_dofs = energy_hit.unwrap_or(energy_last);
+    println!(
+        "goal_dofs = {goal_dofs}, energy_dofs = {energy_dofs} (reached: {})",
+        energy_hit.is_some()
+    );
+    assert!(goal_dofs < energy_dofs, "{goal_dofs} !< {energy_dofs}");
 }
 
 // ---------------------------------------------------------------------------
@@ -1029,7 +1087,7 @@ fn golden2_narrow_slit_measurement() {
             ("energy", Marking::Dorfler { theta: 0.5 }),
             ("goal", Marking::Goal { theta: 0.5 }),
         ] {
-            let r = far_port_run(marking, 8, omega, 1, 60_000, 5);
+            let r = far_port_run(marking, 8, omega, 1, 0.0, 60_000, 5);
             println!("== {tag} omega {omega} (estimator {})", r.estimator);
             for h in &r.history {
                 let g = h.goal.as_ref().expect("goal data");
