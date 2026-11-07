@@ -34,7 +34,16 @@
       "benches",
       "fuzz",
       ".typos.toml"
-    ]
+    ],
+    "retained_not_run": {
+      "paths": [
+        "fuzz",
+        "benches",
+        ".amazonq",
+        ".typos.toml"
+      ],
+      "reason": "The vendored zip test tree is kept whole so it stays diffable against upstream commit 0123ed144cfa7d672dae78b79a034d8900f9aaeb; these paths are intentionally retained and never built or run by run.py. Removing them would not shrink the clone."
+    }
   },
   "baseline": {
     "candle-core-0.10.2/.cargo_vcs_info.json": "0e0b73eb2b9aaaba6865dfb471111abcbdac085e758c6d03210eba6359e1abd2",
@@ -415,7 +424,6 @@
   },
   "vendored": {
     "candle-core-0.10.2/.cargo_vcs_info.json": "0e0b73eb2b9aaaba6865dfb471111abcbdac085e758c6d03210eba6359e1abd2",
-    "candle-core-0.10.2/Cargo.lock": "04b9e4d01aae6711f58a1fc98297c65890af7cf3d88e9f20690d158721db1877",
     "candle-core-0.10.2/Cargo.toml": "491bb051fc928616bd0ec4e9334f528d12216f9f5addd85d351935e53d29ac24",
     "candle-core-0.10.2/Cargo.toml.orig": "12e734dd74a3fd4fa55d689d08cd4e24adc1270a3901e0f0c2207de8095fe317",
     "candle-core-0.10.2/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
@@ -525,7 +533,6 @@
     "tch-0.22.0/.github/workflows/rust-ci.yml": "83f736d323612915aaca1f2a136438357b98da2ae3fdea5dd8a5790eeecba961",
     "tch-0.22.0/.gitignore": "12b8a657f57a9113bfa5d6334d53a75883b18a4b5268cb0f0c27c10390acc68c",
     "tch-0.22.0/CHANGELOG.md": "d58a09e672d3e0f9019fd241037a646c969242af316a7633475a664b98fad9e0",
-    "tch-0.22.0/Cargo.lock": "993ae6e07266de60b26ffa609822cfb4d68df0c4e2c8e89290605de16811ba66",
     "tch-0.22.0/Cargo.toml": "887eab0b0740a2c3f8ed25a9d95d2ac60d78bd67d392c321dae8c9eba85a353e",
     "tch-0.22.0/Cargo.toml.orig": "967d74ea2b3df1b9df27faeb9d5aa6a6c85b3bf72822765bc83a6ea60945bbdf",
     "tch-0.22.0/LICENSE-APACHE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
@@ -705,7 +712,6 @@
     "tch-0.22.0/third_party/pytorch/LICENSE": "5c9a6f40bf6897e4684d7f583f975354dc55e73aedd10abbbe265d3d103ffbb6",
     "tch-0.22.0/third_party/pytorch/README": "161020edb598a0bf6544924160dd62da5fe3e74ce00e8ee61cc91f0cbb8c6d4a",
     "torch-sys-0.22.0/.cargo_vcs_info.json": "a3102ba8bfee24d017d8e9220d1f8b95d61bdfeb8d48c7d597fc7d8c50f16833",
-    "torch-sys-0.22.0/Cargo.lock": "8371260ad24c073e936846b7717f16dff384a6b506652ef93a15888caf824f0f",
     "torch-sys-0.22.0/Cargo.toml": "a6656d11fb8162ff955cb30cfd40979ea96daf42ca52323d27633620e0575ecf",
     "torch-sys-0.22.0/Cargo.toml.orig": "af1f2b75a855de7991a622b4b758617398f6860527d9b77951b813e127497c5a",
     "torch-sys-0.22.0/build.rs": "8f4cade32c4bac08e6a7589516dd3fe0f8fa178a237d4cca9f86f7afcca2b85a",
@@ -735,7 +741,6 @@
     "zip-9.0.5/CHANGELOG.md": "ffa3df4c130152d8ebc8f16e1a71da772c6568a002199f93b71f4c360654d02e",
     "zip-9.0.5/CODE_OF_CONDUCT.md": "77930b2129928632cae79e10d0863885b34729e4f144f3ae5443cff65997196a",
     "zip-9.0.5/CONTRIBUTING.md": "758a5eb9b17c36b581fc4bf3e4013174839f4f49d4b66ded111ad86fb90adc7f",
-    "zip-9.0.5/Cargo.lock": "9c630b731f3b20ec3740d28e839974aebc59ca19531c90d53578fd26a60d87d2",
     "zip-9.0.5/Cargo.toml": "16b07e7783f5ecc809f6fbacfce85af4201e43ed5945de88afa4150c05f99736",
     "zip-9.0.5/Cargo.toml.orig": "0955a9cf38587ed506f6ba01ff0976097650170e799fcff669679262473154cf",
     "zip-9.0.5/LICENSE": "58545fed1565e42d687aecec6897d35c6d37ccb71479a137c0deb2203e125c79",
