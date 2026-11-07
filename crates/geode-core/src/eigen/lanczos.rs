@@ -1658,20 +1658,6 @@ impl SparseShiftInvertLanczos {
         self.smallest_eigenvalues_impl(k, m, n_modes, n_threads, None, None)
     }
 
-    /// [`SparseEigenSolver::smallest_eigenvalues`] supplying the discrete
-    /// gradient `G` so the matrix-free path can build the AMS-lite
-    /// preconditioner (issue #526). Only consulted when
-    /// `inner == InnerSolver::MatrixFree` and `precond == InnerPreconditioner::Ams`.
-    pub fn smallest_eigenvalues_with_gradient(
-        &self,
-        k: SparseColMatRef<'_, usize, f64>,
-        m: SparseColMatRef<'_, usize, f64>,
-        n_modes: usize,
-        gradient: &crate::eigen::projection::InteriorGradient,
-    ) -> Result<Vec<f64>, EigenError> {
-        self.smallest_eigenvalues_impl(k, m, n_modes, resolve_num_threads(), Some(gradient), None)
-    }
-
     /// [`SparseEigenSolver::smallest_eigenvalues`] supplying per-DOF coordinates
     /// for the [`InnerSolver::DirectCustomOrder`] coordinate-nested-dissection
     /// ordering (issue #543). Consulted only when `inner == DirectCustomOrder`;

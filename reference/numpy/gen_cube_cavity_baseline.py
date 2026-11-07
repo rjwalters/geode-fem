@@ -25,8 +25,7 @@ Writes:
 
 Why a single JSON fixture (instead of HDF5)
 ============================================
-The Phase-A scaffolding (PR #94 / issue #89) wired ``FixtureFormat::Hdf5``
-as a reserved variant but the loader still returns ``HdfNotEnabled``.
+The fixture loader supports JSON only (an unwired HDF5 variant was removed).
 For n=10 the largest field is ``eigenvectors_numpy`` at 5 × 729 ≈ 3645
 floats, which serializes to ~70 KB of JSON — fine in-repo for a
 durable artifact. HDF5 only buys us real value once eigenvectors

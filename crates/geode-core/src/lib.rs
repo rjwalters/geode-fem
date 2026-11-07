@@ -22,6 +22,7 @@ pub mod quantum;
 pub mod shape;
 pub mod solver;
 pub mod traits;
+pub(crate) mod vec3;
 
 #[cfg(feature = "testing")]
 pub mod testing;

@@ -32,6 +32,7 @@ use geode_core::assembly::magnetostatic3d::{
     check_solenoidal, extract_inductance, loop_current_density, measure_axial_current,
     measure_loop_current,
 };
+use geode_core::assembly::nedelec::tet_centroid as centroid;
 use geode_core::mesh::TetMesh;
 use geode_core::mesh::magnetostatic_fixtures::{
     cylinder_cap_nodes, cylinder_pec_interior_mask, loop_pair_mesh, solid_coax_mesh,
@@ -39,16 +40,6 @@ use geode_core::mesh::magnetostatic_fixtures::{
 use geode_core::mesh::pec_interior_mask_from_triangles;
 
 const FACES: [[usize; 3]; 4] = [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]];
-
-fn centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
-    let mut c = [0.0; 3];
-    for &v in &mesh.tets[t] {
-        for d in 0..3 {
-            c[d] += 0.25 * mesh.nodes[v as usize][d];
-        }
-    }
-    c
-}
 
 /// Faces of `conductor` tets whose three nodes all satisfy `on`.
 fn conductor_faces(

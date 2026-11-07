@@ -39,6 +39,7 @@
 use std::collections::HashMap;
 
 use crate::mesh::{TET_LOCAL_FACES, TetMesh};
+use crate::vec3::{cross3, dot3, norm3, scale3, sub3};
 
 /// Local edge order on a triangle face. Mirrors `TET_LOCAL_EDGES` for
 /// tets: lower local index first.
@@ -329,35 +330,6 @@ where
         }
     }
     unreachable!("a surface triangle was not found but no list reported it")
-}
-
-#[inline]
-pub(crate) fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-#[inline]
-pub(crate) fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
-#[inline]
-pub(crate) fn norm3(a: [f64; 3]) -> f64 {
-    (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt()
-}
-
-#[inline]
-pub(crate) fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-#[inline]
-pub(crate) fn scale3(a: [f64; 3], s: f64) -> [f64; 3] {
-    [a[0] * s, a[1] * s, a[2] * s]
 }
 
 #[cfg(test)]

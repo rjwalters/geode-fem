@@ -221,6 +221,7 @@
 //! 4b. The 1-D RCWA oracle the diffraction goldens use is test-only
 //! (`tests/common/rcwa1d.rs`).
 
+use crate::vec3::{cross3 as cross, dot3 as dot, sub3 as sub};
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1702,24 +1703,8 @@ fn prepare_port(
 }
 
 #[inline]
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-#[inline]
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-#[inline]
 fn norm(a: [f64; 3]) -> f64 {
     dot(a, a).sqrt()
-}
-#[inline]
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
 #[inline]
 fn add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {

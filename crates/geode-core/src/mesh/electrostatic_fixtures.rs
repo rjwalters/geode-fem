@@ -16,6 +16,7 @@
 //! volume (the assembler uses `|det|`, so orientation is not load-bearing,
 //! but positive orientation keeps the fixtures conventional).
 
+use crate::vec3::{cross3, dot3, sub3};
 use std::f64::consts::PI;
 
 use crate::mesh::TetMesh;
@@ -483,22 +484,6 @@ fn normalize(v: &mut [f64; 3]) {
     v[0] /= n;
     v[1] /= n;
     v[2] /= n;
-}
-#[inline]
-fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-#[inline]
-fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-#[inline]
-fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 #[inline]
 fn dist(a: [f64; 3], b: [f64; 3]) -> f64 {
