@@ -631,23 +631,6 @@ impl ShapeDesign {
         Ok(Self { columns, names })
     }
 
-    /// The columns of a [`FreeformBoundaryMorph`], one name per column.
-    ///
-    /// # Errors
-    ///
-    /// As [`Self::from_columns`].
-    pub fn from_morph(
-        morph: &FreeformBoundaryMorph,
-        names: Vec<String>,
-    ) -> Result<Self, SSensitivityError> {
-        Self::from_columns(
-            (0..morph.n_dofs())
-                .map(|i| morph.velocity(i).to_vec())
-                .collect(),
-            names,
-        )
-    }
-
     /// One column per [`GroupTranslation`]: the named 2-D physical groups'
     /// nodes translate rigidly along `dir`, every node of a `pinned` group
     /// stays fixed (pinned wins on a shared node, so a wall that meets a port

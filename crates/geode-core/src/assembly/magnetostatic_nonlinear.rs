@@ -1067,14 +1067,6 @@ impl NonlinearMagnetostaticSolution {
         }
         None
     }
-
-    /// Successive residual ratios `‖R_{k+1}‖/‖R_k‖`.
-    pub fn residual_ratios(&self) -> Vec<f64> {
-        self.residual_norms
-            .windows(2)
-            .map(|w| w[1] / w[0])
-            .collect()
-    }
 }
 
 /// Per-element P1 geometry: barycentric gradients and unsigned area.
