@@ -643,8 +643,8 @@ fn main() {
     let jc = {
         let mut c = [0.0_f64; 3];
         for &n in &roles.junction {
-            for d in 0..3 {
-                c[d] += base.nodes[n as usize][d] / roles.junction.len() as f64;
+            for (cd, &x) in c.iter_mut().zip(&base.nodes[n as usize]) {
+                *cd += x / roles.junction.len() as f64;
             }
         }
         c

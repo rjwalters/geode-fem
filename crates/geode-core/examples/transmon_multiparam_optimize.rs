@@ -185,7 +185,7 @@ fn fmt3(c: [f64; 3]) -> String {
 fn mode_of(alpha: Option<f64>) -> RemorphMode {
     match alpha {
         None => RemorphMode::Fixed,
-        Some(a) if a == 0.0 => RemorphMode::Unit,
+        Some(0.0) => RemorphMode::Unit,
         Some(a) => RemorphMode::Stiffened { alpha: a },
     }
 }
@@ -777,8 +777,7 @@ fn main() {
         .fold(f64::NEG_INFINITY, f64::max);
     let last_stalled_stiff = stalled
         .iter()
-        .filter(|r| matches!(r.mode, RemorphMode::Stiffened { .. }))
-        .last()
+        .rfind(|r| matches!(r.mode, RemorphMode::Stiffened { .. }))
         .map(|r| (alpha_of(r.mode), ff(r.prob.c_sigma() - C_SIGMA_TARGET_F)));
 
     let mut t = String::with_capacity(131_072);
