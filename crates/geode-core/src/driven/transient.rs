@@ -910,39 +910,6 @@ impl TransientRecord {
             })
             .collect()
     }
-
-    /// Raw DFTs `(F[V_p], F[V_inc])` at the excited port, for diagnostics
-    /// and cross-checks (`S₁₁ = (F[V] − F[V_inc]) / F[V_inc]`).
-    pub fn dft_v_and_vinc(&self, omegas: &[f64]) -> Vec<(c64, c64)> {
-        let p = self.excited;
-        omegas
-            .iter()
-            .map(|&omega| {
-                let mut fv = c64::new(0.0, 0.0);
-                let mut fi = c64::new(0.0, 0.0);
-                for (k, &t) in self.times.iter().enumerate() {
-                    let phase = c64::new(0.0, -omega * t).exp();
-                    fv += phase * self.v_port[p][k];
-                    fi += phase * self.v_inc[k];
-                }
-                (fv, fi)
-            })
-            .collect()
-    }
-
-    /// Total port-energy-outflow proxy `Σ_p V_p(t) I_p(t)` at each sample
-    /// — used to pick a decay-to-floor truncation point.
-    pub fn port_power(&self) -> Vec<f64> {
-        (0..self.times.len())
-            .map(|k| {
-                self.v_port
-                    .iter()
-                    .zip(self.i_port.iter())
-                    .map(|(v, i)| v[k] * i[k])
-                    .sum()
-            })
-            .collect()
-    }
 }
 
 // ---------------------------------------------------------------------------

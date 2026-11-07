@@ -219,34 +219,6 @@ impl PalaceResults {
         Self::from_palace_csv(&text, palace_version, config_sha256, port_resistance_ohm)
     }
 
-    /// First-resonance estimate: the lowest-frequency point at which
-    /// `Im Z` crosses through zero from positive to negative (or
-    /// negative to positive). Returns `None` if no crossing is found
-    /// in the sweep.
-    pub fn estimate_resonance_ghz(&self) -> Option<f64> {
-        let zs: Vec<(f64, f64)> = self
-            .points
-            .iter()
-            .map(|p| {
-                let (_, z_im) = p.z_from_s11(self.port_resistance_ohm);
-                (p.f_ghz, z_im)
-            })
-            .collect();
-        for w in zs.windows(2) {
-            let (f0, im0) = w[0];
-            let (f1, im1) = w[1];
-            if im0 == 0.0 {
-                return Some(f0);
-            }
-            if (im0 > 0.0) != (im1 > 0.0) {
-                // Linear interpolation to the zero crossing.
-                let t = im0 / (im0 - im1);
-                return Some(f0 + t * (f1 - f0));
-            }
-        }
-        None
-    }
-
     /// S11 dip (frequency and value in dB). Returns the most-negative
     /// `s11_db` in the sweep — the strongest match. None for an empty
     /// sweep.
