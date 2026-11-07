@@ -19,6 +19,10 @@
 //! `cargo test -p geode-core --release --test transmon_quantum -- --ignored`.
 
 mod common;
+#[path = "common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::scaled_mesh;
+
 use common::edge_tables;
 
 use burn::tensor::Tensor;
@@ -37,7 +41,7 @@ use geode_core::eigen::transmon::{
 };
 use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
 use geode_core::mesh::transmon::{JUNCTION_CAPACITANCE_F, JUNCTION_INDUCTANCE_H, sapphire_eps_lab};
-use geode_core::mesh::{MetalRole, TetMesh, cube_tet_mesh, read_transmon_smoke_fixture};
+use geode_core::mesh::{MetalRole, cube_tet_mesh, read_transmon_smoke_fixture};
 use geode_core::quantum::transmon::{
     TransmonAnchor, duffing_kerr_from_epr, e_c_hz_from_c_sigma, e_j_hz_from_inductance,
     harmonic_frequency_hz, minev_participation, self_kerr_from_epr, transmon_spectrum,
@@ -212,16 +216,6 @@ fn minev_participation_equals_phase_b_participation() {
 // -------------------------------------------------------------------------
 // Release / #[ignore]: E_C extraction on the real fixture.
 // -------------------------------------------------------------------------
-
-fn scaled_mesh(mesh: &TetMesh, s: f64) -> TetMesh {
-    let mut m = mesh.clone();
-    for n in m.nodes.iter_mut() {
-        n[0] *= s;
-        n[1] *= s;
-        n[2] *= s;
-    }
-    m
-}
 
 /// Full E_C extraction on the real DeviceLayout mesh, pinning the committed
 /// benchmark numbers and the honest-negative finding.

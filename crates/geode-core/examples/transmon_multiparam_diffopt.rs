@@ -34,6 +34,10 @@
 //! artifact carries a SUPERSEDED ANCHOR header. The current anchor is
 //! `TransmonAnchor::devicelayout` (`C_Σ` ≈ 93.9537 fF, junction excluded).
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::scaled_mesh;
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
@@ -80,16 +84,6 @@ const HARMONIC_594_SHORTFALL_LOWER_BOUND: f64 = 6.256959;
 fn floor_fmt(x: f64, dp: usize) -> String {
     let p = 10f64.powi(dp as i32);
     format!("{:.dp$}", (x * p).floor() / p)
-}
-
-fn scaled_mesh(mesh: &TetMesh, s: f64) -> TetMesh {
-    let mut m = mesh.clone();
-    for n in m.nodes.iter_mut() {
-        n[0] *= s;
-        n[1] *= s;
-        n[2] *= s;
-    }
-    m
 }
 
 /// Independent multi-conductor extraction at `X⁰ + θ·vel`: move, re-assemble,

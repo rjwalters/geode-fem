@@ -73,6 +73,10 @@
 //! `reference/fixtures/transmon_palace/results_coupling_1078/run.sh`
 //! reproduces them.
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::git_head;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
@@ -1018,16 +1022,6 @@ fn arr_e(v: &[f64]) -> String {
             .collect::<Vec<_>>()
             .join(", ")
     )
-}
-
-fn git_head() -> String {
-    std::process::Command::new("git")
-        .args(["rev-parse", "--short=8", "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|| "unknown".into())
 }
 
 /// The bare-qubit anchor for a coupling `k` (Maxwell form) and its offset
