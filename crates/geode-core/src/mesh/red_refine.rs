@@ -21,6 +21,7 @@
 //! Per-tet data (for example `ε_r`) is inherited from the parent through
 //! [`RedRefinement::lift_per_tet`].
 
+use crate::vec3::sub3 as sub;
 use std::collections::BTreeMap;
 
 use super::TetMesh;
@@ -42,10 +43,6 @@ pub struct RedRefinement {
 
 fn edge_key(a: u32, b: u32) -> (u32, u32) {
     if a < b { (a, b) } else { (b, a) }
-}
-
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
 
 fn signed_vol6(nodes: &[[f64; 3]], t: &[u32; 4]) -> f64 {

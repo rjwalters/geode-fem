@@ -18,6 +18,9 @@
 //! `transmon_quantum` example writes; run it with
 //! `cargo test -p geode-core --release --test transmon_quantum -- --ignored`.
 
+mod common;
+use common::edge_tables;
+
 use burn::tensor::Tensor;
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
@@ -102,18 +105,6 @@ fn analytic_quantum_layer_end_to_end() {
 // -------------------------------------------------------------------------
 // CI-fast: Minev p_m ≡ Phase-B participation identity (synthetic).
 // -------------------------------------------------------------------------
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
-}
 
 fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
     t.into_data().iter::<f64>().collect()

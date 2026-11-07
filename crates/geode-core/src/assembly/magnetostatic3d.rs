@@ -92,6 +92,7 @@
 //! `tests/magnetostatic_wire.rs`).
 #![allow(clippy::needless_range_loop)]
 
+use crate::vec3::{cross3 as cross, dot3 as dot, sub3 as sub};
 use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
@@ -901,22 +902,6 @@ pub fn tet_nedelec_rhs(coords: &[[f64; 3]; 4], j: [f64; 3]) -> [f64; 6] {
     b
 }
 
-#[inline]
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-#[inline]
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-#[inline]
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
 #[inline]
 fn scale(a: [f64; 3], s: f64) -> [f64; 3] {
     [a[0] * s, a[1] * s, a[2] * s]

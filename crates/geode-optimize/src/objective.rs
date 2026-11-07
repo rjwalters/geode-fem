@@ -284,19 +284,6 @@ impl<O: Objective> Scaled<O> {
             .collect()
     }
 
-    /// Maps physical bounds to design bounds (a negative scale swaps them).
-    #[must_use]
-    pub fn bounds_to_design(&self, b: &crate::Bounds) -> crate::Bounds {
-        let lo = self.to_design(&b.lower);
-        let hi = self.to_design(&b.upper);
-        let (lower, upper) = lo
-            .iter()
-            .zip(&hi)
-            .map(|(a, b)| (a.min(*b), a.max(*b)))
-            .unzip();
-        crate::Bounds { lower, upper }
-    }
-
     /// The wrapped objective.
     pub fn inner(&self) -> &O {
         &self.inner
