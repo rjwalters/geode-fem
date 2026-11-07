@@ -1583,6 +1583,100 @@
       ],
       "type": "object"
     },
+    "DrivenAccuracy": {
+      "description": "Accuracy diagnostics of a driven report (issue #1265).",
+      "properties": {
+        "order_estimate": {
+          "$ref": "#/$defs/DrivenOrderEstimate",
+          "description": "Same-mesh order-1 vs order-2 comparison."
+        }
+      },
+      "required": [
+        "order_estimate"
+      ],
+      "type": "object"
+    },
+    "DrivenOrderEstimate": {
+      "description": "Same-mesh p=1 vs p=2 S-matrix difference (issue #1265): an indicator of\nthe order-1 discretization error on this mesh, **not** a rigorous bound\non the order-2 error. The goal-oriented DWR estimator of Epic #835\n(`adapt/dwr.rs`) needs a goal functional and an adjoint solve per\nfrequency; the direct order-1 solve of the same operator is the\ncheaper indicator the issue asks for, and matches the eigen report's.",
+      "properties": {
+        "above_threshold": {
+          "description": "`delta_s_max > threshold`.",
+          "type": "boolean"
+        },
+        "delta_s_max": {
+          "description": "`max` over frequencies of `delta_s_max`.",
+          "format": "double",
+          "type": "number"
+        },
+        "points": {
+          "description": "One entry per frequency, in report order.",
+          "items": {
+            "$ref": "#/$defs/DrivenOrderEstimatePoint"
+          },
+          "type": "array"
+        },
+        "reference_order": {
+          "description": "The comparison order, always `1`.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "threshold": {
+          "description": "Warning threshold on `delta_s_max` (absolute, S is dimensionless).",
+          "format": "double",
+          "type": "number"
+        },
+        "warning": {
+          "description": "Human-readable warning (also printed to stderr) when above threshold.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "reference_order",
+        "points",
+        "delta_s_max",
+        "threshold",
+        "above_threshold"
+      ],
+      "type": "object"
+    },
+    "DrivenOrderEstimatePoint": {
+      "description": "One frequency of a [`DrivenOrderEstimate`].",
+      "properties": {
+        "delta_s11": {
+          "description": "`|S2_11 − S1_11|`, the first port's reflection.",
+          "format": "double",
+          "type": "number"
+        },
+        "delta_s_max": {
+          "description": "`max_ij |S2_ij − S1_ij|` over the S-matrix entries.",
+          "format": "double",
+          "type": "number"
+        },
+        "frequency_hz": {
+          "description": "The frequency (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "index": {
+          "description": "Index into the report's `results`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "index",
+        "frequency_hz",
+        "delta_s_max",
+        "delta_s11"
+      ],
+      "type": "object"
+    },
     "DrivenReport": {
       "description": "`geode driven` report (`kind = \"driven\"`).",
       "properties": {
@@ -1592,6 +1686,17 @@
             "$ref": "#/$defs/UpmlSummary"
           },
           "type": "array"
+        },
+        "accuracy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DrivenAccuracy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Accuracy diagnostics (additive in v1, issue #1265); present only for\nan `element_order = 2` lumped-port sweep."
         },
         "adaptive_mesh": {
           "anyOf": [
