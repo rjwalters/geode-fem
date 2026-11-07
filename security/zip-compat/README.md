@@ -16,6 +16,12 @@ untracked and skipped by the file-set check; the baseline hashes still record
 them). Test-only resolved locks live in `test-locks/`.
 The root `Cargo.lock` is the application's dependency resolution.
 
+The vendored ZIP test tree under `zip-test-support/` is kept whole so it stays
+diffable against upstream commit `0123ed1`, which is the point of the
+attestation. Its `fuzz/`, `benches/`, `.amazonq/` and `.typos.toml` are
+intentionally retained but not run; `provenance.json` records this under
+`upstream_test_support.retained_not_run`.
+
 ## Compatibility contract
 
 ZIP's new `EntryArchive` preserves central-directory order and duplicates.

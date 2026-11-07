@@ -34,7 +34,16 @@
       "benches",
       "fuzz",
       ".typos.toml"
-    ]
+    ],
+    "retained_not_run": {
+      "paths": [
+        "fuzz",
+        "benches",
+        ".amazonq",
+        ".typos.toml"
+      ],
+      "reason": "The vendored zip test tree is kept whole so it stays diffable against upstream commit 0123ed144cfa7d672dae78b79a034d8900f9aaeb; these paths are intentionally retained and never built or run by run.py. Removing them would not shrink the clone."
+    }
   },
   "baseline": {
     "candle-core-0.10.2/.cargo_vcs_info.json": "0e0b73eb2b9aaaba6865dfb471111abcbdac085e758c6d03210eba6359e1abd2",
