@@ -54,6 +54,7 @@
 //! across a TM₂ mixing window (σ₀ ≈ 12.75 – 16.75), from shared
 //! membership and elimination; it is not tracked through that window.
 
+use crate::vec3::{cross3, dot3};
 use faer::c64;
 
 use crate::analytic::mie::{MiePolarisation, spherical_j_c};
@@ -197,18 +198,6 @@ fn quadrupole_basis(i: usize) -> [[f64; 3]; 3] {
         3 => [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 0.0]],
         _ => [[-1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 2.0]],
     }
-}
-
-fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
 }
 
 /// Hermitian inner product `conj(u)·v` of two complex 3-vectors.

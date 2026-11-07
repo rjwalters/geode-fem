@@ -5,8 +5,11 @@
 //! become test binaries. Consumers pull it in with `mod common;` at
 //! the top of each test file.
 
+use std::path::{Path, PathBuf};
+
 use burn::tensor::backend::Backend;
 use burn::tensor::{ElementConversion, Tensor};
+use geode_core::mesh::TetMesh;
 
 /// Read a `D`-dimensional float Burn tensor back to host as `Vec<f64>`,
 /// regardless of whether the active backend's `B::FloatElem` is `f32`
@@ -26,4 +29,74 @@ pub fn readback_f64<BB: Backend, const D: usize>(t: Tensor<BB, D>) -> Vec<f64> {
         .into_iter()
         .map(|x| x.elem::<f64>())
         .collect()
+}
+
+/// Faces of `mesh` (interior **and** boundary) whose three nodes all lie in
+/// the plane `coord[axis] == value`.
+///
+/// Use this when interior faces matter (e.g. an internal port plane); use
+/// [`boundary_plane_faces`] when only exterior-boundary faces are wanted.
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+pub fn all_plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
+    mesh.faces()
+        .into_iter()
+        .filter(|f| {
+            f.iter()
+                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
+        })
+        .collect()
+}
+
+/// Exterior-boundary faces of `mesh` whose three nodes all lie in the plane
+/// `coord[axis] == value`. Interior faces in the plane are excluded; see
+/// [`all_plane_faces`] for the variant that includes them.
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+pub fn boundary_plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
+    mesh.boundary_faces()
+        .into_iter()
+        .filter(|f| {
+            f.iter()
+                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
+        })
+        .collect()
+}
+
+/// Split `mesh.tet_edges()` into the per-tet `(idx, sign)` tables the
+/// assemblers take.
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+pub fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
+    let te = mesh.tet_edges();
+    (
+        te.iter().map(|r| std::array::from_fn(|i| r[i].0)).collect(),
+        te.iter().map(|r| std::array::from_fn(|i| r[i].1)).collect(),
+    )
+}
+
+/// PEC interior-edge mask eliminating every edge whose **both** endpoints lie
+/// on the same listed plane `(axis, value)`.
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+pub fn pec_mask_for_planes(
+    mesh: &TetMesh,
+    edges: &[[u32; 2]],
+    planes: &[(usize, f64)],
+) -> Vec<bool> {
+    edges
+        .iter()
+        .map(|e| {
+            let a = mesh.nodes[e[0] as usize];
+            let b = mesh.nodes[e[1] as usize];
+            !planes.iter().any(|&(axis, value)| {
+                (a[axis] - value).abs() < 1e-12 && (b[axis] - value).abs() < 1e-12
+            })
+        })
+        .collect()
+}
+
+/// Absolute path of the repository root (two levels above this crate).
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+pub fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("repo root resolves")
 }

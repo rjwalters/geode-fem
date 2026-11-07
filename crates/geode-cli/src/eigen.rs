@@ -56,7 +56,10 @@ use crate::check::{
 use crate::error::CliError;
 use crate::export::{OutDir, eps_per_node, mode_file_name};
 use crate::problem::{EigenTarget, Problem};
-use crate::report::{EigenReport, EigenSolverStats, ModeResult, Provenance};
+use crate::report::{
+    EigenAccuracy, EigenReport, EigenSolverStats, ModeResult, OrderEstimate, OrderEstimateMode,
+    Provenance,
+};
 use crate::spec::Analysis;
 
 type B = CompiledBackend;
@@ -213,6 +216,78 @@ fn solve_lossy_with_eps(
         complex: true,
         upml_reference_k0,
     })
+}
+
+/// Warning threshold on the same-mesh p=1 vs p=2 relative frequency
+/// difference (`accuracy.order_estimate`, issue #1265); the hybrid-port
+/// accuracy default.
+const ORDER_ESTIMATE_THRESHOLD: f64 = 0.005;
+
+/// Compare p=2 frequencies `f_p2` with a same-mesh p=1 solve of the same
+/// pencil (`p.pec_mask_p1`). Lossless isotropic / diagonal pencils only.
+fn order_estimate(
+    p: &Problem,
+    target: &EigenTarget,
+    f_p2: &[f64],
+    k0_to_hz: f64,
+) -> Result<OrderEstimate, CliError> {
+    let settings = PecCavitySettings {
+        max_iters: target.max_iters,
+        tol: target.tol,
+        residual_tol: target.residual_tol,
+        ..PecCavitySettings::new(target.sigma(), target.n_modes)
+    };
+    let device = <B as BackendTypes>::Device::default();
+    let diag = p.is_anisotropic().then(|| p.real_diagonal_materials());
+    let eps_iso: Vec<f64> = p.eps.iter().map(|e| e.re).collect();
+    let materials = match &diag {
+        Some((eps, nu)) => PecCavityMaterials::Diagonal { eps, nu },
+        None => PecCavityMaterials::Isotropic(&eps_iso),
+    };
+    let p1 = solve_pec_cavity_modes_with_materials::<B>(
+        &p.tagged.mesh,
+        &materials,
+        &p.pec_mask_p1,
+        &settings,
+        &device,
+    )?;
+    let modes = order_estimate_modes(f_p2, p1.modes.iter().map(|m| m.k0 * k0_to_hz));
+    Ok(order_estimate_from(modes, ORDER_ESTIMATE_THRESHOLD))
+}
+
+fn order_estimate_modes(f_p2: &[f64], f_p1: impl Iterator<Item = f64>) -> Vec<OrderEstimateMode> {
+    f_p2.iter()
+        .zip(f_p1)
+        .enumerate()
+        .map(|(index, (&f2, f1))| OrderEstimateMode {
+            index,
+            frequency_hz_p1: f1,
+            delta_f_hz: f2 - f1,
+            delta_f_rel: (f2 - f1).abs() / f2,
+        })
+        .collect()
+}
+
+fn order_estimate_from(modes: Vec<OrderEstimateMode>, threshold: f64) -> OrderEstimate {
+    let delta_f_rel_max = modes.iter().map(|m| m.delta_f_rel).fold(0.0, f64::max);
+    let above_threshold = delta_f_rel_max > threshold;
+    let warning = above_threshold.then(|| {
+        format!(
+            "order-1 and order-2 frequencies differ by {:.3}% (> {:.3}%) on this mesh: the \
+             order-1 discretization error is large here (the order-2 result is presumed \
+             closer, not certified); refine the mesh to confirm",
+            100.0 * delta_f_rel_max,
+            100.0 * threshold
+        )
+    });
+    OrderEstimate {
+        reference_order: 1,
+        modes,
+        delta_f_rel_max,
+        threshold,
+        above_threshold,
+        warning,
+    }
 }
 
 /// Load, solve and report. With `outdir`, also export each mode's field.
@@ -386,6 +461,19 @@ pub fn run(
         crate::dataset::write(dir, &sample)?;
     }
 
+    let accuracy = if p.hcurl_space.is_some() && !solved.complex {
+        let f_p2: Vec<f64> = modes.iter().map(|m| m.frequency_hz).collect();
+        let est = order_estimate(&p, &target, &f_p2, k0_to_hz)?;
+        if let Some(w) = &est.warning {
+            eprintln!("warning: {w}");
+        }
+        Some(EigenAccuracy {
+            order_estimate: est,
+        })
+    } else {
+        None
+    };
+
     Ok(EigenReport {
         provenance,
         kind: "eigen",
@@ -415,6 +503,7 @@ pub fn run(
         bands: None,
         sensitivities,
         adaptive_mesh,
+        accuracy,
     })
 }
 
@@ -459,6 +548,7 @@ fn run_bloch(
         adaptive_mesh: None,
         bands: Some(solved.bands),
         sensitivities: None,
+        accuracy: None,
     })
 }
 
@@ -483,6 +573,21 @@ fn scatter_interior(mask: &[bool], interior: &[c64]) -> Vec<c64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #1265: a large p=1/p=2 gap trips the warning; a small one does not.
+    #[test]
+    fn order_estimate_trips_the_threshold_warning() {
+        let modes = order_estimate_modes(&[1.0e9, 2.0e9], [0.99e9, 1.999e9].into_iter());
+        let est = order_estimate_from(modes, 0.005);
+        assert!(est.above_threshold);
+        assert!((est.delta_f_rel_max - 0.01).abs() < 1e-12);
+        assert!(est.warning.as_deref().unwrap().contains("1.000%"));
+        let calm = order_estimate_from(
+            order_estimate_modes(&[1.0e9], [0.9999e9].into_iter()),
+            0.005,
+        );
+        assert!(!calm.above_threshold && calm.warning.is_none());
+    }
 
     #[test]
     fn scatter_interior_zeroes_pec_edges() {
