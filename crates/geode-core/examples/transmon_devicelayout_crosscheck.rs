@@ -35,6 +35,10 @@
 //! (override the directory with `$TRANSMON_DL_BENCH_DIR`). Checked by
 //! `tests/transmon_devicelayout_crosscheck.rs`.
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::git_head;
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -292,17 +296,6 @@ fn solve_mode(mesh_path: &Path, label: &str, sigma_ghz: f64, n_modes: usize, run
 // ---------------------------------------------------------------------------
 // Assemble mode: readers.
 // ---------------------------------------------------------------------------
-
-fn git_head() -> String {
-    std::process::Command::new("git")
-        .args(["rev-parse", "--short=8", "HEAD"])
-        .current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|| "unknown".into())
-}
 
 fn toml_doc(path: &Path) -> toml::Value {
     let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
