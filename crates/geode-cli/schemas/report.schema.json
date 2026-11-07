@@ -1728,6 +1728,19 @@
       ],
       "type": "object"
     },
+    "EigenAccuracy": {
+      "description": "Accuracy diagnostics of an eigen report (issue #1265).",
+      "properties": {
+        "order_estimate": {
+          "$ref": "#/$defs/OrderEstimate",
+          "description": "Same-mesh order-1 vs order-2 comparison."
+        }
+      },
+      "required": [
+        "order_estimate"
+      ],
+      "type": "object"
+    },
     "EigenReport": {
       "description": "`geode eigen` report (`kind = \"eigen\"`).",
       "properties": {
@@ -1737,6 +1750,17 @@
             "$ref": "#/$defs/UpmlSummary"
           },
           "type": "array"
+        },
+        "accuracy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EigenAccuracy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Accuracy diagnostics (additive in v1, issue #1265); present only for\na lossless `element_order = 2` eigen solve."
         },
         "adaptive_mesh": {
           "anyOf": [
@@ -4495,6 +4519,87 @@
         "fits_direct_lu",
         "verdict",
         "memory_model"
+      ],
+      "type": "object"
+    },
+    "OrderEstimate": {
+      "description": "Same-mesh p=1 vs p=2 resonant-frequency difference (issue #1265): an\nindicator of the order-1 discretization error on this mesh, **not** a\nrigorous bound on the order-2 error (the p=2 result is only presumed\ncloser to the truth). Modes are paired by ascending index.",
+      "properties": {
+        "above_threshold": {
+          "description": "`delta_f_rel_max > threshold`.",
+          "type": "boolean"
+        },
+        "delta_f_rel_max": {
+          "description": "`max_i |Δf_i| / f_i` (p=2 as the denominator).",
+          "format": "double",
+          "type": "number"
+        },
+        "modes": {
+          "description": "Per-mode differences.",
+          "items": {
+            "$ref": "#/$defs/OrderEstimateMode"
+          },
+          "type": "array"
+        },
+        "reference_order": {
+          "description": "The comparison order, always `1`.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "threshold": {
+          "description": "Warning threshold on `delta_f_rel_max`.",
+          "format": "double",
+          "type": "number"
+        },
+        "warning": {
+          "description": "Human-readable warning (also printed to stderr) when above threshold.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "reference_order",
+        "modes",
+        "delta_f_rel_max",
+        "threshold",
+        "above_threshold"
+      ],
+      "type": "object"
+    },
+    "OrderEstimateMode": {
+      "description": "One mode of an [`OrderEstimate`].",
+      "properties": {
+        "delta_f_hz": {
+          "description": "`f_p2 − f_p1` (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "delta_f_rel": {
+          "description": "`|f_p2 − f_p1| / f_p2`.",
+          "format": "double",
+          "type": "number"
+        },
+        "frequency_hz_p1": {
+          "description": "The order-1 resonant frequency on the same mesh (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "index": {
+          "description": "Mode index (ascending frequency).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "index",
+        "frequency_hz_p1",
+        "delta_f_hz",
+        "delta_f_rel"
       ],
       "type": "object"
     },

@@ -668,6 +668,11 @@ pub struct Problem {
     /// spec it also eliminates the current paths' source / sink faces
     /// (PEC contacts).
     pub pec_mask: Vec<bool>,
+    /// The order-1 per-edge PEC interior mask on the same mesh. Equals
+    /// [`Problem::pec_mask`] at order 1; at order 2 it is the edge mask the
+    /// order-1 comparison solve (`accuracy.order_estimate`, issue #1265)
+    /// needs, since `pec_mask` is then over the p=2 DOFs.
+    pub pec_mask_p1: Vec<bool>,
     /// Element order actually solved (issue #1265). At order 2 `pec_mask`
     /// is the kept-DOF mask over [`Problem::hcurl_space`] (length
     /// `2·n_edges + 2·n_faces`), not an edge mask.
@@ -1933,6 +1938,7 @@ pub fn load_parsed(
         crate::spec::ElementOrderSpec::P1 => ElementOrder::P1,
         crate::spec::ElementOrderSpec::P2 => ElementOrder::P2,
     };
+    let pec_mask_p1 = pec_mask.clone();
     let (hcurl_space, pec_mask) = match element_order {
         ElementOrder::P1 => (None, pec_mask),
         ElementOrder::P2 => {
@@ -2014,6 +2020,7 @@ pub fn load_parsed(
         tagged,
         edges,
         pec_mask,
+        pec_mask_p1,
         element_order,
         hcurl_space,
         eps,
