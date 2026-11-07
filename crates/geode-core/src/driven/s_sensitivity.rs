@@ -209,6 +209,7 @@
 //! The adaptive PROM is never used here: sensitivities are always
 //! full-order (the bypass default of Epic #841 Phase 4).
 
+use crate::vec3::sorted3;
 use std::collections::HashMap;
 
 use burn::tensor::backend::Backend;
@@ -1673,12 +1674,6 @@ fn check_drive(
         )));
     }
     Ok(())
-}
-
-fn sorted3(t: [u32; 3]) -> [u32; 3] {
-    let mut t = t;
-    t.sort_unstable();
-    t
 }
 
 /// Every tet bounding one of `faces`.

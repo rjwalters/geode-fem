@@ -20,6 +20,9 @@
 //! central FD (`h = 1e-6`), relative error `< 1e-4` (normalised by
 //! `|FD| + 1e-3·max|gradient|` so a near-zero component cannot dominate).
 
+mod common;
+use common::boundary_plane_faces;
+
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::assembly::hcurl_space::HcurlSpace;
@@ -73,16 +76,6 @@ fn jittered(n: usize, seed: u64) -> TetMesh {
         }
     }
     mesh
-}
-
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.boundary_faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
 }
 
 fn regions(mesh: &TetMesh) -> Vec<usize> {
@@ -173,9 +166,12 @@ struct Fixture {
 fn fixture(case: Case) -> Fixture {
     let mesh = jittered(2, 0x1264);
     let space = HcurlSpace::build(&mesh, ElementOrder::P2);
-    let port_faces = plane_faces(&mesh, 2, 0.0);
-    let cap_faces = plane_faces(&mesh, 2, 1.0);
-    let plates = [plane_faces(&mesh, 1, 0.0), plane_faces(&mesh, 1, 1.0)];
+    let port_faces = boundary_plane_faces(&mesh, 2, 0.0);
+    let cap_faces = boundary_plane_faces(&mesh, 2, 1.0);
+    let plates = [
+        boundary_plane_faces(&mesh, 1, 0.0),
+        boundary_plane_faces(&mesh, 1, 1.0),
+    ];
     let mut walls: Vec<&[[u32; 3]]> = plates.iter().map(Vec::as_slice).collect();
     if !case.port {
         walls.push(port_faces.as_slice());

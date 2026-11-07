@@ -48,6 +48,7 @@
 
 use crate::elements::nedelec::{TET_QUAD4_A, TET_QUAD4_B};
 use crate::mesh::TET_LOCAL_EDGES;
+use crate::vec3::{cross3 as cross, dot3 as dot, sub3 as sub};
 
 /// Number of local DOFs of the P2 Lagrange tet (4 vertices + 6 edges).
 pub const TET_P2_DOFS: usize = 10;
@@ -188,23 +189,6 @@ fn p2_load(vol: f64) -> [f64; TET_P2_DOFS] {
         *l = -vol / 20.0;
     }
     load
-}
-
-#[inline]
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-#[inline]
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-#[inline]
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
 #[cfg(test)]

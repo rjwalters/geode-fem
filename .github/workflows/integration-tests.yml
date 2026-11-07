@@ -132,6 +132,7 @@ jobs:
               --test dwr_goals \
               --test eigensolver \
               --test electrostatic_capacitance \
+              --test electrostatic_capacitance_2d \
               --test extraction \
               --test faer_qz_debug_overflow_guard \
               --test fe_assemble \
@@ -226,6 +227,7 @@ jobs:
               --test eigen_p2_tagged \
               --test eigensolver \
               --test electrostatic_capacitance \
+              --test electrostatic_capacitance_2d \
               --test extraction \
               --test faer_qz_debug_overflow_guard \
               --test fe_assemble \
