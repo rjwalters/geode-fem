@@ -44,7 +44,6 @@ and design-loop binaries that write `benchmarks/*/results.toml`) and
 | `arpack` | ARPACK-backed sparse eigensolver; needs a system `libarpack` found by `pkg-config` |
 | `spade-mesh` | In-process 2-D constrained Delaunay meshing for wave-port cross-sections |
 | `testing` | The `testing` module |
-| `flex` | Burn flex CPU backend, used only by the `flex_precision_spike` example |
 
 ## Build and test
 
