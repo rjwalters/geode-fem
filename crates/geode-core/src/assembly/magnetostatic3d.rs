@@ -93,6 +93,7 @@
 #![allow(clippy::needless_range_loop)]
 
 use crate::sparse_ops::bilinear_form;
+pub use crate::vec3::tet_signed_volume;
 use crate::vec3::{cross3 as cross, dot3 as dot, sub3 as sub};
 use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
@@ -806,16 +807,6 @@ pub fn tet_bary_grads(coords: &[[f64; 3]; 4]) -> [[f64; 3]; 4] {
         -(gl1[2] + gl2[2] + gl3[2]),
     ];
     [gl0, gl1, gl2, gl3]
-}
-
-/// Signed tet volume `V = det(J)/6` (positive for conventionally-oriented
-/// tets).
-pub fn tet_signed_volume(coords: &[[f64; 3]; 4]) -> f64 {
-    let v0 = coords[0];
-    let e1 = sub(coords[1], v0);
-    let e2 = sub(coords[2], v0);
-    let e3 = sub(coords[3], v0);
-    dot(e1, cross(e2, e3)) / 6.0
 }
 
 /// Sign-unaware local 6×6 Nédélec curl-curl `K_ij = 4V(G_ac G_bd − G_ad G_bc)`
