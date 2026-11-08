@@ -151,11 +151,9 @@ pub enum InnerSolver {
     /// Like [`Direct`](InnerSolver::Direct) — form and factor `A = K − σM`
     /// once — but factor with a **custom fill-reducing column ordering**
     /// (faer's `LuColOrdering::Custom`, available since faier 0.25) instead of
-    /// the COLAMD ordering faer's high-level `sp_lu` uses (issue #543). The ordering is a
-    /// geometric coordinate nested dissection when per-DOF coordinates are
-    /// supplied (via a `*_with_coords` entry point), otherwise AMD
-    /// minimum-degree from the pattern alone. Both cut LU fill/memory versus
-    /// COLAMD (~1.4–1.7× measured on the Nédélec pattern, growing with size)
+    /// the COLAMD ordering faer's high-level `sp_lu` uses (issue #543). The ordering is
+    /// AMD minimum-degree from the pattern alone. It cuts LU fill/memory versus
+    /// COLAMD (~1.7× measured on the Nédélec pattern, growing with size)
     /// while leaving the computed spectrum unchanged — ordering changes memory,
     /// not answers. See the crate-internal `eigen::ordering` module.
     DirectCustomOrder,
@@ -1039,9 +1037,8 @@ impl SparseShiftInvertLanczos {
         m: SparseColMatRef<'a, usize, f64>,
         n_threads: usize,
         gradient: Option<&crate::eigen::projection::InteriorGradient>,
-        dof_coords: Option<&[[f64; 3]]>,
     ) -> Result<(InnerBackend<'a>, Option<SequentialSolveScope>), EigenError> {
-        let inner = self.build_inner(k, m, n_threads, gradient, dof_coords)?;
+        let inner = self.build_inner(k, m, n_threads, gradient)?;
         let scope = inner.sequential_solve_scope();
         Ok((inner, scope))
     }
@@ -1057,7 +1054,6 @@ impl SparseShiftInvertLanczos {
         m: SparseColMatRef<'a, usize, f64>,
         n_threads: usize,
         gradient: Option<&crate::eigen::projection::InteriorGradient>,
-        dof_coords: Option<&[[f64; 3]]>,
     ) -> Result<InnerBackend<'a>, EigenError> {
         match self.inner {
             InnerSolver::Direct => {
@@ -1103,18 +1099,16 @@ impl SparseShiftInvertLanczos {
             InnerSolver::DirectCustomOrder => {
                 // Issue #543: same explicit `A = K − σM` as `Direct`, but factor
                 // it with a custom fill-reducing column ordering
-                // (`LuColOrdering::Custom`, faier 0.25) instead of COLAMD. The ordering is a
-                // geometric coordinate nested dissection when DOF coordinates are
-                // available, else AMD minimum-degree from the pattern alone —
-                // both cut LU fill/memory versus COLAMD while leaving the
-                // spectrum unchanged (ordering changes memory, not answers).
+                // (`LuColOrdering::Custom`, faier 0.25) instead of COLAMD. The ordering is
+                // AMD minimum-degree from the pattern alone — it cuts LU
+                // fill/memory versus COLAMD while leaving the spectrum
+                // unchanged (ordering changes memory, not answers).
                 let a = shifted_pencil(k, m, self.sigma)?;
                 let lu = {
                     let _par = ParallelismGuard::cap(n_threads);
                     // `LuColOrdering::Custom` takes the forward (new → old)
                     // order only; the inverse is rebuilt inside faer.
-                    let (fwd, _inv) =
-                        crate::eigen::ordering::column_ordering(a.as_ref().symbolic(), dof_coords)?;
+                    let (fwd, _inv) = crate::eigen::ordering::amd_ordering(a.as_ref().symbolic())?;
                     crate::eigen::ordering::CustomOrderLu::factorize(
                         a.as_ref(),
                         &fwd,
@@ -1230,7 +1224,7 @@ impl SparseShiftInvertLanczos {
         n_threads: usize,
     ) -> Result<Vec<EigenPair>, EigenError> {
         Ok(self
-            .smallest_eigenpairs_impl(k, m, n_modes, n_threads, None, None)?
+            .smallest_eigenpairs_impl(k, m, n_modes, n_threads, None)?
             .0)
     }
 
@@ -1249,29 +1243,7 @@ impl SparseShiftInvertLanczos {
         gradient: &crate::eigen::projection::InteriorGradient,
     ) -> Result<Vec<EigenPair>, EigenError> {
         Ok(self
-            .smallest_eigenpairs_impl(k, m, n_modes, resolve_num_threads(), Some(gradient), None)?
-            .0)
-    }
-
-    /// [`Self::smallest_eigenpairs`] supplying per-DOF coordinates so the
-    /// [`InnerSolver::DirectCustomOrder`] path can build a geometric
-    /// coordinate-nested-dissection column ordering (issue #543).
-    ///
-    /// `dof_coords[i]` is the coordinate of DOF `i` (for Nédélec edge DOFs, the
-    /// edge midpoint). Consulted only when `inner == DirectCustomOrder`; other
-    /// inner solvers ignore it. When `inner == DirectCustomOrder` but no
-    /// coordinates are supplied (the plain entry points), that path falls back
-    /// to an AMD ordering from the pattern alone. The thread count is resolved
-    /// from `GEODE_NUM_THREADS` as in [`Self::smallest_eigenpairs`].
-    pub fn smallest_eigenpairs_with_coords(
-        &self,
-        k: SparseColMatRef<'_, usize, f64>,
-        m: SparseColMatRef<'_, usize, f64>,
-        n_modes: usize,
-        dof_coords: &[[f64; 3]],
-    ) -> Result<Vec<EigenPair>, EigenError> {
-        Ok(self
-            .smallest_eigenpairs_impl(k, m, n_modes, resolve_num_threads(), None, Some(dof_coords))?
+            .smallest_eigenpairs_impl(k, m, n_modes, resolve_num_threads(), Some(gradient))?
             .0)
     }
 
@@ -1291,7 +1263,7 @@ impl SparseShiftInvertLanczos {
         n_modes: usize,
         gradient: Option<&crate::eigen::projection::InteriorGradient>,
     ) -> Result<(Vec<EigenPair>, usize), EigenError> {
-        self.smallest_eigenpairs_impl(k, m, n_modes, resolve_num_threads(), gradient, None)
+        self.smallest_eigenpairs_impl(k, m, n_modes, resolve_num_threads(), gradient)
     }
 
     fn smallest_eigenpairs_impl(
@@ -1301,7 +1273,6 @@ impl SparseShiftInvertLanczos {
         n_modes: usize,
         n_threads: usize,
         gradient: Option<&crate::eigen::projection::InteriorGradient>,
-        dof_coords: Option<&[[f64; 3]]>,
     ) -> Result<(Vec<EigenPair>, usize), EigenError> {
         let n = k.nrows();
         assert_eq!(k.ncols(), n, "K must be square");
@@ -1321,7 +1292,7 @@ impl SparseShiftInvertLanczos {
         //    factors the edge pencil. Eigenvalues are independent of the
         //    thread count and the preconditioner — the
         //    `eigenpairs_agree_across_thread_counts` test is the gate.
-        let (inner, _seq) = self.prepare_inner(k, m, n_threads, gradient, dof_coords)?;
+        let (inner, _seq) = self.prepare_inner(k, m, n_threads, gradient)?;
 
         // 2. Run Lanczos to convergence, retaining the full M-orthonormal
         //    basis V_k. Unlike the eigenvalue-only path we always run to
@@ -1448,7 +1419,7 @@ impl SparseShiftInvertLanczos {
         if requested == 0 {
             return Ok(out);
         }
-        let (inner, _seq) = self.prepare_inner(k, m, resolve_num_threads(), None, None)?;
+        let (inner, _seq) = self.prepare_inner(k, m, resolve_num_threads(), None)?;
         let sigma = self.sigma;
         let mut kx = vec![0.0_f64; n];
         let mut mx = vec![0.0_f64; n];
@@ -1655,21 +1626,7 @@ impl SparseShiftInvertLanczos {
         n_modes: usize,
         n_threads: usize,
     ) -> Result<Vec<f64>, EigenError> {
-        self.smallest_eigenvalues_impl(k, m, n_modes, n_threads, None, None)
-    }
-
-    /// [`SparseEigenSolver::smallest_eigenvalues`] supplying per-DOF coordinates
-    /// for the [`InnerSolver::DirectCustomOrder`] coordinate-nested-dissection
-    /// ordering (issue #543). Consulted only when `inner == DirectCustomOrder`;
-    /// without coordinates that path falls back to an AMD ordering.
-    pub fn smallest_eigenvalues_with_coords(
-        &self,
-        k: SparseColMatRef<'_, usize, f64>,
-        m: SparseColMatRef<'_, usize, f64>,
-        n_modes: usize,
-        dof_coords: &[[f64; 3]],
-    ) -> Result<Vec<f64>, EigenError> {
-        self.smallest_eigenvalues_impl(k, m, n_modes, resolve_num_threads(), None, Some(dof_coords))
+        self.smallest_eigenvalues_impl(k, m, n_modes, n_threads, None)
     }
 
     fn smallest_eigenvalues_impl(
@@ -1679,7 +1636,6 @@ impl SparseShiftInvertLanczos {
         n_modes: usize,
         n_threads: usize,
         gradient: Option<&crate::eigen::projection::InteriorGradient>,
-        dof_coords: Option<&[[f64; 3]]>,
     ) -> Result<Vec<f64>, EigenError> {
         let n = k.nrows();
         assert_eq!(k.ncols(), n, "K must be square");
@@ -1695,7 +1651,7 @@ impl SparseShiftInvertLanczos {
         //    factorization only in the direct path (rayon regresses the
         //    single-RHS triangular solves that follow; issue #518). See the
         //    `smallest_eigenpairs` sibling above.
-        let (inner, _seq) = self.prepare_inner(k, m, n_threads, gradient, dof_coords)?;
+        let (inner, _seq) = self.prepare_inner(k, m, n_threads, gradient)?;
 
         // 2. Lanczos in the M-inner product.
         //
@@ -2945,7 +2901,7 @@ mod tests {
                 ..SparseShiftInvertLanczos::default()
             };
             let (_backend, scope) = solver
-                .prepare_inner(k.as_ref(), m.as_ref(), 1, None, None)
+                .prepare_inner(k.as_ref(), m.as_ref(), 1, None)
                 .expect("inner backend");
             scope.is_some()
         };
@@ -2956,8 +2912,7 @@ mod tests {
 
     /// ISSUE #543 ACCEPTANCE BAR: the custom fill-reducing ordering must change
     /// LU fill/memory, **not the answers**. The spectrum from the
-    /// [`InnerSolver::DirectCustomOrder`] path (coordinate nested dissection
-    /// with supplied coordinates, and the AMD fallback without them) must match
+    /// [`InnerSolver::DirectCustomOrder`] path (AMD ordering) must match
     /// the COLAMD [`InnerSolver::Direct`] baseline within tolerance.
     #[test]
     fn custom_ordering_spectrum_matches_colamd() {
@@ -2969,9 +2924,6 @@ mod tests {
 
         let n = 60;
         let (k, m) = laplacian_pencil(n);
-        // Synthetic per-DOF coordinates along a line: exercises the geometric
-        // coordinate nested dissection (the chain's only meaningful axis).
-        let coords: Vec<[f64; 3]> = (0..n).map(|i| [i as f64, 0.0, 0.0]).collect();
 
         let base = SparseShiftInvertLanczos {
             sigma: 0.0,
@@ -2989,28 +2941,16 @@ mod tests {
         let colamd = base
             .smallest_eigenvalues_with_threads(k.as_ref(), m.as_ref(), n_modes, 1)
             .unwrap();
-        // Coordinate nested dissection (coordinates supplied).
-        let coord_nd = custom
-            .smallest_eigenvalues_with_coords(k.as_ref(), m.as_ref(), n_modes, &coords)
-            .unwrap();
-        // AMD fallback (no coordinates supplied through the plain entry point).
         let amd = custom
             .smallest_eigenvalues_with_threads(k.as_ref(), m.as_ref(), n_modes, 1)
             .unwrap();
 
         assert_eq!(colamd.len(), n_modes);
-        assert_eq!(coord_nd.len(), n_modes);
         assert_eq!(amd.len(), n_modes);
         for i in 0..n_modes {
             assert!(
-                (colamd[i] - coord_nd[i]).abs() <= 1e-9 * (1.0 + colamd[i].abs()),
-                "coordinate-ND eigenvalue {i} diverged: colamd={} nd={}",
-                colamd[i],
-                coord_nd[i]
-            );
-            assert!(
                 (colamd[i] - amd[i]).abs() <= 1e-9 * (1.0 + colamd[i].abs()),
-                "AMD-fallback eigenvalue {i} diverged: colamd={} amd={}",
+                "AMD eigenvalue {i} diverged: colamd={} amd={}",
                 colamd[i],
                 amd[i]
             );
@@ -3029,7 +2969,6 @@ mod tests {
 
         let n = 48;
         let (k, m) = laplacian_pencil(n);
-        let coords: Vec<[f64; 3]> = (0..n).map(|i| [i as f64, 0.0, 0.0]).collect();
 
         let base = SparseShiftInvertLanczos {
             sigma: 0.0,
@@ -3048,7 +2987,7 @@ mod tests {
             .smallest_eigenpairs(k.as_ref(), m.as_ref(), n_modes)
             .unwrap();
         let custom_pairs = custom
-            .smallest_eigenpairs_with_coords(k.as_ref(), m.as_ref(), n_modes, &coords)
+            .smallest_eigenpairs(k.as_ref(), m.as_ref(), n_modes)
             .unwrap();
 
         assert_eq!(base_pairs.len(), n_modes);
