@@ -67,7 +67,7 @@ use burn::tensor::backend::BackendTypes;
 use clap::Parser;
 use faer::c64;
 
-use geode_app::{App, Verbosity};
+use geode_app::App;
 use geode_core::analytic::spiral::{
     SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
 };
@@ -479,8 +479,7 @@ enum Mode {
 
 /// SLCFET 3HP spiral-inductor extraction benchmark CLI.
 ///
-/// Flattens the shared `geode-app` `-v`/`-q` verbosity group and keeps the
-/// example-local fixture selector (positional `smoke`) the original
+/// Keeps the example-local fixture selector (positional `smoke`) the original
 /// hand-rolled argv recognised.
 #[derive(Parser)]
 #[command(
@@ -490,9 +489,6 @@ struct Args {
     /// Fixture to sweep (`benchmark` default, or `smoke` for the coarse run).
     #[arg(value_enum, default_value_t = Mode::Benchmark)]
     mode: Mode,
-
-    #[command(flatten)]
-    verbose: Verbosity,
 }
 
 impl App for Args {
@@ -505,10 +501,6 @@ impl App for Args {
         let device = <B as BackendTypes>::Device::default();
         run::<B>(choice, &device);
         Ok(())
-    }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
     }
 }
 

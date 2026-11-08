@@ -67,7 +67,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Parser;
-use geode_app::{App, Verbosity};
+use geode_app::App;
 use geode_core::analytic::mie::mie_efficiencies;
 use geode_core::assembly::nedelec::sphere_pec_interior_edges;
 use geode_core::driven::scattering::{
@@ -242,8 +242,7 @@ fn emit_results(rows: &[Row], path: &Path, choice: FixtureChoice) {
 
 /// Driven Mie scattering benchmark CLI.
 ///
-/// Flattens the shared `geode-app` `-v`/`-q` verbosity group and keeps
-/// the example-local fixture selector (`--fine`) the original hand-rolled
+/// Keeps the example-local fixture selector (`--fine`) the original hand-rolled
 /// positional `fine` argument recognised.
 #[derive(Parser)]
 #[command(
@@ -254,9 +253,6 @@ struct Args {
     /// write `driven_results_fine.toml` instead of `driven_results.toml`.
     #[arg(long)]
     fine: bool,
-
-    #[command(flatten)]
-    verbose: Verbosity,
 }
 
 impl App for Args {
@@ -306,10 +302,6 @@ impl App for Args {
 
         emit_results(&rows, &results_path(choice), choice);
         Ok(())
-    }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
     }
 }
 
