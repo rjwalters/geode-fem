@@ -91,11 +91,6 @@ impl PartData {
     pub fn halo_recv_volume(&self) -> usize {
         self.halo_recv.iter().map(|c| c.dofs.len()).sum()
     }
-
-    /// Total number of owned DOFs this part must send across all peers.
-    pub fn halo_send_volume(&self) -> usize {
-        self.halo_send.iter().map(|c| c.dofs.len()).sum()
-    }
 }
 
 /// A balanced `k`-way partition of a mesh's edge-DOF graph with per-part halo

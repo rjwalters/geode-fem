@@ -420,11 +420,6 @@ impl EpsDirection {
         }
     }
 
-    /// The diagonal component this direction acts on (`None`: isotropic).
-    pub fn axis_index(&self) -> Option<usize> {
-        self.axis
-    }
-
     /// `tan δ` of a region at **fixed `ε′`**: `ε = ε′(1 − j tan δ)`, so
     /// `∂ε/∂tan δ = −jε′` and `∂g/∂tan δ = ε′ ∂g/∂ε″`.
     pub fn tan_delta(region: usize, name: impl Into<String>, eps_prime: f64) -> Self {
