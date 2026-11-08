@@ -71,6 +71,7 @@
 use crate::vec3::{cross3 as cross, dot3 as dot, sorted3, sub3 as sub};
 use std::collections::BTreeSet;
 
+use crate::sparse_ops::bilinear_form;
 use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
@@ -324,7 +325,7 @@ impl ElectrostaticSystem {
     /// place). This is the energy postprocessing the capacitance
     /// extraction and the `½ C V²` cross-check consume.
     pub fn field_energy(&self, phi: &[f64]) -> f64 {
-        0.5 * quad_form(&self.k_full, phi, phi)
+        0.5 * bilinear_form(self.k_full.as_ref(), phi, phi)
     }
 }
 
@@ -470,28 +471,6 @@ fn fold_pinned_columns(
         }
     }
     b_free
-}
-
-/// Compute the (full-K) bilinear form `uᵀ K v` for two full-length node
-/// vectors. Walks the sparse `K` once.
-pub(crate) fn quad_form(k: &SparseColMat<usize, f64>, u: &[f64], v: &[f64]) -> f64 {
-    let k_ref = k.as_ref();
-    let cp = k_ref.col_ptr();
-    let row_idx = k_ref.row_idx();
-    let vals = k_ref.val();
-    let n = k_ref.ncols();
-    let mut acc = 0.0;
-    for j in 0..n {
-        let vj = v[j];
-        if vj == 0.0 {
-            continue;
-        }
-        for k in cp[j]..cp[j + 1] {
-            let i = row_idx[k];
-            acc += u[i] * vals[k] * vj;
-        }
-    }
-    acc
 }
 
 /// Assemble the reduced SPD electrostatic system for
@@ -971,7 +950,7 @@ pub fn extract_capacitance(
     let mut c = vec![vec![0.0_f64; n]; n];
     for i in 0..n {
         for j in i..n {
-            let v = quad_form(&sys.k_full, &phis[i], &phis[j]);
+            let v = bilinear_form(sys.k_full.as_ref(), &phis[i], &phis[j]);
             c[i][j] = v;
             c[j][i] = v;
         }
@@ -1298,7 +1277,7 @@ pub(crate) fn amg_pcg_maxwell(
     let mut c = vec![vec![0.0_f64; n]; n];
     for i in 0..n {
         for j in i..n {
-            let v = quad_form(k_full, &us[i], &us[j]);
+            let v = bilinear_form(k_full.as_ref(), &us[i], &us[j]);
             c[i][j] = v;
             c[j][i] = v;
         }
@@ -1716,7 +1695,7 @@ impl ElectrostaticP2System {
     /// Total field energy `W = ½ uᵀ K u` using the **full** stiffness, for
     /// a full-length `[n_dof]` quadratic potential.
     pub fn field_energy(&self, u: &[f64]) -> f64 {
-        0.5 * quad_form(&self.k_full, u, u)
+        0.5 * bilinear_form(self.k_full.as_ref(), u, u)
     }
 }
 
@@ -2150,7 +2129,7 @@ fn maxwell_p2_lu(
     let mut c = vec![vec![0.0_f64; n]; n];
     for i in 0..n {
         for j in i..n {
-            let v = quad_form(&sys.k_full, &us[i], &us[j]);
+            let v = bilinear_form(sys.k_full.as_ref(), &us[i], &us[j]);
             c[i][j] = v;
             c[j][i] = v;
         }
