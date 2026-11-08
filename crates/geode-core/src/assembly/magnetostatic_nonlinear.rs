@@ -1067,14 +1067,6 @@ impl NonlinearMagnetostaticSolution {
         }
         None
     }
-
-    /// Successive residual ratios `‖R_{k+1}‖/‖R_k‖`.
-    pub fn residual_ratios(&self) -> Vec<f64> {
-        self.residual_norms
-            .windows(2)
-            .map(|w| w[1] / w[0])
-            .collect()
-    }
 }
 
 /// Per-element P1 geometry: barycentric gradients and unsigned area.
@@ -1474,11 +1466,6 @@ impl NonlinearMagnetostaticSystem {
         self.dofs = resolve_dofs(&self.dirichlet_mask, &self.user_dirichlet_values, &all)?;
         self.links = all;
         Ok(self)
-    }
-
-    /// The node links added with [`with_node_links`](Self::with_node_links).
-    pub fn node_links(&self) -> &[NodeLink] {
-        &self.links
     }
 
     /// Number of reduced unknowns (free nodes, or free linked classes).

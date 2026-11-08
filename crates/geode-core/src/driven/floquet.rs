@@ -221,6 +221,7 @@
 //! 4b. The 1-D RCWA oracle the diffraction goldens use is test-only
 //! (`tests/common/rcwa1d.rs`).
 
+use crate::vec3::{cross3 as cross, dot3 as dot, sub3 as sub};
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -449,11 +450,6 @@ impl FloquetLattice {
     /// Unit lattice normal `N = (a₁ × a₂)/|a₁ × a₂|`.
     pub fn normal(&self) -> [f64; 3] {
         self.normal
-    }
-    /// In-plane azimuth basis: `û = â₁`, `v̂ = N × û` (`φ` is measured
-    /// from `û` towards `v̂`).
-    pub fn azimuth_basis(&self) -> ([f64; 3], [f64; 3]) {
-        (self.u, self.v)
     }
     /// Cell area `|a₁ × a₂|`.
     pub fn area(&self) -> f64 {
@@ -854,15 +850,6 @@ impl FloquetCell {
     /// The assembled volume operator (no port term).
     pub fn operator(&self) -> &DrivenOperator {
         &self.op
-    }
-
-    /// Relative permittivity of port `p`'s medium.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `p > 1`.
-    pub fn port_eps(&self, p: usize) -> f64 {
-        self.ports[p].eps_r
     }
 
     /// The transverse wave vector of `inc` at `omega`.
@@ -1702,24 +1689,8 @@ fn prepare_port(
 }
 
 #[inline]
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-#[inline]
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-#[inline]
 fn norm(a: [f64; 3]) -> f64 {
     dot(a, a).sqrt()
-}
-#[inline]
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
 #[inline]
 fn add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {

@@ -31,6 +31,9 @@
 //! cargo test -p geode-core --release --test eigen_p2_tagged -- --nocapture
 //! ```
 
+mod common;
+use common::boundary_plane_faces;
+
 use std::f64::consts::PI;
 
 use burn::tensor::backend::BackendTypes;
@@ -39,6 +42,7 @@ use faer::{Mat, Side};
 
 use geode_core::analytic::loaded_guide::{LsFamily, SlabLoadedGuide};
 use geode_core::assembly::hcurl_space::HcurlSpace;
+use geode_core::assembly::nedelec::tet_centroid as centroid;
 use geode_core::driven::solve::{DrivenError, SurfaceImpedanceBc, SurfaceImpedanceModel};
 use geode_core::eigen::hcurl_null::GradientNullSpace;
 use geode_core::eigen::lossy_cavity::{
@@ -162,33 +166,18 @@ fn jitter(
     }
 }
 
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.boundary_faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
 /// The six walls of the box `[0, len]` as separate tagged triangle lists.
 fn box_walls(mesh: &TetMesh, len: [f64; 3]) -> Vec<Vec<[u32; 3]>> {
     let mut out = Vec::new();
     for (axis, &l) in len.iter().enumerate() {
-        out.push(plane_faces(mesh, axis, 0.0));
-        out.push(plane_faces(mesh, axis, l));
+        out.push(boundary_plane_faces(mesh, axis, 0.0));
+        out.push(boundary_plane_faces(mesh, axis, l));
     }
     out
 }
 
 fn refs(lists: &[Vec<[u32; 3]>]) -> Vec<&[[u32; 3]]> {
     lists.iter().map(Vec::as_slice).collect()
-}
-
-fn centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
-    let tet = mesh.tets[t];
-    std::array::from_fn(|d| tet.iter().map(|&v| mesh.nodes[v as usize][d]).sum::<f64>() / 4.0)
 }
 
 fn fixture(name: &str) -> TaggedTetMesh {
@@ -879,8 +868,8 @@ fn golden4_exact_null_count_dense_tripwire() {
             "two PEC plates",
             &plates_mesh,
             vec![
-                plane_faces(&plates_mesh, 0, 0.0),
-                plane_faces(&plates_mesh, 0, 1.0),
+                boundary_plane_faces(&plates_mesh, 0, 0.0),
+                boundary_plane_faces(&plates_mesh, 0, 1.0),
             ],
         ),
         ("no PEC", &plates_mesh, vec![]),
@@ -943,7 +932,7 @@ fn annulus() -> (TetMesh, [Vec<[u32; 3]>; 3]) {
     };
     let inner = all_in(&coax.inner);
     let outer = all_in(&coax.outer);
-    let cap = plane_faces(&coax.mesh, 2, 0.0);
+    let cap = boundary_plane_faces(&coax.mesh, 2, 0.0);
     assert_eq!(inner.len(), coax.inner_triangles.len());
     assert!(!outer.is_empty() && !cap.is_empty());
     (coax.mesh, [inner, outer, cap])

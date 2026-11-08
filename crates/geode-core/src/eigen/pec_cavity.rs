@@ -73,7 +73,7 @@
 
 use burn::tensor::backend::Backend;
 use faer::c64;
-use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
+use faer::sparse::{SparseColMat, Triplet};
 
 use crate::assembly::hcurl_space::HcurlSpace;
 use crate::assembly::nedelec::{
@@ -93,6 +93,7 @@ use crate::eigen::lanczos::SparseShiftInvertLanczos;
 use crate::eigen::transmon::LondonSurface;
 use crate::elements::ElementOrder;
 use crate::mesh::{TaggedTetMesh, TetMesh, pec_interior_mask_from_triangles};
+use crate::sparse_ops::spmv;
 
 /// Errors from the tagged-mesh lossless cavity eigensolve.
 #[derive(Debug, thiserror::Error)]
@@ -428,20 +429,6 @@ pub fn assemble_lossless_pencil_with_materials<B: Backend>(
             .map_err(|e| PecCavityError::Eigen(EigenError::FaerGevd(format!("{what}: {e:?}"))))
     };
     Ok((build(&k_tr, "cavity K")?, build(&m_tr, "cavity M")?))
-}
-
-/// `y = A x` for a column-major sparse `A`.
-fn spmv(a: SparseColMatRef<'_, usize, f64>, x: &[f64]) -> Vec<f64> {
-    let mut y = vec![0.0; a.nrows()];
-    for (j, &xj) in x.iter().enumerate() {
-        if xj == 0.0 {
-            continue;
-        }
-        for (i, v) in a.row_idx_of_col(j).zip(a.val_of_col(j)) {
-            y[i] += v * xj;
-        }
-    }
-    y
 }
 
 fn norm2(v: &[f64]) -> f64 {

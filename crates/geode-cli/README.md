@@ -1334,7 +1334,7 @@ consumed by that subcommand.
 | `inductance` | every `L_ij` (H) | `nu_r` (= `1/μ_r`), `mu_r` | self-adjoint energy form (`inductance_adjoint_sensitivity`), `∂L/∂μ_r = −ν_r² ∂L/∂ν_r` | the forward solves again on one factorization; no adjoint solve |
 | `eigen`, **lossless** (real `eps_r`, no `absorbing_regions`) | `frequency_hz` of each `modes[]` entry | `eps_r` | Hellmann–Feynman (`EigenSensitivity::deigenvalue_deps`), `∂f/∂ε = (f/2λ) ∂λ/∂ε` | a local contraction; no solve |
 | `driven`, **exactly one** lumped port, no `wave_ports` / `absorbing_regions`, direct solver, dense sweep (issue #739) | `s11_mag_sq` = `\|S11\|²` at **every** swept frequency (dimensionless) | `eps_r` | port-loaded discrete adjoint (`driven_material_adjoint_gradient_ports` + `s11_sq_objective`) | per frequency: one assembly + LU of the port-loaded `A(ω)`, one forward + one adjoint back-solve |
-| `driven` with `observables`, `frequencies`, a non-`eps_r` kind or any other port set — lumped, wave (geometric, filled), mixed, walled, hybrid (issue #883) | `driven_observables`: any `S_ij` (`mag` / `mag_sq` / `db` / `phase_deg` / `real` / `imag`), `Σ\|S_ij\|²`, a hybrid port's `z0` / `eps_eff` | `eps_r`, `eps_r_imag`, `tan_delta`, `sigma`, `shape`, `wall_sigma`, `wall_rms_roughness`, `wall_ball_radius`, `wall_ball_density` | N-port S-matrix adjoint (`s_matrix_sensitivity_sweep`; reciprocity) | per frequency: one LU (the forward's own excitation solves, **zero** extra solves) — see [N-port driven sensitivities](#n-port-driven-sensitivities-issue-883) |
+| `driven` with `observables`, `frequencies`, a non-`eps_r` kind or any other port set — lumped, wave (geometric, filled), mixed, walled, hybrid (issue #883) | `driven_observables`: any `S_ij` (`mag` / `mag_sq` / `db` / `phase_deg` / `real` / `imag`), `Σ\|S_ij\|²`, a hybrid port's `z0` / `eps_eff` | `eps_r`, `eps_r_imag`, `tan_delta`, `sigma`, `shape`, `wall_sigma`, `wall_rms_roughness`, `wall_ball_radius`, `wall_ball_density`, `dispersion` (lumped ports) | N-port S-matrix adjoint (`s_matrix_sensitivity_sweep`; reciprocity) | per frequency: one LU (the forward's own excitation solves, **zero** extra solves) — see [N-port driven sensitivities](#n-port-driven-sensitivities-issue-883) |
 
 - **Parameters.** `physical_group` is any dimension-3 group (listed in
   `materials` or not — an unlisted group is differentiated at its vacuum
@@ -1476,6 +1476,17 @@ lumped-port spec whose parameters are all `eps_r` and that has no
   `ε″` held; `eps_r_imag` is `ε″` (`ε_r = ε′ − jε″`) with `ε′` held — at a
   lossless point the gradient is the passive-side (`ε″ → 0⁺`) one;
   `tan_delta` is `tan δ = ε″/ε′` with `ε′` held (`∂/∂tan δ = ε′·∂/∂ε″`).
+  `dispersion` (issue #1259; lumped-port specs) differentiates a parameter of
+  the group's `materials[].dispersion` model, named by `model_parameter`:
+  `eps_r` / `tan_delta` (`djordjevic_sarkar`), `eps_inf` / `delta_eps` /
+  `tau_s` (`debye`; the last two need `pole`, the 0-based pole index) or
+  `eps_inf` / `omega_p_rad_s` / `gamma_rad_s` (`drude`), in the model's own
+  unit. The adjoint runs per frequency at the forward's own `ε(ω)` and
+  contracts the model's `∂ε(ω)/∂θ` with the region mass, so it still costs no
+  extra solves; `--check-gradient` re-runs the shipped dispersive forward with
+  the parameter moved. A dispersive group admits `dispersion` parameters only
+  (a constant-`ε` kind on it is `invalid_spec`), and a spec with `wave_ports`
+  and a dispersive material is not differentiable yet.
   `sigma` is the volumetric conductivity `materials[].conductivity_s_m` in
   S/m (absent = 0, the design point; issue #1254): `∂A/∂σ = jωM` through
   the same zero-extra-solve adjoint, gradient per S/m. At `σ = 0` the
@@ -2684,6 +2695,15 @@ against order 1 on the same mesh, and `fits_direct_lu` with a plain verdict
 anchor linear in `nnz`; there is **no order-2 anchor measurement yet**, so
 `peak_memory_confidence` stays `"order_of_magnitude"`.
 
+A lossless order-2 `geode eigen` report also carries
+`accuracy.order_estimate`: the same pencil is re-solved at order 1 on the
+same mesh and each mode's `delta_f_hz` / `delta_f_rel` (`|f_p2 − f_p1| / f_p2`)
+is reported, with `delta_f_rel_max` against a fixed `threshold` of 0.5 %. Above
+it, `above_threshold` is `true` and a `warning` is added (also on stderr).
+This is an indicator of the order-1 error on that mesh, not a certified bound
+on the order-2 error. It is absent at order 1, for lossy / open pencils and for
+`eigen.bloch`; the driven `|ΔS|` counterpart is not implemented.
+
 ## Resource estimate (`geode check`, issue #703)
 
 `geode check` reports a `resources` block so an agent can pick mesh and
@@ -2963,8 +2983,13 @@ Each periodic axis replaces its two PEC walls by the groups `x_lo` /
 the two faces mesh identically. The starter spec lists the pairs as
 `boundary_conditions.periodic` with the cell period as explicit
 `translation`, and asks for the Bloch bands at Γ; the other walls stay in
-`outer_boundary` (PEC). Without `periodic`, `--analysis eigen` gives a
-plain PEC-cavity eigen starter spec.
+`outer_boundary` (PEC). The emitted `eigen` block uses `unit: "k0"` (rad
+per mesh length unit) with a shift scaled to the cell, `1.5 π / OPL` with
+`OPL = Σ thicknessᵢ·√Re(eps_rᵢ)` the optical path through the dielectric
+stack: a fixed GHz number would land in the Γ null space of a
+micron-scale cell and not converge. It is a starting point; edit `shift`
+to look at other bands. Without `periodic`, `--analysis eigen` gives a
+plain PEC-cavity eigen starter spec (1 GHz placeholder shift).
 
 ```sh
 geode mesh cell.layout.json --analysis eigen --spec-out cell.json && geode check cell.json

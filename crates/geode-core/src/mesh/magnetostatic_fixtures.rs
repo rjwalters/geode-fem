@@ -22,6 +22,7 @@
 //!   PEC-bounded cylinder, for the Maxwell **mutual-inductance** off-diagonal
 //!   oracle.
 
+use crate::vec3::{cross3 as cross, dot3 as dot, sub3 as sub};
 use std::f64::consts::PI;
 
 use crate::mesh::TetMesh;
@@ -356,21 +357,4 @@ fn orient(t: [u32; 4], nodes: &[[f64; 3]]) -> [u32; 4] {
     } else {
         t
     }
-}
-
-#[inline]
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-#[inline]
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-#[inline]
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }

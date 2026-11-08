@@ -38,8 +38,6 @@ pub mod transmon;
 
 pub use extrude::{ExtrudedEdge, ExtrudedTriMesh, extrude_tri_mesh, extrude_tri_mesh_layers};
 pub use msh_write::write_tagged_tet_mesh;
-#[allow(deprecated)]
-pub use sphere::PHYS_VACUUM_BUFFER;
 pub use sphere::{
     PHYS_OUTER_BOUNDARY, PHYS_PML_INTERFACE, PHYS_PML_SHELL, PHYS_SPHERE_INTERIOR,
     PHYS_SPHERE_SURFACE, PHYS_VACUUM_GAP, R_BUFFER, R_PML_INNER, R_SPHERE, SphereFixture,
