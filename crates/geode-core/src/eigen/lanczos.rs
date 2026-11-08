@@ -78,6 +78,7 @@ use faer::{Mat, MatMut};
 
 use crate::eigen::dense::{EigenError, EigenPair};
 use crate::eigen::parallel::{ParallelismGuard, SequentialSolveScope, resolve_num_threads};
+use crate::sparse_ops::spmv_into;
 
 /// Backend for the shift-invert inner solve `(K − σM) y = b`.
 ///
@@ -357,12 +358,6 @@ fn spmv_add(a: SparseColMatRef<'_, usize, f64>, x: &[f64], y: &mut [f64], alpha:
     }
 }
 
-/// Compute `y = A · x` (overwrite).
-fn spmv(a: SparseColMatRef<'_, usize, f64>, x: &[f64], y: &mut [f64]) {
-    y.iter_mut().for_each(|v| *v = 0.0);
-    spmv_add(a, x, y, 1.0);
-}
-
 /// `K - σ M` as a fresh sparse matrix, used only to build the LU.
 ///
 /// Iterates the union of both patterns. K and M share identical sparsity
@@ -563,7 +558,7 @@ impl<'a> ShiftedMatrixFreeOp<'a> {
 
     /// `y = (K − σM) · x`, matrix-free (two SpMVs, no assembled `A`).
     fn apply(&self, x: &[f64], y: &mut [f64]) {
-        spmv(self.k, x, y);
+        spmv_into(self.k, x, y);
         if self.sigma != 0.0 {
             spmv_add(self.m, x, y, -self.sigma);
         }
@@ -1677,7 +1672,7 @@ impl SparseShiftInvertLanczos {
 
         // Normalize v in the M-norm: M v, then ⟨v, M v⟩^{1/2}.
         let mut mv = vec![0.0_f64; n];
-        spmv(m, &v, &mut mv);
+        spmv_into(m, &v, &mut mv);
         let mut nrm2 = v.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
         if nrm2 <= 0.0 {
             return Err(EigenError::FaerGevd(
@@ -1700,7 +1695,7 @@ impl SparseShiftInvertLanczos {
 
         for j in 0..max_k {
             // M v
-            spmv(m, &v, &mut mv);
+            spmv_into(m, &v, &mut mv);
             // w = A^{-1} (M v) = (K - σM)^{-1} M v
             w.copy_from_slice(&y_guess);
             let _inner_iters = inner.solve(&mv, &mut w)?;
@@ -1744,7 +1739,7 @@ impl SparseShiftInvertLanczos {
             }
 
             // β_j = ‖w‖_M.
-            spmv(m, &w, &mut work);
+            spmv_into(m, &w, &mut work);
             nrm2 = w.iter().zip(work.iter()).map(|(a, b)| a * b).sum::<f64>();
             // Numerical safety: M-norm can dip slightly negative from
             // rounding when w is essentially zero. Clamp to 0.
@@ -1990,8 +1985,8 @@ fn pair_relative_residual(
     kx: &mut [f64],
     mx: &mut [f64],
 ) -> f64 {
-    spmv(k, x, kx);
-    spmv(m, x, mx);
+    spmv_into(k, x, kx);
+    spmv_into(m, x, mx);
     let mut r2 = 0.0_f64;
     let mut m2 = 0.0_f64;
     for (a, b) in kx.iter().zip(mx.iter()) {
@@ -2109,7 +2104,7 @@ impl LanczosRun {
             .map(|i| (((i as f64) + 1.0) * 0.5432).sin())
             .collect();
         let mut mv = vec![0.0_f64; n];
-        spmv(m, &v, &mut mv);
+        spmv_into(m, &v, &mut mv);
         let nrm2 = v.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
         if nrm2 <= 0.0 {
             return Err(EigenError::FaerGevd(
@@ -2176,7 +2171,7 @@ impl LanczosRun {
         }
         while self.stop.is_none() && self.alpha.len() < target {
             let j = self.alpha.len();
-            spmv(m, &self.v, &mut self.mv);
+            spmv_into(m, &self.v, &mut self.mv);
             self.w.copy_from_slice(&self.y_guess);
             let step_iters = inner.solve(&self.mv, &mut self.w)?;
             self.total_inner_iters += step_iters;
@@ -2231,7 +2226,7 @@ impl LanczosRun {
                 w[i] -= c * v[i];
             }
 
-            spmv(m, w, &mut self.work);
+            spmv_into(m, w, &mut self.work);
             let nrm2 = w
                 .iter()
                 .zip(self.work.iter())
@@ -2325,7 +2320,7 @@ impl LanczosRun {
                 }
             }
             // M-orthonormalize: divide by sqrt(xᵀ M x).
-            spmv(m, &x, &mut work);
+            spmv_into(m, &x, &mut work);
             let norm2 = x.iter().zip(work.iter()).map(|(a, b)| a * b).sum::<f64>();
             if norm2 > 0.0 {
                 let s = norm2.sqrt();

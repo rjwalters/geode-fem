@@ -22,9 +22,10 @@ use faer::sparse::Triplet;
 use crate::analytic::waveguide::{TriMesh, tri_bary_grads, tri_p1_local};
 use crate::assembly::electrostatic::{
     CapacitanceMatrix, EPS_0, Electrode, ElectrostaticError, ElectrostaticSystem,
-    finish_electrostatic_assembly, quad_form,
+    finish_electrostatic_assembly,
 };
 use crate::assembly::p1::SparsityPattern;
+use crate::sparse_ops::bilinear_form;
 
 /// Reject any node index at or beyond `n_nodes` (returns `Err`, never panics).
 fn check_nodes(what: &str, nodes: &[u32], n_nodes: usize) -> Result<(), ElectrostaticError> {
@@ -220,7 +221,7 @@ pub fn extract_capacitance_2d(
     let mut c = vec![vec![0.0_f64; n]; n];
     for i in 0..n {
         for j in i..n {
-            let v = quad_form(&sys.k_full, &phis[i], &phis[j]);
+            let v = bilinear_form(sys.k_full.as_ref(), &phis[i], &phis[j]);
             c[i][j] = v;
             c[j][i] = v;
         }

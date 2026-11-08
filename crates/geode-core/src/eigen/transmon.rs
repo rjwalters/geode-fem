@@ -124,6 +124,7 @@ use crate::eigen::dense::EigenPair;
 use crate::eigen::gauge::TreeCotreeGauge;
 use crate::eigen::lanczos::{InnerSolver, SparseShiftInvertLanczos};
 use crate::mesh::TetMesh;
+use crate::sparse_ops::quad_form;
 
 /// Vacuum permeability `μ₀` (H/m), SI.
 pub const MU0_SI: f64 = 4.0 * std::f64::consts::PI * 1e-7;
@@ -1260,30 +1261,12 @@ fn junction_participation(
     k_port: &SparseColMat<usize, f64>,
     x: &[f64],
 ) -> f64 {
-    let num = quad_form(k_port, x);
-    let den = quad_form(k_total, x);
+    let num = quad_form(k_port.as_ref(), x);
+    let den = quad_form(k_total.as_ref(), x);
     if den <= 0.0 {
         return 0.0;
     }
     (num / den).clamp(0.0, 1.0)
-}
-
-/// Quadratic form `xᵀ A x` for a CSC sparse matrix.
-fn quad_form(a: &SparseColMat<usize, f64>, x: &[f64]) -> f64 {
-    let col_ptr = a.col_ptr();
-    let row_idx = a.row_idx();
-    let val = a.val();
-    let mut acc = 0.0;
-    for j in 0..a.ncols() {
-        let xj = x[j];
-        if xj == 0.0 {
-            continue;
-        }
-        for k in col_ptr[j]..col_ptr[j + 1] {
-            acc += x[row_idx[k]] * val[k] * xj;
-        }
-    }
-    acc
 }
 
 #[cfg(test)]
