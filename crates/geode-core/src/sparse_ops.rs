@@ -1,9 +1,14 @@
-//! Shared real CSC sparse mat-vec and quadratic-form helpers.
+//! Shared real CSC sparse mat-vec, quadratic-form and LU-solve helpers.
 //!
 //! One home for the `y = A x`, `xᵀ A x` and `uᵀ K v` kernels that the eigen,
-//! driven and assembly modules previously each re-declared privately.
+//! driven and assembly modules previously each re-declared privately, plus the
+//! `Lu::solve_in_place` wrapper shared by the real and complex solvers.
 
+use faer::Mat;
+use faer::linalg::solvers::Solve;
 use faer::sparse::SparseColMatRef;
+use faer::sparse::linalg::solvers::Lu;
+use faer::traits::ComplexField;
 
 /// `y = A · x` for a CSC sparse matrix (overwrite). `A` is `nrows × ncols`;
 /// `x.len() == ncols`, `y.len() == nrows`.
@@ -52,4 +57,17 @@ pub(crate) fn bilinear_form(k: SparseColMatRef<'_, usize, f64>, u: &[f64], v: &[
         }
     }
     acc
+}
+
+/// Solve `A y = rhs` via a precomputed sparse LU, writing `y` into `out`.
+///
+/// Generic over the scalar (`f64` or `c64`); infallible, since faer's
+/// `solve_in_place` has no failure path. `out.len() >= rhs.len()`.
+pub(crate) fn lu_solve<T: ComplexField + Copy>(lu: &Lu<usize, T>, rhs: &[T], out: &mut [T]) {
+    let n = rhs.len();
+    let mut work: Mat<T> = Mat::from_fn(n, 1, |i, _| rhs[i]);
+    lu.solve_in_place(work.as_mut());
+    for i in 0..n {
+        out[i] = work[(i, 0)];
+    }
 }

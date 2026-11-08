@@ -72,13 +72,13 @@
 //! intentionally **not** expressed via `iterate_while` /
 //! `iterate_while_with_prev`; it stays as a hand-rolled loop.
 
+use faer::Mat;
 use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef};
-use faer::{Mat, MatMut};
 
 use crate::eigen::dense::{EigenError, EigenPair};
 use crate::eigen::parallel::{ParallelismGuard, SequentialSolveScope, resolve_num_threads};
-use crate::sparse_ops::spmv_into;
+use crate::sparse_ops::{lu_solve, spmv_into};
 
 /// Backend for the shift-invert inner solve `(K − σM) y = b`.
 ///
@@ -398,23 +398,9 @@ fn shifted_pencil(
         .map_err(|e| EigenError::FaerGevd(format!("shifted pencil assembly: {e:?}")))
 }
 
-/// Solve `A y = b` in-place via a precomputed LU factorization.
-fn solve_with_lu(lu: &Lu<usize, f64>, rhs: &[f64], out: &mut [f64]) -> Result<(), EigenError> {
-    use faer::linalg::solvers::Solve;
-    let n = rhs.len();
-    let mut work: Mat<f64> = Mat::from_fn(n, 1, |i, _| rhs[i]);
-    // The `SolveCore`/`Solve` impl mutates in place.
-    let work_mut: MatMut<'_, f64> = work.as_mut();
-    lu.solve_in_place(work_mut);
-    for i in 0..n {
-        out[i] = work[(i, 0)];
-    }
-    Ok(())
-}
-
 /// Solve `A y = b` in-place via a custom-ordering supernodal LU (issue #543).
 ///
-/// Mirrors [`solve_with_lu`] for the [`InnerSolver::DirectCustomOrder`] backend.
+/// Mirrors [`crate::sparse_ops::lu_solve`] for the [`InnerSolver::DirectCustomOrder`] backend.
 /// The parallelism is read from faer's global setting so it honors the
 /// enclosing [`ParallelismGuard`] scope, exactly as the COLAMD `sp_lu` path does.
 fn solve_with_custom_lu(
@@ -995,7 +981,7 @@ impl InnerBackend<'_> {
     fn solve(&self, rhs: &[f64], out: &mut [f64]) -> Result<usize, EigenError> {
         match self {
             InnerBackend::Lu(lu) => {
-                solve_with_lu(lu, rhs, out)?;
+                lu_solve(lu, rhs, out);
                 Ok(0)
             }
             InnerBackend::CustomLu(lu) => {

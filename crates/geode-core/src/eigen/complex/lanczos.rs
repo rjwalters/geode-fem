@@ -91,7 +91,7 @@
 
 use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef};
-use faer::{Mat, MatMut, c64};
+use faer::{Mat, c64};
 
 use crate::eigen::dense::EigenError;
 use crate::eigen::lanczos::{
@@ -102,6 +102,7 @@ use crate::eigen::parallel::{
     ParallelismGuard, SequentialSolveScope, resolve_num_threads, sequential_scope_for_solves,
 };
 use crate::eigen::shift_guard::{check_degenerate_shift, median_diag_ratio};
+use crate::sparse_ops::lu_solve;
 
 /// Sparse generalized complex-symmetric eigensolver via shift-and-invert
 /// Lanczos.
@@ -271,23 +272,6 @@ fn shifted_pencil_complex(
 /// [`crate::eigen::parallel::solve_probe`] key for the Lanczos loops' solves.
 #[cfg(test)]
 const LANCZOS_SOLVE_SITE: &str = "complex_lanczos";
-
-/// Solve `A y = b` in-place via a precomputed complex sparse LU.
-pub(crate) fn solve_with_lu(
-    lu: &Lu<usize, c64>,
-    rhs: &[c64],
-    out: &mut [c64],
-) -> Result<(), EigenError> {
-    use faer::linalg::solvers::Solve;
-    let n = rhs.len();
-    let mut work: Mat<c64> = Mat::from_fn(n, 1, |i, _| rhs[i]);
-    let work_mut: MatMut<'_, c64> = work.as_mut();
-    lu.solve_in_place(work_mut);
-    for i in 0..n {
-        out[i] = work[(i, 0)];
-    }
-    Ok(())
-}
 
 /// Solve the complex-symmetric tridiagonal eigenproblem for `(alpha,
 /// beta)`. `alpha` (len k) is the diagonal and `beta` (len k-1) is the
@@ -567,7 +551,7 @@ impl SparseComplexShiftInvertLanczos {
             // w = A^{-1} (M v)
             #[cfg(test)]
             crate::eigen::parallel::solve_probe::record(LANCZOS_SOLVE_SITE);
-            solve_with_lu(&lu, &mv, &mut w)?;
+            lu_solve(&lu, &mv, &mut w);
 
             // α_j = v^T M w = (M v)^T w  (using M^T = M, bilinear form)
             //     = sum mv[i] * w[i].
@@ -1447,7 +1431,7 @@ impl ComplexLanczosRun {
             spmv(m, &self.v, &mut self.mv);
             #[cfg(test)]
             crate::eigen::parallel::solve_probe::record(LANCZOS_SOLVE_SITE);
-            solve_with_lu(lu, &self.mv, &mut self.w)?;
+            lu_solve(lu, &self.mv, &mut self.w);
 
             let w = &mut self.w;
             let v = &self.v;
