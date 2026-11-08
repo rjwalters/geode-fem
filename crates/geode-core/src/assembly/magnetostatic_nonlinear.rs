@@ -1468,11 +1468,6 @@ impl NonlinearMagnetostaticSystem {
         Ok(self)
     }
 
-    /// The node links added with [`with_node_links`](Self::with_node_links).
-    pub fn node_links(&self) -> &[NodeLink] {
-        &self.links
-    }
-
     /// Number of reduced unknowns (free nodes, or free linked classes).
     pub fn n_free(&self) -> usize {
         self.dofs.n_free

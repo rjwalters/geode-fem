@@ -451,11 +451,6 @@ impl FloquetLattice {
     pub fn normal(&self) -> [f64; 3] {
         self.normal
     }
-    /// In-plane azimuth basis: `û = â₁`, `v̂ = N × û` (`φ` is measured
-    /// from `û` towards `v̂`).
-    pub fn azimuth_basis(&self) -> ([f64; 3], [f64; 3]) {
-        (self.u, self.v)
-    }
     /// Cell area `|a₁ × a₂|`.
     pub fn area(&self) -> f64 {
         self.area
@@ -855,15 +850,6 @@ impl FloquetCell {
     /// The assembled volume operator (no port term).
     pub fn operator(&self) -> &DrivenOperator {
         &self.op
-    }
-
-    /// Relative permittivity of port `p`'s medium.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `p > 1`.
-    pub fn port_eps(&self, p: usize) -> f64 {
-        self.ports[p].eps_r
     }
 
     /// The transverse wave vector of `inc` at `omega`.
