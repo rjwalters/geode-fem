@@ -93,7 +93,7 @@
 #![allow(clippy::needless_range_loop)]
 
 use crate::sparse_ops::bilinear_form;
-use crate::vec3::{cross3 as cross, dot3 as dot, sub3 as sub};
+use crate::vec3::{cross3 as cross, dot3 as dot, scale3 as scale, sub3 as sub};
 use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
@@ -879,11 +879,6 @@ pub fn tet_nedelec_rhs(coords: &[[f64; 3]; 4], j: [f64; 3]) -> [f64; 6] {
         b[i] = 0.25 * vol * dot(diff, j);
     }
     b
-}
-
-#[inline]
-fn scale(a: [f64; 3], s: f64) -> [f64; 3] {
-    [a[0] * s, a[1] * s, a[2] * s]
 }
 
 // ─────────────────────────────────────────────────────────────────────────
