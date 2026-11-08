@@ -227,7 +227,9 @@ use crate::assembly::electrostatic::{
     AmgPcgOptions, AmgPcgReport, EPS_0, ElectrostaticError, amg_pcg_maxwell, tet_bary_grads,
 };
 use crate::mesh::TetMesh;
-use crate::vec3::{cross3 as cross, dot3 as dot, sorted3, sub3 as sub, tet_signed_volume};
+use crate::vec3::{
+    cross3 as cross, dot3 as dot, norm3 as norm, scale3, sorted3, sub3 as sub, tet_signed_volume,
+};
 use faer::linalg::matmul::matmul;
 use faer::sparse::{SparseColMat, Triplet};
 use faer::{Accum, Mat, Par};
@@ -1833,14 +1835,6 @@ fn inv3(m: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
 
 fn matvec(m: &[[f64; 3]; 3], v: [f64; 3]) -> [f64; 3] {
     std::array::from_fn(|i| m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2])
-}
-
-fn norm(a: [f64; 3]) -> f64 {
-    dot(a, a).sqrt()
-}
-
-fn scale3(a: [f64; 3], s: f64) -> [f64; 3] {
-    [a[0] * s, a[1] * s, a[2] * s]
 }
 
 /// `a + s1 b + s2 c`.

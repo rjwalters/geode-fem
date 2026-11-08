@@ -68,7 +68,7 @@
 //!    the Maxwell matrix by the energy method, with an independent
 //!    surface-flux cross-check.
 
-use crate::vec3::{cross3 as cross, dot3 as dot, sorted3, sub3 as sub};
+use crate::vec3::{cross3 as cross, dot3 as dot, scale3 as scale, sorted3, sub3 as sub};
 use std::collections::BTreeSet;
 
 use crate::sparse_ops::bilinear_form;
@@ -2249,11 +2249,6 @@ pub fn tet_p1_local_tensor(
         }
     }
     (k, m, vol)
-}
-
-#[inline]
-fn scale(a: [f64; 3], s: f64) -> [f64; 3] {
-    [a[0] * s, a[1] * s, a[2] * s]
 }
 
 #[cfg(test)]

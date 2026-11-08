@@ -206,7 +206,9 @@
 //! closure instead, which returns a [`FacePairing`] with its phase. Give one
 //! or the other, not both.
 
-use crate::vec3::{cross3 as cross, dot3 as dot, sorted3, sub3 as sub};
+use crate::vec3::{
+    cross3 as cross, dot3 as dot, norm3 as norm, scale3 as scale, sorted3, sub3 as sub,
+};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::path::Path;
@@ -2033,16 +2035,6 @@ fn point_bary(coords: &[[f64; 3]; 4], grad: &[[f64; 3]; 4], y: [f64; 3]) -> [f64
 
 fn bary_to_point(coords: &[[f64; 3]; 4], bary: &[f64; 4]) -> [f64; 3] {
     std::array::from_fn(|d| (0..4).map(|i| bary[i] * coords[i][d]).sum())
-}
-
-#[inline]
-fn norm(a: [f64; 3]) -> f64 {
-    dot(a, a).sqrt()
-}
-
-#[inline]
-fn scale(a: [f64; 3], s: f64) -> [f64; 3] {
-    [a[0] * s, a[1] * s, a[2] * s]
 }
 
 /// `n × v` for a real `n` and a complex `v`.
