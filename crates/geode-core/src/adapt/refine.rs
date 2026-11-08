@@ -139,7 +139,9 @@
 //! - **Refinement only.** Coarsening and anisotropic or hanging-node
 //!   refinement are non-goals of Epic #835.
 
-use crate::vec3::{cross3 as cross, dot3 as dot, norm3 as norm, sub3 as sub};
+use crate::vec3::{
+    cross3 as cross, dot3 as dot, norm3 as norm, sub3 as sub, tet_signed_volume as signed_volume,
+};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -1562,14 +1564,6 @@ fn solve_dense<const N: usize>(
         }
     }
     Some(b)
-}
-
-// ---------------------------------------------------------------------------
-// Small vector helpers
-// ---------------------------------------------------------------------------
-
-fn signed_volume(p: &[[f64; 3]; 4]) -> f64 {
-    dot(sub(p[1], p[0]), cross(sub(p[2], p[0]), sub(p[3], p[0]))) / 6.0
 }
 
 #[cfg(test)]

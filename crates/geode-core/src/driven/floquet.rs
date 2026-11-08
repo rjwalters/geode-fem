@@ -238,10 +238,11 @@ use crate::driven::periodic::lu_solve_transpose;
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator,
 };
-use crate::eigen::complex::{solve_with_lu, spmv};
+use crate::eigen::complex::spmv;
 use crate::elements::ElementOrder;
 use crate::mesh::TetMesh;
 use crate::mesh::periodic::PeriodicMap;
+use crate::sparse_ops::lu_solve;
 
 /// Default [`FloquetSettings::n_evanescent`]: one ring of evanescent
 /// orders (`max(|m|, |n|) ≤ 1`, 8 orders × 2 polarizations per port).
@@ -1300,7 +1301,8 @@ impl FactoredFloquetCell<'_> {
     pub fn back_solve(&self, b: &[c64], out: &mut [c64]) -> Result<(), FloquetError> {
         assert_eq!(b.len(), self.n_reduced(), "b length mismatch");
         assert_eq!(out.len(), self.n_reduced(), "out length mismatch");
-        solve_with_lu(&self.lu, b, out).map_err(|e| FloquetError::Solve(format!("{e}")))
+        lu_solve(&self.lu, b, out);
+        Ok(())
     }
 
     /// Solve the **transpose** `A_rᵀ x = b` on the same LU: the adjoint

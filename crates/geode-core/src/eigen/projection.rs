@@ -65,7 +65,7 @@ use crate::eigen::lanczos::{HISTORICAL_BREAKDOWN_REL, krylov_breakdown, tridiag_
 use crate::eigen::shift_guard::{
     DEGENERATE_SHIFT_REL_TOL, check_degenerate_shift, check_gradient_probe, median_diag_ratio,
 };
-use crate::sparse_ops::{quad_form, spmv_into};
+use crate::sparse_ops::{lu_solve, quad_form, spmv_into};
 
 /// The sparse interior-restricted discrete gradient `G = d⁰_interior` plus
 /// the reduced dimensions it maps between.
@@ -849,17 +849,6 @@ fn relative_residual(
     if den > 0.0 { r / den } else { f64::NAN }
 }
 
-/// Solve `A y = b` in-place via a precomputed LU factorization.
-fn solve_with_lu(lu: &Lu<usize, f64>, rhs: &[f64], out: &mut [f64]) {
-    use faer::linalg::solvers::Solve;
-    let n = rhs.len();
-    let mut work: Mat<f64> = Mat::from_fn(n, 1, |i, _| rhs[i]);
-    lu.solve_in_place(work.as_mut());
-    for (i, o) in out.iter_mut().enumerate() {
-        *o = work[(i, 0)];
-    }
-}
-
 /// Tunables for the projected shift-invert Lanczos (mirrors
 /// [`crate::eigen::lanczos::SparseShiftInvertLanczos`] with an added
 /// re-projection cadence).
@@ -1159,7 +1148,7 @@ impl ProjectedShiftInvertLanczos {
         for j in 0..max_k {
             diag.iterations = j + 1;
             spmv_into(m, &v, &mut mv);
-            solve_with_lu(&lu, &mv, &mut w);
+            lu_solve(&lu, &mv, &mut w);
 
             // --- Divergence-free projection of the fresh Krylov vector. ---
             let pre = projector.divergence_ratio(&w);

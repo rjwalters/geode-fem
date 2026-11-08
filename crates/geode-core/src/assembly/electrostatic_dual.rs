@@ -227,7 +227,9 @@ use crate::assembly::electrostatic::{
     AmgPcgOptions, AmgPcgReport, EPS_0, ElectrostaticError, amg_pcg_maxwell, tet_bary_grads,
 };
 use crate::mesh::TetMesh;
-use crate::vec3::{cross3 as cross, dot3 as dot, norm3 as norm, scale3, sorted3, sub3 as sub};
+use crate::vec3::{
+    cross3 as cross, dot3 as dot, norm3 as norm, scale3, sorted3, sub3 as sub, tet_signed_volume,
+};
 use faer::linalg::matmul::matmul;
 use faer::sparse::{SparseColMat, Triplet};
 use faer::{Accum, Mat, Par};
@@ -1848,8 +1850,7 @@ fn unit_normal(p: &[[f64; 3]; 3]) -> ([f64; 3], f64) {
 }
 
 fn tet_volume(v: &[[f64; 3]; 4]) -> f64 {
-    let (a, b, c) = (sub(v[1], v[0]), sub(v[2], v[0]), sub(v[3], v[0]));
-    dot(a, cross(b, c)).abs() / 6.0
+    tet_signed_volume(v).abs()
 }
 
 fn combine(c: &[f64], s: &[[f64; 3]]) -> [f64; 3] {
