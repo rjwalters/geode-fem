@@ -1304,7 +1304,8 @@ fn periodic_layouts_mesh_and_check_with_declared_translations() {
         return;
     }
     // (axes, expected (master, slave, translation) per pair; cell = 20 x 14)
-    let cases: [(&[&str], &[(&str, &str, [f64; 3])]); 2] = [
+    type ExpectedPair = (&'static str, &'static str, [f64; 3]);
+    let cases: [(&[&str], &[ExpectedPair]); 2] = [
         (&["x"], &[("x_lo", "x_hi", [20.0, 0.0, 0.0])]),
         (
             &["x", "y"],
