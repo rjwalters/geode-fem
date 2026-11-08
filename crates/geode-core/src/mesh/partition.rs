@@ -19,8 +19,7 @@
 //! 1. **Element partition.** Recursively bisect the *elements* by the median
 //!    centroid coordinate along the longest bounding-box axis — the same
 //!    geometric-bisection primitive (`longest_bbox_axis` /
-//!    `rank_split_along_axis`) that `coordinate_nested_dissection` uses to
-//!    order DOFs for the direct LU. Splitting proportionally (`⌊k/2⌋` parts
+//!    `rank_split_along_axis`, defined in `eigen::ordering`). Splitting proportionally (`⌊k/2⌋` parts
 //!    left, `⌈k/2⌉` right) yields exactly `k` balanced element parts for any
 //!    `k ≥ 1`.
 //! 2. **DOF ownership.** Each edge DOF is incident to one or more elements. Its
