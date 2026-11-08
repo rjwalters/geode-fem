@@ -35,8 +35,10 @@
 //!    cargo test -p geode-core --release --test patch_antenna_matched -- --ignored
 //!    ```
 
+mod common;
+use common::repo_root;
+
 use std::fs;
-use std::path::PathBuf;
 
 use faer::c64;
 
@@ -73,12 +75,6 @@ const FIXTURE_PATCH: PatchCavity = PatchCavity {
     eps_r: 4.4,
     tan_delta: 0.02,
 };
-
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-}
 
 /// Assert a committed artifact's `[meta].float_dtype` is `"F64"`.
 ///

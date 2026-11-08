@@ -21,6 +21,7 @@ mod fixtures;
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
+use geode_core::assembly::nedelec::tet_centroid as centroid;
 use geode_core::driven::floquet::{
     FloquetCell, FloquetCellSpec, FloquetChannel, FloquetIncidence, FloquetPolarization,
     FloquetPortSpec, FloquetSettings,
@@ -73,16 +74,6 @@ fn cell(n: [usize; 3], size: [f64; 3], seed: u64) -> Cell {
         top,
         size,
     }
-}
-
-fn centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
-    let mut c = [0.0; 3];
-    for &v in &mesh.tets[t] {
-        for (cd, x) in c.iter_mut().zip(mesh.nodes[v as usize]) {
-            *cd += 0.25 * x;
-        }
-    }
-    c
 }
 
 fn floquet_on(c: &Cell, mesh: &TetMesh, eps: &[c64]) -> FloquetCell {

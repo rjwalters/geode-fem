@@ -227,6 +227,7 @@ use crate::assembly::electrostatic::{
     AmgPcgOptions, AmgPcgReport, EPS_0, ElectrostaticError, amg_pcg_maxwell, tet_bary_grads,
 };
 use crate::mesh::TetMesh;
+use crate::vec3::{cross3 as cross, dot3 as dot, sorted3, sub3 as sub};
 use faer::linalg::matmul::matmul;
 use faer::sparse::{SparseColMat, Triplet};
 use faer::{Accum, Mat, Par};
@@ -1810,11 +1811,6 @@ fn par_sort<T: Ord + Send>(v: &mut [T]) {
     v.sort_unstable();
 }
 
-fn sorted3(mut t: [u32; 3]) -> [u32; 3] {
-    t.sort_unstable();
-    t
-}
-
 fn diag(e: f64) -> [[f64; 3]; 3] {
     [[e, 0.0, 0.0], [0.0, e, 0.0], [0.0, 0.0, e]]
 }
@@ -1839,14 +1835,6 @@ fn matvec(m: &[[f64; 3]; 3], v: [f64; 3]) -> [f64; 3] {
     std::array::from_fn(|i| m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2])
 }
 
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
 fn norm(a: [f64; 3]) -> f64 {
     dot(a, a).sqrt()
 }
@@ -1858,14 +1846,6 @@ fn scale3(a: [f64; 3], s: f64) -> [f64; 3] {
 /// `a + s1 b + s2 c`.
 fn add3(a: [f64; 3], b: [f64; 3], s1: f64, c: [f64; 3], s2: f64) -> [f64; 3] {
     std::array::from_fn(|d| a[d] + s1 * b[d] + s2 * c[d])
-}
-
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
 }
 
 /// Unit normal of `(p1 − p0) × (p2 − p0)` and the triangle area.

@@ -16,8 +16,10 @@
 //! FAILS the 1% bar. Structural checks (symmetry, SPD, Maxwell sign
 //! structure, non-negative row sums) run on every extracted matrix.
 
+mod common;
+use common::repo_root;
+
 use std::f64::consts::PI;
-use std::path::PathBuf;
 
 use geode_core::assembly::electrostatic::{
     CapacitanceMatrix, ConductorSurface, EPS_0, Electrode, assemble_electrostatic,
@@ -570,12 +572,6 @@ fn oracle_two_sphere_offdiagonal_symmetry_and_honest_band() {
     // Named accessors.
     assert_eq!(cm.get("A", "B"), Some(cm.c[0][1]));
     assert!(cm.c_sigma(0) > 0.0);
-}
-
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
 }
 
 /// Load the committed `[oracles.palace]` slot from

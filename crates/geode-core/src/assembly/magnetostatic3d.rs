@@ -92,6 +92,8 @@
 //! `tests/magnetostatic_wire.rs`).
 #![allow(clippy::needless_range_loop)]
 
+use crate::sparse_ops::bilinear_form;
+use crate::vec3::{cross3 as cross, dot3 as dot, sub3 as sub};
 use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
@@ -267,7 +269,7 @@ impl Magnetostatic3dSystem {
     /// Total field energy `W = ½ Aᵀ K A` using the **full** curl-curl, for a
     /// full-length `[n_edges]` vector potential.
     pub fn field_energy(&self, a: &[f64]) -> f64 {
-        0.5 * quad_form(&self.k_full, a, a)
+        0.5 * bilinear_form(self.k_full.as_ref(), a, a)
     }
 
     /// The ungauged reduced solve — drops **only** the PEC edges (keeps the
@@ -328,28 +330,6 @@ impl Magnetostatic3dSystem {
         }
         Ok(a_full)
     }
-}
-
-/// Compute the (full-K) bilinear form `uᵀ K v` for two full-length edge
-/// vectors. Walks the sparse `K` once.
-fn quad_form(k: &SparseColMat<usize, f64>, u: &[f64], v: &[f64]) -> f64 {
-    let k_ref = k.as_ref();
-    let cp = k_ref.col_ptr();
-    let row_idx = k_ref.row_idx();
-    let vals = k_ref.val();
-    let n = k_ref.ncols();
-    let mut acc = 0.0;
-    for j in 0..n {
-        let vj = v[j];
-        if vj == 0.0 {
-            continue;
-        }
-        for k in cp[j]..cp[j + 1] {
-            let i = row_idx[k];
-            acc += u[i] * vals[k] * vj;
-        }
-    }
-    acc
 }
 
 /// Assemble the full ν-weighted curl-curl `K` and (optionally) the edge-DOF
@@ -774,7 +754,7 @@ pub fn extract_inductance(
     let mut l = vec![vec![0.0_f64; n]; n];
     for i in 0..n {
         for j in i..n {
-            let v = quad_form(&sys.k_full, &a_sols[i], &a_sols[j])
+            let v = bilinear_form(sys.k_full.as_ref(), &a_sols[i], &a_sols[j])
                 / (terminals[i].current * terminals[j].current);
             l[i][j] = v;
             l[j][i] = v;
@@ -901,22 +881,6 @@ pub fn tet_nedelec_rhs(coords: &[[f64; 3]; 4], j: [f64; 3]) -> [f64; 6] {
     b
 }
 
-#[inline]
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-#[inline]
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-#[inline]
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
 #[inline]
 fn scale(a: [f64; 3], s: f64) -> [f64; 3] {
     [a[0] * s, a[1] * s, a[2] * s]
@@ -1131,7 +1095,7 @@ mod tests {
                     dot(pot, sub(xq, xp))
                 })
                 .collect();
-            let energy = quad_form(&sys.k_full, &a, &a);
+            let energy = bilinear_form(sys.k_full.as_ref(), &a, &a);
             let want = NU_0 / mu[axis];
             assert!(
                 (energy - want).abs() <= 1e-10 * want,

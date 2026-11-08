@@ -1317,6 +1317,46 @@
       ],
       "type": "object"
     },
+    "DispersionParameter": {
+      "description": "A differentiable parameter of a [`DispersionSpec`] model (Epic #841\nPhase 2a, issue #1259): the `model_parameter` of a\n[`SensitivityParameterKind::Dispersion`] parameter. Units are the\nmodel's own (`tau_s` s, `omega_p_rad_s` / `gamma_rad_s` rad/s).",
+      "oneOf": [
+        {
+          "const": "eps_r",
+          "description": "Djordjevic–Sarkar datasheet `ε′` at `f_ref_hz` (`tan δ` held).",
+          "type": "string"
+        },
+        {
+          "const": "tan_delta",
+          "description": "Djordjevic–Sarkar datasheet `tan δ` at `f_ref_hz` (`ε′` held).",
+          "type": "string"
+        },
+        {
+          "const": "eps_inf",
+          "description": "Debye / Drude high-frequency permittivity `ε∞`.",
+          "type": "string"
+        },
+        {
+          "const": "delta_eps",
+          "description": "Debye pole step `Δε_k` (needs `pole`).",
+          "type": "string"
+        },
+        {
+          "const": "tau_s",
+          "description": "Debye pole relaxation time `τ_k` in s (needs `pole`).",
+          "type": "string"
+        },
+        {
+          "const": "omega_p_rad_s",
+          "description": "Drude plasma angular frequency `ω_p` (rad/s).",
+          "type": "string"
+        },
+        {
+          "const": "gamma_rad_s",
+          "description": "Drude collision rate `γ` (rad/s).",
+          "type": "string"
+        }
+      ]
+    },
     "DispersionSpec": {
       "description": "Frequency-dependent relative-permittivity model of a material\n(issues #757, #761), selected by `model`. Further models are added as\nnew `model` variants. All follow the solver's `exp(+jωt)` convention\n(passive: `Im ε_r ≤ 0`).",
       "oneOf": [
@@ -1543,6 +1583,100 @@
       ],
       "type": "object"
     },
+    "DrivenAccuracy": {
+      "description": "Accuracy diagnostics of a driven report (issue #1265).",
+      "properties": {
+        "order_estimate": {
+          "$ref": "#/$defs/DrivenOrderEstimate",
+          "description": "Same-mesh order-1 vs order-2 comparison."
+        }
+      },
+      "required": [
+        "order_estimate"
+      ],
+      "type": "object"
+    },
+    "DrivenOrderEstimate": {
+      "description": "Same-mesh p=1 vs p=2 S-matrix difference (issue #1265): an indicator of\nthe order-1 discretization error on this mesh, **not** a rigorous bound\non the order-2 error. The goal-oriented DWR estimator of Epic #835\n(`adapt/dwr.rs`) needs a goal functional and an adjoint solve per\nfrequency; the direct order-1 solve of the same operator is the\ncheaper indicator the issue asks for, and matches the eigen report's.",
+      "properties": {
+        "above_threshold": {
+          "description": "`delta_s_max > threshold`.",
+          "type": "boolean"
+        },
+        "delta_s_max": {
+          "description": "`max` over frequencies of `delta_s_max`.",
+          "format": "double",
+          "type": "number"
+        },
+        "points": {
+          "description": "One entry per frequency, in report order.",
+          "items": {
+            "$ref": "#/$defs/DrivenOrderEstimatePoint"
+          },
+          "type": "array"
+        },
+        "reference_order": {
+          "description": "The comparison order, always `1`.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "threshold": {
+          "description": "Warning threshold on `delta_s_max` (absolute, S is dimensionless).",
+          "format": "double",
+          "type": "number"
+        },
+        "warning": {
+          "description": "Human-readable warning (also printed to stderr) when above threshold.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "reference_order",
+        "points",
+        "delta_s_max",
+        "threshold",
+        "above_threshold"
+      ],
+      "type": "object"
+    },
+    "DrivenOrderEstimatePoint": {
+      "description": "One frequency of a [`DrivenOrderEstimate`].",
+      "properties": {
+        "delta_s11": {
+          "description": "`|S2_11 − S1_11|`, the first port's reflection.",
+          "format": "double",
+          "type": "number"
+        },
+        "delta_s_max": {
+          "description": "`max_ij |S2_ij − S1_ij|` over the S-matrix entries.",
+          "format": "double",
+          "type": "number"
+        },
+        "frequency_hz": {
+          "description": "The frequency (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "index": {
+          "description": "Index into the report's `results`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "index",
+        "frequency_hz",
+        "delta_s_max",
+        "delta_s11"
+      ],
+      "type": "object"
+    },
     "DrivenReport": {
       "description": "`geode driven` report (`kind = \"driven\"`).",
       "properties": {
@@ -1552,6 +1686,17 @@
             "$ref": "#/$defs/UpmlSummary"
           },
           "type": "array"
+        },
+        "accuracy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DrivenAccuracy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Accuracy diagnostics (additive in v1, issue #1265); present only for\nan `element_order = 2` lumped-port sweep."
         },
         "adaptive_mesh": {
           "anyOf": [
@@ -1688,6 +1833,19 @@
       ],
       "type": "object"
     },
+    "EigenAccuracy": {
+      "description": "Accuracy diagnostics of an eigen report (issue #1265).",
+      "properties": {
+        "order_estimate": {
+          "$ref": "#/$defs/OrderEstimate",
+          "description": "Same-mesh order-1 vs order-2 comparison."
+        }
+      },
+      "required": [
+        "order_estimate"
+      ],
+      "type": "object"
+    },
     "EigenReport": {
       "description": "`geode eigen` report (`kind = \"eigen\"`).",
       "properties": {
@@ -1697,6 +1855,17 @@
             "$ref": "#/$defs/UpmlSummary"
           },
           "type": "array"
+        },
+        "accuracy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EigenAccuracy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Accuracy diagnostics (additive in v1, issue #1265); present only for\na lossless `element_order = 2` eigen solve."
         },
         "adaptive_mesh": {
           "anyOf": [
@@ -4458,6 +4627,87 @@
       ],
       "type": "object"
     },
+    "OrderEstimate": {
+      "description": "Same-mesh p=1 vs p=2 resonant-frequency difference (issue #1265): an\nindicator of the order-1 discretization error on this mesh, **not** a\nrigorous bound on the order-2 error (the p=2 result is only presumed\ncloser to the truth). Modes are paired by ascending index.",
+      "properties": {
+        "above_threshold": {
+          "description": "`delta_f_rel_max > threshold`.",
+          "type": "boolean"
+        },
+        "delta_f_rel_max": {
+          "description": "`max_i |Δf_i| / f_i` (p=2 as the denominator).",
+          "format": "double",
+          "type": "number"
+        },
+        "modes": {
+          "description": "Per-mode differences.",
+          "items": {
+            "$ref": "#/$defs/OrderEstimateMode"
+          },
+          "type": "array"
+        },
+        "reference_order": {
+          "description": "The comparison order, always `1`.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "threshold": {
+          "description": "Warning threshold on `delta_f_rel_max`.",
+          "format": "double",
+          "type": "number"
+        },
+        "warning": {
+          "description": "Human-readable warning (also printed to stderr) when above threshold.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "reference_order",
+        "modes",
+        "delta_f_rel_max",
+        "threshold",
+        "above_threshold"
+      ],
+      "type": "object"
+    },
+    "OrderEstimateMode": {
+      "description": "One mode of an [`OrderEstimate`].",
+      "properties": {
+        "delta_f_hz": {
+          "description": "`f_p2 − f_p1` (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "delta_f_rel": {
+          "description": "`|f_p2 − f_p1| / f_p2`.",
+          "format": "double",
+          "type": "number"
+        },
+        "frequency_hz_p1": {
+          "description": "The order-1 resonant frequency on the same mesh (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "index": {
+          "description": "Mode index (ascending frequency).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "index",
+        "frequency_hz_p1",
+        "delta_f_hz",
+        "delta_f_rel"
+      ],
+      "type": "object"
+    },
     "PecSummary": {
       "description": "One PEC surface.",
       "properties": {
@@ -5695,6 +5945,11 @@
           "const": "wall_ball_density",
           "description": "Huray sphere density `N/A_tile` (1/m²) of a Leontovich wall, at\nfixed sphere radius.",
           "type": "string"
+        },
+        {
+          "const": "dispersion",
+          "description": "A parameter of the group's `materials[].dispersion` model (driven\nN-port S sensitivity, Epic #841 Phase 2a, issue #1259): see\n[`SensitivityParameterSpec::model_parameter`]. Costs zero extra\nsolves: `∂ε(ω)/∂θ` is contracted with the region's mass at every\nfrequency.",
+          "type": "string"
         }
       ]
     },
@@ -5718,6 +5973,17 @@
         "kind": {
           "$ref": "#/$defs/SensitivityParameterKind",
           "description": "Which property."
+        },
+        "model_parameter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DispersionParameter"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`kind = \"dispersion\"` only (required): the parameter of the group's\n`materials[].dispersion` model to differentiate — `eps_r` /\n`tan_delta` (`djordjevic_sarkar`), `eps_inf` / `delta_eps` / `tau_s`\n(`debye`), `eps_inf` / `omega_p_rad_s` / `gamma_rad_s` (`drude`)."
         },
         "motion": {
           "anyOf": [
@@ -5761,6 +6027,15 @@
           },
           "type": [
             "array",
+            "null"
+          ]
+        },
+        "pole": {
+          "description": "`kind = \"dispersion\"` with a `debye` model, `delta_eps` / `tau_s`\nonly (required there): the 0-based index of the relaxation pole.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
             "null"
           ]
         }

@@ -42,6 +42,8 @@ Both descents re-centre within three steps and then stop **distortion-limited on
 
 The models, in order of refinement. "Worst in band" is the worst |S₁₁| over the 9 in-band points (2.400 to 2.4835 GHz in 10.4375 MHz steps): geode solves them, and Palace interpolates its 1 MHz grid at them, so the criterion is the same for both codes. The −10 dB band is the contiguous run around the dip, with crossings interpolated linearly in dB between computed points. The geode grids are 7.5 MHz on L1, 5 MHz on the 0.2 mm rim, and on the combined mesh only the 9 in-band points plus 2.390, 2.395, 2.4885 and 2.4935 GHz. Palace's grid is 1 MHz. Margins are 2.400 GHz minus the lower crossing and the upper crossing minus 2.4835 GHz; positive means covered.
 
+Port model: the geode rows and the Palace rows below both use the default `S_Γ` junction model for the resistive `R` term (Palace's `LumpedPort` operator); no A2 (`PortVoltage`) result appears in this table.
+
 | model | air morph | DOFs | min vol ratio | worst in band | −10 dB band (GHz) | width | ISM coverage | margin lo / hi (MHz) |
 |---|---|---|---|---|---|---|---|---|
 | P1 on L1 (optimization mesh) | default | 150 541 | 0.257 | −4.94 dB | 2.3393–2.4304 | 91.0 MHz | 36 % | 60.7 / −53.1 (sits 57 MHz low by design) |

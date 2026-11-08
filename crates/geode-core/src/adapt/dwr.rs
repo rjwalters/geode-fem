@@ -33,12 +33,12 @@
 //!
 //! # What is not here
 //!
-//! The S-parameter and eigenfrequency goals, the adaptive-loop hook and the
-//! `driven/adjoint.rs` bridge are later steps of #1266.
+//! The eigenfrequency goal lives in [`crate::adapt::dwr_eigen`]. The
+//! S-parameter goals, the adaptive-loop hook and the `driven/adjoint.rs`
+//! bridge landed in later steps of #1266.
 
 use faer::c64;
 
-use crate::adapt::estimator::ErrorEstimate;
 use crate::assembly::hcurl_space::HcurlSpace;
 use crate::driven::solve::DrivenOperator;
 use crate::elements::ElementOrder;
@@ -377,36 +377,6 @@ pub fn dwr_p2(
         |t| space.tet_dofs(t),
         DwrEstimator::P2Enrichment,
     )
-}
-
-/// The heuristic product fallback `η_T^goal = η_T(E_h) · η_T(z)` from the
-/// energy-norm estimates of the primal and the dual solution on the same
-/// mesh. Labelled [`DwrEstimator::Product`] (`"dwr-product"`); unsigned.
-///
-/// # Errors
-///
-/// [`DwrError::LengthMismatch`] if the two estimates cover different tet
-/// counts.
-pub fn dwr_product(primal: &ErrorEstimate, dual: &ErrorEstimate) -> Result<DwrEstimate, DwrError> {
-    if primal.eta_t2.len() != dual.eta_t2.len() {
-        return Err(DwrError::LengthMismatch {
-            what: "dual estimate",
-            expected: primal.eta_t2.len(),
-            got: dual.eta_t2.len(),
-        });
-    }
-    let eta_t = primal
-        .eta_t2
-        .iter()
-        .zip(&dual.eta_t2)
-        .map(|(p, d)| p.max(0.0).sqrt() * d.max(0.0).sqrt())
-        .collect();
-    Ok(DwrEstimate {
-        estimator: DwrEstimator::Product,
-        eta_t,
-        terms: None,
-        signed: None,
-    })
 }
 
 #[cfg(test)]

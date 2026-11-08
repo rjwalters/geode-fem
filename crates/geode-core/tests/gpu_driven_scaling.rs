@@ -169,6 +169,9 @@
 //! `# mf_ams_profile …` stderr line splitting its Krylov time into the host
 //! V-cycles and the transfers around them.
 
+mod common;
+use common::{all_plane_faces, pec_mask_for_planes};
+
 use std::time::Instant;
 
 use burn::tensor::backend::BackendTypes;
@@ -345,29 +348,6 @@ impl Knobs {
 // Fixture construction (σ-lossy parallel-plate cube, single lumped port)
 // ---------------------------------------------------------------------------
 
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
-fn pec_mask_for_planes(mesh: &TetMesh, edges: &[[u32; 2]], planes: &[(usize, f64)]) -> Vec<bool> {
-    edges
-        .iter()
-        .map(|e| {
-            let a = mesh.nodes[e[0] as usize];
-            let b = mesh.nodes[e[1] as usize];
-            !planes.iter().any(|&(axis, value)| {
-                (a[axis] - value).abs() < 1e-12 && (b[axis] - value).abs() < 1e-12
-            })
-        })
-        .collect()
-}
-
 /// Everything the four solver configs share at one mesh size: the assembled
 /// operator plus provenance the reporter prints.
 struct Fixture {
@@ -393,13 +373,13 @@ fn build_fixture_with_export(n: usize, export_dir: Option<&std::path::Path>) -> 
     let edges = mesh.edges();
     let n_edges = edges.len();
     let n_tets = mesh.n_tets();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
     let n_interior = mask.iter().filter(|&&k| k).count();
     if let Some(dir) = export_dir {
-        let pec_faces: Vec<[u32; 3]> = plane_faces(&mesh, 1, 0.0)
+        let pec_faces: Vec<[u32; 3]> = all_plane_faces(&mesh, 1, 0.0)
             .into_iter()
-            .chain(plane_faces(&mesh, 1, 1.0))
+            .chain(all_plane_faces(&mesh, 1, 1.0))
             .collect();
         let path = dir.join(format!("cube_n{n}.msh"));
         write_msh22(&path, &mesh, &pec_faces, &port_faces).expect("write MSH 2.2 export");

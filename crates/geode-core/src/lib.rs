@@ -21,7 +21,9 @@ pub mod prelude;
 pub mod quantum;
 pub mod shape;
 pub mod solver;
+pub(crate) mod sparse_ops;
 pub mod traits;
+pub(crate) mod vec3;
 
 #[cfg(feature = "testing")]
 pub mod testing;

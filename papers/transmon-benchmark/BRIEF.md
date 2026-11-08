@@ -796,14 +796,16 @@ group). Since #1045 the artifact keys are renamed (`[modes.qubit]`,
 SOURCE OF TRUTH: benchmarks/transmon_eigen/results.toml (committed) — use these
 verbatim; the headline is "all six modes agree to ≤0.033% (worst 0.032%)":
 
-| Mode | geode-fem (GHz) | Palace (GHz) | rel_err_pct |
-|---|---|---|---|
-| resonator | 5.153 | 5.151335830348 | 0.032 |
-| mode_2 | 15.465 | 15.46052107794 | 0.029 |
-| junction LC | 17.490 | 17.49010903536 | 0.001 |
-| mode_4 | 18.693 | 18.69165792915 | 0.007 |
-| mode_5 | 20.703 | 20.69755679425 | 0.026 |
-| mode_6 | 26.088 | 26.08089940472 | 0.027 |
+Port model: every row uses GEODE's default `S_Γ` junction model (`JunctionPortModel::DistributedSurface`), which is Palace's `LumpedPort` operator; the opt-in A2 `PortVoltage` model is not used here.
+
+| Mode | port model | geode-fem (GHz) | Palace (GHz) | rel_err_pct |
+|---|---|---|---|---|
+| resonator | `S_Γ` (GEODE default; Palace's operator) | 5.153 | 5.151335830348 | 0.032 |
+| mode_2 | `S_Γ` (GEODE default; Palace's operator) | 15.465 | 15.46052107794 | 0.029 |
+| junction LC | `S_Γ` (GEODE default; Palace's operator) | 17.490 | 17.49010903536 | 0.001 |
+| mode_4 | `S_Γ` (GEODE default; Palace's operator) | 18.693 | 18.69165792915 | 0.007 |
+| mode_5 | `S_Γ` (GEODE default; Palace's operator) | 20.703 | 20.69755679425 | 0.026 |
+| mode_6 | `S_Γ` (GEODE default; Palace's operator) | 26.088 | 26.08089940472 | 0.027 |
 
 Precision note (state in the paper's reproducibility section, and a repo
 follow-up): the toml stores geode frequencies at 3 decimals while Palace

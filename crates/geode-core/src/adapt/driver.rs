@@ -160,6 +160,7 @@
 //!   planar faces stay planar), so a [`LevelSolver`] that builds wave ports
 //!   from the tags works on every level.
 
+use crate::vec3::sorted3;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::time::Instant;
@@ -168,11 +169,13 @@ use burn::tensor::backend::Backend;
 use faer::c64;
 use faer::sparse::SparseColMat;
 
+use crate::adapt::dwr::{DwrEstimator, P2Enrichment, dwr_p2};
 use crate::adapt::estimator::{
     BoundaryFaceKind, BoundaryKinds, ErrorEstimate, EstimatorError, EstimatorInput,
     PRE_ASYMPTOTIC_POINTS_PER_WAVELENGTH, RobinBoundary, VALIDATED_EFFECTIVITY, VolumeSource,
     estimate_hcurl,
 };
+use crate::adapt::goal::{GoalFunctional, SParamGoal};
 use crate::adapt::refine::{BisectionMesh, RefineError, RefineOpts, Refined, mesh_quality};
 use crate::assembly::hcurl_space::HcurlSpace;
 use crate::assembly::periodic::{PeriodicConstraint, PeriodicError};
@@ -220,6 +223,23 @@ pub enum Marking {
     /// partially applied: if it does not fit the DOF budget, the loop
     /// stops with [`StopReason::MaxDofs`].
     Uniform,
+    /// Goal-oriented Dörfler marking (Epic #835 Phase 4, #1266): the bulk
+    /// criterion is applied to the per-tet goal indicator `η_T^goal =
+    /// |ρ_T ω_T|` of the level's DWR estimate instead of the energy-norm
+    /// `η_T²`, so refinement targets the error of the quantity of interest
+    /// (for example an S-parameter) rather than the global energy error.
+    ///
+    /// The level solver must supply the indicator through
+    /// [`LevelSolver::goal_level`] ([`adapt_driven`] does when
+    /// [`DrivenAdaptSpec::goal`] is set); the report names the estimator that
+    /// produced it ([`AdaptReport::estimator`]: `"dwr-p2"`, or the heuristic
+    /// `"dwr-product"`). The stopping rules still read the energy-norm
+    /// `eta_rel`; the per-level goal value and estimate are in
+    /// [`AdaptIteration::goal`].
+    Goal {
+        /// The bulk fraction θ.
+        theta: f64,
+    },
 }
 
 /// Options of the adaptive loop.
@@ -276,7 +296,7 @@ impl AdaptOptions {
         if self.max_dofs == 0 {
             return bad("max_dofs must be >= 1".into());
         }
-        if let Marking::Dorfler { theta } = self.marking
+        if let Marking::Dorfler { theta } | Marking::Goal { theta } = self.marking
             && !(theta.is_finite() && theta > 0.0 && theta <= 1.0)
         {
             return bad(format!("Dörfler theta must be in (0, 1] (got {theta})"));
@@ -530,6 +550,41 @@ pub enum LevelQuantities {
     Custom(Vec<(String, f64)>),
 }
 
+/// The goal-oriented estimate of one level, as a [`LevelSolver`] reports it
+/// through [`LevelSolver::goal_level`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct GoalLevel {
+    /// The goal's [`GoalFunctional::name`] (for example `"s21"`).
+    pub name: String,
+    /// Which weight construction produced the indicator.
+    pub estimator: DwrEstimator,
+    /// Per-tet goal indicator `η_T^goal ≥ 0`, one entry per tet of the level.
+    pub eta_t: Vec<f64>,
+    /// The goal value `J(x_h)` of the level's solution.
+    pub value: c64,
+    /// The signed global estimate of `J(x) − J(x_h)` (`None` for the
+    /// unsigned heuristic product fallback).
+    pub signed: Option<c64>,
+}
+
+/// What [`AdaptIteration::goal`] records of a [`GoalLevel`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct GoalLevelData {
+    /// The goal's name.
+    pub name: String,
+    /// The estimator label: `"dwr-p2"` or `"dwr-product"`.
+    pub estimator: &'static str,
+    /// `true` when the estimator is the product fallback with no
+    /// reliability argument.
+    pub heuristic: bool,
+    /// The goal value `J(x_h)` on the level.
+    pub value: c64,
+    /// The signed estimate of `J(x) − J(x_h)` (`None` if unsigned).
+    pub signed: Option<c64>,
+    /// `Σ_T η_T^goal`, an unsigned magnitude for every estimator.
+    pub eta_sum: f64,
+}
+
 /// One level of the loop.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdaptIteration {
@@ -557,6 +612,9 @@ pub struct AdaptIteration {
     pub min_dihedral_deg: f64,
     /// Problem-specific quantities.
     pub quantities: LevelQuantities,
+    /// The goal-oriented estimate of the level, when the solver provided one
+    /// ([`LevelSolver::goal_level`]).
+    pub goal: Option<GoalLevelData>,
     /// The refinement step taken after this level (`None` on the last).
     pub refinement: Option<RefinementStep>,
     /// Wall times.
@@ -574,6 +632,10 @@ pub struct AdaptReport {
     pub warnings: Vec<AdaptWarning>,
     /// The options of the run.
     pub options: AdaptOptions,
+    /// Which indicator ranked the tets: `"energy-norm"` (the Phase 1
+    /// residual estimator), `"dwr-p2"` or the heuristic `"dwr-product"`
+    /// (see [`Marking::Goal`]).
+    pub estimator: &'static str,
 }
 
 impl AdaptReport {
@@ -628,6 +690,22 @@ impl AdaptReport {
                 );
             }
             None => s.push_str(" (pre-asymptotic: no error bracket)"),
+        }
+        if let Some(g) = &l.goal {
+            let _ = write!(
+                s,
+                "; goal {} = {:.6e}{:+.6e}i on the final level",
+                g.name, g.value.re, g.value.im
+            );
+            if let Some(d) = g.signed {
+                let _ = write!(s, ", estimated error {:.2e}", d.norm());
+            }
+        }
+        if self.estimator != "energy-norm" {
+            let _ = write!(s, "; marking by estimator \"{}\"", self.estimator);
+            if self.estimator == DwrEstimator::Product.label() {
+                s.push_str(" (HEURISTIC: no reliability guarantee, ranking only)");
+            }
         }
         let rate = self.observed_rate(4);
         let needed = rate
@@ -872,6 +950,13 @@ pub trait LevelSolver {
         let _ = level;
         LevelCheck::default()
     }
+    /// The goal-oriented estimate of the level just solved, called by the
+    /// loop right after [`LevelSolver::solve_level`]. Required for
+    /// [`Marking::Goal`]; the default has none.
+    fn goal_level(&mut self, level: usize) -> Option<GoalLevel> {
+        let _ = level;
+        None
+    }
 }
 
 /// What [`LevelSolver::check_level`] returns.
@@ -1013,6 +1098,7 @@ pub fn adapt_with<S: LevelSolver>(
     }
     let mut min_dihedral = mesh_quality(&bm.mesh().mesh).min_dihedral_deg;
     let mut level = 0usize;
+    let mut goal_estimator: Option<&'static str> = None;
     let mut last_coverage: Option<AdaptWarning>;
     let stop_reason;
     loop {
@@ -1097,6 +1183,7 @@ pub fn adapt_with<S: LevelSolver>(
             coverage_complete,
             min_dihedral_deg: min_dihedral,
             quantities: out.quantities.clone(),
+            goal: None,
             refinement: None,
             wall: WallTimes {
                 solve_s: out.solve_s,
@@ -1109,6 +1196,31 @@ pub fn adapt_with<S: LevelSolver>(
             it.wall.total_s = t_level.elapsed().as_secs_f64();
             history.push(it);
         };
+
+        let goal = solver.goal_level(level);
+        if let Some(g) = &goal
+            && g.eta_t.len() != n_tets
+        {
+            return Err(AdaptError::AtLevel {
+                level,
+                n_tets,
+                source: Box::new(AdaptError::InvalidSpec(format!(
+                    "the goal indicator has {} tets, the level {n_tets}",
+                    g.eta_t.len()
+                ))),
+            });
+        }
+        if let Some(g) = &goal {
+            goal_estimator = Some(g.estimator.label());
+            it.goal = Some(GoalLevelData {
+                name: g.name.clone(),
+                estimator: g.estimator.label(),
+                heuristic: g.estimator.is_heuristic(),
+                value: g.value,
+                signed: g.signed,
+                eta_sum: g.eta_t.iter().sum(),
+            });
+        }
 
         let check = solver.check_level(level);
         warnings.extend(check.warnings);
@@ -1169,6 +1281,20 @@ pub fn adapt_with<S: LevelSolver>(
         let (ranked, uniform) = match opts.marking {
             Marking::Dorfler { theta } => (dorfler_mark(&indicator, theta, Some(&eligible)), false),
             Marking::Uniform => ((0..n_tets).collect::<Vec<_>>(), true),
+            Marking::Goal { theta } => {
+                let Some(g) = &goal else {
+                    return Err(AdaptError::AtLevel {
+                        level,
+                        n_tets,
+                        source: Box::new(AdaptError::InvalidSpec(
+                            "Marking::Goal needs the level solver to provide a goal estimate \
+                             (LevelSolver::goal_level; for adapt_driven set DrivenAdaptSpec::goal)"
+                                .into(),
+                        )),
+                    });
+                };
+                (dorfler_mark(&g.eta_t, theta, Some(&eligible)), false)
+            }
         };
         if ranked.is_empty() {
             finish(it, &mut history);
@@ -1235,6 +1361,10 @@ pub fn adapt_with<S: LevelSolver>(
             stop_reason,
             warnings,
             options: *opts,
+            estimator: match (opts.marking, goal_estimator) {
+                (Marking::Goal { .. }, Some(label)) => label,
+                _ => "energy-norm",
+            },
         },
         bm,
     ))
@@ -1382,11 +1512,6 @@ struct Classified {
     impedance: Vec<Vec<[u32; 3]>>,
     ports: Vec<Vec<[u32; 3]>>,
     kinds: BoundaryKinds,
-}
-
-fn sorted3(mut f: [u32; 3]) -> [u32; 3] {
-    f.sort_unstable();
-    f
 }
 
 /// Classify the boundary faces of a level. Impedance surface `i` is the
@@ -1599,6 +1724,10 @@ pub struct DrivenAdaptSpec<'a> {
     pub current_div: &'a (dyn Fn(&TetCtx, [f64; 3]) -> c64 + Sync),
     /// Linear solver (default [`SolverMode::Direct`]).
     pub solver: SolverMode,
+    /// Optional S-parameter goal (see [`DrivenGoal`]): every level then also
+    /// reports the goal value and its `dwr-p2` estimate
+    /// ([`AdaptIteration::goal`]), and [`Marking::Goal`] marks on it.
+    pub goal: Option<DrivenGoal>,
     /// Optional per-level observer, called after every level's solve with
     /// the level and its solutions (one per adaptation frequency): export
     /// fields, or measure a reference error, without re-running the loop.
@@ -1643,6 +1772,7 @@ impl<'a> DrivenAdaptSpec<'a> {
             current,
             current_div,
             solver: SolverMode::Direct,
+            goal: None,
             observer: None,
         }
     }
@@ -1667,8 +1797,62 @@ impl<'a> DrivenAdaptSpec<'a> {
                 "periodic boundaries at p=2 (the p=2 face-block pairing is Epic #836)".into(),
             ));
         }
+        if let Some(g) = &self.goal {
+            let n = self.lumped_ports.len();
+            if g.output_port >= n || g.input_port >= n {
+                return Err(AdaptError::InvalidSpec(format!(
+                    "goal S{}{} needs lumped ports {} and {} but the spec has {n}",
+                    g.output_port + 1,
+                    g.input_port + 1,
+                    g.output_port,
+                    g.input_port
+                )));
+            }
+            if self.lumped_ports[g.input_port].v_inc.norm() == 0.0 {
+                return Err(AdaptError::InvalidSpec(
+                    "the goal's input port needs a non-zero v_inc".into(),
+                ));
+            }
+            if let Some(q) =
+                (0..n).find(|&q| q != g.input_port && self.lumped_ports[q].v_inc.norm() != 0.0)
+            {
+                return Err(AdaptError::InvalidSpec(format!(
+                    "lumped port {q} is also driven (v_inc != 0): the level solution must be \
+                     the excitation of the goal's input port {} alone",
+                    g.input_port
+                )));
+            }
+            if self.order != ElementOrder::P1 || self.periodic.is_some() {
+                return Err(AdaptError::Unsupported(
+                    "the DWR goal estimate is p=1, non-periodic (it enriches p=1 to p=2)".into(),
+                ));
+            }
+            if self.omegas.len() != 1 {
+                return Err(AdaptError::Unsupported(
+                    "the DWR goal estimate is for a single adaptation frequency".into(),
+                ));
+            }
+        }
         Ok(())
     }
+}
+
+/// The S-parameter goal `S_{out,in}` of a lumped-port [`DrivenAdaptSpec`]
+/// (Epic #835 Phase 4): the power-wave `S` between two entries of
+/// [`DrivenAdaptSpec::lumped_ports`].
+///
+/// The level solution (baked source) must be the excitation of
+/// [`Self::input_port`] alone: that port carries the only non-zero `v_inc`
+/// and the spec has no volume current. The dual of the goal is then the
+/// forward solve for the output port (the operator is complex-symmetric,
+/// `Aᵀ = A`), which [`dwr_p2`] back-solves on the p=2 factorization of the
+/// same mesh; the estimator label is `"dwr-p2"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DrivenGoal {
+    /// The measured port `k` of `S_{kj}`.
+    pub output_port: usize,
+    /// The excited port `j` of `S_{kj}`.
+    pub input_port: usize,
 }
 
 /// The result of [`adapt_driven`].
@@ -1693,6 +1877,7 @@ struct DrivenLevelSolver<'s, 'a, B: Backend> {
     prolonged: Option<Vec<Vec<c64>>>,
     last: Vec<DrivenSolution>,
     last_estimates: Vec<ErrorEstimate>,
+    last_goal: Option<GoalLevel>,
 }
 
 fn surface_kind(model: &SurfaceImpedanceModel) -> &'static str {
@@ -1910,6 +2095,16 @@ impl<B: Backend> LevelSolver for DrivenLevelSolver<'_, '_, B> {
         )?;
         let n_dofs = op.n_dofs();
 
+        // The goal on the p=1 operator (validated non-periodic); the periodic
+        // branch below consumes `op`.
+        let goal1 = spec.goal.map(|g| {
+            SParamGoal::lumped(
+                &op,
+                g.output_port,
+                g.input_port,
+                spec.lumped_ports[g.input_port].v_inc,
+            )
+        });
         // (solution, Krylov iterations, warm-started, warm residual)
         type Solved = (DrivenSolution, Option<usize>, bool, Option<f64>);
         let mut sols: Vec<Solved> = Vec::new();
@@ -1942,6 +2137,45 @@ impl<B: Backend> LevelSolver for DrivenLevelSolver<'_, '_, B> {
             },
         }
         let solve_s = t0.elapsed().as_secs_f64();
+
+        // Goal-oriented estimate: one extra p=2 assembly + factorization of
+        // the same problem on the same mesh (`dwr-p2`).
+        self.last_goal = None;
+        if let (Some(g), Some(goal1), Some((sol, ..))) = (spec.goal, goal1, sols.first()) {
+            let v_inc = spec.lumped_ports[g.input_port].v_inc;
+            let space2 = HcurlSpace::build(mesh, ElementOrder::P2);
+            let mask2 = space2.pec_interior_mask(mesh, &[&cls.pec])?;
+            let op2 = DrivenOperator::assemble_with_space::<B>(
+                &space2,
+                mesh,
+                DrivenMaterials::Scalar(&eps),
+                None,
+                &DrivenBcs {
+                    pec_interior_mask: &mask2,
+                },
+                &ports,
+                &surfaces,
+                DrivenSource::Function(&jf),
+                self.device,
+            )?;
+            let goal2 = SParamGoal::lumped(&op2, g.output_port, g.input_port, v_inc);
+            let enr = P2Enrichment {
+                space: &space2,
+                op: &op2,
+                omega: spec.omegas[0],
+                excited: Some(g.input_port),
+            };
+            let x2 = space2.prolong_p1(&sol.e_edges);
+            let est = dwr_p2(&enr, &sol.e_edges, &goal2.rhs(&x2))
+                .map_err(|e| AdaptError::InvalidSpec(format!("goal estimate failed: {e}")))?;
+            self.last_goal = Some(GoalLevel {
+                name: goal1.name().to_string(),
+                estimator: est.estimator,
+                eta_t: est.eta_t,
+                value: goal1.value(&sol.e_edges),
+                signed: est.signed,
+            });
+        }
 
         let t1 = Instant::now();
         let nu = vec![1.0; mesh.n_tets()];
@@ -2002,6 +2236,10 @@ impl<B: Backend> LevelSolver for DrivenLevelSolver<'_, '_, B> {
         })
     }
 
+    fn goal_level(&mut self, _level: usize) -> Option<GoalLevel> {
+        self.last_goal.take()
+    }
+
     fn prolong(&mut self, coarse: &TetMesh, step: &Refined) -> Result<(), AdaptError> {
         if self.warm_start && !matches!(self.spec.solver, SolverMode::Direct) {
             let p = step.hcurl_prolongation(coarse, self.spec.order)?;
@@ -2028,6 +2266,11 @@ pub fn adapt_driven<B: Backend>(
     device: &B::Device,
 ) -> Result<DrivenAdaptResult, AdaptError> {
     spec.validate()?;
+    if matches!(opts.marking, Marking::Goal { .. }) && spec.goal.is_none() {
+        return Err(AdaptError::InvalidSpec(
+            "Marking::Goal needs DrivenAdaptSpec::goal".into(),
+        ));
+    }
     let bm = bisection_mesh(spec.mesh.clone(), spec.periodic.as_ref())?;
     let mut solver = DrivenLevelSolver::<B> {
         spec,
@@ -2036,6 +2279,7 @@ pub fn adapt_driven<B: Backend>(
         prolonged: None,
         last: Vec::new(),
         last_estimates: Vec::new(),
+        last_goal: None,
     };
     let (report, bm) = adapt_with(bm, opts, &mut solver)?;
     let periodic_map = bm.periodic_map().cloned();
