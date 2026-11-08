@@ -71,16 +71,48 @@
 //!   quantity here is the minimal junction-energy ratio
 //!   [`ModeReport::participation`] used for mode identification.
 //!
-//! # Opt-in rank-1 port-voltage shunt (issue #1044)
+//! # Junction port models: `S_Γ` (default) and A2 (opt-in)
 //!
-//! [`LumpedPortVoltageShunt`] replaces `S_Γ` by the rank-1 form
-//! `K_port = (1/L̃) b bᵀ`, `M_port = C̃ b bᵀ`, with `b` the uniform
-//! port-voltage functional. It is selected per solve with
-//! [`JunctionPortModel::PortVoltage`] through
-//! [`solve_transmon_eigenmodes_full_with_port_model`] (ungauged) and
+//! Two junction port models are available. The choice is a ruling
+//! (issue #1046, operator decision r7-q32): **`S_Γ` stays the default**
+//! for eigen and driven solves, and A2 stays opt-in.
+//!
+//! | model | selected by | operator | matches Palace |
+//! |-------|-------------|----------|----------------|
+//! | `S_Γ` (default) | [`JunctionPortModel::DistributedSurface`] | distributed surface term `K_port = (ℓ/(w L̃)) S_Γ`, `M_port = (C̃ ℓ/w) S_Γ` ([`LumpedReactiveShunt`]) | yes: `lumpedportoperator.cpp` (`AddStiffnessBdrCoefficients` / `AddMassBdrCoefficients`, Palace `fba6a5b`) |
+//! | A2 (opt-in) | [`JunctionPortModel::PortVoltage`] | rank-1 port-voltage shunt `K_port = (1/L̃) b bᵀ`, `M_port = C̃ b bᵀ` ([`LumpedPortVoltageShunt`]), `b` the uniform port-voltage functional | no, by design |
+//!
+//! ## When to choose which
+//!
+//! - **Use the default `S_Γ`** for any like-for-like comparison with
+//!   Palace (Epics #193, #202, #476). Its spectrum equals Palace's,
+//!   including the zero-voltage patch modes.
+//! - **Use A2** when the physical junction modes are the goal and the
+//!   port-sheet artifacts are in the way. `S_Γ` distributes the junction
+//!   over the whole port sheet, so the sheet has an internal LC resonance
+//!   that carries no port voltage (the 17.49 GHz mode on the committed
+//!   transmon fixture, Palace port EPR `2.49e-8`). A2 couples the junction
+//!   only through the port voltage and so removes those zero-voltage patch
+//!   modes. An A2 spectrum therefore differs from Palace's by exactly those
+//!   modes; the physical modes (the qubit at 3.4528 GHz) agree.
+//!
+//! ## How to enable A2
+//!
+//! A2 is selected per solve, never globally. Pass
+//! [`JunctionPortModel::PortVoltage`] with the port direction `e_hat`
+//! (the fixture's `TransmonPort::e_hat`) to
+//! [`solve_transmon_eigenmodes_full_with_port_model`] (ungauged) or
 //! [`crate::eigen::projection::solve_transmon_eigenmodes_projected_with_port_model`]
-//! (bulk projector, exact under A2). The default stays the distributed
-//! [`LumpedReactiveShunt`].
+//! (bulk projector, exact under A2). The solves without `_with_port_model`
+//! in the name, and `JunctionPortModel::default()`, use `S_Γ`.
+//!
+//! The driven [`crate::driven::ports::LumpedPort`] likewise keeps `S_Γ`
+//! for the resistive `R` term (Palace parity) and uses the rank-1 flux for
+//! excitation and readout. Existing `LumpedReactiveShunt` call sites and
+//! their committed baselines are unchanged.
+//!
+//! Any geode-versus-Palace table must state the port model per row; see
+//! `docs/research/geode-vs-palace-comparison.md`.
 
 use faer::sparse::{SparseColMat, Triplet};
 
@@ -92,6 +124,7 @@ use crate::eigen::dense::EigenPair;
 use crate::eigen::gauge::TreeCotreeGauge;
 use crate::eigen::lanczos::{InnerSolver, SparseShiftInvertLanczos};
 use crate::mesh::TetMesh;
+use crate::sparse_ops::quad_form;
 
 /// Vacuum permeability `μ₀` (H/m), SI.
 pub const MU0_SI: f64 = 4.0 * std::f64::consts::PI * 1e-7;
@@ -1228,30 +1261,12 @@ fn junction_participation(
     k_port: &SparseColMat<usize, f64>,
     x: &[f64],
 ) -> f64 {
-    let num = quad_form(k_port, x);
-    let den = quad_form(k_total, x);
+    let num = quad_form(k_port.as_ref(), x);
+    let den = quad_form(k_total.as_ref(), x);
     if den <= 0.0 {
         return 0.0;
     }
     (num / den).clamp(0.0, 1.0)
-}
-
-/// Quadratic form `xᵀ A x` for a CSC sparse matrix.
-fn quad_form(a: &SparseColMat<usize, f64>, x: &[f64]) -> f64 {
-    let col_ptr = a.col_ptr();
-    let row_idx = a.row_idx();
-    let val = a.val();
-    let mut acc = 0.0;
-    for j in 0..a.ncols() {
-        let xj = x[j];
-        if xj == 0.0 {
-            continue;
-        }
-        for k in col_ptr[j]..col_ptr[j + 1] {
-            acc += x[row_idx[k]] * val[k] * xj;
-        }
-    }
-    acc
 }
 
 #[cfg(test)]

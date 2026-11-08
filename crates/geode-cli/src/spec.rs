@@ -743,6 +743,54 @@ pub struct SensitivityParameterSpec {
     /// Shape only: 2-D / 3-D physical groups whose nodes stay fixed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned: Option<Vec<String>>,
+    /// `kind = "dispersion"` only (required): the parameter of the group's
+    /// `materials[].dispersion` model to differentiate — `eps_r` /
+    /// `tan_delta` (`djordjevic_sarkar`), `eps_inf` / `delta_eps` / `tau_s`
+    /// (`debye`), `eps_inf` / `omega_p_rad_s` / `gamma_rad_s` (`drude`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_parameter: Option<DispersionParameter>,
+    /// `kind = "dispersion"` with a `debye` model, `delta_eps` / `tau_s`
+    /// only (required there): the 0-based index of the relaxation pole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pole: Option<usize>,
+}
+
+/// A differentiable parameter of a [`DispersionSpec`] model (Epic #841
+/// Phase 2a, issue #1259): the `model_parameter` of a
+/// [`SensitivityParameterKind::Dispersion`] parameter. Units are the
+/// model's own (`tau_s` s, `omega_p_rad_s` / `gamma_rad_s` rad/s).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DispersionParameter {
+    /// Djordjevic–Sarkar datasheet `ε′` at `f_ref_hz` (`tan δ` held).
+    EpsR,
+    /// Djordjevic–Sarkar datasheet `tan δ` at `f_ref_hz` (`ε′` held).
+    TanDelta,
+    /// Debye / Drude high-frequency permittivity `ε∞`.
+    EpsInf,
+    /// Debye pole step `Δε_k` (needs `pole`).
+    DeltaEps,
+    /// Debye pole relaxation time `τ_k` in s (needs `pole`).
+    TauS,
+    /// Drude plasma angular frequency `ω_p` (rad/s).
+    OmegaPRadS,
+    /// Drude collision rate `γ` (rad/s).
+    GammaRadS,
+}
+
+impl DispersionParameter {
+    /// Snake-case name, as in the spec.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::EpsR => "eps_r",
+            Self::TanDelta => "tan_delta",
+            Self::EpsInf => "eps_inf",
+            Self::DeltaEps => "delta_eps",
+            Self::TauS => "tau_s",
+            Self::OmegaPRadS => "omega_p_rad_s",
+            Self::GammaRadS => "gamma_rad_s",
+        }
+    }
 }
 
 /// The motion of a shape [`SensitivityParameterSpec`].
@@ -806,6 +854,12 @@ pub enum SensitivityParameterKind {
     /// Huray sphere density `N/A_tile` (1/m²) of a Leontovich wall, at
     /// fixed sphere radius.
     WallBallDensity,
+    /// A parameter of the group's `materials[].dispersion` model (driven
+    /// N-port S sensitivity, Epic #841 Phase 2a, issue #1259): see
+    /// [`SensitivityParameterSpec::model_parameter`]. Costs zero extra
+    /// solves: `∂ε(ω)/∂θ` is contracted with the region's mass at every
+    /// frequency.
+    Dispersion,
 }
 
 impl SensitivityParameterKind {
@@ -823,6 +877,7 @@ impl SensitivityParameterKind {
             SensitivityParameterKind::WallRmsRoughness => "wall_rms_roughness",
             SensitivityParameterKind::WallBallRadius => "wall_ball_radius",
             SensitivityParameterKind::WallBallDensity => "wall_ball_density",
+            SensitivityParameterKind::Dispersion => "dispersion",
         }
     }
 

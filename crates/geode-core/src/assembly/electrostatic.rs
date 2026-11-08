@@ -68,8 +68,10 @@
 //!    the Maxwell matrix by the energy method, with an independent
 //!    surface-flux cross-check.
 
+use crate::vec3::{cross3 as cross, dot3 as dot, sorted3, sub3 as sub};
 use std::collections::BTreeSet;
 
+use crate::sparse_ops::bilinear_form;
 use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
@@ -204,7 +206,10 @@ impl ElectrostaticSystem {
     /// `g` (ignored for free nodes). The charge RHS is taken as zero
     /// (capacitance runs are source-free); non-zero charge belongs in the
     /// [`assemble_electrostatic`] `rho` hook.
-    fn solve_with_pinned(&self, pinned_value: &[f64]) -> Result<Vec<f64>, ElectrostaticError> {
+    pub(crate) fn solve_with_pinned(
+        &self,
+        pinned_value: &[f64],
+    ) -> Result<Vec<f64>, ElectrostaticError> {
         use faer::linalg::solvers::Solve;
 
         let b_free = self.fold_pinned(pinned_value);
@@ -216,6 +221,79 @@ impl ElectrostaticSystem {
         let mut rhs: Mat<f64> = Mat::from_fn(self.n_free, 1, |i, _| b_free[i]);
         lu.solve_in_place(rhs.as_mut());
         Ok(self.scatter_free(pinned_value, |fi| rhs[(fi, 0)]))
+    }
+
+    /// Factor the reduced stiffness `K` once so that many solves with new
+    /// electrode voltages and/or a new per-tet charge density can reuse it.
+    /// See [`ElectrostaticFactor`] for what may change between solves and
+    /// for the memory cost of holding the factor.
+    ///
+    /// # Errors
+    ///
+    /// [`ElectrostaticError::Factorization`] if `K` is not factorable (e.g.
+    /// no Dirichlet node pinned).
+    pub fn factor(&self) -> Result<ElectrostaticFactor, ElectrostaticError> {
+        let lu = self
+            .k
+            .as_ref()
+            .sp_lu()
+            .map_err(|e| ElectrostaticError::Factorization(format!("{e:?}")))?;
+        Ok(ElectrostaticFactor {
+            lu,
+            n_free: self.n_free,
+            n_nodes: self.n_nodes,
+        })
+    }
+
+    /// Free-node charge right-hand side `M·ρ` for a per-tet piecewise-constant
+    /// volume charge density `rho` (C/m³, length `mesh.n_tets()`), built from
+    /// the P1 consistent element mass ([`tet_p1_local`]) exactly as
+    /// [`assemble_electrostatic`] does, but without re-assembling `K`.
+    /// Pinned-node rows are dropped (they carry no unknown). The result does
+    /// **not** include the pinned-voltage fold-in; combine it with
+    /// the private `fold_pinned` helper (as
+    /// [`ElectrostaticFactor::solve_charge_voltages`] does).
+    ///
+    /// # Errors
+    ///
+    /// [`ElectrostaticError::ShapeMismatch`] if `rho.len() != mesh.n_tets()`
+    /// or the mesh node count differs from the system's.
+    pub fn charge_rhs_free(
+        &self,
+        mesh: &TetMesh,
+        rho: &[f64],
+    ) -> Result<Vec<f64>, ElectrostaticError> {
+        if rho.len() != mesh.n_tets() {
+            return Err(ElectrostaticError::ShapeMismatch(format!(
+                "rho length {} != tet count {}",
+                rho.len(),
+                mesh.n_tets()
+            )));
+        }
+        if mesh.n_nodes() != self.n_nodes {
+            return Err(ElectrostaticError::ShapeMismatch(format!(
+                "mesh node count {} != system node count {}",
+                mesh.n_nodes(),
+                self.n_nodes
+            )));
+        }
+        let mut b_free = vec![0.0_f64; self.n_free];
+        for (t, tet) in mesh.tets.iter().enumerate() {
+            let coords = [
+                mesh.nodes[tet[0] as usize],
+                mesh.nodes[tet[1] as usize],
+                mesh.nodes[tet[2] as usize],
+                mesh.nodes[tet[3] as usize],
+            ];
+            let (_k_local, m_local, _vol) = tet_p1_local(&coords);
+            let rho_t = rho[t];
+            for (p, m_row) in m_local.iter().enumerate() {
+                if let Some(fi) = self.free_of_global[tet[p] as usize] {
+                    b_free[fi] += m_row.iter().map(|m| m * rho_t).sum::<f64>();
+                }
+            }
+        }
+        Ok(b_free)
     }
 
     /// A full-length potential: free node `g` takes `free(free_of_global[g])`,
@@ -247,7 +325,121 @@ impl ElectrostaticSystem {
     /// place). This is the energy postprocessing the capacitance
     /// extraction and the `½ C V²` cross-check consume.
     pub fn field_energy(&self, phi: &[f64]) -> f64 {
-        0.5 * quad_form(&self.k_full, phi, phi)
+        0.5 * bilinear_form(self.k_full.as_ref(), phi, phi)
+    }
+}
+
+/// A held sparse LU of the reduced electrostatic stiffness `K`, built by
+/// [`ElectrostaticSystem::factor`], so repeated solves (a self-consistent
+/// space-charge loop, an n-conductor capacitance extraction) do not
+/// re-factor an unchanged matrix.
+///
+/// # What may change between solves
+///
+/// `K` depends only on the mesh, `ε_r` and **which nodes are pinned**. Per
+/// solve you may therefore change the pinned potential *values*
+/// ([`solve_voltages`](Self::solve_voltages)) and the per-tet charge density
+/// `ρ` ([`solve_charge_voltages`](Self::solve_charge_voltages)). Changing the
+/// pinned node *set*, `ε_r`, or the mesh needs a new
+/// [`ElectrostaticSystem`] and a new factor. A factor must only be used with
+/// the system that produced it.
+///
+/// # Memory cost
+///
+/// The factor stores `L` and `U` of the sparse LU of `K` (`n_free × n_free`),
+/// which is larger than `nnz(K)` by the factorization fill-in. The fill-in
+/// ratio depends on the mesh and the fill-reducing ordering; it was **not
+/// measured** here. Drop the factor when the loop ends. The factor is not
+/// `Clone`.
+///
+/// # AMG reuse
+///
+/// [`AmgPcgOptions`] / [`extract_capacitance_amg_pcg`] cannot reuse their
+/// hierarchy across calls today: the `ScalarAmg` hierarchy is built inside
+/// `amg_pcg_maxwell` and dropped when that call returns. It is shared across
+/// the excitations *within* one call only. No API exposes it; adding one is
+/// out of scope for this type.
+#[derive(Debug)]
+pub struct ElectrostaticFactor {
+    lu: faer::sparse::linalg::solvers::Lu<usize, f64>,
+    n_free: usize,
+    n_nodes: usize,
+}
+
+impl ElectrostaticFactor {
+    fn check_system(
+        &self,
+        sys: &ElectrostaticSystem,
+        pinned_value: &[f64],
+    ) -> Result<(), ElectrostaticError> {
+        if sys.n_free != self.n_free || sys.n_nodes != self.n_nodes {
+            return Err(ElectrostaticError::ShapeMismatch(format!(
+                "factor is for {} free / {} nodes, system has {} free / {} nodes",
+                self.n_free, self.n_nodes, sys.n_free, sys.n_nodes
+            )));
+        }
+        if pinned_value.len() != self.n_nodes {
+            return Err(ElectrostaticError::ShapeMismatch(format!(
+                "pinned_value length {} != node count {}",
+                pinned_value.len(),
+                self.n_nodes
+            )));
+        }
+        Ok(())
+    }
+
+    fn solve_free(
+        &self,
+        sys: &ElectrostaticSystem,
+        pinned_value: &[f64],
+        b_free: &[f64],
+    ) -> Vec<f64> {
+        use faer::linalg::solvers::Solve;
+        let mut rhs: Mat<f64> = Mat::from_fn(self.n_free, 1, |i, _| b_free[i]);
+        self.lu.solve_in_place(rhs.as_mut());
+        sys.scatter_free(pinned_value, |fi| rhs[(fi, 0)])
+    }
+
+    /// Source-free solve for new pinned potentials (`pinned_value[g]` for
+    /// pinned node `g`, ignored for free nodes; length `n_nodes`). Returns
+    /// the full-length `[n_nodes]` potential, like
+    /// [`ElectrostaticSystem::solve`].
+    ///
+    /// # Errors
+    ///
+    /// [`ElectrostaticError::ShapeMismatch`] on a length mismatch.
+    pub fn solve_voltages(
+        &self,
+        sys: &ElectrostaticSystem,
+        pinned_value: &[f64],
+    ) -> Result<Vec<f64>, ElectrostaticError> {
+        self.check_system(sys, pinned_value)?;
+        let b_free = sys.fold_pinned(pinned_value);
+        Ok(self.solve_free(sys, pinned_value, &b_free))
+    }
+
+    /// Solve for new pinned potentials **and** a new per-tet charge density
+    /// `rho` (C/m³, length `mesh.n_tets()`), without re-assembling or
+    /// re-factoring `K`. Equivalent to
+    /// [`assemble_electrostatic`]`(.., rho, ..)` followed by
+    /// [`ElectrostaticSystem::solve`] with the same pinned values.
+    ///
+    /// # Errors
+    ///
+    /// [`ElectrostaticError::ShapeMismatch`] on a length mismatch.
+    pub fn solve_charge_voltages(
+        &self,
+        sys: &ElectrostaticSystem,
+        mesh: &TetMesh,
+        rho: &[f64],
+        pinned_value: &[f64],
+    ) -> Result<Vec<f64>, ElectrostaticError> {
+        self.check_system(sys, pinned_value)?;
+        let mut b_free = sys.charge_rhs_free(mesh, rho)?;
+        for (b, f) in b_free.iter_mut().zip(sys.fold_pinned(pinned_value)) {
+            *b += f;
+        }
+        Ok(self.solve_free(sys, pinned_value, &b_free))
     }
 }
 
@@ -279,28 +471,6 @@ fn fold_pinned_columns(
         }
     }
     b_free
-}
-
-/// Compute the (full-K) bilinear form `uᵀ K v` for two full-length node
-/// vectors. Walks the sparse `K` once.
-fn quad_form(k: &SparseColMat<usize, f64>, u: &[f64], v: &[f64]) -> f64 {
-    let k_ref = k.as_ref();
-    let cp = k_ref.col_ptr();
-    let row_idx = k_ref.row_idx();
-    let vals = k_ref.val();
-    let n = k_ref.ncols();
-    let mut acc = 0.0;
-    for j in 0..n {
-        let vj = v[j];
-        if vj == 0.0 {
-            continue;
-        }
-        for k in cp[j]..cp[j + 1] {
-            let i = row_idx[k];
-            acc += u[i] * vals[k] * vj;
-        }
-    }
-    acc
 }
 
 /// Assemble the reduced SPD electrostatic system for
@@ -387,7 +557,15 @@ pub fn assemble_electrostatic(
         }
     }
 
-    finish_electrostatic_assembly(mesh, full_trips, b_full, electrodes, ground)
+    let sparsity = sparsity_from_tets(&mesh.tets);
+    finish_electrostatic_assembly(
+        mesh.n_nodes(),
+        sparsity,
+        full_trips,
+        b_full,
+        electrodes,
+        ground,
+    )
 }
 
 /// Assemble the reduced SPD electrostatic system with a **per-tet 3×3
@@ -479,7 +657,15 @@ pub fn assemble_electrostatic_tensor(
         }
     }
 
-    finish_electrostatic_assembly(mesh, full_trips, b_full, electrodes, ground)
+    let sparsity = sparsity_from_tets(&mesh.tets);
+    finish_electrostatic_assembly(
+        mesh.n_nodes(),
+        sparsity,
+        full_trips,
+        b_full,
+        electrodes,
+        ground,
+    )
 }
 
 /// Shared tail of the scalar/tensor electrostatic assembly: build the full
@@ -488,19 +674,16 @@ pub fn assemble_electrostatic_tensor(
 /// [`assemble_electrostatic_tensor`] funnel here after producing the
 /// ε-weighted element triplets, so the Dirichlet-reduction logic lives in
 /// one place.
-fn finish_electrostatic_assembly(
-    mesh: &TetMesh,
+pub(crate) fn finish_electrostatic_assembly(
+    n_nodes: usize,
+    sparsity: SparsityPattern,
     full_trips: Vec<Triplet<usize, usize, f64>>,
     b_full: Vec<f64>,
     electrodes: &[Electrode],
     ground: &[u32],
 ) -> Result<ElectrostaticSystem, ElectrostaticError> {
-    let n_nodes = mesh.n_nodes();
-
     let k_full = SparseColMat::<usize, f64>::try_new_from_triplets(n_nodes, n_nodes, &full_trips)
         .map_err(|e| ElectrostaticError::Assembly(format!("{e:?}")))?;
-
-    let sparsity = sparsity_from_tets(&mesh.tets);
 
     let mut dirichlet_value = vec![0.0_f64; n_nodes];
     let mut pinned = vec![false; n_nodes];
@@ -745,7 +928,8 @@ pub fn extract_capacitance(
     let n = conductors.len();
     let n_nodes = sys.n_nodes;
 
-    // One unit-voltage solve per conductor.
+    // One unit-voltage solve per conductor, all reusing a single LU of `K`.
+    let factor = sys.factor()?;
     let mut phis: Vec<Vec<f64>> = Vec::with_capacity(n);
     for i in 0..n {
         // Pinned potentials: conductor i at 1 V, others + ground at 0 V.
@@ -759,14 +943,14 @@ pub fn extract_capacitance(
                 pinned_value[node as usize] = v;
             }
         }
-        phis.push(sys.solve_with_pinned(&pinned_value)?);
+        phis.push(factor.solve_voltages(sys, &pinned_value)?);
     }
 
     // Energy-method matrix: C_ij = φ⁽ⁱ⁾ᵀ K φ⁽ʲ⁾ (full K).
     let mut c = vec![vec![0.0_f64; n]; n];
     for i in 0..n {
         for j in i..n {
-            let v = quad_form(&sys.k_full, &phis[i], &phis[j]);
+            let v = bilinear_form(sys.k_full.as_ref(), &phis[i], &phis[j]);
             c[i][j] = v;
             c[j][i] = v;
         }
@@ -1093,7 +1277,7 @@ pub(crate) fn amg_pcg_maxwell(
     let mut c = vec![vec![0.0_f64; n]; n];
     for i in 0..n {
         for j in i..n {
-            let v = quad_form(k_full, &us[i], &us[j]);
+            let v = bilinear_form(k_full.as_ref(), &us[i], &us[j]);
             c[i][j] = v;
             c[j][i] = v;
         }
@@ -1255,12 +1439,6 @@ pub fn face_to_tet_map(
         }
     }
     map
-}
-
-#[inline]
-fn sorted3(mut t: [u32; 3]) -> [u32; 3] {
-    t.sort_unstable();
-    t
 }
 
 /// Node-adjacency sparsity pattern: every `(node_i, node_j)` pair that
@@ -1517,7 +1695,7 @@ impl ElectrostaticP2System {
     /// Total field energy `W = ½ uᵀ K u` using the **full** stiffness, for
     /// a full-length `[n_dof]` quadratic potential.
     pub fn field_energy(&self, u: &[f64]) -> f64 {
-        0.5 * quad_form(&self.k_full, u, u)
+        0.5 * bilinear_form(self.k_full.as_ref(), u, u)
     }
 }
 
@@ -1951,7 +2129,7 @@ fn maxwell_p2_lu(
     let mut c = vec![vec![0.0_f64; n]; n];
     for i in 0..n {
         for j in i..n {
-            let v = quad_form(&sys.k_full, &us[i], &us[j]);
+            let v = bilinear_form(sys.k_full.as_ref(), &us[i], &us[j]);
             c[i][j] = v;
             c[j][i] = v;
         }
@@ -2074,22 +2252,6 @@ pub fn tet_p1_local_tensor(
 }
 
 #[inline]
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-#[inline]
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-#[inline]
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-#[inline]
 fn scale(a: [f64; 3], s: f64) -> [f64; 3] {
     [a[0] * s, a[1] * s, a[2] * s]
 }
@@ -2195,6 +2357,138 @@ mod tests {
                 p[0]
             );
         }
+    }
+
+    /// Cube mesh, x=1 plate at `v_hi`, x=0 plate grounded; returns
+    /// `(mesh, eps_r, hi_nodes, lo_nodes)`.
+    fn factor_fixture() -> (TetMesh, Vec<f64>, Vec<u32>, Vec<u32>) {
+        let mesh = cube_tet_mesh(4, 1.0);
+        let eps_r: Vec<f64> = (0..mesh.n_tets()).map(|t| 1.0 + (t % 3) as f64).collect();
+        let sel = |x: f64| -> Vec<u32> {
+            mesh.nodes
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| (p[0] - x).abs() < 1e-9)
+                .map(|(i, _)| i as u32)
+                .collect()
+        };
+        let (hi, lo) = (sel(1.0), sel(0.0));
+        (mesh, eps_r, hi, lo)
+    }
+
+    fn rho_pattern(n: usize, scale: f64) -> Vec<f64> {
+        (0..n).map(|t| scale * (1.0 + (t % 5) as f64)).collect()
+    }
+
+    fn assert_close(a: &[f64], b: &[f64]) {
+        let scale = b.iter().fold(0.0_f64, |m, x| m.max(x.abs())).max(1e-300);
+        for (x, y) in a.iter().zip(b) {
+            assert!((x - y).abs() <= 1e-12 * scale, "{x} vs {y}");
+        }
+        assert_eq!(a.len(), b.len());
+    }
+
+    #[test]
+    fn factor_reproduces_solve_with_assembly_rho_and_voltages() {
+        let (mesh, eps_r, hi, lo) = factor_fixture();
+        let rho = rho_pattern(mesh.n_tets(), 1e-9);
+        let el = vec![Electrode {
+            name: "hi".into(),
+            nodes: hi,
+            voltage: 2.5,
+        }];
+        let sys = assemble_electrostatic(&mesh, &eps_r, &rho, &el, &lo).unwrap();
+        let f = sys.factor().unwrap();
+        let got = f
+            .solve_charge_voltages(&sys, &mesh, &rho, &sys.dirichlet_value)
+            .unwrap();
+        assert_close(&got, &sys.solve().unwrap());
+    }
+
+    #[test]
+    fn factor_new_rho_matches_reassembly() {
+        let (mesh, eps_r, hi, lo) = factor_fixture();
+        let el = vec![Electrode {
+            name: "hi".into(),
+            nodes: hi,
+            voltage: 1.0,
+        }];
+        let sys =
+            assemble_electrostatic(&mesh, &eps_r, &rho_pattern(mesh.n_tets(), 1e-9), &el, &lo)
+                .unwrap();
+        let f = sys.factor().unwrap();
+        let rho2 = rho_pattern(mesh.n_tets(), -3e-9);
+        let got = f
+            .solve_charge_voltages(&sys, &mesh, &rho2, &sys.dirichlet_value)
+            .unwrap();
+        let sys2 = assemble_electrostatic(&mesh, &eps_r, &rho2, &el, &lo).unwrap();
+        assert_close(&got, &sys2.solve().unwrap());
+    }
+
+    #[test]
+    fn factor_new_voltage_matches_reassembly() {
+        let (mesh, eps_r, hi, lo) = factor_fixture();
+        let rho = rho_pattern(mesh.n_tets(), 1e-9);
+        let el = vec![Electrode {
+            name: "hi".into(),
+            nodes: hi.clone(),
+            voltage: 1.0,
+        }];
+        let sys = assemble_electrostatic(&mesh, &eps_r, &rho, &el, &lo).unwrap();
+        let f = sys.factor().unwrap();
+        let mut pinned = sys.dirichlet_value.clone();
+        for &g in &hi {
+            pinned[g as usize] = -4.0;
+        }
+        let got = f.solve_charge_voltages(&sys, &mesh, &rho, &pinned).unwrap();
+        let el2 = vec![Electrode {
+            name: "hi".into(),
+            nodes: hi,
+            voltage: -4.0,
+        }];
+        let sys2 = assemble_electrostatic(&mesh, &eps_r, &rho, &el2, &lo).unwrap();
+        assert_close(&got, &sys2.solve().unwrap());
+    }
+
+    #[test]
+    fn factor_zero_rho_matches_voltage_only_solve() {
+        let (mesh, eps_r, hi, lo) = factor_fixture();
+        let zero = vec![0.0; mesh.n_tets()];
+        let el = vec![Electrode {
+            name: "hi".into(),
+            nodes: hi,
+            voltage: 1.0,
+        }];
+        let sys = assemble_electrostatic(&mesh, &eps_r, &zero, &el, &lo).unwrap();
+        let f = sys.factor().unwrap();
+        let a = f
+            .solve_charge_voltages(&sys, &mesh, &zero, &sys.dirichlet_value)
+            .unwrap();
+        let b = f.solve_voltages(&sys, &sys.dirichlet_value).unwrap();
+        assert_close(&a, &b);
+        assert_close(&b, &sys.solve().unwrap());
+    }
+
+    #[test]
+    fn factor_rejects_wrong_length_inputs() {
+        let (mesh, eps_r, hi, lo) = factor_fixture();
+        let zero = vec![0.0; mesh.n_tets()];
+        let el = vec![Electrode {
+            name: "hi".into(),
+            nodes: hi,
+            voltage: 1.0,
+        }];
+        let sys = assemble_electrostatic(&mesh, &eps_r, &zero, &el, &lo).unwrap();
+        let f = sys.factor().unwrap();
+        let short_rho = vec![0.0; mesh.n_tets() - 1];
+        assert!(matches!(
+            f.solve_charge_voltages(&sys, &mesh, &short_rho, &sys.dirichlet_value),
+            Err(ElectrostaticError::ShapeMismatch(_))
+        ));
+        assert!(matches!(
+            f.solve_voltages(&sys, &sys.dirichlet_value[1..]),
+            Err(ElectrostaticError::ShapeMismatch(_))
+        ));
     }
 
     #[test]

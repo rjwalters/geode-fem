@@ -22,6 +22,9 @@
 //!   correlation is asserted on a deliberately under-converged (seed-only)
 //!   ROM where both are far from the roundoff floor.
 
+mod common;
+use common::{all_plane_faces, pec_mask_for_planes};
+
 use std::time::Instant;
 
 use faer::c64;
@@ -53,32 +56,6 @@ fn zero_source(mesh: &TetMesh) -> CurrentSource {
     }
 }
 
-/// Boundary faces of the mesh lying entirely in the plane
-/// `coord[axis] == value` (copied from `tests/lumped_port.rs`).
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
-/// PEC interior-edge mask (copied from `tests/lumped_port.rs`).
-fn pec_mask_for_planes(mesh: &TetMesh, edges: &[[u32; 2]], planes: &[(usize, f64)]) -> Vec<bool> {
-    edges
-        .iter()
-        .map(|e| {
-            let a = mesh.nodes[e[0] as usize];
-            let b = mesh.nodes[e[1] as usize];
-            !planes.iter().any(|&(axis, value)| {
-                (a[axis] - value).abs() < 1e-12 && (b[axis] - value).abs() < 1e-12
-            })
-        })
-        .collect()
-}
-
 /// The parallel-plate transmission-line fixture (unit cube, PEC plates at
 /// y = 0/1, PEC short at z = 1, PMC side walls, one lumped port across the
 /// full z = 0 face with ê = ŷ) — same fixture as `tests/transient_sparams.rs`.
@@ -93,7 +70,7 @@ impl PlateFixture {
     fn new(n: usize) -> Self {
         let mesh = cube_tet_mesh(n, 1.0);
         let edges = mesh.edges();
-        let port_faces = plane_faces(&mesh, 2, 0.0);
+        let port_faces = all_plane_faces(&mesh, 2, 0.0);
         assert!(!port_faces.is_empty());
         let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0), (2, 1.0)]);
         let eps = vacuum(&mesh);
@@ -347,8 +324,8 @@ fn rom_greedy_selection_is_deterministic() {
 fn rom_surface_impedance_matches_dense_sweep() {
     let mesh = cube_tet_mesh(5, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
-    let wall = plane_faces(&mesh, 2, 1.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
+    let wall = all_plane_faces(&mesh, 2, 1.0);
     // PEC plates only — the z = 1 face is the impedance wall.
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
     let eps = vacuum(&mesh);
@@ -443,8 +420,8 @@ fn rom_surface_impedance_matches_dense_sweep() {
 fn rom_per_port_drive_matches_dense_two_port_z() {
     let mesh = cube_tet_mesh(5, 1.0);
     let edges = mesh.edges();
-    let faces_a = plane_faces(&mesh, 2, 0.0);
-    let faces_b = plane_faces(&mesh, 2, 1.0);
+    let faces_a = all_plane_faces(&mesh, 2, 0.0);
+    let faces_b = all_plane_faces(&mesh, 2, 1.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
     let eps: Vec<c64> = vec![c64::new(2.0, -0.05); mesh.n_tets()];
     let mk = |faces: &'static [[u32; 3]], r: f64| LumpedPort {

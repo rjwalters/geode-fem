@@ -47,6 +47,10 @@
 //! **Assemble** (default): read the committed records and Palace cells and
 //! write `benchmarks/transmon_devicelayout_optimize/results.toml`.
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::git_head;
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -105,17 +109,6 @@ fn peak_rss_gb() -> Option<f64> {
     let line = s.lines().find(|l| l.starts_with("VmHWM:"))?;
     let kb: f64 = line.split_whitespace().nth(1)?.parse().ok()?;
     Some(kb / 1e6)
-}
-
-fn git_head() -> String {
-    std::process::Command::new("git")
-        .args(["rev-parse", "--short=8", "HEAD"])
-        .current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|| "unknown".to_string())
 }
 
 // ---------------------------------------------------------------------------

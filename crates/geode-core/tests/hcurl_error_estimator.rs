@@ -46,6 +46,7 @@ use geode_core::adapt::estimator::{
 use geode_core::analytic::loaded_guide::{LsFamily, SlabLoadedGuide};
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::assembly::nedelec::boundary_pec_interior_edges;
+use geode_core::assembly::nedelec::tet_centroid as centroid;
 use geode_core::driven::ports::LumpedPort;
 use geode_core::driven::solve::{
     DrivenBcs, DrivenMaterials, DrivenOperator, DrivenSource, QuadCurrentSource,
@@ -152,11 +153,6 @@ fn box_mesh(
         tets,
         physical_groups: Default::default(),
     }
-}
-
-fn centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
-    let tet = mesh.tets[t];
-    std::array::from_fn(|d| tet.iter().map(|&v| mesh.nodes[v as usize][d]).sum::<f64>() / 4.0)
 }
 
 // ---------------------------------------------------------------------------

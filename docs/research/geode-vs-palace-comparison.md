@@ -37,18 +37,26 @@ caveat: the two solvers solve discrete problems of different sizes, and the diff
 favours GEODE. (`reference/fixtures/transmon_palace/results_p1/palace_run_v22.log`; the
 same counts appear in every timed Palace log of §2a-i.)
 
+**Port model.** Every row below uses GEODE's default `S_Γ` junction model
+(`JunctionPortModel::DistributedSurface`), which is Palace's `LumpedPort` operator, so the
+two spectra are like-for-like including the port-sheet artifact. GEODE's opt-in rank-1
+port-voltage model (A2, `JunctionPortModel::PortVoltage`) is not Palace's and is never mixed
+into a Palace row without being named in that row (operator ruling, issue
+[#1046](https://github.com/rjwalters/geode-fem/issues/1046)). Driven comparisons (Epics
+#193/#202) use `S_Γ` for the resistive `R` term, as Palace does.
+
 Source: [`benchmarks/transmon_eigen/results.toml`](../../benchmarks/transmon_eigen/results.toml)
 (`[modes.*]`, `[oracles.palace]`, `[oracles.palace_target2]`)
 
-| mode | kind | GEODE (GHz) | Palace (GHz) | rel-err |
-|------|------|------------:|-------------:|--------:|
-| qubit (p = 0.9942) | **transmon qubit** | 3.452751 | 3.452749306805 † | 0.00005% |
-| resonator | cavity | 5.153 | 5.151335830348 | 0.032% |
-| mode 2 | cavity | 15.465 | 15.46052107794 | 0.029% |
-| port sheet (p = 1.000) | **port-sheet artifact** ‡ | 17.490 | 17.49010903536 | 0.001% |
-| mode 4 | cavity | 18.693 | 18.69165792915 | 0.007% |
-| mode 5 | cavity | 20.703 | 20.69755679425 | 0.026% |
-| mode 6 | cavity | 26.088 | 26.08089940472 | 0.027% |
+| mode | kind | port model (both solvers) | GEODE (GHz) | Palace (GHz) | rel-err |
+|------|------|---------------------------|------------:|-------------:|--------:|
+| qubit (p = 0.9942) | **transmon qubit** | `S_Γ` (GEODE default) | 3.452751 | 3.452749306805 † | 0.00005% |
+| resonator | cavity | `S_Γ` (GEODE default) | 5.153 | 5.151335830348 | 0.032% |
+| mode 2 | cavity | `S_Γ` (GEODE default) | 15.465 | 15.46052107794 | 0.029% |
+| port sheet (p = 1.000) | **port-sheet artifact** ‡ | `S_Γ` (GEODE default) | 17.490 | 17.49010903536 | 0.001% |
+| mode 4 | cavity | `S_Γ` (GEODE default) | 18.693 | 18.69165792915 | 0.007% |
+| mode 5 | cavity | `S_Γ` (GEODE default) | 20.703 | 20.69755679425 | 0.026% |
+| mode 6 | cavity | `S_Γ` (GEODE default) | 26.088 | 26.08089940472 | 0.027% |
 
 † From Palace's re-run with `Target` = 2.0 GHz (issue
 [#1043](https://github.com/rjwalters/geode-fem/issues/1043), `[oracles.palace_target2]`).
