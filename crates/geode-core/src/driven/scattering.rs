@@ -974,7 +974,8 @@ pub fn solve_scattered_field_matched_upml(
     omega: f64,
     j_at: impl Fn(usize, [f64; 3]) -> [c64; 3],
 ) -> Result<DrivenSolution, DrivenError> {
-    use crate::eigen::complex::{solve_with_lu, spmv};
+    use crate::eigen::complex::spmv;
+    use crate::sparse_ops::lu_solve;
 
     let n_tets = mesh.n_tets();
     if tet_physical_tags.len() != n_tets {
@@ -1116,7 +1117,7 @@ pub fn solve_scattered_field_matched_upml(
         .sp_lu()
         .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
     let mut x_int = vec![c64::new(0.0, 0.0); n_interior];
-    solve_with_lu(&lu, &b_int, &mut x_int).map_err(|e| DrivenError::Solve(format!("{e}")))?;
+    lu_solve(&lu, &b_int, &mut x_int);
 
     // Post-solve residual check (same health metric as driven_solve).
     let mut ax = vec![c64::new(0.0, 0.0); n_interior];

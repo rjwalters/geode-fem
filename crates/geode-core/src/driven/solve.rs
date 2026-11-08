@@ -133,8 +133,9 @@ use crate::assembly::nedelec::{
     assemble_nedelec_current_rhs_quad4, assemble_nedelec_sigma_damping_sparse, tet_centroids,
 };
 use crate::driven::ports::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
-use crate::eigen::complex::{solve_with_lu, spmv};
+use crate::eigen::complex::spmv;
 use crate::mesh::TetMesh;
+use crate::sparse_ops::lu_solve;
 
 #[path = "solve_ams.rs"]
 mod ams;
@@ -3277,7 +3278,8 @@ impl FactoredDrivenOperator<'_> {
     pub fn back_solve(&self, b: &[c64], out: &mut [c64]) -> Result<(), DrivenError> {
         assert_eq!(b.len(), self.op.n_interior, "b length mismatch");
         assert_eq!(out.len(), self.op.n_interior, "out length mismatch");
-        solve_with_lu(&self.lu, b, out).map_err(|e| DrivenError::Solve(format!("{e}")))
+        lu_solve(&self.lu, b, out);
+        Ok(())
     }
 
     /// Compute `out = A(ω) · x` using the cached sparse `A(ω)` —
@@ -3330,8 +3332,7 @@ impl FactoredDrivenOperator<'_> {
 
         // --- Direct solve through the cached factorization ------------------
         let mut x_int = vec![c64::new(0.0, 0.0); op.n_interior];
-        solve_with_lu(&self.lu, &b_int, &mut x_int)
-            .map_err(|e| DrivenError::Solve(format!("{e}")))?;
+        lu_solve(&self.lu, &b_int, &mut x_int);
 
         // --- Post-solve residual check --------------------------------------
         let mut ax = vec![c64::new(0.0, 0.0); op.n_interior];
@@ -3586,7 +3587,7 @@ impl<'a, B: Backend> DrivenLinearSolver<'a, B> {
 
         match &self.backend {
             SolverBackend::Direct { lu } => {
-                solve_with_lu(lu, b, out).map_err(|e| DrivenError::Solve(format!("{e}")))?;
+                lu_solve(lu, b, out);
                 // Direct back-substitution: compute the per-RHS residual
                 // for symmetry with the iterative path's BackSolveReport.
                 let mut ax = vec![c64::new(0.0, 0.0); self.op.n_interior];

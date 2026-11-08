@@ -125,6 +125,7 @@ use super::port_modes::{
 use super::waveguide::{TriMesh, tri_nedelec_local, tri_p1_local};
 use crate::eigen::dense::EigenError;
 use crate::eigen::lanczos::negligible;
+use crate::sparse_ops::lu_solve;
 
 /// Allowance factor on `|Im β²| ≤ IM_ALLOWANCE · k₀² max|ε″|` used by the
 /// coverage certificate (module docs).
@@ -379,15 +380,6 @@ fn norm1_c(a: SparseColMatRef<'_, usize, c64>) -> f64 {
         .fold(0.0, f64::max)
 }
 
-fn lu_solve_c(lu: &Lu<usize, c64>, rhs: &[c64], out: &mut [c64]) {
-    let n = rhs.len();
-    let mut work: Mat<c64> = Mat::from_fn(n, 1, |i, _| rhs[i]);
-    lu.solve_in_place(work.as_mut());
-    for i in 0..n {
-        out[i] = work[(i, 0)];
-    }
-}
-
 /// `1/z` by Smith's algorithm (the #796 dense path's reciprocal).
 fn recip(z: c64) -> c64 {
     crate::eigen::complex::dense::recip(z)
@@ -466,7 +458,7 @@ pub(crate) fn shift_invert_arnoldi_complex(
     let mut h_scale = 0.0_f64;
     for j in 0..m {
         cmatvec(b, &basis[j], &mut bv);
-        lu_solve_c(&lu, &bv, &mut w);
+        lu_solve(&lu, &bv, &mut w);
         if let Some(p) = project {
             p(&mut w);
         }
