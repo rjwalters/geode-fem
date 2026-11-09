@@ -139,7 +139,9 @@ use crate::assembly::nedelec::{
     assemble_global_nedelec_with_full_tensors_sparse,
 };
 use crate::assembly::p1::upload_mesh;
-use crate::eigen::complex::{CheckedComplexEigenpairs, SparseComplexShiftInvertLanczos};
+use crate::eigen::complex::{
+    CheckedComplexEigenpairs, SparseComplexShiftInvertLanczos, spmv as complex_spmv,
+};
 use crate::eigen::dense::EigenError;
 use crate::eigen::hcurl_null::{
     GRADIENT_FRACTION_CUT, GradientNullCount, GradientNullSpace, LoopHarmonics,
@@ -147,6 +149,7 @@ use crate::eigen::hcurl_null::{
 use crate::eigen::lanczos::ConvergenceCheck;
 use crate::elements::ElementOrder;
 use crate::mesh::{TaggedTetMesh, TetMesh, pec_interior_mask_from_triangles};
+use crate::sparse_ops::norm2_c as norm2;
 
 /// Errors from the lossy / open cavity eigensolve.
 #[derive(Debug, thiserror::Error)]
@@ -502,26 +505,11 @@ pub fn assemble_lossy_pencil<B: Backend>(
     ))
 }
 
-/// `y = A x` for a column-major complex sparse `A`.
+/// `y = A x` (allocating) over the shared complex CSC kernel.
 fn spmv(a: SparseColMatRef<'_, usize, c64>, x: &[c64]) -> Vec<c64> {
     let mut y = vec![c64::new(0.0, 0.0); a.nrows()];
-    for (j, &xj) in x.iter().enumerate() {
-        if xj.re == 0.0 && xj.im == 0.0 {
-            continue;
-        }
-        for (i, v) in a.row_idx_of_col(j).zip(a.val_of_col(j)) {
-            y[i] += *v * xj;
-        }
-    }
+    complex_spmv(a, x, &mut y);
     y
-}
-
-/// Hermitian 2-norm.
-fn norm2(v: &[c64]) -> f64 {
-    v.iter()
-        .map(|z| z.re * z.re + z.im * z.im)
-        .sum::<f64>()
-        .sqrt()
 }
 
 fn validate_settings(s: &LossyCavitySettings) -> Result<(), LossyCavityError> {

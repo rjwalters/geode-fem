@@ -93,7 +93,7 @@ use crate::eigen::lanczos::SparseShiftInvertLanczos;
 use crate::eigen::transmon::LondonSurface;
 use crate::elements::ElementOrder;
 use crate::mesh::{TaggedTetMesh, TetMesh, pec_interior_mask_from_triangles};
-use crate::sparse_ops::spmv;
+use crate::sparse_ops::{norm2, spmv};
 
 /// Errors from the tagged-mesh lossless cavity eigensolve.
 #[derive(Debug, thiserror::Error)]
@@ -429,10 +429,6 @@ pub fn assemble_lossless_pencil_with_materials<B: Backend>(
             .map_err(|e| PecCavityError::Eigen(EigenError::FaerGevd(format!("{what}: {e:?}"))))
     };
     Ok((build(&k_tr, "cavity K")?, build(&m_tr, "cavity M")?))
-}
-
-fn norm2(v: &[f64]) -> f64 {
-    v.iter().map(|x| x * x).sum::<f64>().sqrt()
 }
 
 /// Solve the lossless PEC-cavity eigenproblem on `mesh`.

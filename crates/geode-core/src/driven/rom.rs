@@ -164,6 +164,7 @@ use crate::driven::solve::{
     SurfaceImpedanceModel,
 };
 use crate::mesh::TetMesh;
+use crate::sparse_ops::norm2_c as vec_norm;
 
 /// Errors from the PROM fast-sweep path.
 #[derive(Debug, thiserror::Error)]
@@ -1409,14 +1410,6 @@ fn dot_h(a: &[c64], b: &[c64]) -> c64 {
         acc += ai.conj() * bi;
     }
     acc
-}
-
-/// Euclidean norm of a complex vector.
-fn vec_norm(v: &[c64]) -> f64 {
-    v.iter()
-        .map(|z| z.re * z.re + z.im * z.im)
-        .sum::<f64>()
-        .sqrt()
 }
 
 /// `y = A·x` from a complex triplet stream (duplicates sum, as in the

@@ -4,11 +4,21 @@
 //! driven and assembly modules previously each re-declared privately, plus the
 //! `Lu::solve_in_place` wrapper shared by the real and complex solvers.
 
-use faer::Mat;
 use faer::linalg::solvers::Solve;
 use faer::sparse::SparseColMatRef;
 use faer::sparse::linalg::solvers::Lu;
 use faer::traits::ComplexField;
+use faer::{Mat, c64};
+
+/// Euclidean 2-norm `sqrt(Σ xᵢ²)` of a real slice.
+pub(crate) fn norm2(v: &[f64]) -> f64 {
+    v.iter().map(|x| x * x).sum::<f64>().sqrt()
+}
+
+/// Hermitian 2-norm `sqrt(Σ |zᵢ|²)` of a complex slice.
+pub(crate) fn norm2_c(v: &[c64]) -> f64 {
+    v.iter().map(|z| z.norm_sqr()).sum::<f64>().sqrt()
+}
 
 /// `y = A · x` for a CSC sparse matrix (overwrite). `A` is `nrows × ncols`;
 /// `x.len() == ncols`, `y.len() == nrows`.
