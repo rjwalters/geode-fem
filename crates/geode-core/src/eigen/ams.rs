@@ -159,7 +159,7 @@ use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
 use crate::eigen::dense::EigenError;
 use crate::eigen::projection::InteriorGradient;
-use crate::sparse_ops::spmv_into;
+use crate::sparse_ops::{spmv_into, spmv_transpose_into};
 
 /// The damped-Jacobi smoother weight `ω` of the multiplicative V-cycle, used
 /// wherever it is not shown to be unstable, and the upper limit of the weight
@@ -1297,7 +1297,7 @@ impl CsrOp {
 
 /// One level of the AMG hierarchy: the level operator plus the prolongation `P`
 /// (`n_fine × n_coarse`) to the next-coarser level. `P·x` (prolong) and `Pᵀ·r`
-/// (restrict) are the free CSC [`spmv`] / [`spmv_transpose`].
+/// (restrict) are the free CSC [`spmv`] / [`spmv_transpose_into`].
 struct AmgLevel {
     a: CsrOp,
     p: SparseColMat<usize, f64>,
@@ -1423,7 +1423,7 @@ impl AmgCoarseSolver {
         lev.a.residual(b, x, &mut r);
         let nc = lev.p.ncols();
         let mut rc = vec![0.0_f64; nc];
-        spmv_transpose(lev.p.as_ref(), &r, &mut rc);
+        spmv_transpose_into(lev.p.as_ref(), &r, &mut rc);
         // Recurse (coarse correction from a zero coarse guess).
         let mut xc = vec![0.0_f64; nc];
         self.vcycle(lvl + 1, &rc, &mut xc);
@@ -1707,22 +1707,6 @@ fn estimate_spectral_radius(a: &CsrOp) -> f64 {
         }
     }
     if lambda > 0.0 { lambda } else { 1.0 }
-}
-
-/// `y = Aᵀ · x` for a CSC sparse matrix (overwrite). `A` is `nrows × ncols`;
-/// `x.len() == nrows`, `y.len() == ncols`. Column `j` of `A` dotted with `x`
-/// is entry `j` of `Aᵀx`.
-fn spmv_transpose(a: SparseColMatRef<'_, usize, f64>, x: &[f64], y: &mut [f64]) {
-    let col_ptr = a.col_ptr();
-    let row_idx = a.row_idx();
-    let val = a.val();
-    for j in 0..a.ncols() {
-        let mut acc = 0.0;
-        for k in col_ptr[j]..col_ptr[j + 1] {
-            acc += val[k] * x[row_idx[k]];
-        }
-        y[j] = acc;
-    }
 }
 
 /// The AMS-lite preconditioner: an edge Jacobi smoother plus a gradient-space
@@ -2158,7 +2142,7 @@ impl AmsLitePreconditioner {
     fn coarse_correction(&self, r: &[f64], out: &mut [f64]) {
         // rc = Gᵀ r  (node space)
         let mut rc = vec![0.0_f64; self.node_dim];
-        spmv_transpose(self.gradient.matrix(), r, &mut rc);
+        spmv_transpose_into(self.gradient.matrix(), r, &mut rc);
         // yc ≈ C⁻¹ rc  (few-sweep SGS, or exact LU under CoarseSolve::Direct)
         let mut yc = vec![0.0_f64; self.node_dim];
         self.c_coarse.solve(&rc, &mut yc);
@@ -2182,7 +2166,7 @@ impl AmsLitePreconditioner {
         let pi_dim = 3 * self.node_dim;
         // rc = Πᵀ r  (vector-nodal space)
         let mut rc = vec![0.0_f64; pi_dim];
-        spmv_transpose(pi.as_ref(), r, &mut rc);
+        spmv_transpose_into(pi.as_ref(), r, &mut rc);
         // yc ≈ (ΠᵀAΠ)⁻¹ rc  (few-sweep SGS, or exact LU under CoarseSolve::Direct)
         let mut yc = vec![0.0_f64; pi_dim];
         pi_coarse.solve(&rc, &mut yc);
@@ -2863,7 +2847,7 @@ mod tests {
             .collect();
         // rc = Gᵀ A g_yc (node)
         let mut rc = vec![0.0; node_dim];
-        spmv_transpose(ams.gradient.matrix(), &a_g_yc, &mut rc);
+        spmv_transpose_into(ams.gradient.matrix(), &a_g_yc, &mut rc);
         // solve C yc' = rc; yc' must equal yc (exact under the direct solver).
         let mut got = vec![0.0; node_dim];
         ams.c_coarse.solve(&rc, &mut got);
@@ -3317,7 +3301,7 @@ mod tests {
             .collect();
         // rc = Πᵀ a_pyc (coarse)
         let mut rc = vec![0.0; pi_dim];
-        spmv_transpose(pi.as_ref(), &a_pyc, &mut rc);
+        spmv_transpose_into(pi.as_ref(), &a_pyc, &mut rc);
         // solve (ΠᵀAΠ + τI) yc' = rc; with τ ≈ 1e-8·max|diag| the recovered
         // yc' matches yc to a loose tolerance on the populated directions.
         let mut ycp = vec![0.0; pi_dim];

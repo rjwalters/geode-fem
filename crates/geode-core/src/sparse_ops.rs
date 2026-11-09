@@ -1,4 +1,4 @@
-//! Shared real CSC sparse mat-vec, quadratic-form and LU-solve helpers.
+//! Shared real CSC sparse mat-vec (`A x`, `Aᵀ x`), quadratic-form and LU-solve helpers.
 //!
 //! One home for the `y = A x`, `xᵀ A x` and `uᵀ K v` kernels that the eigen,
 //! driven and assembly modules previously each re-declared privately, plus the
@@ -34,6 +34,22 @@ pub(crate) fn spmv(a: SparseColMatRef<'_, usize, f64>, x: &[f64]) -> Vec<f64> {
     let mut y = vec![0.0; a.nrows()];
     spmv_into(a, x, &mut y);
     y
+}
+
+/// `y = Aᵀ · x` for a CSC sparse matrix (overwrite). `A` is `nrows × ncols`;
+/// `x.len() == nrows`, `y.len() == ncols`. `Aᵀ` in CSC is a row-walk of the
+/// stored columns: column `j` of `A` dotted with `x` is entry `j` of `Aᵀx`.
+pub(crate) fn spmv_transpose_into(a: SparseColMatRef<'_, usize, f64>, x: &[f64], y: &mut [f64]) {
+    let col_ptr = a.col_ptr();
+    let row_idx = a.row_idx();
+    let val = a.val();
+    for j in 0..a.ncols() {
+        let mut acc = 0.0;
+        for k in col_ptr[j]..col_ptr[j + 1] {
+            acc += val[k] * x[row_idx[k]];
+        }
+        y[j] = acc;
+    }
 }
 
 /// Quadratic form `xᵀ A x` for a CSC sparse matrix.
