@@ -100,3 +100,52 @@ pub fn repo_root() -> PathBuf {
         .canonicalize()
         .expect("repo root resolves")
 }
+
+/// Deterministic 64-bit LCG so tests need no `rand` dependency.
+///
+/// All three output mappings share one state update and the same
+/// `>> 11` / `2^53` unit mapping, so a given seed yields the same underlying
+/// stream regardless of which range a test draws from.
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+pub struct Lcg(pub u64);
+
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+impl Lcg {
+    /// Next sample in `[0, 1)`.
+    pub fn next_unit(&mut self) -> f64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (self.0 >> 11) as f64 / (1u64 << 53) as f64
+    }
+
+    /// Next sample in `[-1, 1)`.
+    pub fn next(&mut self) -> f64 {
+        self.next_unit() * 2.0 - 1.0
+    }
+
+    /// Next sample in `[-0.5, 0.5)`.
+    pub fn next_centered(&mut self) -> f64 {
+        self.next_unit() - 0.5
+    }
+}
+
+/// Sparse CSC matrix–vector product `K x` (real).
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+pub fn spmv(k: &faer::sparse::SparseColMat<usize, f64>, x: &[f64]) -> Vec<f64> {
+    let kr = k.as_ref();
+    let mut out = vec![0.0; kr.nrows()];
+    for (j, &xj) in x.iter().enumerate().take(kr.ncols()) {
+        for idx in kr.col_ptr()[j]..kr.col_ptr()[j + 1] {
+            out[kr.row_idx()[idx]] += kr.val()[idx] * xj;
+        }
+    }
+    out
+}
+
+/// Euclidean norm of a real slice.
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+pub fn norm(v: &[f64]) -> f64 {
+    v.iter().map(|x| x * x).sum::<f64>().sqrt()
+}

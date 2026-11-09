@@ -14,6 +14,7 @@ mod common;
 use common::boundary_plane_faces;
 
 use burn::tensor::backend::BackendTypes;
+use common::Lcg;
 use faer::c64;
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::driven::adjoint::DrivenGradientProblem;
@@ -33,17 +34,6 @@ const FD_H: f64 = 1e-6;
 
 fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()
-}
-
-struct Lcg(u64);
-impl Lcg {
-    fn next(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        ((self.0 >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
-    }
 }
 
 fn objective(x: &[c64]) -> (f64, Vec<c64>) {
