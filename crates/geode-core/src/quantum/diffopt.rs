@@ -40,6 +40,8 @@
 //! example and the `transmon_diffopt` integration test wire it to a real
 //! per-iteration FEM capacitance solve on a parallel-plate fixture.
 
+use crate::dense_ops::dense_solve;
+
 /// One recorded iteration of the gradient-based `E_C`-to-target optimization
 /// — the row behind the convergence figure.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -484,10 +486,9 @@ struct Ineq {
     tag: ActiveConstraint,
 }
 
-/// Solve the small dense system `A x = b` by Gaussian elimination with
-/// partial pivoting; `None` if `A` is singular to `rel_tol` of its largest
-/// diagonal-scale entry.
-fn solve_small(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
+/// Solve the small dense system `A x = b` by partial-pivot LU; `None` if `A`
+/// is zero / non-finite or the factorisation yields a non-finite solution.
+fn solve_small(a: Vec<Vec<f64>>, b: Vec<f64>) -> Option<Vec<f64>> {
     let n = b.len();
     let scale = a
         .iter()
@@ -496,31 +497,8 @@ fn solve_small(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
     if scale == 0.0 || !scale.is_finite() {
         return None;
     }
-    for col in 0..n {
-        let piv = (col..n).max_by(|&p, &q| a[p][col].abs().total_cmp(&a[q][col].abs()))?;
-        if a[piv][col].abs() <= 1e-12 * scale {
-            return None;
-        }
-        a.swap(col, piv);
-        b.swap(col, piv);
-        let (top, rest) = a.split_at_mut(col + 1);
-        let pivot_row = &top[col];
-        for (k, row) in rest.iter_mut().enumerate() {
-            let f = row[col] / pivot_row[col];
-            if f != 0.0 {
-                for (x, pv) in row.iter_mut().zip(pivot_row).skip(col) {
-                    *x -= f * pv;
-                }
-                b[col + 1 + k] -= f * b[col];
-            }
-        }
-    }
-    let mut x = vec![0.0; n];
-    for r in (0..n).rev() {
-        let s: f64 = (r + 1..n).map(|c| a[r][c] * x[c]).sum();
-        x[r] = (b[r] - s) / a[r][r];
-    }
-    Some(x)
+    let flat: Vec<f64> = a.iter().flatten().copied().collect();
+    dense_solve(&flat, &b, n)
 }
 
 /// The minimum-norm `u` with `rows · u = rhs`, or `None` if the rows are

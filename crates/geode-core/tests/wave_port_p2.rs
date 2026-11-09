@@ -4240,34 +4240,17 @@ impl<'m> DrivenProbe<'m> {
 }
 
 /// `x` with `a x = b` for a small dense complex `n × n` `a` (row-major), by
-/// Gaussian elimination with partial pivoting.
-fn solve_small_complex(mut a: Vec<c64>, mut b: Vec<c64>, n: usize) -> Vec<c64> {
-    for c in 0..n {
-        let p = (c..n)
-            .max_by(|&i, &j| a[i * n + c].norm().total_cmp(&a[j * n + c].norm()))
-            .expect("row");
-        assert!(a[p * n + c].norm() > 0.0, "singular SMW capacitance matrix");
-        if p != c {
-            for j in 0..n {
-                a.swap(c * n + j, p * n + j);
-            }
-            b.swap(c, p);
-        }
-        for r in c + 1..n {
-            let f = a[r * n + c] / a[c * n + c];
-            for j in c..n {
-                let v = a[c * n + j];
-                a[r * n + j] -= f * v;
-            }
-            let v = b[c];
-            b[r] -= f * v;
-        }
-    }
-    let mut x = vec![c64::new(0.0, 0.0); n];
-    for r in (0..n).rev() {
-        let s = (r + 1..n).fold(b[r], |s, j| s - a[r * n + j] * x[j]);
-        x[r] = s / a[r * n + r];
-    }
+/// faer partial-pivot LU.
+fn solve_small_complex(a: Vec<c64>, b: Vec<c64>, n: usize) -> Vec<c64> {
+    use faer::linalg::solvers::Solve;
+    let am = faer::Mat::<c64>::from_fn(n, n, |i, j| a[i * n + j]);
+    let bm = faer::Mat::<c64>::from_fn(n, 1, |i, _| b[i]);
+    let sol = am.partial_piv_lu().solve(&bm);
+    let x: Vec<c64> = (0..n).map(|i| sol[(i, 0)]).collect();
+    assert!(
+        x.iter().all(|v| v.re.is_finite() && v.im.is_finite()),
+        "singular SMW capacitance matrix"
+    );
     x
 }
 
