@@ -29,10 +29,13 @@
 //! * the Silver-Müller pair path (`smallest_complex_pairs`, the path
 //!   behind `self_consistent_k_vector_tracked`), by eigen-residual.
 
+mod common;
+
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use burn::tensor::backend::BackendTypes;
+use common::Lcg;
 use faer::{Mat, MatRef, c64};
 use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
@@ -81,22 +84,10 @@ fn with_watchdog<T: Send + 'static>(what: &str, f: impl FnOnce() -> T + Send + '
     }
 }
 
-/// Deterministic LCG in `[-0.5, 0.5)`, so the test needs no `rand` dependency.
-struct Lcg(u64);
-impl Lcg {
-    fn next(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        ((self.0 >> 11) as f64) / ((1u64 << 53) as f64) - 0.5
-    }
-}
-
 /// Well-conditioned, non-orthogonal real mixing matrix `S = I + 0.5 R/√n`.
 fn mixing(n: usize, rng: &mut Lcg) -> Mat<f64> {
     Mat::<f64>::from_fn(n, n, |i, j| {
-        (if i == j { 1.0 } else { 0.0 }) + 0.5 * rng.next() / (n as f64).sqrt()
+        (if i == j { 1.0 } else { 0.0 }) + 0.5 * rng.next_centered() / (n as f64).sqrt()
     })
 }
 
@@ -147,13 +138,13 @@ fn synthetic_null_cluster_pencil_finishes_with_exact_spectrum() {
             let v = if i < n_null {
                 0.0
             } else {
-                1.0 + 50.0 * (rng.next() + 0.5)
+                1.0 + 50.0 * (rng.next_centered() + 0.5)
             };
             c64::new(v, 0.0)
         })
         .collect();
     let dm: Vec<c64> = (0..n)
-        .map(|_| c64::new(1.0 + rng.next(), 0.3 * (rng.next() + 0.5)))
+        .map(|_| c64::new(1.0 + rng.next_centered(), 0.3 * (rng.next_centered() + 0.5)))
         .collect();
     let (a, b) = (congruence(&s, &dk), congruence(&s, &dm));
 
@@ -346,12 +337,14 @@ fn silver_muller_pairs_finish_with_small_residuals() {
             let v = if i < n_null {
                 0.0
             } else {
-                1.0 + 50.0 * (rng.next() + 0.5)
+                1.0 + 50.0 * (rng.next_centered() + 0.5)
             };
             c64::new(v, 0.0)
         })
         .collect();
-    let dm: Vec<c64> = (0..n).map(|_| c64::new(1.0 + rng.next(), 0.0)).collect();
+    let dm: Vec<c64> = (0..n)
+        .map(|_| c64::new(1.0 + rng.next_centered(), 0.0))
+        .collect();
     let k_c = congruence(&mix, &dk);
     let m_c = congruence(&mix, &dm);
     let k = Mat::<f64>::from_fn(n, n, |i, j| k_c[(i, j)].re);
@@ -359,7 +352,7 @@ fn silver_muller_pairs_finish_with_small_residuals() {
     // Surface-like term: nonzero on the last 10 % of the DOFs only.
     let s = Mat::<f64>::from_fn(n, n, |i, j| {
         if i == j && i >= n - n / 10 {
-            0.5 + rng.next().abs()
+            0.5 + rng.next_centered().abs()
         } else {
             0.0
         }

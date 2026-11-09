@@ -24,6 +24,7 @@ mod common;
 use common::boundary_plane_faces;
 
 use burn::tensor::backend::BackendTypes;
+use common::Lcg;
 use faer::c64;
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::driven::adjoint::{
@@ -48,17 +49,6 @@ fn device() -> <B as BackendTypes>::Device {
 const OMEGA: f64 = 1.3;
 const FD_H: f64 = 1e-6;
 const TOL: f64 = 1e-4;
-
-struct Lcg(u64);
-impl Lcg {
-    fn next(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        ((self.0 >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
-    }
-}
 
 /// `cube_tet_mesh(n)` with interior and face-interior nodes jittered.
 fn jittered(n: usize, seed: u64) -> TetMesh {
