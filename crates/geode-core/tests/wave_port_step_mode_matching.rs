@@ -302,51 +302,20 @@ fn mode_match_m_subproblem(
     ((beta_a[0], a_minus[0]), (beta_b[0], b_plus[0]))
 }
 
-/// Dense complex LU solve for `A x = b` (small N). Row-major `A`.
+/// Dense complex LU solve for `A x = b` (small N). Row-major `A`; faer
+/// partial-pivot LU. Panics on a non-finite (singular) solution.
 fn lu_solve(a_in: &[c64], b_in: &[c64], n: usize) -> Vec<c64> {
+    use faer::linalg::solvers::Solve;
     debug_assert_eq!(a_in.len(), n * n);
     debug_assert_eq!(b_in.len(), n);
-    let mut a = a_in.to_vec();
-    let mut x = b_in.to_vec();
-    for col in 0..n {
-        // Partial pivoting.
-        let mut piv = col;
-        let mut piv_norm = a[col * n + col].norm();
-        for r in (col + 1)..n {
-            let v = a[r * n + col].norm();
-            if v > piv_norm {
-                piv = r;
-                piv_norm = v;
-            }
-        }
-        assert!(piv_norm > 0.0, "singular pivot at col {col}");
-        if piv != col {
-            for c in 0..n {
-                a.swap(col * n + c, piv * n + c);
-            }
-            x.swap(col, piv);
-        }
-        let d = a[col * n + col];
-        // Eliminate below.
-        for r in (col + 1)..n {
-            let f = a[r * n + col] / d;
-            for c in col..n {
-                let av = a[col * n + c] * f;
-                a[r * n + c] -= av;
-            }
-            let xv = x[col] * f;
-            x[r] -= xv;
-        }
-    }
-    // Back-substitute.
-    let mut out = vec![c64::new(0.0, 0.0); n];
-    for i in (0..n).rev() {
-        let mut s = x[i];
-        for j in (i + 1)..n {
-            s -= a[i * n + j] * out[j];
-        }
-        out[i] = s / a[i * n + i];
-    }
+    let am = faer::Mat::<c64>::from_fn(n, n, |i, j| a_in[i * n + j]);
+    let bm = faer::Mat::<c64>::from_fn(n, 1, |i, _| b_in[i]);
+    let sol = am.partial_piv_lu().solve(&bm);
+    let out: Vec<c64> = (0..n).map(|i| sol[(i, 0)]).collect();
+    assert!(
+        out.iter().all(|v| v.re.is_finite() && v.im.is_finite()),
+        "singular pivot"
+    );
     out
 }
 

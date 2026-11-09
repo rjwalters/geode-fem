@@ -10,6 +10,7 @@ pub mod adjoint;
 pub mod analytic;
 pub mod assembly;
 pub mod constants;
+pub(crate) mod dense_ops;
 pub mod derham;
 pub mod driven;
 pub mod eigen;

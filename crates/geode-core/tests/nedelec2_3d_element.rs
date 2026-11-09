@@ -50,43 +50,17 @@ const SKEW_TET: [[f64; 3]; 4] = [
 // tiny dense f64 linear algebra (self-contained; no faer API guesswork)
 // ---------------------------------------------------------------------------
 
-/// Solve `A x = b` for a dense `n×n` `A` by Gaussian elimination with partial
-/// pivoting. Panics if `A` is singular.
+/// Solve `A x = b` for a dense `n×n` `A` by faer partial-pivot LU. Panics if
+/// the solution is non-finite (singular `A`).
 fn solve_dense(a: &[[f64; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS], b: &[f64]) -> Vec<f64> {
+    use faer::linalg::solvers::Solve;
     let n = TET_NEDELEC2_DOFS;
-    let mut m = vec![vec![0.0_f64; n + 1]; n];
-    for i in 0..n {
-        for j in 0..n {
-            m[i][j] = a[i][j];
-        }
-        m[i][n] = b[i];
-    }
-    for col in 0..n {
-        // pivot
-        let mut piv = col;
-        for r in (col + 1)..n {
-            if m[r][col].abs() > m[piv][col].abs() {
-                piv = r;
-            }
-        }
-        assert!(m[piv][col].abs() > 1e-14, "singular matrix at col {col}");
-        m.swap(col, piv);
-        let d = m[col][col];
-        for j in col..=n {
-            m[col][j] /= d;
-        }
-        for r in 0..n {
-            if r != col {
-                let f = m[r][col];
-                if f != 0.0 {
-                    for j in col..=n {
-                        m[r][j] -= f * m[col][j];
-                    }
-                }
-            }
-        }
-    }
-    (0..n).map(|i| m[i][n]).collect()
+    let am = faer::Mat::<f64>::from_fn(n, n, |i, j| a[i][j]);
+    let bm = faer::Mat::<f64>::from_fn(n, 1, |i, _| b[i]);
+    let sol = am.partial_piv_lu().solve(&bm);
+    let x: Vec<f64> = (0..n).map(|i| sol[(i, 0)]).collect();
+    assert!(x.iter().all(|v| v.is_finite()), "singular matrix");
+    x
 }
 
 /// Cholesky factorisation attempt: returns `true` iff `A` is SPD.
