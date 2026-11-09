@@ -720,22 +720,7 @@ fn assemble_mixed_pencil_sparse(
     Ok((a, b))
 }
 
-/// Sparse matvec `y = A x` (overwrite) for a CSC matrix.
-pub(crate) fn sp_matvec(a: SparseColMatRef<'_, usize, f64>, x: &[f64], y: &mut [f64]) {
-    y.iter_mut().for_each(|v| *v = 0.0);
-    let col_ptr = a.col_ptr();
-    let row_idx = a.row_idx();
-    let val = a.val();
-    for j in 0..a.ncols() {
-        let xj = x[j];
-        if xj == 0.0 {
-            continue;
-        }
-        for k in col_ptr[j]..col_ptr[j + 1] {
-            y[row_idx[k]] += val[k] * xj;
-        }
-    }
-}
+pub(crate) use crate::sparse_ops::spmv_into as sp_matvec;
 
 /// `A − σ B` as a fresh sparse matrix (union of both patterns).
 fn shifted_mixed_pencil(

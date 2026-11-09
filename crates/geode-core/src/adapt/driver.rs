@@ -1650,14 +1650,7 @@ fn prolong_real(p: &SparseColMat<usize, f64>, x: &[f64]) -> Vec<f64> {
 
 /// `y = A x` for a complex CSC `A`.
 fn spmv_c(a: &SparseColMat<usize, c64>, x: &[c64]) -> Vec<c64> {
-    let a = a.as_ref();
-    let mut y = vec![c64::new(0.0, 0.0); a.nrows()];
-    for (j, &xj) in x.iter().enumerate() {
-        for (i, &v) in a.row_idx_of_col(j).zip(a.val_of_col(j)) {
-            y[i] += v * xj;
-        }
-    }
-    y
+    crate::sparse_ops::spmv_c(a.as_ref(), x)
 }
 
 /// `xᵀ A y` for a real CSC `A`.

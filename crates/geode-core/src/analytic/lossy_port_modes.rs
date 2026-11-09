@@ -329,35 +329,8 @@ pub fn assemble_lossy_hybrid_pencil(
 // Complex linear-algebra helpers
 // ---------------------------------------------------------------------------
 
-/// `y = A x` (overwrite), complex CSC.
-pub(crate) fn cmatvec(a: SparseColMatRef<'_, usize, c64>, x: &[c64], y: &mut [c64]) {
-    y.iter_mut().for_each(|v| *v = ZERO);
-    let (cp, ri, val) = (a.col_ptr(), a.row_idx(), a.val());
-    for j in 0..a.ncols() {
-        let xj = x[j];
-        if xj == ZERO {
-            continue;
-        }
-        for k in cp[j]..cp[j + 1] {
-            y[ri[k]] += val[k] * xj;
-        }
-    }
-}
-
-/// `y = A x` (overwrite), real CSC times a complex vector.
-pub(crate) fn rmatvec(a: SparseColMatRef<'_, usize, f64>, x: &[c64], y: &mut [c64]) {
-    y.iter_mut().for_each(|v| *v = ZERO);
-    let (cp, ri, val) = (a.col_ptr(), a.row_idx(), a.val());
-    for j in 0..a.ncols() {
-        let xj = x[j];
-        if xj == ZERO {
-            continue;
-        }
-        for k in cp[j]..cp[j + 1] {
-            y[ri[k]] += xj * val[k];
-        }
-    }
-}
+pub(crate) use crate::sparse_ops::spmv_c_into as cmatvec;
+pub(crate) use crate::sparse_ops::spmv_rc_into as rmatvec;
 
 /// Unconjugated `aᵀb`.
 pub(crate) fn dot_u(a: &[c64], b: &[c64]) -> c64 {

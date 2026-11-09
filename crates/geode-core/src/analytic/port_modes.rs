@@ -1978,9 +1978,7 @@ pub fn mode_line_quantities(
 
 /// `y = A x` for a sparse matrix (public helper for the identity tests).
 pub fn sparse_matvec(a: SparseColMatRef<'_, usize, f64>, x: &[f64]) -> Vec<f64> {
-    let mut y = vec![0.0; a.nrows()];
-    sp_matvec(a, x, &mut y);
-    y
+    crate::sparse_ops::spmv(a, x)
 }
 
 #[cfg(test)]
