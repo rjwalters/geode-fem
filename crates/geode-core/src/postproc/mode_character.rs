@@ -717,6 +717,22 @@ pub fn interpolate_edge_field(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A rank-deficient Gram matrix must give a zero coefficient vector, never
+    /// non-finite or huge output.
+    #[test]
+    fn solve_small_rank_deficient_gram_gives_zero() {
+        let z = |re: f64| c64::new(re, 0.0);
+        let g = vec![vec![z(1.0), z(2.0)], vec![z(2.0), z(4.0)]];
+        let x = solve_small(&g, &[z(1.0), z(1.0)]);
+        assert!(x.iter().all(|v| v.re == 0.0 && v.im == 0.0), "{x:?}");
+        let g = vec![vec![z(1.0), z(2.0)], vec![z(2.0), z(4.0 + 1e-16)]];
+        let x = solve_small(&g, &[z(1.0), z(1.0)]);
+        assert!(
+            x.iter().all(|v| v.norm() < 1e6 && v.norm().is_finite()),
+            "{x:?}"
+        );
+    }
     use crate::mesh::read_sphere_fixture;
 
     const N_INSIDE: f64 = 1.5;

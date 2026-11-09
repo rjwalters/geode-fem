@@ -497,6 +497,24 @@ fn solve_small(a: Vec<Vec<f64>>, b: Vec<f64>) -> Option<Vec<f64>> {
     if scale == 0.0 || !scale.is_finite() {
         return None;
     }
+    // faer reports only exact-zero pivots; restore the relative-pivot test so
+    // dependent / near-parallel rows read as singular rather than yielding a
+    // finite huge-lambda solution.
+    let mut w = a.clone();
+    for c in 0..n {
+        let piv = (c..n).max_by(|&i, &j| w[i][c].abs().total_cmp(&w[j][c].abs()))?;
+        if w[piv][c].abs() <= 1e-12 * scale {
+            return None;
+        }
+        w.swap(c, piv);
+        for r in c + 1..n {
+            let f = w[r][c] / w[c][c];
+            let pivot_row = w[c].clone();
+            for (x, v) in w[r].iter_mut().zip(&pivot_row).skip(c) {
+                *x -= f * v;
+            }
+        }
+    }
     let flat: Vec<f64> = a.iter().flatten().copied().collect();
     dense_solve(&flat, &b, n)
 }
@@ -971,6 +989,32 @@ pub fn optimize_multiparam_bounded<P: MultiParamProblem>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Dependent constraint rows must be reported singular, not solved to a
+    /// finite huge-lambda answer (conditioning guard after the faer move).
+    #[test]
+    fn min_norm_rejects_dependent_rows() {
+        let r: [f64; 3] = [1.0, 2.0, 3.0];
+        let dup = [r.as_slice(), r.as_slice()];
+        assert!(
+            min_norm_solution(&dup, &[1.0, 1.0], 3).is_none(),
+            "duplicate"
+        );
+        let r2: [f64; 3] = [1.0 + 1e-9, 2.0, 3.0 - 1e-9];
+        let near = [r.as_slice(), r2.as_slice()];
+        assert!(
+            min_norm_solution(&near, &[1.0, 1.0], 3).is_none(),
+            "near-parallel"
+        );
+        let z = [0.0; 3];
+        let zero = [r.as_slice(), z.as_slice()];
+        assert!(
+            min_norm_solution(&zero, &[1.0, 0.0], 3).is_none(),
+            "zero row"
+        );
+        let one = [r.as_slice()];
+        assert!(min_norm_solution(&one, &[1.0], 3).is_some(), "1x1");
+    }
 
     /// Closed-form `E_C(θ)` for the clean parallel-plate fixture used by the
     /// example: gap `d = d0 (1 + θ)`, so `C(θ) = C0 / (1 + θ)` and
