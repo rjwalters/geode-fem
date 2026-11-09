@@ -2917,7 +2917,7 @@ dependencies = [
  "geode-core",
  "geode-util",
  "mshio",
- "nix 0.29.0",
+ "nix",
  "pkg-config",
  "rayon",
  "regex",
@@ -4203,18 +4203,6 @@ name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
-
-[[package]]
-name = "nix"
-version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
-dependencies = [
- "bitflags",
- "cfg-if",
- "cfg_aliases",
- "libc",
-]
 
 [[package]]
 name = "nix"
@@ -7706,7 +7694,7 @@ dependencies = [
  "hmac",
  "indexmap",
  "memchr",
- "nix 0.31.3",
+ "nix",
  "pbkdf2",
  "sha1",
  "time",
