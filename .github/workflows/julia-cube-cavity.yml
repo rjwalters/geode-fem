@@ -132,7 +132,7 @@ jobs:
           cache-name: julia-cube-cavity-${{ hashFiles('reference/julia/Project.toml') }}
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.14'
           cache: pip
