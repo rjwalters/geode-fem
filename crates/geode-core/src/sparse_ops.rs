@@ -46,6 +46,58 @@ pub(crate) fn spmv(a: SparseColMatRef<'_, usize, f64>, x: &[f64]) -> Vec<f64> {
     y
 }
 
+/// `y = A · x` for a complex CSC sparse matrix (overwrite). Columns with
+/// `x[j] == 0` are skipped.
+pub(crate) fn spmv_c_into(a: SparseColMatRef<'_, usize, c64>, x: &[c64], y: &mut [c64]) {
+    let zero = c64::new(0.0, 0.0);
+    y.iter_mut().for_each(|v| *v = zero);
+    let col_ptr = a.col_ptr();
+    let row_idx = a.row_idx();
+    let val = a.val();
+    for j in 0..a.ncols() {
+        let xj = x[j];
+        if xj == zero {
+            continue;
+        }
+        for k in col_ptr[j]..col_ptr[j + 1] {
+            y[row_idx[k]] += val[k] * xj;
+        }
+    }
+}
+
+/// `A · x` for a complex CSC sparse matrix, returned as a fresh vector.
+pub(crate) fn spmv_c(a: SparseColMatRef<'_, usize, c64>, x: &[c64]) -> Vec<c64> {
+    let mut y = vec![c64::new(0.0, 0.0); a.nrows()];
+    spmv_c_into(a, x, &mut y);
+    y
+}
+
+/// `y = A · x` for a real CSC matrix and a complex vector (overwrite).
+pub(crate) fn spmv_rc_into(a: SparseColMatRef<'_, usize, f64>, x: &[c64], y: &mut [c64]) {
+    let zero = c64::new(0.0, 0.0);
+    y.iter_mut().for_each(|v| *v = zero);
+    let col_ptr = a.col_ptr();
+    let row_idx = a.row_idx();
+    let val = a.val();
+    for j in 0..a.ncols() {
+        let xj = x[j];
+        if xj == zero {
+            continue;
+        }
+        for k in col_ptr[j]..col_ptr[j + 1] {
+            y[row_idx[k]] += xj * val[k];
+        }
+    }
+}
+
+/// `A · x` for a real CSC matrix and a complex vector, returned as a fresh
+/// vector.
+pub(crate) fn spmv_rc(a: SparseColMatRef<'_, usize, f64>, x: &[c64]) -> Vec<c64> {
+    let mut y = vec![c64::new(0.0, 0.0); a.nrows()];
+    spmv_rc_into(a, x, &mut y);
+    y
+}
+
 /// `y = Aᵀ · x` for a CSC sparse matrix (overwrite). `A` is `nrows × ncols`;
 /// `x.len() == nrows`, `y.len() == ncols`. `Aᵀ` in CSC is a row-walk of the
 /// stored columns: column `j` of `A` dotted with `x` is entry `j` of `Aᵀx`.

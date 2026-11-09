@@ -1031,17 +1031,7 @@ pub struct AmgPcgReport {
 /// `y = K x` for a **symmetric** CSC `K`: column `j` dotted with `x` is
 /// `(Kᵀx)_j = (Kx)_j`, so each output entry is an independent gather.
 fn sym_spmv(k: &SparseColMat<usize, f64>, x: &[f64], y: &mut [f64]) {
-    let k_ref = k.as_ref();
-    let cp = k_ref.col_ptr();
-    let row_idx = k_ref.row_idx();
-    let vals = k_ref.val();
-    for (j, yj) in y.iter_mut().enumerate() {
-        let mut s = 0.0;
-        for q in cp[j]..cp[j + 1] {
-            s += vals[q] * x[row_idx[q]];
-        }
-        *yj = s;
-    }
+    crate::sparse_ops::spmv_transpose_into(k.as_ref(), x, y);
 }
 
 fn dot_slices(a: &[f64], b: &[f64]) -> f64 {
