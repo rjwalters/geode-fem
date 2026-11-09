@@ -151,6 +151,7 @@ use faer::sparse::{SparseColMat, Triplet};
 use crate::analytic::slotless_pm::MU_0;
 use crate::analytic::waveguide::{TRI_QUAD_DEG4, TriMesh, tri_bary_grads};
 use crate::assembly::magnetostatic::assemble_magnetization_rhs;
+use crate::sparse_ops::norm2;
 
 /// Free-space reluctivity `1/μ₀` in m/H.
 pub const NU_0: f64 = 1.0 / MU_0;
@@ -2684,11 +2685,6 @@ pub fn load_vector_from_fn(mesh: &TriMesh, f: impl Fn(f64, f64) -> f64) -> Vec<f
         }
     }
     load
-}
-
-#[inline]
-fn norm2(v: &[f64]) -> f64 {
-    v.iter().map(|x| x * x).sum::<f64>().sqrt()
 }
 
 #[cfg(test)]

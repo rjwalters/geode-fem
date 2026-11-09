@@ -65,6 +65,7 @@ use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 use faer::{Mat, Side};
 
 use super::BlochError;
+use crate::sparse_ops::norm2_c as norm2;
 
 const ZERO: c64 = c64 { re: 0.0, im: 0.0 };
 
@@ -116,10 +117,6 @@ pub(crate) fn dotc(u: &[c64], v: &[c64]) -> c64 {
         acc += a.conj() * b;
     }
     acc
-}
-
-fn norm2(u: &[c64]) -> f64 {
-    u.iter().map(|z| z.norm_sqr()).sum::<f64>().sqrt()
 }
 
 /// The realification `[[Re A, −Im A], [Im A, Re A]]` (`2n × 2n`, real) of
