@@ -39,8 +39,6 @@ use sha2::{Digest, Sha256};
 
 pub mod geo;
 pub mod layout;
-// Importer only so far (issue #1288); the `--stackup` wiring is a follow-up.
-#[allow(dead_code)]
 pub mod stackup;
 
 use self::geo::{GeoScript, GroupRole};
@@ -48,9 +46,10 @@ use self::layout::{BoundaryDef, Layout, ResolvedLayout};
 use crate::error::CliError;
 use crate::report::Provenance;
 use crate::spec::{
-    BoundaryConditionsSpec, CapacitanceSpec, CurrentPathSpec, FrequencySpec, FrequencyUnit,
-    InductanceSpec, LeontovichSpec, LumpedPortSpec, MaterialSpec, MeshSpec, ProblemSpec,
-    SPEC_SCHEMA_VERSION, SolverSpec, Spacing, UpmlSpec,
+    self, BlochPointSpec, BlochSpec, BoundaryConditionsSpec, CapacitanceSpec, CurrentPathSpec,
+    EigenSpec, FrequencySpec, FrequencyUnit, InductanceSpec, LeontovichSpec, LumpedPortSpec,
+    MaterialSpec, MeshSpec, PeriodicSpec, ProblemSpec, SPEC_SCHEMA_VERSION, SolverSpec, Spacing,
+    UpmlSpec,
 };
 
 /// Environment variable naming the Gmsh binary (below `--gmsh`).
@@ -77,6 +76,10 @@ pub enum MeshAnalysis {
     /// every other conductor group are the PEC return. Ports are not
     /// meshed.
     Inductance,
+    /// Eigen spec (`geode eigen`): PEC cavity modes, or with the layout's
+    /// `periodic` axes a Bloch unit cell (`eigen.bloch` at Γ). Ports are
+    /// not meshed.
+    Eigen,
 }
 
 impl MeshAnalysis {
@@ -86,6 +89,7 @@ impl MeshAnalysis {
             MeshAnalysis::Driven => "driven",
             MeshAnalysis::Capacitance => "capacitance",
             MeshAnalysis::Inductance => "inductance",
+            MeshAnalysis::Eigen => "eigen",
         }
     }
 }
@@ -95,6 +99,12 @@ impl MeshAnalysis {
 pub struct MeshArgs {
     /// Layout file (`.toml` → TOML, anything else → JSON), schema v1.
     layout: PathBuf,
+    /// XML layer stackup (see `mesh_cmd::stackup`) that fills what the
+    /// layout omits: `dielectrics` (when absent or empty) and, for
+    /// conductors matched by name, `z_bottom`, `thickness` and
+    /// `conductivity_s_m`. Values the layout states win.
+    #[arg(long, value_name = "XML")]
+    stackup: Option<PathBuf>,
     /// Output mesh (Gmsh MSH 4.1 ASCII). The generated `.geo` script is
     /// written next to it with the same stem. Default: the layout path
     /// with a `.msh` extension.
@@ -229,17 +239,34 @@ fn io(path: &Path) -> impl FnOnce(std::io::Error) -> CliError + '_ {
     }
 }
 
-/// Parse a layout file: `.toml` → TOML, anything else → JSON.
-pub fn read_layout(path: &Path) -> Result<(Layout, Vec<u8>), CliError> {
+/// Parse a layout file: `.toml` → TOML, anything else → JSON. With
+/// `stackup`, the layout's gaps are first filled from that XML stackup
+/// (`geode mesh --stackup`, issue #1288).
+pub fn read_layout(path: &Path, stackup: Option<&Path>) -> Result<(Layout, Vec<u8>), CliError> {
     let raw = std::fs::read(path).map_err(io(path))?;
     let text = String::from_utf8_lossy(&raw);
     let is_toml = path
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("toml"));
-    let parsed: Result<Layout, String> = if is_toml {
-        toml::from_str(&text).map_err(|e| e.to_string())
-    } else {
-        serde_json::from_str(&text).map_err(|e| e.to_string())
+    let parsed: Result<Layout, String> = match stackup {
+        None if is_toml => toml::from_str(&text).map_err(|e| e.to_string()),
+        None => serde_json::from_str(&text).map_err(|e| e.to_string()),
+        Some(xml_path) => {
+            let xml = std::fs::read_to_string(xml_path).map_err(io(xml_path))?;
+            let st = stackup::parse(&xml).map_err(|e| CliError::LayoutParse {
+                path: xml_path.to_path_buf(),
+                message: e.to_string(),
+            })?;
+            let value: Result<serde_json::Value, String> = if is_toml {
+                toml::from_str(&text).map_err(|e| e.to_string())
+            } else {
+                serde_json::from_str(&text).map_err(|e| e.to_string())
+            };
+            value.and_then(|mut v| {
+                st.fill_layout(&mut v);
+                serde_json::from_value(v).map_err(|e| e.to_string())
+            })
+        }
     };
     let layout = parsed.map_err(|message| CliError::LayoutParse {
         path: path.to_path_buf(),
@@ -352,7 +379,7 @@ fn tail(text: &str, n: usize) -> String {
 }
 
 fn run(a: &MeshArgs, provenance: Provenance) -> Result<MeshReport, CliError> {
-    let (layout, layout_bytes) = read_layout(&a.layout)?;
+    let (layout, layout_bytes) = read_layout(&a.layout, a.stackup.as_deref())?;
     let resolved = layout
         .resolve_for(a.analysis)
         .map_err(CliError::InvalidLayout)?;
@@ -629,6 +656,7 @@ fn summarize_groups(
             GroupRole::Port(_) => "port",
             GroupRole::Contact(_) => "contact",
             GroupRole::OuterBoundary => "outer_boundary",
+            GroupRole::PeriodicWall { .. } => "periodic_wall",
         };
         out.push(GroupSummary {
             dim: g.dim,
@@ -668,6 +696,7 @@ pub fn starter_spec(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf) 
         MeshAnalysis::Driven => starter_spec_driven(r, script, mesh_path),
         MeshAnalysis::Capacitance => starter_spec_capacitance(r, script, mesh_path),
         MeshAnalysis::Inductance => starter_spec_inductance(r, script, mesh_path),
+        MeshAnalysis::Eigen => starter_spec_eigen(r, script, mesh_path),
     }
 }
 
@@ -742,6 +771,7 @@ fn starter_spec_driven(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBu
             dispersion: None,
             eps_r_diag: None,
             mu_r_diag: None,
+            conductivity_s_m: None,
         })
         .collect();
     ProblemSpec {
@@ -811,6 +841,7 @@ fn starter_spec_capacitance(
             dispersion: None,
             eps_r_diag: None,
             mu_r_diag: None,
+            conductivity_s_m: None,
         })
         .collect();
     let terminals = (0..r.groups.len())
@@ -821,6 +852,103 @@ fn starter_spec_capacitance(
     ground.extend(l.ground.iter().cloned());
     ProblemSpec {
         capacitance: Some(CapacitanceSpec { terminals, ground }),
+        ..bare_spec(mesh_path, l.length_unit_m, materials)
+    }
+}
+
+/// Cell-scaled `k0` shift (rad per mesh length unit) for a periodic Bloch
+/// cell. A fixed GHz number cannot work: at Γ the pencil has a large
+/// null space at `k0 = 0`, and a micron-scale cell's first band sits near
+/// 143 THz, so a 1 GHz shift lands in that null space and the
+/// shift-invert solve does not converge (issue #1381).
+///
+/// The cell is a PEC-lidded stack, so its lowest Γ band with vertical
+/// structure is the slab resonance `k0 ≈ π / OPL`, `OPL = Σ tᵢ·√Re(εᵣᵢ)`
+/// the optical path through the stack. The shift sits at `1.5 π / OPL`,
+/// between the first and second such resonance: well above the null
+/// space, and off an exact eigenvalue (a uniform slab has them at
+/// `n π / OPL`, where `A − σB` would be singular). Being in `k0`, it is
+/// independent of `length_unit_m`; it scales as the stack does.
+fn periodic_eigen_shift_k0(layout: &layout::Layout) -> f64 {
+    let opl: f64 = layout
+        .dielectrics
+        .iter()
+        .map(|d| d.thickness * d.eps_r[0].max(1.0).sqrt())
+        .sum();
+    // An empty (or zero-thickness) stack has no optical path: fall back to a
+    // finite shift of 1 rad per mesh length unit rather than dividing by zero.
+    if opl > 0.0 {
+        1.5 * std::f64::consts::PI / opl
+    } else {
+        1.0
+    }
+}
+
+/// The eigen starter spec: every slab's `eps_r` (real part: the Bloch
+/// pencil is lossless), PEC `outer_boundary` and conductors, and a
+/// shift to edit: a placeholder 1 GHz for the PEC cavity, a cell-scaled
+/// `k0` shift for a periodic cell (see [`periodic_eigen_shift_k0`]). With
+/// the layout's `periodic` axes the
+/// `<axis>_lo` / `<axis>_hi` walls become `boundary_conditions.periodic`
+/// pairs (explicit `translation` = the cell period) and the spec asks for
+/// the Bloch bands at Γ.
+fn starter_spec_eigen(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf) -> ProblemSpec {
+    let l = &r.layout;
+    let name = |role: GroupRole| group_name(script, role);
+    let materials = l
+        .dielectrics
+        .iter()
+        .enumerate()
+        .map(|(i, d)| MaterialSpec {
+            physical_group: name(GroupRole::Dielectric(i)),
+            eps_r: [d.eps_r[0], 0.0],
+            mu_r: 1.0,
+            dispersion: None,
+            eps_r_diag: None,
+            mu_r_diag: None,
+            conductivity_s_m: None,
+        })
+        .collect();
+    let mut pec = vec![name(GroupRole::OuterBoundary)];
+    pec.extend((0..r.groups.len()).map(|i| name(GroupRole::Conductor(i))));
+    let periodic: Vec<PeriodicSpec> = l
+        .periodic
+        .iter()
+        .map(|&axis| {
+            let period = match axis {
+                layout::Axis::X => r.domain.x1 - r.domain.x0,
+                layout::Axis::Y => r.domain.y1 - r.domain.y0,
+            };
+            let mut translation = [0.0; 3];
+            translation[axis as usize] = period;
+            PeriodicSpec {
+                master: name(GroupRole::PeriodicWall { axis, hi: false }),
+                slave: name(GroupRole::PeriodicWall { axis, hi: true }),
+                translation: Some(translation),
+            }
+        })
+        .collect();
+    let bloch = (!periodic.is_empty()).then_some(BlochSpec::Point(BlochPointSpec { k: [0.0; 3] }));
+    let (unit, shift) = if periodic.is_empty() {
+        (FrequencyUnit::Ghz, 1.0)
+    } else {
+        (FrequencyUnit::K0, periodic_eigen_shift_k0(l))
+    };
+    ProblemSpec {
+        boundary_conditions: BoundaryConditionsSpec {
+            pec,
+            periodic,
+            ..Default::default()
+        },
+        eigen: Some(EigenSpec {
+            n_modes: 6,
+            unit,
+            shift,
+            max_iters: spec::default_eigen_max_iters(),
+            tol: spec::default_eigen_tol(),
+            residual_tol: spec::default_eigen_residual_tol(),
+            bloch,
+        }),
         ..bare_spec(mesh_path, l.length_unit_m, materials)
     }
 }
@@ -904,6 +1032,51 @@ mod tests {
         let spec = go(&layout);
         assert!(spec.boundary_conditions.leontovich.is_empty());
         assert_eq!(spec.boundary_conditions.pec.len(), 3);
+    }
+
+    /// The periodic eigen starter spec asks for a `k0` shift scaled to the
+    /// cell (not the 1 GHz placeholder, issue #1381); the PEC-cavity one
+    /// keeps the placeholder.
+    #[test]
+    fn periodic_eigen_shift_is_k0_and_tracks_the_cell() {
+        let cell = |scale: f64, unit_m: f64, periodic: serde_json::Value| -> ProblemSpec {
+            let layout: Layout = serde_json::from_value(serde_json::json!({
+                "schema_version": 1,
+                "length_unit_m": unit_m,
+                "dielectrics": [
+                    {"name": "substrate", "z_bottom": -4.0 * scale, "thickness": 4.0 * scale,
+                     "eps_r": [11.9, 0]},
+                    {"name": "air", "z_bottom": 0, "thickness": 6.0 * scale}
+                ],
+                "conductors": [
+                    {"name": "sheet", "z_bottom": 0, "polygons": [
+                        {"outer": [[0,0],[10.0*scale,0],[10.0*scale,4.0*scale],[0,4.0*scale]]}]}
+                ],
+                "periodic": periodic,
+                "margin": 5.0 * scale,
+                "mesh": {"size_max": 5.0 * scale, "size_conductor": scale}
+            }))
+            .unwrap();
+            let r = layout.resolve_for(MeshAnalysis::Eigen).unwrap();
+            let script = geo::generate(&r, "test");
+            starter_spec_eigen(&r, &script, PathBuf::from("m.msh"))
+        };
+        let xy = cell(1.0, 1e-6, serde_json::json!(["x", "y"]));
+        let e = xy.eigen.as_ref().unwrap();
+        assert_eq!(e.unit, FrequencyUnit::K0);
+        assert!(e.shift.is_finite() && e.shift > 0.0);
+        // Doubling the stack halves the k0 shift; length_unit_m is irrelevant.
+        let big = cell(2.0, 1e-6, serde_json::json!(["x", "y"]));
+        assert!((big.eigen.unwrap().shift - e.shift / 2.0).abs() < 1e-12);
+        let nano = cell(1.0, 1e-9, serde_json::json!(["x", "y"]));
+        assert_eq!(nano.eigen.unwrap().shift, e.shift);
+        // x-only periodic is a Bloch cell too.
+        let x = cell(1.0, 1e-6, serde_json::json!(["x"]));
+        assert_eq!(x.eigen.unwrap().unit, FrequencyUnit::K0);
+        // No periodic axes: the PEC-cavity placeholder is unchanged.
+        let pec = cell(1.0, 1e-6, serde_json::json!([]));
+        let e = pec.eigen.unwrap();
+        assert_eq!((e.unit, e.shift), (FrequencyUnit::Ghz, 1.0));
     }
 
     /// One tet plus two tagged triangles: a real face (tag 101) and a

@@ -87,6 +87,7 @@ use faer::c64;
 use faer::sparse::{SparseColMat, Triplet};
 
 use crate::driven::solve::DrivenOperator;
+use crate::sparse_ops::{quad_form, spmv};
 
 /// Errors from the transient time-domain path.
 #[derive(Debug, thiserror::Error)]
@@ -503,7 +504,7 @@ impl<'a> TransientSolver<'a> {
 
     /// Discrete total energy `½ ẋᵀM ẋ + ½ xᵀK x` of an interior state.
     pub fn energy(&self, u: &[f64], v: &[f64]) -> f64 {
-        0.5 * quad_form(&self.m, v) + 0.5 * quad_form(&self.k, u)
+        0.5 * quad_form(self.m.as_ref(), v) + 0.5 * quad_form(self.k.as_ref(), u)
     }
 
     /// Run a pulsed, port-driven simulation and record the incident
@@ -720,8 +721,8 @@ impl TransientStepper<'_> {
         self.u.copy_from_slice(u);
         self.v.copy_from_slice(v);
         // M a = −C v − K u.
-        let mut rhs = spmv(&self.solver.k, u);
-        let cv = spmv(&self.solver.c, v);
+        let mut rhs = spmv(self.solver.k.as_ref(), u);
+        let cv = spmv(self.solver.c.as_ref(), v);
         for (r, c) in rhs.iter_mut().zip(cv.iter()) {
             *r = -(*r) - *c;
         }
@@ -805,16 +806,16 @@ impl TransientStepper<'_> {
         for i in 0..n {
             m_arg[i] = c_m * u_star[i] - alpha_m * self.a[i];
         }
-        let m_term = spmv(&self.solver.m, &m_arg);
+        let m_term = spmv(self.solver.m.as_ref(), &m_arg);
         // + C (c_c u* − (1−α_f) v*)  − C (α_f v_n)
         let mut c_arg = vec![0.0; n];
         for i in 0..n {
             c_arg[i] = c_c * u_star[i] - (1.0 - alpha_f) * v_star[i] - alpha_f * self.v[i];
         }
-        let c_term = spmv(&self.solver.c, &c_arg);
+        let c_term = spmv(self.solver.c.as_ref(), &c_arg);
         // − K (α_f u_n)
         let k_arg: Vec<f64> = self.u.iter().map(|&u| alpha_f * u).collect();
-        let k_term = spmv(&self.solver.k, &k_arg);
+        let k_term = spmv(self.solver.k.as_ref(), &k_arg);
 
         for i in 0..n {
             rhs[i] += m_term[i] + c_term[i] - k_term[i];
@@ -910,74 +911,11 @@ impl TransientRecord {
             })
             .collect()
     }
-
-    /// Raw DFTs `(F[V_p], F[V_inc])` at the excited port, for diagnostics
-    /// and cross-checks (`S₁₁ = (F[V] − F[V_inc]) / F[V_inc]`).
-    pub fn dft_v_and_vinc(&self, omegas: &[f64]) -> Vec<(c64, c64)> {
-        let p = self.excited;
-        omegas
-            .iter()
-            .map(|&omega| {
-                let mut fv = c64::new(0.0, 0.0);
-                let mut fi = c64::new(0.0, 0.0);
-                for (k, &t) in self.times.iter().enumerate() {
-                    let phase = c64::new(0.0, -omega * t).exp();
-                    fv += phase * self.v_port[p][k];
-                    fi += phase * self.v_inc[k];
-                }
-                (fv, fi)
-            })
-            .collect()
-    }
-
-    /// Total port-energy-outflow proxy `Σ_p V_p(t) I_p(t)` at each sample
-    /// — used to pick a decay-to-floor truncation point.
-    pub fn port_power(&self) -> Vec<f64> {
-        (0..self.times.len())
-            .map(|k| {
-                self.v_port
-                    .iter()
-                    .zip(self.i_port.iter())
-                    .map(|(v, i)| v[k] * i[k])
-                    .sum()
-            })
-            .collect()
-    }
 }
 
 // ---------------------------------------------------------------------------
 // Small real-sparse helpers (faer has no scalar-scaled sparse add in-tree).
 // ---------------------------------------------------------------------------
-
-/// Sparse `y = A x` for a real CSC matrix.
-fn spmv(a: &SparseColMat<usize, f64>, x: &[f64]) -> Vec<f64> {
-    let a_ref = a.as_ref();
-    let cp = a_ref.col_ptr();
-    let row_idx = a_ref.row_idx();
-    let vals = a_ref.val();
-    let n = a_ref.nrows();
-    let ncols = a_ref.ncols();
-    let mut y = vec![0.0; n];
-    for j in 0..ncols {
-        let xj = x[j];
-        if xj == 0.0 {
-            continue;
-        }
-        for k in cp[j]..cp[j + 1] {
-            y[row_idx[k]] += vals[k] * xj;
-        }
-    }
-    y
-}
-
-/// Real quadratic form `xᵀ A x`.
-fn quad_form(a: &SparseColMat<usize, f64>, x: &[f64]) -> f64 {
-    spmv(a, x)
-        .iter()
-        .zip(x.iter())
-        .map(|(&ax, &xi)| ax * xi)
-        .sum()
-}
 
 /// Assemble `s = ca·A + cb·B + cc·C` for three CSC matrices sharing a
 /// dimension, by concatenating their scaled triplets (duplicate entries

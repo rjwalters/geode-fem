@@ -36,7 +36,8 @@ fn read(rel: &str) -> String {
 
 fn load_at(rel: &str) -> toml::Value {
     read(rel)
-        .parse()
+        .parse::<toml::Table>()
+        .map(toml::Value::Table)
         .unwrap_or_else(|e| panic!("parse {rel}: {e}"))
 }
 

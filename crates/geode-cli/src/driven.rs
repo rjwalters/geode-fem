@@ -140,8 +140,9 @@ use crate::port_solves::PortSolves;
 use crate::problem::{self, Problem, UpmlRegion};
 use crate::progress::{Progress, SweepOptions, par_map};
 use crate::report::{
-    AdaptiveSweepStats, Complex, DrivenReport, FarFieldResult, FrequencyResult, MaterialEpsResult,
-    PortResult, Provenance, RoughnessKResult, SolverStats, WarningResult, WaveChannelResult,
+    AdaptiveSweepStats, Complex, DrivenAccuracy, DrivenOrderEstimate, DrivenOrderEstimatePoint,
+    DrivenReport, FarFieldResult, FrequencyResult, MaterialEpsResult, PortResult, Provenance,
+    RoughnessKResult, SensitivityReport, SolverStats, WarningResult, WaveChannelResult,
     WaveModeSummary, WavePortSummary,
 };
 use crate::spec::{AdaptiveSweepSpec, Analysis, SolverSpec};
@@ -213,6 +214,7 @@ pub fn run(
     touchstone: Option<&Path>,
     opts: SweepOptions,
     check_gradient: bool,
+    dataset: Option<&Path>,
 ) -> Result<DrivenReport, CliError> {
     let (mut p, adaptive_mesh) = crate::adaptive::load(spec_path, Analysis::Driven)?;
     // `--check-gradient` (issue #883): the FD self-check, with the spec's
@@ -231,6 +233,9 @@ pub fn run(
         ));
     }
     let p = p;
+    if dataset.is_some() {
+        validate_dataset(&p)?;
+    }
     p.print_load_warnings();
     // Every port-face solve of the run, made once on first use and shared
     // by the Touchstone classification, the `z0` precheck, the degeneracy
@@ -298,6 +303,9 @@ pub fn run(
             }
         })
         .transpose()?;
+    if let (Some(dir), Some(sens)) = (dataset, sensitivities.as_ref()) {
+        write_dataset(&p, &provenance, dir, &results, sens)?;
+    }
     let ports = port_summaries(&p);
     let touchstone_file = touchstone
         .zip(plan.as_ref())
@@ -310,6 +318,17 @@ pub fn run(
             }
         })
         .transpose()?;
+    let accuracy = if p.hcurl_space.is_some() && p.wave_ports.is_empty() {
+        let est = order_estimate(&p, &results, opts)?;
+        if let Some(w) = &est.warning {
+            eprintln!("warning: {w}");
+        }
+        Some(DrivenAccuracy {
+            order_estimate: est,
+        })
+    } else {
+        None
+    };
     Ok(DrivenReport {
         provenance,
         kind: "driven",
@@ -325,7 +344,146 @@ pub fn run(
         sensitivities,
         warnings,
         adaptive_mesh,
+        accuracy,
     })
+}
+
+/// Warning threshold on the same-mesh p=1 vs p=2 S-matrix difference
+/// `max |ΔS|` (`accuracy.order_estimate`, issue #1265).
+const ORDER_ESTIMATE_S_THRESHOLD: f64 = 0.02;
+
+/// Re-solve the lumped-port sweep at order 1 on the same mesh
+/// (`p.pec_mask_p1`) and compare S with the order-2 `results`.
+fn order_estimate(
+    p: &Problem,
+    results: &[FrequencyResult],
+    opts: SweepOptions,
+) -> Result<DrivenOrderEstimate, CliError> {
+    type B = CompiledBackend;
+    let lumped = lumped_ports(p);
+    let surfaces = impedance_walls(p);
+    let bcs = DrivenBcs {
+        pec_interior_mask: &p.pec_mask_p1,
+    };
+    let binding = FrequencyMaterials::constant(p);
+    let device = <B as BackendTypes>::Device::default();
+    let op = s_parameter_operator::<B>(
+        &p.tagged.mesh,
+        binding.materials(),
+        p.sigma(),
+        &bcs,
+        &lumped,
+        &surfaces,
+        &device,
+    )?;
+    let mode = solver_mode(p);
+    let n = p.ports.len();
+    let points = par_map(results.len(), opts.jobs, |index| {
+        let device = <B as BackendTypes>::Device::default();
+        let pt = s_parameter_point::<B>(&op, p.frequencies[index].k0, mode, &device)?;
+        let diff = |i: usize, j: usize| {
+            let [re, im] = results[index].s[i][j];
+            (c64::new(re, im) - pt.s.entry(i, j)).norm()
+        };
+        let delta_s_max = (0..n)
+            .flat_map(|i| (0..n).map(move |j| (i, j)))
+            .map(|(i, j)| diff(i, j))
+            .fold(0.0, f64::max);
+        Ok::<_, CliError>(DrivenOrderEstimatePoint {
+            index,
+            frequency_hz: p.frequencies[index].hz,
+            delta_s_max,
+            delta_s11: diff(0, 0),
+        })
+    })?;
+    Ok(order_estimate_from(points, ORDER_ESTIMATE_S_THRESHOLD))
+}
+
+fn order_estimate_from(
+    points: Vec<DrivenOrderEstimatePoint>,
+    threshold: f64,
+) -> DrivenOrderEstimate {
+    let delta_s_max = points.iter().map(|q| q.delta_s_max).fold(0.0, f64::max);
+    let above_threshold = delta_s_max > threshold;
+    let warning = above_threshold.then(|| {
+        format!(
+            "order-1 and order-2 S-matrices differ by up to {delta_s_max:.4} (> {threshold}) on \
+             this mesh: the order-1 discretization error is large here (the order-2 result is \
+             presumed closer, not certified); refine the mesh to confirm"
+        )
+    });
+    DrivenOrderEstimate {
+        reference_order: 1,
+        points,
+        delta_s_max,
+        threshold,
+        above_threshold,
+        warning,
+    }
+}
+
+/// `--dataset` preconditions, checked before any solve: a `sensitivity`
+/// section (the sample's gradient labels), all-lumped ports and a dense
+/// sweep (every row needs a full-order field).
+fn validate_dataset(p: &Problem) -> Result<(), CliError> {
+    if p.sensitivity.is_none() {
+        return Err(CliError::InvalidSpec(
+            "--dataset needs a `sensitivity` section in the spec (a sample is gradient-labelled; \
+             it would otherwise carry no gradients)"
+                .to_string(),
+        ));
+    }
+    if !p.wave_ports.is_empty() {
+        return Err(CliError::InvalidSpec(
+            "--dataset: wave-port specs have no exportable edge-DOF field yet; use an all-lumped \
+             spec"
+                .to_string(),
+        ));
+    }
+    if p.spec.sweep.as_ref().and_then(|s| s.adaptive).is_some() {
+        return Err(CliError::InvalidSpec(
+            "--dataset: an adaptive sweep interpolates some rows (no full-order field); use a \
+             dense sweep"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Write the `--dataset` sample of a finished lumped-port run: one extra
+/// solve per row (every port driven at its `v_inc`, like `--outdir`) for
+/// the field, the report's own S and gradients for the labels.
+fn write_dataset(
+    p: &Problem,
+    provenance: &Provenance,
+    dir: &Path,
+    results: &[FrequencyResult],
+    sens: &SensitivityReport,
+) -> Result<(), CliError> {
+    type B = CompiledBackend;
+    let lumped = lumped_ports(p);
+    let surfaces = impedance_walls(p);
+    let device = <B as BackendTypes>::Device::default();
+    let exporter = Exporter::<B>::new(p, &lumped, &surfaces, solver_mode(p), &device)?;
+    let e_edges = p
+        .frequencies
+        .iter()
+        .enumerate()
+        .map(|(index, f)| exporter.solve_edges(index, f))
+        .collect::<Result<Vec<_>, _>>()?;
+    let sample = crate::dataset::build(
+        p,
+        crate::dataset::SampleInputs {
+            kind: "driven",
+            provenance,
+            sensitivities: sens,
+            e_edges: &e_edges,
+            frequency_hz: results.iter().map(|r| r.frequency_hz).collect(),
+            s: Some(results.iter().map(|r| r.s.clone()).collect()),
+            q: None,
+        },
+    )?;
+    crate::dataset::write(dir, &sample)
 }
 
 /// The spec's lumped ports as library [`LumpedPort`]s (resistance in
@@ -704,7 +862,13 @@ fn lumped_operator<B: burn::tensor::backend::Backend>(
     let materials = binding.materials();
     let Some(space) = p.hcurl_space.as_ref() else {
         return Ok(s_parameter_operator::<B>(
-            mesh, materials, None, bcs, lumped, surfaces, device,
+            mesh,
+            materials,
+            p.sigma(),
+            bcs,
+            lumped,
+            surfaces,
+            device,
         )?);
     };
     if lumped.is_empty() {
@@ -727,7 +891,7 @@ fn lumped_operator<B: burn::tensor::backend::Backend>(
         space,
         mesh,
         materials,
-        None,
+        p.sigma(),
         bcs,
         lumped,
         surfaces,
@@ -769,8 +933,15 @@ fn dense_sweep<B: burn::tensor::backend::Backend>(
     par_map(n, opts.jobs, |index| {
         let device = <B as BackendTypes>::Device::default();
         let m = FrequencyMaterials::at(p, &centroids, &p.frequencies[index]);
-        let op =
-            s_parameter_operator::<B>(mesh, m.materials(), None, bcs, lumped, surfaces, &device)?;
+        let op = s_parameter_operator::<B>(
+            mesh,
+            m.materials(),
+            p.sigma(),
+            bcs,
+            lumped,
+            surfaces,
+            &device,
+        )?;
         solve_row(index, &op)
     })
 }
@@ -798,7 +969,7 @@ fn adaptive_sweep<B: burn::tensor::backend::Backend>(
     let op = s_parameter_operator::<B>(
         &p.tagged.mesh,
         FrequencyMaterials::constant(p).materials(),
-        None,
+        p.sigma(),
         bcs,
         lumped,
         surfaces,
@@ -1427,7 +1598,7 @@ fn dense_channel_points<B: burn::tensor::backend::Backend>(
         solve_wave_port_sweep_with_mode::<B>(
             &p.tagged.mesh,
             materials,
-            None,
+            p.sigma(),
             bcs,
             ports,
             surfaces,
@@ -1442,7 +1613,7 @@ fn dense_channel_points<B: burn::tensor::backend::Backend>(
         solve_mixed_port_sweep_with_mode::<B>(
             &p.tagged.mesh,
             materials,
-            None,
+            p.sigma(),
             bcs,
             lumped,
             ports,
@@ -1486,7 +1657,7 @@ fn adaptive_wave_sweep<B: burn::tensor::backend::Backend>(
     let op = DrivenOperator::assemble::<B>(
         mesh,
         materials.materials(),
-        None,
+        p.sigma(),
         bcs,
         lumped,
         surfaces,
@@ -1703,7 +1874,7 @@ impl<'a, B: burn::tensor::backend::Backend> Exporter<'a, B> {
         Ok(DrivenOperator::assemble::<B>(
             &self.p.tagged.mesh,
             materials,
-            None,
+            self.p.sigma(),
             &DrivenBcs {
                 pec_interior_mask: &self.p.pec_mask,
             },
@@ -1712,6 +1883,32 @@ impl<'a, B: burn::tensor::backend::Backend> Exporter<'a, B> {
             &self.source,
             self.device,
         )?)
+    }
+
+    /// The edge-DOF field of row `index` (every port driven at its
+    /// `v_inc`), `mesh.edges()` order; a non-finite solution is an error.
+    fn solve_edges(
+        &self,
+        index: usize,
+        f: &crate::problem::Frequency,
+    ) -> Result<Vec<c64>, CliError> {
+        let row_op;
+        let op = match &self.scalar_op {
+            Some(op) => op,
+            None => {
+                let m = FrequencyMaterials::at(self.p, &self.centroids, f);
+                row_op = self.assemble(m.materials())?;
+                &row_op
+            }
+        };
+        let (sol, _) = op.prepare_at::<B>(f.k0, self.mode, self.device)?.solve()?;
+        if !sol.residual_rel.is_finite() {
+            return Err(CliError::NonFinite {
+                index,
+                what: format!("--dataset field (residual_rel = {})", sol.residual_rel),
+            });
+        }
+        Ok(sol.e_edges)
     }
 
     /// One extra solve at row `index` (every port driven at its `v_inc`),
@@ -1867,6 +2064,22 @@ pub(crate) fn invert(a: &[c64], n: usize) -> Option<Vec<c64>> {
 mod tests {
     use super::*;
     use geode_core::driven::extraction::PortCircuit;
+
+    #[test]
+    fn driven_order_estimate_trips_the_threshold_warning() {
+        let pt = |index, d| DrivenOrderEstimatePoint {
+            index,
+            frequency_hz: 1.0e9,
+            delta_s_max: d,
+            delta_s11: d,
+        };
+        let est = order_estimate_from(vec![pt(0, 0.001), pt(1, 0.05)], 0.02);
+        assert!(est.above_threshold);
+        assert_eq!(est.delta_s_max, 0.05);
+        assert!(est.warning.is_some());
+        let calm = order_estimate_from(vec![pt(0, 0.001)], 0.02);
+        assert!(!calm.above_threshold && calm.warning.is_none());
+    }
 
     fn circuit(v: f64, i: f64) -> PortCircuit {
         let (v, i) = (c64::new(v, 0.0), c64::new(i, 0.0));
@@ -2233,6 +2446,7 @@ mod tests {
             touchstone.then_some(ts.as_path()),
             SweepOptions::default(),
             false,
+            None,
         )
         .unwrap();
         (

@@ -351,7 +351,8 @@ impl Continuation {
     fn load(path: &std::path::Path) -> Result<Self, String> {
         let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let v: toml::Value = text
-            .parse()
+            .parse::<toml::Table>()
+            .map(toml::Value::Table)
             .map_err(|e| format!("{}: {e}", path.display()))?;
         let num = |t: &toml::Value, k: &str| -> Result<f64, String> {
             match t.get(k) {

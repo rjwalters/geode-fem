@@ -127,7 +127,7 @@ fn bench_mie_end_to_end_dense(c: &mut Criterion) {
                     n_request,
                 )
                 .expect("complex eigensolve");
-            criterion::black_box(lambdas);
+            std::hint::black_box(lambdas);
         });
     });
     group.finish();
@@ -235,7 +235,7 @@ fn bench_mie_end_to_end_sparse(c: &mut Criterion) {
             }
             .smallest_complex_pencil_eigenvalues(k_sp.as_ref(), m_sp.as_ref(), n_request)
             .expect("sparse complex eigensolve");
-            criterion::black_box(lambdas);
+            std::hint::black_box(lambdas);
         });
     });
     group.finish();

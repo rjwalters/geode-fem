@@ -53,74 +53,20 @@
 //!     --test sphere_pec_tfjava_reference -- --nocapture
 //! ```
 
+use burn::prelude::Backend;
 use std::path::PathBuf;
 
-use burn::prelude::Backend;
-use burn::tensor::DType;
 use burn::tensor::backend::BackendTypes;
-use faer::Mat;
 
-use geode_core::assembly::nedelec::{
-    assemble_global_nedelec_with_epsilon, build_epsilon_r, sphere_pec_interior_edges,
-    sphere_pec_node_interior_mask, spurious_dim_from_derham,
-};
-use geode_core::assembly::p1::upload_mesh;
-use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
-use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
-use geode_core::testing::{TestBackend, device_tolerances};
+use geode_core::testing::TestBackend;
 use geode_util::eigen::dense_lowest_eigenvalues;
 use geode_util::math::{frobenius_norm, symmetry_residual};
 use geode_validation::{Fixture, FixtureFormat};
 
+mod common;
+use common::{BackendTolerances, run_burn_pipeline};
+
 type B = TestBackend;
-
-#[derive(Debug, Clone, Copy)]
-struct BackendTolerances {
-    /// Relative tolerance on K_int / M_int Frobenius norms.
-    frobenius_rel: f64,
-    /// Per-entry absolute tolerance on K_int / M_int diagonals.
-    diagonal_abs: f64,
-    /// Absolute tolerance on the full lowest-spectrum slice. Retained for
-    /// parity with the f64/f32 case tables; the spectrum gate currently
-    /// asserts via `eigenvalue_rel`, so this field is not read directly.
-    #[allow(dead_code)]
-    spectrum_abs: f64,
-    /// Relative tolerance on the lowest 5 physical eigenvalues (Epic #88 AC).
-    eigenvalue_rel: f64,
-    /// Per-entry absolute on symmetry residuals.
-    symmetry_abs: f64,
-}
-
-const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
-    frobenius_rel: 1e-4,
-    diagonal_abs: 1e-5,
-    spectrum_abs: 1e-3,
-    eigenvalue_rel: 1e-5,
-    symmetry_abs: 1e-10,
-};
-
-const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
-    frobenius_rel: 5e-4,
-    diagonal_abs: 5e-5,
-    spectrum_abs: 1e-2,
-    eigenvalue_rel: 5e-4,
-    symmetry_abs: 1e-6,
-};
-
-impl BackendTolerances {
-    /// Tolerance envelope for the active backend device, selected by the
-    /// device's float dtype.
-    fn for_device<B: Backend>(device: &B::Device) -> Self {
-        device_tolerances::<B, BackendTolerances>(
-            device,
-            &[
-                ("", DType::F64, NDARRAY_F64_TOLERANCES),
-                ("", DType::F32, GPU_F32_TOLERANCES),
-            ],
-        )
-        .expect("a tolerance case must match the active backend dtype")
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Fixture paths
@@ -137,72 +83,6 @@ fn numpy_fixture_path() -> PathBuf {
 // ---------------------------------------------------------------------------
 // Burn pipeline (shared with other sphere_pec_*_reference.rs tests)
 // ---------------------------------------------------------------------------
-
-struct BurnPipeline {
-    n_nodes: usize,
-    n_tets: usize,
-    #[allow(dead_code)] // assembled but not directly cross-checked in this harness
-    epsilon_r: Vec<f64>,
-    n_edges: usize,
-    n_interior_edges: usize,
-    spurious_dim: usize,
-    k_int: Mat<f64>,
-    m_int: Mat<f64>,
-}
-
-fn run_burn_pipeline() -> BurnPipeline {
-    let fixture = read_sphere_fixture().expect("fixture load");
-    let n_nodes = fixture.mesh.n_nodes();
-    let n_tets = fixture.mesh.n_tets();
-
-    let epsilon_r = build_epsilon_r(&fixture.tet_physical_tags, 1.5);
-
-    let edges = fixture.mesh.edges();
-    let n_edges = edges.len();
-    let tet_edges = fixture.mesh.tet_edges();
-    let tet_edge_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_edge_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
-
-    let (mask_edges, interior_mask) = sphere_pec_interior_edges(&fixture.mesh, R_BUFFER);
-    assert_eq!(mask_edges.len(), n_edges, "Burn-side edge mask shape");
-    let n_interior_edges = interior_mask.iter().filter(|&&b| b).count();
-
-    let node_interior_mask = sphere_pec_node_interior_mask(&fixture.mesh, R_BUFFER);
-    let spurious_dim = spurious_dim_from_derham(&fixture.mesh, &interior_mask, &node_interior_mask);
-
-    let device = <B as BackendTypes>::Device::default();
-    let (nodes_t, tets_t) = upload_mesh::<B>(&fixture.mesh, &device);
-    let sys = assemble_global_nedelec_with_epsilon(
-        nodes_t,
-        tets_t,
-        &tet_edge_idx,
-        &tet_edge_sign,
-        n_edges,
-        &epsilon_r,
-    );
-
-    let k_full = burn_matrix_to_faer(sys.k);
-    let m_full = burn_matrix_to_faer(sys.m);
-    let (k_int, m_int) = apply_dirichlet_bc(k_full.as_ref(), m_full.as_ref(), &interior_mask)
-        .expect("Dirichlet BC reduction");
-
-    BurnPipeline {
-        n_nodes,
-        n_tets,
-        epsilon_r,
-        n_edges,
-        n_interior_edges,
-        spurious_dim,
-        k_int,
-        m_int,
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Matrix helpers

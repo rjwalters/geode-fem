@@ -73,6 +73,10 @@
 //! `reference/fixtures/transmon_palace/results_coupling_1078/run.sh`
 //! reproduces them.
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::git_head;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
@@ -249,38 +253,14 @@ fn sym_eig(a: &[Vec<f64>]) -> (Vec<f64>, Vec<Vec<f64>>) {
     (vals, vecs)
 }
 
-/// Solve the dense SPD-ish system `a x = b` by Gaussian elimination with
-/// partial pivoting.
+/// Solve the dense SPD-ish system `a x = b` by faer partial-pivot LU.
 fn solve_dense(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
+    use faer::linalg::solvers::Solve;
     let n = b.len();
-    let mut m: Vec<Vec<f64>> = a
-        .iter()
-        .zip(b)
-        .map(|(r, &bi)| {
-            let mut r = r.clone();
-            r.push(bi);
-            r
-        })
-        .collect();
-    for c in 0..n {
-        let p = (c..n)
-            .max_by(|&i, &j| m[i][c].abs().total_cmp(&m[j][c].abs()))
-            .unwrap();
-        m.swap(c, p);
-        for r in c + 1..n {
-            let f = m[r][c] / m[c][c];
-            let pivot = m[c].clone();
-            for (x, pv) in m[r].iter_mut().zip(&pivot).skip(c) {
-                *x -= f * pv;
-            }
-        }
-    }
-    let mut x = vec![0.0; n];
-    for r in (0..n).rev() {
-        let s: f64 = (r + 1..n).map(|k| m[r][k] * x[k]).sum();
-        x[r] = (m[r][n] - s) / m[r][r];
-    }
-    x
+    let am = faer::Mat::<f64>::from_fn(n, n, |i, j| a[i][j]);
+    let bm = faer::Mat::<f64>::from_fn(n, 1, |i, _| b[i]);
+    let sol = am.partial_piv_lu().solve(&bm);
+    (0..n).map(|i| sol[(i, 0)]).collect()
 }
 
 fn invert(a: &[Vec<f64>]) -> Vec<Vec<f64>> {
@@ -1018,16 +998,6 @@ fn arr_e(v: &[f64]) -> String {
             .collect::<Vec<_>>()
             .join(", ")
     )
-}
-
-fn git_head() -> String {
-    std::process::Command::new("git")
-        .args(["rev-parse", "--short=8", "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|| "unknown".into())
 }
 
 /// The bare-qubit anchor for a coupling `k` (Maxwell form) and its offset

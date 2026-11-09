@@ -28,13 +28,17 @@
 //! Writes `benchmarks/transmon_diffopt/claw_beta.toml` (override the
 //! directory with `$TRANSMON_DIFFOPT_BENCH_DIR`).
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::{git_head, scaled_mesh};
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
 
 use geode_core::assembly::electrostatic::Electrode;
-use geode_core::mesh::{ClawSplitSpec, TetMesh, read_transmon_smoke_fixture};
+use geode_core::mesh::{ClawSplitSpec, read_transmon_smoke_fixture};
 use geode_core::quantum::diffopt::{
     ActiveConstraint, MultiParamOptions, MultiParamOutcome, optimize_multiparam_bounded,
 };
@@ -72,27 +76,6 @@ const SCALING_ABC: [f64; 3] = [0.040959, 0.553015, 0.784636];
 const E_C_TOL_HZ: f64 = 10_000.0;
 /// `β` tolerance, relative to `β(X⁰)` (declared before any optimizer runs).
 const BETA_TOL_REL: f64 = 1e-4;
-
-fn scaled_mesh(mesh: &TetMesh, s: f64) -> TetMesh {
-    let mut m = mesh.clone();
-    for n in m.nodes.iter_mut() {
-        for c in n.iter_mut() {
-            *c *= s;
-        }
-    }
-    m
-}
-
-fn git_head() -> String {
-    std::process::Command::new("git")
-        .args(["rev-parse", "--short=8", "HEAD"])
-        .current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|| "unknown".to_string())
-}
 
 fn arr(v: &[f64], prec: usize) -> String {
     format!(

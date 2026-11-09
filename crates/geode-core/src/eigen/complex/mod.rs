@@ -21,7 +21,7 @@ pub use lanczos::{
 // Cross-module complex sparse-linear-algebra helpers consumed by
 // `driven` / `scattering` / `solver::ksp`. `spmv_add` stays private to
 // the lanczos leaf.
-pub(crate) use lanczos::{solve_with_lu, spmv};
+pub(crate) use lanczos::spmv;
 // Fixed-input regression pencils shared with `eigen::lossy_cavity`'s tests.
 #[cfg(test)]
 pub(crate) use lanczos::tests::{slow_mode_hole_pencil, spurious_ritz_pencil};

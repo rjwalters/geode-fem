@@ -153,6 +153,8 @@
 use burn::tensor::backend::Backend;
 use faer::c64;
 
+use crate::dense_ops::dense_solve;
+
 use crate::driven::extraction::PortCircuit;
 use crate::driven::ports::mixed::{
     ModalChannel, ModalSmw, PowerWeights, channel_admittances, dot_t, excitation_rhs,
@@ -164,6 +166,7 @@ use crate::driven::solve::{
     SurfaceImpedanceModel,
 };
 use crate::mesh::TetMesh;
+use crate::sparse_ops::norm2_c as vec_norm;
 
 /// Errors from the PROM fast-sweep path.
 #[derive(Debug, thiserror::Error)]
@@ -1275,7 +1278,7 @@ impl<'a> DrivenRom<'a> {
                         b_r.iter().map(|&x| x * cd).collect()
                     }
                 };
-                solve_dense_lu(a.clone(), b, k)
+                dense_solve(&a, &b, k)
             })
             .collect()
     }
@@ -1411,14 +1414,6 @@ fn dot_h(a: &[c64], b: &[c64]) -> c64 {
     acc
 }
 
-/// Euclidean norm of a complex vector.
-fn vec_norm(v: &[c64]) -> f64 {
-    v.iter()
-        .map(|z| z.re * z.re + z.im * z.im)
-        .sum::<f64>()
-        .sqrt()
-}
-
 /// `y = A·x` from a complex triplet stream (duplicates sum, as in the
 /// sparse assembly).
 fn triplet_matvec_c(rows: &[usize], cols: &[usize], vals: &[c64], x: &[c64], n: usize) -> Vec<c64> {
@@ -1436,58 +1431,6 @@ fn triplet_matvec_r(rows: &[usize], cols: &[usize], vals: &[f64], x: &[c64], n: 
         y[r] += x[c] * v;
     }
     y
-}
-
-/// Dense complex LU with partial pivoting: solve the row-major `n×n`
-/// system `A x = b` in place. `None` on a zero / non-finite pivot.
-fn solve_dense_lu(mut a: Vec<c64>, mut b: Vec<c64>, n: usize) -> Option<Vec<c64>> {
-    debug_assert_eq!(a.len(), n * n);
-    debug_assert_eq!(b.len(), n);
-    for col in 0..n {
-        // Partial pivot on the largest modulus in the column.
-        let mut piv = col;
-        let mut pmax = a[col * n + col].norm();
-        for r in (col + 1)..n {
-            let m = a[r * n + col].norm();
-            if m > pmax {
-                pmax = m;
-                piv = r;
-            }
-        }
-        if pmax == 0.0 || !pmax.is_finite() {
-            return None;
-        }
-        if piv != col {
-            for c in 0..n {
-                a.swap(col * n + c, piv * n + c);
-            }
-            b.swap(col, piv);
-        }
-        let d = a[col * n + col];
-        for r in (col + 1)..n {
-            let f = a[r * n + col] / d;
-            if f == c64::new(0.0, 0.0) {
-                continue;
-            }
-            a[r * n + col] = c64::new(0.0, 0.0);
-            for c in (col + 1)..n {
-                let t = a[col * n + c] * f;
-                a[r * n + c] -= t;
-            }
-            let t = b[col] * f;
-            b[r] -= t;
-        }
-    }
-    // Back-substitution.
-    let mut x = vec![c64::new(0.0, 0.0); n];
-    for col in (0..n).rev() {
-        let mut acc = b[col];
-        for c in (col + 1)..n {
-            acc -= a[col * n + c] * x[c];
-        }
-        x[col] = acc / a[col * n + col];
-    }
-    Some(x)
 }
 
 /// Adaptive fast frequency sweep: the PROM analog of

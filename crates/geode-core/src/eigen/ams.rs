@@ -159,6 +159,7 @@ use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
 use crate::eigen::dense::EigenError;
 use crate::eigen::projection::InteriorGradient;
+use crate::sparse_ops::{spmv_into, spmv_transpose_into};
 
 /// The damped-Jacobi smoother weight `ω` of the multiplicative V-cycle, used
 /// wherever it is not shown to be unstable, and the upper limit of the weight
@@ -788,9 +789,9 @@ fn smoother_spectrum(
     let gershgorin = gershgorin_dinv_a(k, m, sigma, inv_diag);
     let mut t = vec![0.0_f64; if sigma != 0.0 { inv_diag.len() } else { 0 }];
     let lanczos = lanczos_lambda_max(inv_diag, steps, |x, y| {
-        spmv(k, x, y);
+        spmv_into(k, x, y);
         if sigma != 0.0 {
-            spmv(m, x, &mut t);
+            spmv_into(m, x, &mut t);
             for (yi, ti) in y.iter_mut().zip(t.iter()) {
                 *yi -= sigma * ti;
             }
@@ -1296,7 +1297,7 @@ impl CsrOp {
 
 /// One level of the AMG hierarchy: the level operator plus the prolongation `P`
 /// (`n_fine × n_coarse`) to the next-coarser level. `P·x` (prolong) and `Pᵀ·r`
-/// (restrict) are the free CSC [`spmv`] / [`spmv_transpose`].
+/// (restrict) are the free CSC [`spmv`] / [`spmv_transpose_into`].
 struct AmgLevel {
     a: CsrOp,
     p: SparseColMat<usize, f64>,
@@ -1422,13 +1423,13 @@ impl AmgCoarseSolver {
         lev.a.residual(b, x, &mut r);
         let nc = lev.p.ncols();
         let mut rc = vec![0.0_f64; nc];
-        spmv_transpose(lev.p.as_ref(), &r, &mut rc);
+        spmv_transpose_into(lev.p.as_ref(), &r, &mut rc);
         // Recurse (coarse correction from a zero coarse guess).
         let mut xc = vec![0.0_f64; nc];
         self.vcycle(lvl + 1, &rc, &mut xc);
         // Prolong and add.
         let mut pxc = vec![0.0_f64; lev.a.n];
-        spmv(lev.p.as_ref(), &xc, &mut pxc);
+        spmv_into(lev.p.as_ref(), &xc, &mut pxc);
         for (xi, &pi) in x.iter_mut().zip(pxc.iter()) {
             *xi += pi;
         }
@@ -1706,40 +1707,6 @@ fn estimate_spectral_radius(a: &CsrOp) -> f64 {
         }
     }
     if lambda > 0.0 { lambda } else { 1.0 }
-}
-
-/// `y = A · x` for a CSC sparse matrix (overwrite). `A` is `nrows × ncols`;
-/// `x.len() == ncols`, `y.len() == nrows`.
-fn spmv(a: SparseColMatRef<'_, usize, f64>, x: &[f64], y: &mut [f64]) {
-    y.iter_mut().for_each(|v| *v = 0.0);
-    let col_ptr = a.col_ptr();
-    let row_idx = a.row_idx();
-    let val = a.val();
-    for j in 0..a.ncols() {
-        let xj = x[j];
-        if xj == 0.0 {
-            continue;
-        }
-        for k in col_ptr[j]..col_ptr[j + 1] {
-            y[row_idx[k]] += val[k] * xj;
-        }
-    }
-}
-
-/// `y = Aᵀ · x` for a CSC sparse matrix (overwrite). `A` is `nrows × ncols`;
-/// `x.len() == nrows`, `y.len() == ncols`. Column `j` of `A` dotted with `x`
-/// is entry `j` of `Aᵀx`.
-fn spmv_transpose(a: SparseColMatRef<'_, usize, f64>, x: &[f64], y: &mut [f64]) {
-    let col_ptr = a.col_ptr();
-    let row_idx = a.row_idx();
-    let val = a.val();
-    for j in 0..a.ncols() {
-        let mut acc = 0.0;
-        for k in col_ptr[j]..col_ptr[j + 1] {
-            acc += val[k] * x[row_idx[k]];
-        }
-        y[j] = acc;
-    }
 }
 
 /// The AMS-lite preconditioner: an edge Jacobi smoother plus a gradient-space
@@ -2175,12 +2142,12 @@ impl AmsLitePreconditioner {
     fn coarse_correction(&self, r: &[f64], out: &mut [f64]) {
         // rc = Gᵀ r  (node space)
         let mut rc = vec![0.0_f64; self.node_dim];
-        spmv_transpose(self.gradient.matrix(), r, &mut rc);
+        spmv_transpose_into(self.gradient.matrix(), r, &mut rc);
         // yc ≈ C⁻¹ rc  (few-sweep SGS, or exact LU under CoarseSolve::Direct)
         let mut yc = vec![0.0_f64; self.node_dim];
         self.c_coarse.solve(&rc, &mut yc);
         // out = G yc  (edge space)
-        spmv(self.gradient.matrix(), &yc, out);
+        spmv_into(self.gradient.matrix(), &yc, out);
     }
 
     /// Vector-nodal coarse correction `out = Π (ΠᵀAΠ)⁻¹ Πᵀ r` (issue #550).
@@ -2199,12 +2166,12 @@ impl AmsLitePreconditioner {
         let pi_dim = 3 * self.node_dim;
         // rc = Πᵀ r  (vector-nodal space)
         let mut rc = vec![0.0_f64; pi_dim];
-        spmv_transpose(pi.as_ref(), r, &mut rc);
+        spmv_transpose_into(pi.as_ref(), r, &mut rc);
         // yc ≈ (ΠᵀAΠ)⁻¹ rc  (few-sweep SGS, or exact LU under CoarseSolve::Direct)
         let mut yc = vec![0.0_f64; pi_dim];
         pi_coarse.solve(&rc, &mut yc);
         // out = Π yc  (edge space)
-        spmv(pi.as_ref(), &yc, out);
+        spmv_into(pi.as_ref(), &yc, out);
     }
 
     /// Whether the full three-space (gradient + vector-nodal) cycle is active
@@ -2766,8 +2733,8 @@ mod tests {
         let a_apply = |x: &[f64], y: &mut [f64]| {
             let mut kx = vec![0.0; n];
             let mut mx = vec![0.0; n];
-            spmv(k.as_ref(), x, &mut kx);
-            spmv(m.as_ref(), x, &mut mx);
+            spmv_into(k.as_ref(), x, &mut kx);
+            spmv_into(m.as_ref(), x, &mut mx);
             for i in 0..n {
                 y[i] = kx[i] - sigma * mx[i];
             }
@@ -2867,12 +2834,12 @@ mod tests {
         let yc: Vec<f64> = (0..node_dim).map(|i| ((i as f64) * 0.5).cos()).collect();
         // g_yc = G yc (edge)
         let mut g_yc = vec![0.0; n];
-        spmv(ams.gradient.matrix(), &yc, &mut g_yc);
+        spmv_into(ams.gradient.matrix(), &yc, &mut g_yc);
         // a_g_yc = A g_yc (edge), A = K − σM
         let mut kg = vec![0.0; n];
         let mut mg = vec![0.0; n];
-        spmv(k.as_ref(), &g_yc, &mut kg);
-        spmv(m.as_ref(), &g_yc, &mut mg);
+        spmv_into(k.as_ref(), &g_yc, &mut kg);
+        spmv_into(m.as_ref(), &g_yc, &mut mg);
         let a_g_yc: Vec<f64> = kg
             .iter()
             .zip(mg.iter())
@@ -2880,7 +2847,7 @@ mod tests {
             .collect();
         // rc = Gᵀ A g_yc (node)
         let mut rc = vec![0.0; node_dim];
-        spmv_transpose(ams.gradient.matrix(), &a_g_yc, &mut rc);
+        spmv_transpose_into(ams.gradient.matrix(), &a_g_yc, &mut rc);
         // solve C yc' = rc; yc' must equal yc (exact under the direct solver).
         let mut got = vec![0.0; node_dim];
         ams.c_coarse.solve(&rc, &mut got);
@@ -2984,8 +2951,8 @@ mod tests {
         let a_apply = |x: &[f64], y: &mut [f64]| {
             let mut kx = vec![0.0; n];
             let mut mx = vec![0.0; n];
-            spmv(k.as_ref(), x, &mut kx);
-            spmv(m.as_ref(), x, &mut mx);
+            spmv_into(k.as_ref(), x, &mut kx);
+            spmv_into(m.as_ref(), x, &mut mx);
             for i in 0..n {
                 y[i] = kx[i] - sigma * mx[i];
             }
@@ -3058,8 +3025,8 @@ mod tests {
         let a_apply = |x: &[f64], y: &mut [f64]| {
             let mut kx = vec![0.0; n];
             let mut mx = vec![0.0; n];
-            spmv(k.as_ref(), x, &mut kx);
-            spmv(m.as_ref(), x, &mut mx);
+            spmv_into(k.as_ref(), x, &mut kx);
+            spmv_into(m.as_ref(), x, &mut mx);
             for i in 0..n {
                 y[i] = kx[i] - sigma * mx[i];
             }
@@ -3130,8 +3097,8 @@ mod tests {
         let a_apply = |x: &[f64], y: &mut [f64]| {
             let mut kx = vec![0.0; n];
             let mut mx = vec![0.0; n];
-            spmv(k.as_ref(), x, &mut kx);
-            spmv(m.as_ref(), x, &mut mx);
+            spmv_into(k.as_ref(), x, &mut kx);
+            spmv_into(m.as_ref(), x, &mut mx);
             for i in 0..n {
                 y[i] = kx[i] - sigma * mx[i];
             }
@@ -3239,8 +3206,8 @@ mod tests {
         let a_apply = |x: &[f64], y: &mut [f64]| {
             let mut kx = vec![0.0; n];
             let mut mx = vec![0.0; n];
-            spmv(k.as_ref(), x, &mut kx);
-            spmv(m.as_ref(), x, &mut mx);
+            spmv_into(k.as_ref(), x, &mut kx);
+            spmv_into(m.as_ref(), x, &mut mx);
             for i in 0..n {
                 y[i] = kx[i] - sigma * mx[i];
             }
@@ -3321,12 +3288,12 @@ mod tests {
             .collect();
         // pyc = Π yc (edge)
         let mut pyc = vec![0.0; n];
-        spmv(pi.as_ref(), &yc, &mut pyc);
+        spmv_into(pi.as_ref(), &yc, &mut pyc);
         // a_pyc = A pyc = (K − σM) pyc
         let mut kg = vec![0.0; n];
         let mut mg = vec![0.0; n];
-        spmv(k.as_ref(), &pyc, &mut kg);
-        spmv(m.as_ref(), &pyc, &mut mg);
+        spmv_into(k.as_ref(), &pyc, &mut kg);
+        spmv_into(m.as_ref(), &pyc, &mut mg);
         let a_pyc: Vec<f64> = kg
             .iter()
             .zip(mg.iter())
@@ -3334,7 +3301,7 @@ mod tests {
             .collect();
         // rc = Πᵀ a_pyc (coarse)
         let mut rc = vec![0.0; pi_dim];
-        spmv_transpose(pi.as_ref(), &a_pyc, &mut rc);
+        spmv_transpose_into(pi.as_ref(), &a_pyc, &mut rc);
         // solve (ΠᵀAΠ + τI) yc' = rc; with τ ≈ 1e-8·max|diag| the recovered
         // yc' matches yc to a loose tolerance on the populated directions.
         let mut ycp = vec![0.0; pi_dim];
@@ -3343,7 +3310,7 @@ mod tests {
         // edge-space correction is what matters; the coarse coordinates can
         // differ in any Π-nullspace direction the regularization pins to ~0).
         let mut pycp = vec![0.0; n];
-        spmv(pi.as_ref(), &ycp, &mut pycp);
+        spmv_into(pi.as_ref(), &ycp, &mut pycp);
         let num: f64 = pyc
             .iter()
             .zip(pycp.iter())
@@ -3368,8 +3335,8 @@ mod tests {
         let n = x.len();
         let mut kx = vec![0.0; n];
         let mut mx = vec![0.0; n];
-        spmv(k, x, &mut kx);
-        spmv(m, x, &mut mx);
+        spmv_into(k, x, &mut kx);
+        spmv_into(m, x, &mut mx);
         for i in 0..n {
             y[i] = kx[i] - sigma * mx[i];
         }
@@ -3637,7 +3604,7 @@ mod tests {
         // Relative residual ‖b − A y‖/‖b‖ of an approximate solve `y ≈ A⁻¹ b`.
         let relres = |y: &[f64], b: &[f64]| -> f64 {
             let mut ky = vec![0.0; n];
-            spmv(k.as_ref(), y, &mut ky);
+            spmv_into(k.as_ref(), y, &mut ky);
             let num: f64 = b
                 .iter()
                 .zip(ky.iter())
@@ -4235,12 +4202,12 @@ mod tests {
         // Full-length Lanczos (n steps) on the same operator with D = I is exact.
         let (k, _) = laplacian(n);
         let (theta, steps) =
-            lanczos_lambda_max(&vec![1.0; n], n, |x, y| spmv(k.as_ref(), x, y)).unwrap();
+            lanczos_lambda_max(&vec![1.0; n], n, |x, y| spmv_into(k.as_ref(), x, y)).unwrap();
         assert!(steps <= n);
         assert!((theta - exact).abs() < 1e-10, "{theta} vs {exact}");
         // A short run is a lower bound.
         let (short, _) =
-            lanczos_lambda_max(&vec![1.0; n], 4, |x, y| spmv(k.as_ref(), x, y)).unwrap();
+            lanczos_lambda_max(&vec![1.0; n], 4, |x, y| spmv_into(k.as_ref(), x, y)).unwrap();
         assert!(short <= exact + 1e-12 && short > 0.0);
         // Degenerate inputs are reported as unusable, never as a number.
         assert!(lanczos_lambda_max(&[], 30, |_, _| {}).is_none());

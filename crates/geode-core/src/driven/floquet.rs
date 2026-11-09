@@ -221,6 +221,7 @@
 //! 4b. The 1-D RCWA oracle the diffraction goldens use is test-only
 //! (`tests/common/rcwa1d.rs`).
 
+use crate::vec3::{add3 as add, cross3 as cross, dot3 as dot, norm3 as norm, sub3 as sub};
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -237,10 +238,11 @@ use crate::driven::periodic::lu_solve_transpose;
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator,
 };
-use crate::eigen::complex::{solve_with_lu, spmv};
+use crate::eigen::complex::spmv;
 use crate::elements::ElementOrder;
 use crate::mesh::TetMesh;
 use crate::mesh::periodic::PeriodicMap;
+use crate::sparse_ops::lu_solve;
 
 /// Default [`FloquetSettings::n_evanescent`]: one ring of evanescent
 /// orders (`max(|m|, |n|) ≤ 1`, 8 orders × 2 polarizations per port).
@@ -449,11 +451,6 @@ impl FloquetLattice {
     /// Unit lattice normal `N = (a₁ × a₂)/|a₁ × a₂|`.
     pub fn normal(&self) -> [f64; 3] {
         self.normal
-    }
-    /// In-plane azimuth basis: `û = â₁`, `v̂ = N × û` (`φ` is measured
-    /// from `û` towards `v̂`).
-    pub fn azimuth_basis(&self) -> ([f64; 3], [f64; 3]) {
-        (self.u, self.v)
     }
     /// Cell area `|a₁ × a₂|`.
     pub fn area(&self) -> f64 {
@@ -854,15 +851,6 @@ impl FloquetCell {
     /// The assembled volume operator (no port term).
     pub fn operator(&self) -> &DrivenOperator {
         &self.op
-    }
-
-    /// Relative permittivity of port `p`'s medium.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `p > 1`.
-    pub fn port_eps(&self, p: usize) -> f64 {
-        self.ports[p].eps_r
     }
 
     /// The transverse wave vector of `inc` at `omega`.
@@ -1313,7 +1301,8 @@ impl FactoredFloquetCell<'_> {
     pub fn back_solve(&self, b: &[c64], out: &mut [c64]) -> Result<(), FloquetError> {
         assert_eq!(b.len(), self.n_reduced(), "b length mismatch");
         assert_eq!(out.len(), self.n_reduced(), "out length mismatch");
-        solve_with_lu(&self.lu, b, out).map_err(|e| FloquetError::Solve(format!("{e}")))
+        lu_solve(&self.lu, b, out);
+        Ok(())
     }
 
     /// Solve the **transpose** `A_rᵀ x = b` on the same LU: the adjoint
@@ -1701,30 +1690,6 @@ fn prepare_port(
     })
 }
 
-#[inline]
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-#[inline]
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-#[inline]
-fn norm(a: [f64; 3]) -> f64 {
-    dot(a, a).sqrt()
-}
-#[inline]
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-#[inline]
-fn add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
-}
 #[inline]
 fn scale_v(a: [f64; 3], s: f64) -> [f64; 3] {
     [a[0] * s, a[1] * s, a[2] * s]

@@ -64,6 +64,7 @@
 //!   a shape velocity field periodic-preserving by copying each canonical
 //!   master's motion onto its aliases.
 
+use crate::vec3::{add3 as add, norm3 as norm, sub3 as sub, tet_signed_volume};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use super::TetMesh;
@@ -1365,31 +1366,12 @@ impl WeightedUf {
 }
 
 fn signed_volume(nodes: &[[f64; 3]], tet: &[u32; 4]) -> f64 {
-    let p = |i: usize| nodes[tet[i] as usize];
-    let (a, b, c) = (sub(p(1), p(0)), sub(p(2), p(0)), sub(p(3), p(0)));
-    (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
-        + a[2] * (b[0] * c[1] - b[1] * c[0]))
-        / 6.0
-}
-
-#[inline]
-fn add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
-}
-
-#[inline]
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+    tet_signed_volume(&tet.map(|i| nodes[i as usize]))
 }
 
 #[inline]
 fn neg(a: [f64; 3]) -> [f64; 3] {
     [-a[0], -a[1], -a[2]]
-}
-
-#[inline]
-fn norm(a: [f64; 3]) -> f64 {
-    (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt()
 }
 
 /// Boundary triangles of `mesh` lying on the plane `x[axis] = value`

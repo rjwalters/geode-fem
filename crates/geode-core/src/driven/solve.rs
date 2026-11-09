@@ -133,8 +133,9 @@ use crate::assembly::nedelec::{
     assemble_nedelec_current_rhs_quad4, assemble_nedelec_sigma_damping_sparse, tet_centroids,
 };
 use crate::driven::ports::{LumpedPort, assemble_port_flux, assemble_port_surface_mass};
-use crate::eigen::complex::{solve_with_lu, spmv};
+use crate::eigen::complex::spmv;
 use crate::mesh::TetMesh;
+use crate::sparse_ops::lu_solve;
 
 #[path = "solve_ams.rs"]
 mod ams;
@@ -2707,6 +2708,20 @@ impl DrivenOperator {
         v * (1.0 / p.width)
     }
 
+    /// The linear functional of [`DrivenOperator::port_voltage`] as a
+    /// weight vector: `V_port = wᵀ E` with `w = flux / width`, full-length
+    /// (`n_dofs`). This is `∂V/∂E`, the right-hand side of the adjoint
+    /// problem of a port-voltage / S-parameter goal
+    /// ([`crate::adapt::goal::SParamGoal`]).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `port ≥ self.n_ports()`.
+    pub fn port_voltage_weights(&self, port: usize) -> Vec<c64> {
+        let p = &self.ports[port];
+        p.flux.iter().map(|&f| c64::new(f / p.width, 0.0)).collect()
+    }
+
     /// Port current from the Thevenin admittance relation
     /// `I = (2 V_inc − V) / R` of port `port` — identical to
     /// [`crate::driven::ports::port_current`], using the port's **baked**
@@ -3263,7 +3278,8 @@ impl FactoredDrivenOperator<'_> {
     pub fn back_solve(&self, b: &[c64], out: &mut [c64]) -> Result<(), DrivenError> {
         assert_eq!(b.len(), self.op.n_interior, "b length mismatch");
         assert_eq!(out.len(), self.op.n_interior, "out length mismatch");
-        solve_with_lu(&self.lu, b, out).map_err(|e| DrivenError::Solve(format!("{e}")))
+        lu_solve(&self.lu, b, out);
+        Ok(())
     }
 
     /// Compute `out = A(ω) · x` using the cached sparse `A(ω)` —
@@ -3316,8 +3332,7 @@ impl FactoredDrivenOperator<'_> {
 
         // --- Direct solve through the cached factorization ------------------
         let mut x_int = vec![c64::new(0.0, 0.0); op.n_interior];
-        solve_with_lu(&self.lu, &b_int, &mut x_int)
-            .map_err(|e| DrivenError::Solve(format!("{e}")))?;
+        lu_solve(&self.lu, &b_int, &mut x_int);
 
         // --- Post-solve residual check --------------------------------------
         let mut ax = vec![c64::new(0.0, 0.0); op.n_interior];
@@ -3572,7 +3587,7 @@ impl<'a, B: Backend> DrivenLinearSolver<'a, B> {
 
         match &self.backend {
             SolverBackend::Direct { lu } => {
-                solve_with_lu(lu, b, out).map_err(|e| DrivenError::Solve(format!("{e}")))?;
+                lu_solve(lu, b, out);
                 // Direct back-substitution: compute the per-RHS residual
                 // for symmetry with the iterative path's BackSolveReport.
                 let mut ax = vec![c64::new(0.0, 0.0); self.op.n_interior];

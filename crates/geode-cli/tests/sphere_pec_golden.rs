@@ -167,7 +167,11 @@ fn assert_mode_fields(report: &serde_json::Value, outdir: &std::path::Path) {
         let bytes = std::fs::read(outdir.join(&name)).expect("mode field written");
         assert_eq!(
             m["field_file"]["sha256"],
-            format!("{:x}", Sha256::digest(&bytes)).as_str()
+            Sha256::digest(&bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+                .as_str()
         );
         let vtu = String::from_utf8(bytes).unwrap();
         assert!(vtu.contains(&format!("NumberOfPoints=\"{n_nodes}\"")));

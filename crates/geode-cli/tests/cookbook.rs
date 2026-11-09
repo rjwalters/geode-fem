@@ -80,6 +80,13 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         Some("spiral_drude_smoke.json"),
         Input::Spec("driven"),
     ),
+    // The Drude spiral with explicit `conductivity_s_m = 10` silicon
+    // (issue #1254); `spiral_sigma_agrees_with_the_drude_spiral` pins the band.
+    (
+        "driven/spiral_inductor_sigma.json",
+        None,
+        Input::Spec("driven"),
+    ),
     // A TE₁₀ wave port feeding a full-face lumped resistive sheet: a mixed
     // lumped + wave-port spec (issue #759); `tests/wave_port_driven.rs`
     // pins it against the sheet's closed form.
@@ -107,6 +114,11 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         Some("sphere_lossy_pec_golden.json"),
         Input::Spec("eigen"),
     ),
+    // The same vacuum PEC box at order 1 (finest mesh) and order 2
+    // (coarsest mesh), issue #1265; `p2_box_cavity_beats_p1_at_equal_accuracy`
+    // pins the accuracy ordering against the analytic modes.
+    ("eigen/box_cavity_p1.json", None, Input::Spec("eigen")),
+    ("eigen/box_cavity_p2.json", None, Input::Spec("eigen")),
     (
         "capacitance/coax.json",
         Some("capacitance_coax_smoke.json"),
@@ -148,6 +160,14 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         "sensitivity/driven_spiral.json",
         Some("driven_spiral_sensitivity_smoke.json"),
         Input::Spec("driven"),
+    ),
+    // ∂f/∂ε_r of the two lowest modes of a lossless PEC box cavity
+    // (issue #1257): the eigen sample of `--dataset`;
+    // `tests/dataset_roundtrip.rs` runs it.
+    (
+        "sensitivity/eigen_box_cavity.json",
+        None,
+        Input::Spec("eigen"),
     ),
     // ∂S / ∂Z₀ / ∂ε_eff w.r.t. the strip width of the microstrip cookbook
     // line (issue #883); `tests/sensitivity_nport.rs` runs it with
@@ -350,6 +370,40 @@ const MICROSTRIP: &str = "driven/microstrip_line.json";
 /// `tests/sensitivity_nport.rs`).
 const MICROSTRIP_SENSITIVITY: &str = "sensitivity/microstrip_strip_width.json";
 
+/// The explicit-σ spiral (issue #1254) reproduces the Drude spiral it
+/// re-expresses: 10 Ω·cm silicon as `conductivity_s_m = 10` S/m against the
+/// finite-γ Drude model (`ω_p² = σγ/ε₀`, γ = 5e12 rad/s). They differ by the
+/// carrier inertia only (`Re ε` drops by `ω_p²/γ² = 0.23`, `Im ε` by `ω²/γ²`),
+/// so `|Z_σ − Z_Drude|/|Z_Drude|` stays within the band stated in
+/// `examples/driven/README.md` (≤ 2e-3, measured 7.4e-4 at 20 GHz). Release
+/// tier: two spiral solves (~35 s each in debug).
+#[test]
+#[ignore = "release tier (minutes in debug): run with --release -- --ignored"]
+fn spiral_sigma_agrees_with_the_drude_spiral() {
+    let z = |name: &str| -> Vec<(f64, f64)> {
+        let spec = examples().join(name);
+        let v = ok(geode(&["driven", s(&spec)]), name);
+        v["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                let z = &row["z_ohm"][0][0];
+                (z[0].as_f64().unwrap(), z[1].as_f64().unwrap())
+            })
+            .collect()
+    };
+    let drude = z("driven/spiral_inductor_drude.json");
+    let sigma = z("driven/spiral_inductor_sigma.json");
+    assert_eq!(drude.len(), sigma.len());
+    for (i, (a, b)) in drude.iter().zip(&sigma).enumerate() {
+        let d = ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
+        let rel = d / a.0.hypot(a.1);
+        eprintln!("SIGMA vs DRUDE | f[{i}] | rel = {rel:.2e}");
+        assert!(rel <= 2e-3, "f[{i}]: |Z_σ − Z_Drude|/|Z| = {rel:e}");
+    }
+}
+
 /// `geode check` on the microstrip cookbook. Release tier: its face is
 /// graded finely toward the strip edges, and the accuracy estimate's `h/4`
 /// re-solve of that face takes about 4 min in debug (7 s in release).
@@ -452,4 +506,49 @@ fn every_cookbook_layout_meshes_to_a_checked_starter_spec() {
             );
         }
     }
+}
+
+/// Issue #1265: at equal accuracy p=2 on the coarsest box mesh beats p=1 on
+/// the finest, against the analytic `k = π·sqrt((m/a)² + (n/b)² + (p/d)²)`
+/// of the `2 × 0.9 × 1.0` box (the two README-quoted bounds).
+#[test]
+fn p2_box_cavity_beats_p1_at_equal_accuracy() {
+    let analytic = std::f64::consts::PI * (1.0f64 / 4.0 + 1.0).sqrt();
+    let lowest = |name: &str| -> f64 {
+        let spec = examples().join("eigen").join(name);
+        let v = ok(geode(&["eigen", s(&spec)]), name);
+        v["modes"][0]["k0"].as_f64().unwrap()
+    };
+    let err = |k: f64| (k - analytic).abs() / analytic;
+    let (e1, e2) = (
+        err(lowest("box_cavity_p1.json")),
+        err(lowest("box_cavity_p2.json")),
+    );
+    assert!(e2 < 1e-3, "p=2 error {e2:.5}");
+    assert!(e1 > 3e-3, "p=1 error {e1:.5}");
+    assert!(e2 * 5.0 < e1, "p=2 {e2:.5} vs p=1 {e1:.5}");
+}
+
+/// Issue #1265: `accuracy.order_estimate` — the coarse-mesh p=2 cookbook box
+/// trips the same-mesh p=1 vs p=2 warning; a p=1 report carries no `accuracy`.
+#[test]
+fn p2_eigen_reports_same_mesh_order_estimate() {
+    let run = |name: &str| {
+        ok(
+            geode(&["eigen", s(&examples().join("eigen").join(name))]),
+            name,
+        )
+    };
+    let p2 = run("box_cavity_p2.json");
+    let est = &p2["accuracy"]["order_estimate"];
+    assert_eq!(est["reference_order"], 1);
+    assert_eq!(
+        est["modes"].as_array().unwrap().len(),
+        p2["modes"].as_array().unwrap().len()
+    );
+    let max = est["delta_f_rel_max"].as_f64().unwrap();
+    assert!(max > 5e-3 && max < 0.1, "delta_f_rel_max {max}");
+    assert_eq!(est["above_threshold"], true);
+    assert!(est["warning"].as_str().unwrap().contains("order-1"));
+    assert!(run("box_cavity_p1.json").get("accuracy").is_none());
 }

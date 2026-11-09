@@ -14,7 +14,6 @@ description = "Cross-backend reference comparison harness for GEODE-FEM (Epic #8
 geode-util = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-thiserror = { workspace = true }
 # Complex scalar type for c128 fixture fields (Phase H scaffolding,
 # issue #145). Already a transitive dep via faer + ndarray; pinned here
 # directly so the comparator API surface doesn't depend on which feature

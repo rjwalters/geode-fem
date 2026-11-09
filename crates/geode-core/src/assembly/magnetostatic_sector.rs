@@ -918,11 +918,6 @@ impl SlidingBand {
         &self.rotor_node
     }
 
-    /// Whether each triangle belongs to the rotor.
-    pub fn rotor_triangles(&self) -> &[bool] {
-        &self.rotor_tri
-    }
-
     /// Coupling nodes per side over the sector, `N`.
     pub fn n_coupling(&self) -> usize {
         self.n

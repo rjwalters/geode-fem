@@ -138,6 +138,17 @@
 //! `div_Γ E_{h,t}` is evaluated by central differences along the face, which
 //! is exact for p ≤ 2.
 //!
+//! **Interior sheets.** A face shared by two tets that the caller classifies
+//! [`BoundaryFaceKind::Robin`] is a sheet (a lumped port realised as an
+//! interior sheet). Summing the two sides of the weak form gives the strong
+//! condition `[[n × ν∇×E]] + c E_t − g_t = 0` (with `n` out of one side,
+//! `[[·]] = (·)_a − (·)_b`) and `n · [[R]] + c div_Γ E_t = 0`; the residuals
+//! are the interior jumps plus the sheet term `g_t − c E_{h,t}` (and
+//! `c div_Γ E_{h,t}`), with the weights of a Robin face but `ν`, `ε` taken
+//! as the smaller of the two sides. The sheet is one face, so `c` counts
+//! once. The terms are split between the two tets like an interior jump.
+//! The sheet's boundary edges get no Robin edge term.
+//!
 //! # Coverage, not silence
 //!
 //! The estimator models interior faces, material interfaces, PEC faces,
@@ -195,6 +206,9 @@
 //! closure instead, which returns a [`FacePairing`] with its phase. Give one
 //! or the other, not both.
 
+use crate::vec3::{
+    cross3 as cross, dot3 as dot, norm3 as norm, scale3 as scale, sorted3, sub3 as sub,
+};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::path::Path;
@@ -1105,6 +1119,8 @@ enum FaceClass {
     Pec,
     Natural,
     Robin(usize),
+    /// An interior face carrying Robin boundary `i` (a sheet).
+    Sheet(usize),
     Uncovered(&'static str),
 }
 
@@ -1263,6 +1279,51 @@ pub fn estimate_hcurl(input: &EstimatorInput<'_>) -> Result<ErrorEstimate, Estim
             let b = owners[gf][1];
             let tb = &tet_data[b];
             let bb = |mu: &[f64; 4]| face_bary(&mesh.tets[b], &face, mu);
+            // An interior face the caller tags `Robin(i)` is a sheet (a lumped
+            // port realised as an interior sheet): its residual is the jump
+            // plus the sheet term `g_t − c E_t` (see the module docs).
+            let sheet = match (input.boundary_kind)(face) {
+                BoundaryFaceKind::Robin(i) => {
+                    if i >= input.robin.len() {
+                        return Err(EstimatorError::UnknownRobin {
+                            face,
+                            index: i,
+                            len: input.robin.len(),
+                        });
+                    }
+                    Some(i)
+                }
+                _ => None,
+            };
+            let (cr, g) = match sheet {
+                Some(i) => (input.robin[i].coefficient, input.robin[i].drive),
+                None => (c64::new(0.0, 0.0), [c64::new(0.0, 0.0); 3]),
+            };
+            // The sheet terms need `n` pointing out of tet `a`.
+            let n = if sheet.is_some() {
+                let opp = mesh.tets[a]
+                    .iter()
+                    .find(|v| !face.contains(v))
+                    .map(|&v| mesh.nodes[v as usize])
+                    .expect("a tet has a vertex off its face");
+                if dot(n, sub(opp, p[0])) > 0.0 {
+                    scale(n, -1.0)
+                } else {
+                    n
+                }
+            } else {
+                n
+            };
+            let c_abs = cr.norm();
+            let gn: c64 = (0..3).map(|d| g[d] * n[d]).sum();
+            let g_t: [c64; 3] = std::array::from_fn(|d| g[d] - gn * n[d]);
+            let t1 = {
+                let e = sub(p[1], p[0]);
+                scale(e, 1.0 / norm(e))
+            };
+            let t2 = cross(n, t1);
+            let grad_a = field.grad_bary(a);
+            let delta = 0.5 * ta.h;
             let (mut tang, mut normal) = (0.0, 0.0);
             for mu in &TRI_RULE_DEG5 {
                 let x = [
@@ -1274,17 +1335,47 @@ pub fn estimate_hcurl(input: &EstimatorInput<'_>) -> Result<ErrorEstimate, Estim
                 let ca = field.curl_e_at(a, la);
                 let cb = field.curl_e_at(b, lb);
                 let jc: [c64; 3] = std::array::from_fn(|d| ca[d] * ta.nu - cb[d] * tb.nu);
-                tang += mu[3] * cross_rc(n, jc).iter().map(|v| v.norm_sqr()).sum::<f64>();
+                let mut rt = cross_rc(n, jc);
                 let ra = load(a, x, la);
                 let rb = load(b, x, lb);
-                let jn: c64 = (0..3).map(|d| (ra[d] - rb[d]) * n[d]).sum();
+                let mut jn: c64 = (0..3).map(|d| (ra[d] - rb[d]) * n[d]).sum();
+                if sheet.is_some() {
+                    // E_t is continuous across the face: take it from `a`.
+                    let e = field.e_at(a, la);
+                    let en: c64 = (0..3).map(|d| e[d] * n[d]).sum();
+                    for d in 0..3 {
+                        rt[d] += g_t[d] - cr * (e[d] - en * n[d]);
+                    }
+                    let mut div_t = c64::new(0.0, 0.0);
+                    for t in [t1, t2] {
+                        let de = dir_diff(|b| field.e_at(a, b), la, grad_a, t, delta);
+                        div_t += (0..3).map(|d| de[d] * t[d]).sum::<c64>();
+                    }
+                    jn += cr * div_t;
+                }
+                tang += mu[3] * rt.iter().map(|v| v.norm_sqr()).sum::<f64>();
                 normal += mu[3] * jn.norm_sqr();
             }
+            let mut w_t = h_f / ta.nu.min(tb.nu);
+            let mut w_n = h_f / (k2_abs * ta.eps_w.min(tb.eps_w));
+            if c_abs > 0.0 {
+                w_t = w_t.min(1.0 / c_abs);
+                w_n = w_n.min(h_f * h_f / c_abs);
+            }
+            let (tang, normal) = if sheet.is_some() {
+                (tang * area * w_t, normal * area * w_n)
+            } else {
+                // The plain interior weights, in their original rounding.
+                (
+                    tang * area * h_f / ta.nu.min(tb.nu),
+                    normal * area * h_f / (k2_abs * ta.eps_w.min(tb.eps_w)),
+                )
+            };
             return Ok(FaceResult {
-                class: FaceClass::Interior,
+                class: sheet.map_or(FaceClass::Interior, FaceClass::Sheet),
                 tets: [a, b],
-                tang: tang * area * h_f / ta.nu.min(tb.nu),
-                normal: normal * area * h_f / (k2_abs * ta.eps_w.min(tb.eps_w)),
+                tang,
+                normal,
             });
         }
 
@@ -1482,6 +1573,14 @@ pub fn estimate_hcurl(input: &EstimatorInput<'_>) -> Result<ErrorEstimate, Estim
         match fr.class {
             FaceClass::Interior => {
                 coverage.interior_faces += 1;
+                for &t in &fr.tets {
+                    terms[t].tangential_jump += 0.5 * fr.tang;
+                    terms[t].normal_jump += 0.5 * fr.normal;
+                }
+            }
+            FaceClass::Sheet(i) => {
+                coverage.interior_faces += 1;
+                *coverage.robin_faces.entry(input.robin[i].name).or_insert(0) += 1;
                 for &t in &fr.tets {
                     terms[t].tangential_jump += 0.5 * fr.tang;
                     terms[t].normal_jump += 0.5 * fr.normal;
@@ -1909,11 +2008,6 @@ fn par_map<T: Send>(n: usize, f: impl Fn(usize) -> T + Sync + Send) -> Vec<T> {
     }
 }
 
-fn sorted3(mut t: [u32; 3]) -> [u32; 3] {
-    t.sort_unstable();
-    t
-}
-
 /// Natural-order barycentrics in `tet` of the face point with face
 /// barycentrics `mu[0..3]` on the sorted face `face`. Exact (the face's
 /// vertices are vertices of the tet; the opposite vertex gets 0).
@@ -1941,35 +2035,6 @@ fn point_bary(coords: &[[f64; 3]; 4], grad: &[[f64; 3]; 4], y: [f64; 3]) -> [f64
 
 fn bary_to_point(coords: &[[f64; 3]; 4], bary: &[f64; 4]) -> [f64; 3] {
     std::array::from_fn(|d| (0..4).map(|i| bary[i] * coords[i][d]).sum())
-}
-
-#[inline]
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-#[inline]
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-#[inline]
-fn norm(a: [f64; 3]) -> f64 {
-    dot(a, a).sqrt()
-}
-
-#[inline]
-fn scale(a: [f64; 3], s: f64) -> [f64; 3] {
-    [a[0] * s, a[1] * s, a[2] * s]
-}
-
-#[inline]
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
 }
 
 /// `n × v` for a real `n` and a complex `v`.

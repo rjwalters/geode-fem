@@ -775,7 +775,10 @@ fn file_ref(dir: &Path, name: &str) -> Result<FileRef, CliError> {
     let bytes = std::fs::read(&path).map_err(|e| io_err(&path, e))?;
     Ok(FileRef {
         path: name.to_string(),
-        sha256: format!("{:x}", Sha256::digest(&bytes)),
+        sha256: Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect(),
     })
 }
 

@@ -44,6 +44,7 @@ use geode_core::analytic::port_mode_sensitivity::{FaceDesign, FaceParamKind, str
 use geode_core::analytic::port_modes::HybridPecMasks;
 use geode_core::analytic::waveguide::TriMesh;
 use geode_core::assembly::hcurl_space::HcurlSpace;
+use geode_core::assembly::nedelec::tet_centroid as centroid;
 use geode_core::driven::ports::{
     HybridPortFace, HybridWavePort, HybridWavePortOpts, WavePortSpec, extruded_rect_waveguide_mesh,
     solve_wave_port_spec_sweep_with_mode, strip_line_section,
@@ -82,16 +83,6 @@ fn quiet() -> HybridWavePortOpts {
     }
 }
 
-fn centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
-    let mut c = [0.0; 3];
-    for &v in &mesh.tets[t] {
-        for (ci, x) in c.iter_mut().zip(mesh.nodes[v as usize]) {
-            *ci += 0.25 * x;
-        }
-    }
-    c
-}
-
 /// `max_kp |adj − fd| / max_kp |fd|`.
 fn rel_err(adj: &[c64], fd: &[c64]) -> f64 {
     let scale = fd.iter().map(|z| z.norm()).fold(0.0, f64::max);
@@ -107,6 +98,8 @@ fn label(sw: &SSensitivitySweep, i: usize, shape_names: &[&str]) -> String {
     match sw.params[i] {
         SParam::EpsPrime { region } => format!("eps'[{region}]"),
         SParam::EpsDoublePrime { region } => format!("eps''[{region}]"),
+        SParam::Sigma { region } => format!("sigma[{region}]"),
+        SParam::EpsDirection { column } => format!("dir[{column}]"),
         SParam::Shape { column } => shape_names
             .get(column)
             .map_or_else(|| format!("shape[{column}]"), |s| (*s).to_string()),
@@ -189,7 +182,8 @@ fn shift_eps(eps: &[c64], regions: &[Option<usize>], prm: SParam, h: f64) -> Vec
     let (region, d) = match prm {
         SParam::EpsPrime { region } => (region, c64::new(h, 0.0)),
         SParam::EpsDoublePrime { region } => (region, c64::new(0.0, -h)),
-        SParam::Shape { .. } | SParam::Wall { .. } => return eps.to_vec(),
+        SParam::Shape { .. } | SParam::Sigma { .. } | SParam::Wall { .. } => return eps.to_vec(),
+        SParam::EpsDirection { .. } => unreachable!("direction parameters shift ε in their test"),
     };
     eps.iter()
         .zip(regions)

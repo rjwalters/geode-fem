@@ -21,11 +21,13 @@
 //! * **Rejections**: every unsupported combination is `invalid_spec` naming
 //!   what would lift it.
 
+#[path = "support/msh.rs"]
+mod msh;
 #[path = "support/scratch.rs"]
 mod scratch_support;
 
+use msh::write_msh_volumes as write_msh;
 use scratch_support::{Scratch, ScratchFile};
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -78,78 +80,6 @@ fn err(out: &Output, code: &str) -> String {
 
 fn f(v: &Value) -> f64 {
     v.as_f64().unwrap_or_else(|| panic!("not a number: {v}"))
-}
-
-/// Serialize a tet mesh with named volume and surface groups as Gmsh MSH
-/// 4.1 ASCII (one entity per group).
-fn write_msh(
-    nodes: &[[f64; 3]],
-    volumes: &[(i32, &str, &[[u32; 4]])],
-    surfaces: &[(i32, &str, &[[u32; 3]])],
-) -> String {
-    let mut s = String::from("$MeshFormat\n4.1 0 8\n$EndMeshFormat\n$PhysicalNames\n");
-    let _ = writeln!(s, "{}", surfaces.len() + volumes.len());
-    for (tag, name, _) in surfaces {
-        let _ = writeln!(s, "2 {tag} \"{name}\"");
-    }
-    for (tag, name, _) in volumes {
-        let _ = writeln!(s, "3 {tag} \"{name}\"");
-    }
-    s.push_str("$EndPhysicalNames\n");
-    let _ = writeln!(s, "$Entities\n0 0 {} {}", surfaces.len(), volumes.len());
-    for (i, (tag, _, _)) in surfaces.iter().enumerate() {
-        let _ = writeln!(s, "{} 0 0 0 1 1 1 1 {tag} 0", i + 1);
-    }
-    let bound: Vec<String> = (1..=surfaces.len()).map(|i| i.to_string()).collect();
-    for (i, (tag, _, _)) in volumes.iter().enumerate() {
-        let _ = writeln!(
-            s,
-            "{} 0 0 0 1 1 1 1 {tag} {} {}",
-            i + 1,
-            surfaces.len(),
-            bound.join(" ")
-        );
-    }
-    s.push_str("$EndEntities\n");
-    let n = nodes.len();
-    let _ = writeln!(s, "$Nodes\n1 {n} 1 {n}\n3 1 0 {n}");
-    for i in 1..=n {
-        let _ = writeln!(s, "{i}");
-    }
-    for p in nodes {
-        let _ = writeln!(s, "{:.17e} {:.17e} {:.17e}", p[0], p[1], p[2]);
-    }
-    let n_tris: usize = surfaces.iter().map(|(_, _, t)| t.len()).sum();
-    let n_el = n_tris + volumes.iter().map(|(_, _, t)| t.len()).sum::<usize>();
-    let _ = writeln!(
-        s,
-        "$EndNodes\n$Elements\n{} {n_el} 1 {n_el}",
-        surfaces.len() + volumes.len()
-    );
-    let mut id = 1;
-    for (i, (_, _, tris)) in surfaces.iter().enumerate() {
-        let _ = writeln!(s, "2 {} 2 {}", i + 1, tris.len());
-        for t in *tris {
-            let _ = writeln!(s, "{id} {} {} {}", t[0] + 1, t[1] + 1, t[2] + 1);
-            id += 1;
-        }
-    }
-    for (i, (_, _, tets)) in volumes.iter().enumerate() {
-        let _ = writeln!(s, "3 {} 4 {}", i + 1, tets.len());
-        for t in *tets {
-            let _ = writeln!(
-                s,
-                "{id} {} {} {} {}",
-                t[0] + 1,
-                t[1] + 1,
-                t[2] + 1,
-                t[3] + 1
-            );
-            id += 1;
-        }
-    }
-    s.push_str("$EndElements\n");
-    s
 }
 
 /// The `2 × 1 × 1.2` guide (8 × 4 × 6 cells) with a dielectric `slab`
@@ -1109,7 +1039,7 @@ fn unsupported_n_port_combinations_are_rejected_naming_the_gap() {
                     "dispersion": {"model": "djordjevic_sarkar", "eps_r": 4.4,
                                    "tan_delta": 0.02, "f_ref_hz": 1e9}}]);
             }),
-            &["dispersion", "sensitivity", "Phase 2a"],
+            &["dispersion", "sensitivity", "wave_ports", "#1259"],
         ),
         (
             "anisotropic",
@@ -1273,4 +1203,297 @@ fn n_port_kinds_and_observables_are_driven_only_and_check_gradient_needs_a_secti
         msg.contains("`nope` (dim 2 or 3, sensitivity pinned group)"),
         "{msg}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Volumetric conductivity `materials[].conductivity_s_m` (issue #1254)
+// ---------------------------------------------------------------------------
+
+/// Slab conductivity of the σ specs (S/m): `σ_nat = σ·η₀·L ≈ 18.8`, so the
+/// slab's `Im ε_eff = −σ_nat/k₀ ≈ −7` is a strongly lossy, smooth point.
+const SLAB_SIGMA_S_M: f64 = 5.0;
+
+/// A slab-guide spec whose slab conducts (`conductivity_s_m`, `None`: absent)
+/// and differentiates `σ` and `ε′` of the slab.
+fn sigma_spec(name: &str, ports: Ports, sigma: Option<f64>) -> ScratchFile {
+    slab_spec(name, ports, |v| {
+        let mut slab = json!({"physical_group": "slab", "eps_r": SLAB_EPS});
+        if let Some(s) = sigma {
+            slab["conductivity_s_m"] = json!(s);
+        }
+        v["materials"] = json!([slab]);
+        v["sensitivity"]["parameters"] = json!([
+            {"kind": "sigma", "physical_group": "slab"},
+            {"kind": "eps_r", "physical_group": "slab"}
+        ]);
+    })
+}
+
+#[test]
+fn volumetric_sigma_gradient_agrees_with_the_shipped_forward() {
+    // Lumped, then mixed (wave + lumped): the FD re-runs the *shipped*
+    // forward with the slab's `conductivity_s_m` moved ±h in S/m, so the
+    // gradient's unit (per S/m, not per natural unit) is pinned end to end.
+    for (name, ports) in [
+        ("sigma-lumped", Ports::Lumped),
+        ("sigma-mixed", Ports::Mixed),
+    ] {
+        let spec = sigma_spec(name, ports, Some(SLAB_SIGMA_S_M));
+        let r = ok(
+            &geode(&["driven", spec.to_str().unwrap(), "--check-gradient"]),
+            "geode driven --check-gradient (σ)",
+        );
+        let s = assert_fd_agreement(&r, name);
+        assert_every_parameter_is_live(&s, name);
+        assert_eq!(s["parameters"][0]["kind"], "sigma");
+        assert_eq!(f(&s["parameters"][0]["value"]), SLAB_SIGMA_S_M);
+    }
+}
+
+#[test]
+fn volumetric_sigma_gradient_at_zero_conductivity_uses_the_one_sided_fd() {
+    // σ absent = 0: the passive-side derivative, checked one-sided like ε″.
+    let spec = sigma_spec("sigma-zero", Ports::Lumped, None);
+    let r = ok(
+        &geode(&["driven", spec.to_str().unwrap(), "--check-gradient"]),
+        "geode driven --check-gradient (σ = 0)",
+    );
+    let s = assert_fd_agreement(&r, "σ = 0 lumped slab guide");
+    assert_every_parameter_is_live(&s, "σ = 0 lumped slab guide");
+}
+
+/// The reported `S` of every row, flattened to `(re, im)` pairs.
+fn s_entries(report: &Value) -> Vec<(f64, f64)> {
+    report["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|row| {
+            row["s"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|r| r.as_array().unwrap().iter())
+                .map(|z| (f(&z[0]), f(&z[1])))
+        })
+        .collect()
+}
+
+#[test]
+fn drude_with_sigma_fixed_and_gamma_to_infinity_equals_explicit_sigma() {
+    // Drude `ε∞ − ω_p²/(ω² − jγω)` with `ω_p² = σγ/ε₀`, `γ → ∞` tends to
+    // `ε∞ − jσ/(ε₀ω)`: the same medium as `conductivity_s_m = σ`.
+    const EPS0: f64 = 8.854_187_812_8e-12;
+    let gamma = 1e18_f64;
+    let wp = (SLAB_SIGMA_S_M * gamma / EPS0).sqrt();
+    let run = |name: &str, slab: Value| {
+        let spec = slab_spec(name, Ports::Lumped, |v| {
+            v["materials"] = json!([slab]);
+            v.as_object_mut().unwrap().remove("sensitivity");
+        });
+        ok(&geode(&["driven", spec.to_str().unwrap()]), name)
+    };
+    let drude = run(
+        "drude",
+        json!({"physical_group": "slab", "dispersion": {"model": "drude",
+            "eps_inf": SLAB_EPS[0], "omega_p_rad_s": wp, "gamma_rad_s": gamma}}),
+    );
+    let explicit = run(
+        "explicit-sigma",
+        json!({"physical_group": "slab", "eps_r": [SLAB_EPS[0], 0.0],
+               "conductivity_s_m": SLAB_SIGMA_S_M}),
+    );
+    let (a, b) = (s_entries(&drude), s_entries(&explicit));
+    assert_eq!(a.len(), b.len());
+    let worst = a
+        .iter()
+        .zip(&b)
+        .map(|(x, y)| ((x.0 - y.0).powi(2) + (x.1 - y.1).powi(2)).sqrt())
+        .fold(0.0, f64::max);
+    eprintln!("DRUDE vs σ | worst |ΔS| = {worst:.2e}");
+    assert!(worst <= 1e-6, "Drude(γ→∞) vs explicit σ: {worst:e}");
+}
+
+#[test]
+fn conductivity_is_validated_and_scoped_to_the_driven_analyses() {
+    let neg = slab_spec("sigma-negative", Ports::Lumped, |v| {
+        v["materials"] = json!([{"physical_group": "slab", "eps_r": SLAB_EPS,
+                                 "conductivity_s_m": -1.0}]);
+        v.as_object_mut().unwrap().remove("sensitivity");
+    });
+    let m = check_err(&neg);
+    assert!(m.contains("conductivity_s_m") && m.contains(">= 0"), "{m}");
+
+    // A σ on a spec whose solver has no conduction term is loud, not ignored.
+    let eig = slab_spec("sigma-eigen", Ports::Lumped, |v| {
+        v["materials"] = json!([{"physical_group": "slab", "eps_r": [2.5, 0.0],
+                                 "conductivity_s_m": 1.0}]);
+        let o = v.as_object_mut().unwrap();
+        for k in ["sensitivity", "frequencies", "ports", "wave_ports"] {
+            o.remove(k);
+        }
+        v["eigen"] = json!({"n_modes": 2, "unit": "k0", "shift": 1.0});
+    });
+    let m = check_err(&eig);
+    assert!(m.contains("conductivity_s_m") && m.contains("eigen"), "{m}");
+}
+
+/// A slab-guide lumped spec whose slab carries `dispersion` and that
+/// differentiates `params` (model parameters of the slab) plus the constant
+/// guide fill's `ε′`.
+fn dispersive_spec(name: &str, dispersion: Value, params: Value) -> ScratchFile {
+    slab_spec(name, Ports::Lumped, |v| {
+        v["materials"] = json!([{"physical_group": "slab", "dispersion": dispersion}]);
+        let mut all = params.as_array().unwrap().clone();
+        all.push(json!({"kind": "eps_r", "physical_group": "guide"}));
+        v["sensitivity"]["parameters"] = json!(all);
+    })
+}
+
+fn model_param(name: &str, pole: Option<usize>) -> Value {
+    let mut v = json!({"kind": "dispersion", "physical_group": "slab", "model_parameter": name});
+    if let Some(k) = pole {
+        v["pole"] = json!(k);
+    }
+    v
+}
+
+#[test]
+fn dispersive_lumped_gradients_agree_with_the_shipped_dispersive_forward() {
+    // Epic #841 Phase 2a (#1259): every model parameter's `∂S/∂θ` — one
+    // adjoint pass per frequency at the forward's own ε(ω) — against the
+    // central FD of the shipped `geode driven` forward with the parameter
+    // moved in the spec's own unit, for each of the three models.
+    let cases: Vec<(&str, Value, Value)> = vec![
+        (
+            "ds",
+            json!({"model": "djordjevic_sarkar", "eps_r": 3.2, "tan_delta": 0.02,
+                   "f_ref_hz": 1.2e10}),
+            json!([model_param("eps_r", None), model_param("tan_delta", None)]),
+        ),
+        (
+            "debye",
+            json!({"model": "debye", "eps_inf": 2.2,
+                   "poles": [{"delta_eps": 1.0, "tau_s": 2e-11},
+                             {"delta_eps": 0.5, "tau_s": 5e-12}]}),
+            json!([
+                model_param("eps_inf", None),
+                model_param("delta_eps", Some(0)),
+                model_param("tau_s", Some(0)),
+                model_param("delta_eps", Some(1)),
+                model_param("tau_s", Some(1)),
+            ]),
+        ),
+        (
+            "drude",
+            json!({"model": "drude", "eps_inf": 4.0, "omega_p_rad_s": 3e10,
+                   "gamma_rad_s": 2e10}),
+            json!([
+                model_param("eps_inf", None),
+                model_param("omega_p_rad_s", None),
+                model_param("gamma_rad_s", None),
+            ]),
+        ),
+    ];
+    for (name, dispersion, params) in cases {
+        let n = params.as_array().unwrap().len();
+        let spec = dispersive_spec(&format!("disp-{name}"), dispersion, params);
+        let r = ok(
+            &geode(&["driven", spec.to_str().unwrap(), "--check-gradient"]),
+            "geode driven --check-gradient (dispersive)",
+        );
+        let label = format!("dispersive lumped slab guide ({name})");
+        let s = assert_fd_agreement(&r, &label);
+        // Liveness in the parameter's own scale: a per-rad/s or per-second
+        // gradient is ~1e-11 or ~1e10, so test `|value · ∂S/∂θ|`.
+        for (k, prm) in s["parameters"].as_array().unwrap().iter().enumerate() {
+            let max = s["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|e| e["parameter"] == k)
+                .map(|e| f(&e["gradient"]).abs())
+                .fold(0.0, f64::max);
+            assert!(
+                max * f(&prm["value"]).abs() > 1e-6,
+                "{label}: parameter {k} has a dead gradient"
+            );
+        }
+        assert_eq!(s["parameters"].as_array().unwrap().len(), n + 1);
+        assert_eq!(s["parameters"][0]["kind"], "dispersion");
+    }
+}
+
+#[test]
+fn dispersion_parameters_are_validated_naming_the_fix() {
+    let ds = json!({"model": "djordjevic_sarkar", "eps_r": 3.2, "tan_delta": 0.02,
+                    "f_ref_hz": 1.2e10});
+    let debye = json!({"model": "debye", "eps_inf": 2.2,
+                       "poles": [{"delta_eps": 1.0, "tau_s": 2e-11}]});
+    type Case<'a> = (&'a str, Value, Value, &'a [&'a str]);
+    let cases: Vec<Case> = vec![
+        (
+            "constant-kind-on-dispersive",
+            ds.clone(),
+            json!([{"kind": "eps_r", "physical_group": "slab"}]),
+            &["dispersion", "model_parameter"],
+        ),
+        (
+            "model-mismatch",
+            ds.clone(),
+            json!([model_param("tau_s", Some(0))]),
+            &["no such parameter", "djordjevic_sarkar"],
+        ),
+        (
+            "pole-missing",
+            debye.clone(),
+            json!([model_param("tau_s", None)]),
+            &["needs `pole`"],
+        ),
+        (
+            "pole-out-of-range",
+            debye.clone(),
+            json!([model_param("tau_s", Some(3))]),
+            &["out of range", "1 pole"],
+        ),
+        (
+            "pole-on-eps-inf",
+            debye,
+            json!([{"kind": "dispersion", "physical_group": "slab",
+                    "model_parameter": "eps_inf", "pole": 0}]),
+            &["`pole` applies to"],
+        ),
+        (
+            "no-model-parameter",
+            ds.clone(),
+            json!([{"kind": "dispersion", "physical_group": "slab"}]),
+            &["needs `model_parameter`"],
+        ),
+        (
+            "model-parameter-on-other-kind",
+            ds,
+            json!([{"kind": "eps_r", "physical_group": "slab", "model_parameter": "eps_r"}]),
+            &["apply to `kind = \"dispersion\"`"],
+        ),
+    ];
+    for (name, dispersion, params, needles) in cases {
+        let spec = slab_spec(&format!("disp-reject-{name}"), Ports::Lumped, |v| {
+            v["materials"] = json!([{"physical_group": "slab", "dispersion": dispersion}]);
+            v["sensitivity"]["parameters"] = params;
+        });
+        let msg = check_err(&spec);
+        for n in needles {
+            assert!(msg.contains(n), "{name}: {msg}");
+        }
+        eprintln!("REJECT | {name} | {msg}");
+    }
+}
+
+#[test]
+fn dispersion_kind_on_a_constant_group_is_rejected() {
+    let spec = slab_spec("disp-constant", Ports::Lumped, |v| {
+        v["sensitivity"]["parameters"] = json!([model_param("eps_r", None)]);
+    });
+    let msg = check_err(&spec);
+    assert!(msg.contains("no `materials[].dispersion` model"), "{msg}");
 }

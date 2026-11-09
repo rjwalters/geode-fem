@@ -20,8 +20,10 @@
 //!
 //! - [`DwrEstimator::P2Enrichment`] (`"dwr-p2"`): `ω_T` from a p=2
 //!   enrichment of `z` on the same mesh. Signed, and the identity above
-//!   holds with the enriched weight. **Not implemented yet** (step 2 of
-//!   #1266); the variant fixes the report label.
+//!   holds with the enriched weight. Implemented by [`dwr_p2`]: one extra
+//!   p=2 assembly + factorization of the driven operator on the same mesh,
+//!   the p=1 solution prolonged hierarchically into the p=2 space, the
+//!   p=2 residual `b − A₂ E_h` and the p=2 dual `A₂ᵀ z = ∂J/∂x`.
 //! - [`DwrEstimator::Product`] (`"dwr-product"`): the product indicator
 //!   `η_T(E_h) · η_T(z)` of two energy-norm estimates
 //!   ([`crate::adapt::estimator`]). It is a **heuristic**: it is unsigned,
@@ -31,13 +33,15 @@
 //!
 //! # What is not here
 //!
-//! The `dwr-p2` weights, the S-parameter and eigenfrequency goals, the
-//! adaptive-loop hook and the `driven/adjoint.rs` bridge are later steps of
-//! #1266.
+//! The eigenfrequency goal lives in [`crate::adapt::dwr_eigen`]. The
+//! S-parameter goals, the adaptive-loop hook and the `driven/adjoint.rs`
+//! bridge landed in later steps of #1266.
 
 use faer::c64;
 
-use crate::adapt::estimator::ErrorEstimate;
+use crate::assembly::hcurl_space::HcurlSpace;
+use crate::driven::solve::DrivenOperator;
+use crate::elements::ElementOrder;
 
 /// Which weight construction produced a [`DwrEstimate`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +83,11 @@ pub enum DwrError {
         cell: usize,
         n_cells: usize,
     },
+    /// [`dwr_p2`] was given a space or operator that is not the p=2 one on
+    /// matching DOFs.
+    NotP2Enrichment(&'static str),
+    /// The p=2 operator factorization or a back-substitution failed.
+    Driven(String),
 }
 
 impl std::fmt::Display for DwrError {
@@ -95,6 +104,8 @@ impl std::fmt::Display for DwrError {
                     "dwr: DOF {dof} assigned to cell {cell} >= n_cells {n_cells}"
                 )
             }
+            Self::NotP2Enrichment(why) => write!(f, "dwr-p2: {why}"),
+            Self::Driven(e) => write!(f, "dwr-p2: p=2 operator failed: {e}"),
         }
     }
 }
@@ -198,34 +209,174 @@ pub fn dwr_from_residual_and_weight(
     })
 }
 
-/// The heuristic product fallback `η_T^goal = η_T(E_h) · η_T(z)` from the
-/// energy-norm estimates of the primal and the dual solution on the same
-/// mesh. Labelled [`DwrEstimator::Product`] (`"dwr-product"`); unsigned.
+/// Like [`dwr_from_residual_and_weight`], but for DOFs shared by several
+/// cells: the product `residual_i · weight_i` of DOF `i` is split equally
+/// among the `m_i` cells that contain it (`cell_dofs(c)` lists cell `c`'s
+/// DOFs), so the cell terms still sum exactly to `Σ_i residual_i · weight_i`.
+///
+/// This is the standard partition-of-unity attribution for edge/face DOFs;
+/// it is a localisation choice, not a change to the global estimate.
 ///
 /// # Errors
 ///
-/// [`DwrError::LengthMismatch`] if the two estimates cover different tet
-/// counts.
-pub fn dwr_product(primal: &ErrorEstimate, dual: &ErrorEstimate) -> Result<DwrEstimate, DwrError> {
-    if primal.eta_t2.len() != dual.eta_t2.len() {
+/// [`DwrError::LengthMismatch`] if `weight` and `residual` differ in length;
+/// [`DwrError::CellOutOfRange`] if a cell lists a DOF `>= residual.len()`.
+pub fn dwr_from_residual_and_weight_shared<'a>(
+    residual: &[c64],
+    weight: &[c64],
+    n_cells: usize,
+    cell_dofs: impl Fn(usize) -> &'a [u32],
+    estimator: DwrEstimator,
+) -> Result<DwrEstimate, DwrError> {
+    if weight.len() != residual.len() {
         return Err(DwrError::LengthMismatch {
-            what: "dual estimate",
-            expected: primal.eta_t2.len(),
-            got: dual.eta_t2.len(),
+            what: "weight",
+            expected: residual.len(),
+            got: weight.len(),
         });
     }
-    let eta_t = primal
-        .eta_t2
-        .iter()
-        .zip(&dual.eta_t2)
-        .map(|(p, d)| p.max(0.0).sqrt() * d.max(0.0).sqrt())
-        .collect();
+    let n = residual.len();
+    let mut mult = vec![0u32; n];
+    for c in 0..n_cells {
+        for &d in cell_dofs(c) {
+            let d = d as usize;
+            if d >= n {
+                return Err(DwrError::CellOutOfRange {
+                    dof: d,
+                    cell: c,
+                    n_cells,
+                });
+            }
+            mult[d] += 1;
+        }
+    }
+    let mut terms = vec![c64::new(0.0, 0.0); n_cells];
+    for (c, term) in terms.iter_mut().enumerate() {
+        for &d in cell_dofs(c) {
+            let d = d as usize;
+            *term += residual[d] * weight[d] * (1.0 / f64::from(mult[d]));
+        }
+    }
+    let signed = terms.iter().fold(c64::new(0.0, 0.0), |a, t| a + t);
+    let eta_t = terms.iter().map(|t| t.norm()).collect();
     Ok(DwrEstimate {
-        estimator: DwrEstimator::Product,
+        estimator,
         eta_t,
-        terms: None,
-        signed: None,
+        terms: Some(terms),
+        signed: Some(signed),
     })
+}
+
+/// Inputs of the p=2 enrichment: a p=2 driven operator on the same mesh as
+/// the p=1 solution being judged.
+#[derive(Clone, Copy)]
+pub struct P2Enrichment<'a> {
+    /// The p=2 [`HcurlSpace`] of the mesh the p=1 solution lives on.
+    pub space: &'a HcurlSpace,
+    /// The driven operator assembled on [`Self::space`] with the same
+    /// materials, PEC mask, ports, surfaces and source as the p=1 problem.
+    pub op: &'a DrivenOperator,
+    /// Angular frequency of the solve.
+    pub omega: f64,
+    /// The excited port for an N-port sweep, or `None` for the baked source.
+    pub excited: Option<usize>,
+}
+
+/// Goal-oriented estimate with `ω_T` from a **p=2 enrichment** of the dual
+/// (`"dwr-p2"`).
+///
+/// - `x_h_p1`: the p=1 solution (`[n_edges]`, `mesh.edges()` order);
+/// - `dual_rhs_p2`: `∂J/∂x` as a full-length p=2 DOF vector (the goal's
+///   [`rhs`](crate::adapt::goal::GoalFunctional::rhs) expressed on the p=2
+///   space, so the goal sees the enriched DOFs too).
+///
+/// The p=1 solution is prolonged hierarchically
+/// ([`HcurlSpace::prolong_p1`]); the residual is `r = b − A₂ E_h`; the dual
+/// solves `A₂ᵀ z = dual_rhs_p2`; the weight is `z` with its Whitney (p=1,
+/// `W`) DOFs removed, i.e. `ω = z − I_h z` in the hierarchical basis. The
+/// per-cell terms split each shared DOF equally among its cells
+/// ([`dwr_from_residual_and_weight_shared`]).
+///
+/// When `x_h_p1` is the Galerkin solution of the same problem the `W` block
+/// of `r` is zero, and for a linear goal `Σ_T ρ_T ω_T = J(E_{p2}) − J(E_h)`
+/// is the exact p=2 goal error. The estimate is a *p=2 error* estimate: it
+/// captures the p=1 → p=2 gain, not the error of the p=2 solution itself.
+///
+/// **Complex-symmetric assumption.** The dual is back-solved on the forward
+/// factorization (`Aᵀ = A`). That holds for the driven pencil assembled
+/// today; a Bloch-periodic (non-symmetric) operator needs a transpose solve
+/// instead, as noted in [`crate::adapt::goal`].
+///
+/// Cost: one p=2 assembly (done by the caller) and one LU of `A₂(ω)`, plus
+/// two back-solves; nothing is re-meshed.
+///
+/// # Errors
+///
+/// [`DwrError::NotP2Enrichment`] if the space/operator are not p=2 on
+/// matching DOF counts or a vector length is wrong; [`DwrError::Driven`] if
+/// the factorization or a back-solve fails.
+pub fn dwr_p2(
+    enr: &P2Enrichment<'_>,
+    x_h_p1: &[c64],
+    dual_rhs_p2: &[c64],
+) -> Result<DwrEstimate, DwrError> {
+    let (space, op) = (enr.space, enr.op);
+    if space.order() != ElementOrder::P2 || op.order() != ElementOrder::P2 {
+        return Err(DwrError::NotP2Enrichment("space and operator must be p=2"));
+    }
+    if op.n_dofs() != space.n_dofs() {
+        return Err(DwrError::NotP2Enrichment(
+            "operator and space have different DOF counts",
+        ));
+    }
+    if x_h_p1.len() != space.n_edges() {
+        return Err(DwrError::NotP2Enrichment(
+            "p=1 solution length != number of edges",
+        ));
+    }
+    if dual_rhs_p2.len() != space.n_dofs() {
+        return Err(DwrError::NotP2Enrichment(
+            "dual rhs length != number of p=2 DOFs",
+        ));
+    }
+    let fac = op
+        .factor_at(enr.omega)
+        .map_err(|e| DwrError::Driven(e.to_string()))?;
+    let i2f = op.interior_to_full();
+    let n_int = i2f.len();
+    let zero = c64::new(0.0, 0.0);
+
+    // Residual r = b − A₂ E_h on the interior DOFs.
+    let x_full = space.prolong_p1(x_h_p1);
+    let x_int: Vec<c64> = i2f.iter().map(|&f| x_full[f]).collect();
+    let mut ax = vec![zero; n_int];
+    fac.spmv_a(&x_int, &mut ax);
+    let b_int = op.assemble_b_at(enr.omega, enr.excited);
+    let mut residual = vec![zero; space.n_dofs()];
+    for (k, &f) in i2f.iter().enumerate() {
+        residual[f] = b_int[k] - ax[k];
+    }
+
+    // Dual z = A₂⁻ᵀ g (A₂ᵀ = A₂), then remove the Whitney part.
+    let g_int: Vec<c64> = i2f.iter().map(|&f| dual_rhs_p2[f]).collect();
+    let mut z_int = vec![zero; n_int];
+    fac.back_solve(&g_int, &mut z_int)
+        .map_err(|e| DwrError::Driven(e.to_string()))?;
+    let mut weight = vec![zero; space.n_dofs()];
+    for (k, &f) in i2f.iter().enumerate() {
+        weight[f] = z_int[k];
+    }
+    for ge in 0..space.n_edges() {
+        weight[space.edge_dofs(ge)[0] as usize] = zero;
+    }
+
+    dwr_from_residual_and_weight_shared(
+        &residual,
+        &weight,
+        space.n_tets(),
+        |t| space.tet_dofs(t),
+        DwrEstimator::P2Enrichment,
+    )
 }
 
 #[cfg(test)]

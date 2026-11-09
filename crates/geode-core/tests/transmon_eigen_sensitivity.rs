@@ -15,6 +15,9 @@
 //! - **Release / `#[ignore]`:** the real 133k-tet DeviceLayout mesh, the
 //!   honesty/scale cross-check.
 
+mod common;
+use common::edge_tables;
+
 use burn::tensor::Tensor;
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
@@ -44,18 +47,6 @@ fn device() -> <B as BackendTypes>::Device {
 
 fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
     t.into_data().iter::<f64>().collect()
-}
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
 }
 
 /// Assemble the REAL Nédélec pencil value vectors `(k_vals, m_vals)` for a

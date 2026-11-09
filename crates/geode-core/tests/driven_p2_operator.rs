@@ -13,6 +13,9 @@
 //! - PROM at p=2: self-oracle against the dense p=2 solve.
 //! - Every unsupported p=2 feature returns `UnsupportedAtOrder`.
 
+mod common;
+use common::boundary_plane_faces;
+
 use std::collections::HashMap;
 use std::f64::consts::PI;
 
@@ -33,22 +36,12 @@ use geode_core::mesh::{TetMesh, cube_tet_mesh};
 use geode_core::testing::TestBackend;
 
 use burn::tensor::backend::BackendTypes;
+use common::Lcg;
 
 type B = TestBackend;
 
 fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()
-}
-
-struct Lcg(u64);
-impl Lcg {
-    fn next(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        ((self.0 >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
-    }
 }
 
 /// `cube_tet_mesh(n)` with interior nodes jittered by up to `0.12·h`: an
@@ -67,23 +60,13 @@ fn jittered_cube(n: usize, seed: u64) -> TetMesh {
     mesh
 }
 
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.boundary_faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
 /// The six walls as separate tagged triangle lists (as a Gmsh box with one
 /// physical group per wall would deliver them).
 fn tagged_walls(mesh: &TetMesh) -> Vec<Vec<[u32; 3]>> {
     let mut out = Vec::new();
     for axis in 0..3 {
         for v in [0.0, 1.0] {
-            out.push(plane_faces(mesh, axis, v));
+            out.push(boundary_plane_faces(mesh, axis, v));
         }
     }
     out
@@ -405,13 +388,13 @@ fn p1_space_path_is_bit_identical_to_assemble() {
     // on x = 1 (left out of the mask).
     let pec: Vec<[u32; 3]> = [(1, 0.0), (1, 1.0), (2, 1.0)]
         .iter()
-        .flat_map(|&(a, v)| plane_faces(&mesh, a, v))
+        .flat_map(|&(a, v)| boundary_plane_faces(&mesh, a, v))
         .collect();
     let mask = space.pec_interior_mask(&mesh, &[pec.as_slice()]).unwrap();
     let bcs = DrivenBcs {
         pec_interior_mask: &mask,
     };
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = boundary_plane_faces(&mesh, 2, 0.0);
     let port = LumpedPort {
         faces: &port_faces,
         e_hat: [0.0, 1.0, 0.0],
@@ -420,7 +403,7 @@ fn p1_space_path_is_bit_identical_to_assemble() {
         length: 1.0,
         v_inc: c64::new(1.0, 0.0),
     };
-    let wall = plane_faces(&mesh, 0, 1.0);
+    let wall = boundary_plane_faces(&mesh, 0, 1.0);
     let surf = SurfaceImpedanceBc {
         triangles: &wall,
         model: SurfaceImpedanceModel::GoodConductor { sigma: 40.0 },

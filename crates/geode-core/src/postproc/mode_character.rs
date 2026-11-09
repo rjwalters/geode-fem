@@ -54,7 +54,10 @@
 //! across a TM₂ mixing window (σ₀ ≈ 12.75 – 16.75), from shared
 //! membership and elimination; it is not tracked through that window.
 
+use crate::vec3::{cross3, dot3};
 use faer::c64;
+
+use crate::dense_ops::dense_solve;
 
 use crate::analytic::mie::{MiePolarisation, spherical_j_c};
 use crate::elements::nedelec::{TET_QUAD4_A, TET_QUAD4_B};
@@ -197,18 +200,6 @@ fn quadrupole_basis(i: usize) -> [[f64; 3]; 3] {
         3 => [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 0.0]],
         _ => [[-1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 2.0]],
     }
-}
-
-fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
 }
 
 /// Hermitian inner product `conj(u)·v` of two complex 3-vectors.
@@ -425,57 +416,13 @@ pub fn sphere_mode_character(
     }
 }
 
-/// Solve the small dense complex system `A x = b` by Gaussian elimination
-/// with partial pivoting (`A` is a 3×3 or 5×5 Hermitian positive-definite
-/// Gram matrix here). A numerically singular pivot yields a zero
-/// coefficient for that direction.
+/// Solve the small dense complex system `A x = b` (`A` is a 3×3 or 5×5
+/// Hermitian positive-definite Gram matrix here). A singular Gram matrix
+/// yields a zero coefficient vector.
 fn solve_small(a: &[Vec<c64>], b: &[c64]) -> Vec<c64> {
     let n = b.len();
-    let mut a: Vec<Vec<c64>> = a.to_vec();
-    let mut b: Vec<c64> = b.to_vec();
-    let scale = a
-        .iter()
-        .flat_map(|row| row.iter())
-        .map(|v| v.norm())
-        .fold(0.0_f64, f64::max);
-    let mut singular = vec![false; n];
-    for col in 0..n {
-        let piv = (col..n)
-            .max_by(|&i, &j| {
-                a[i][col]
-                    .norm()
-                    .partial_cmp(&a[j][col].norm())
-                    .expect("finite Gram entries")
-            })
-            .expect("non-empty pivot range");
-        if a[piv][col].norm() <= 1e-13 * scale {
-            singular[col] = true;
-            continue;
-        }
-        a.swap(col, piv);
-        b.swap(col, piv);
-        let pivot_row = a[col].clone();
-        let pivot_rhs = b[col];
-        for row in (col + 1)..n {
-            let factor = a[row][col] / pivot_row[col];
-            for (entry, pivot_entry) in a[row].iter_mut().zip(pivot_row.iter()).skip(col) {
-                *entry -= factor * *pivot_entry;
-            }
-            b[row] -= factor * pivot_rhs;
-        }
-    }
-    let mut x = vec![c64::new(0.0, 0.0); n];
-    for col in (0..n).rev() {
-        if singular[col] {
-            continue;
-        }
-        let mut acc = b[col];
-        for c in (col + 1)..n {
-            acc -= a[col][c] * x[c];
-        }
-        x[col] = acc / a[col][col];
-    }
-    x
+    let flat: Vec<c64> = a.iter().flat_map(|row| row.iter().copied()).collect();
+    dense_solve(&flat, b, n).unwrap_or_else(|| vec![c64::new(0.0, 0.0); n])
 }
 
 /// Group complex wavenumbers into multiplets by single linkage in the
@@ -770,6 +717,22 @@ pub fn interpolate_edge_field(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A rank-deficient Gram matrix must give a zero coefficient vector, never
+    /// non-finite or huge output.
+    #[test]
+    fn solve_small_rank_deficient_gram_gives_zero() {
+        let z = |re: f64| c64::new(re, 0.0);
+        let g = vec![vec![z(1.0), z(2.0)], vec![z(2.0), z(4.0)]];
+        let x = solve_small(&g, &[z(1.0), z(1.0)]);
+        assert!(x.iter().all(|v| v.re == 0.0 && v.im == 0.0), "{x:?}");
+        let g = vec![vec![z(1.0), z(2.0)], vec![z(2.0), z(4.0 + 1e-16)]];
+        let x = solve_small(&g, &[z(1.0), z(1.0)]);
+        assert!(
+            x.iter().all(|v| v.norm() < 1e6 && v.norm().is_finite()),
+            "{x:?}"
+        );
+    }
     use crate::mesh::read_sphere_fixture;
 
     const N_INSIDE: f64 = 1.5;

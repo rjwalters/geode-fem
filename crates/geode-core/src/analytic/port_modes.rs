@@ -236,6 +236,7 @@ use super::mixed_pencil::{
 };
 use super::waveguide::{TRI_LOCAL_EDGES, TriMesh, tri_bary_grads, tri_nedelec_local, tri_p1_local};
 use crate::eigen::dense::EigenError;
+use crate::sparse_ops::norm2;
 
 /// Null-space classifier: `|β²| ≤ NULL_BETA_SQ_TOL · k₀²ε_max`. Nothing inside
 /// this band is ever returned. The exact null vector sits at
@@ -840,10 +841,6 @@ struct Candidate {
 
 fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
-}
-
-fn norm2(a: &[f64]) -> f64 {
-    dot(a, a).sqrt()
 }
 
 /// The free-node `L` block `S − k₀²T_ε` (the zz-block of `B`), factored for
@@ -1981,9 +1978,7 @@ pub fn mode_line_quantities(
 
 /// `y = A x` for a sparse matrix (public helper for the identity tests).
 pub fn sparse_matvec(a: SparseColMatRef<'_, usize, f64>, x: &[f64]) -> Vec<f64> {
-    let mut y = vec![0.0; a.nrows()];
-    sp_matvec(a, x, &mut y);
-    y
+    crate::sparse_ops::spmv(a, x)
 }
 
 #[cfg(test)]

@@ -5,16 +5,25 @@ All notable changes to GEODE-FEM are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Breaking changes to the `geode-core` public API are recorded as a `**Breaking (`geode-core` library):**` bullet under `### Changed` (pre-1.0, a minor version bump may break; a patch bump will not).
+
 ## [Unreleased]
 
 ### Added
 
+- **CLI dispersion-model sensitivities** (#1259, Epic #841 Phase 2a; `Part of`). `sensitivity.parameters[]` accepts `kind = "dispersion"` with `model_parameter` (and `pole` for Debye `delta_eps` / `tau_s`): Djordjevic–Sarkar `eps_r` / `tan_delta`, Debye `eps_inf` / `delta_eps` / `tau_s`, Drude `eps_inf` / `omega_p_rad_s` / `gamma_rad_s`, on lumped-port driven specs. `--check-gradient` re-runs the shipped dispersive forward; adjoint and FD agree to under 1e-6. A dispersive material with `wave_ports` stays `invalid_spec`, and `μ_xx/yy/zz` is not done.
+- **CLI wall-parameter sensitivities** (#1330, Epic #841 Phase 2b). `sensitivity.parameters[]` accepts `wall_sigma`, `wall_rms_roughness`, `wall_ball_radius` and `wall_ball_density`, naming a Leontovich wall by its `physical_group`, on the driven N-port path. Columns are per SI parameter, additive in report schema v1 (new `sensitivity_wall_saturated` warning kind); spec and report schemas regenerated.
 - **Differentiable EDA (Epic #841):** `geode optimize <spec>`, a gradient-based design loop (L-BFGS-B, or MMA with constraints) over the spec's `optimize` section, with a JSONL history, resumable checkpoints, best-so-far spec and mesh, a passivity tripwire, a mesh-quality guard and a final Phase 5a gradient check (#1261, Phase 6b part A). Re-meshing and the waveguide iris golden follow separately.
 - **Floquet ports: higher orders and diffraction** (#1262, Epic #837 Phase 3b). Library only.
   - Every order that propagates at a port is now a reported TE + TM channel, so a grating with period `> λ` solves and `S` is power-normalized over all propagating orders (`Σ|S_pq|² = 1` for a lossless cell). Evanescent terminations are the rings `max(|m|,|n|) ≤ n_evanescent` beyond that set, and the excluded-ring decay warning is measured from the largest included ring.
   - New grazing warning above 85° ([`GRAZING_WARN_DEG`]).
   - `FloquetSolution::propagating_labels` and `FloquetSolution::s_on_labels` map `S` onto a fixed `(port, order, polarization)` label list, with zeros for channels that are not propagating at that frequency, for a fixed-shape S across a sweep.
   - Goldens in `tests/floquet_ports.rs`: an empty cell with a propagating non-specular order (the Hermitian-pairing pin), a lamellar dielectric grating (orders −1, 0, +1, TE and TM) against a new test-only 1-D RCWA oracle (`tests/common/rcwa1d.rs`, agreement 4e-3), an inductive strip grating against Marcuvitz, the warning thresholds and the fixed-label accessor.
+- **Differentiable EDA (Epic #841):** `geode eigen` accepts `sensitivity` on lossy and open (UPML) specs. The unconjugated Hellmann–Feynman gradient of the complex-symmetric pencil gives `∂f/∂ε_r` and `∂Q/∂ε_r` per mode (`q_gradient` in the report, additive); the library adds `LossyEigenSensitivity` with `∂/∂ε″`, `∂/∂σ_wall` and `∂/∂λ_L` pencil derivatives (#1329).
+
+### Removed
+
+- **Breaking (`geode-core` library):** the deprecated `assembly::nedelec::pec_interior_edge_mask` (deprecated since 0.7.1, #771; it over-eliminated interior chords, use `boundary_pec_interior_edges` or `pec_interior_mask_from_triangles`) and `mesh::PHYS_VACUUM_BUFFER` (deprecated since 0.2.0, use `PHYS_VACUUM_GAP` / `PHYS_PML_SHELL`) are removed. Neither had in-tree callers (#1350).
 
 ### Changed
 

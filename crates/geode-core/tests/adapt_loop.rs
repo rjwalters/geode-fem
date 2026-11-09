@@ -27,6 +27,9 @@
 //! 8. **Tags / ports.** A tagged planar boundary face stays tagged, planar
 //!    and area-conserving on every level.
 //! 9. **Warm start, p=2, multi-frequency** on the smooth cube.
+//! 10. **Interior-sheet lumped port** (#1340): a port tagged on faces shared
+//!     by two tets is accepted, stays conforming and area-conserving, and the
+//!     estimator carries its sheet term.
 
 use std::sync::Mutex;
 use std::time::Instant;
@@ -2027,4 +2030,192 @@ fn golden5e_lost_mode_stops_on_the_level_it_is_lost() {
                 .any(|w| matches!(w, AdaptWarning::ModeTracking { .. }))
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Golden 10: a lumped port realised as an interior sheet (#1340)
+// ---------------------------------------------------------------------------
+
+const SHEET_TAG: i32 = 9;
+
+/// A unit cube (`n` even) with the mid-plane strip `z = 1/2, x ∈ [1/4, 3/4]`
+/// tagged [`SHEET_TAG`]: its triangles are faces shared by two tets.
+fn sheet_cube(n: usize) -> TaggedTetMesh {
+    let mut mesh = unit_cube(n);
+    let boundary: std::collections::BTreeSet<[u32; 3]> =
+        mesh.mesh.boundary_faces().into_iter().collect();
+    for f in mesh.mesh.faces() {
+        let p: [[f64; 3]; 3] = std::array::from_fn(|i| mesh.mesh.nodes[f[i] as usize]);
+        let on_strip = p.iter().all(|q| (q[2] - 0.5).abs() < 1e-12)
+            && p.iter()
+                .all(|q| q[0] >= 0.25 - 1e-12 && q[0] <= 0.75 + 1e-12);
+        if on_strip && !boundary.contains(&f) {
+            mesh.boundary_triangles.push(f);
+            mesh.triangle_physical_tags.push(SHEET_TAG);
+        }
+    }
+    mesh
+}
+
+fn sheet_bc(f: &FaceCtx) -> FaceBc {
+    if f.tag == Some(SHEET_TAG) {
+        FaceBc::LumpedPort(0)
+    } else {
+        FaceBc::Pec
+    }
+}
+
+fn sheet_spec<'a>(
+    mesh: TaggedTetMesh,
+    eps: &'a (dyn Fn(&TetCtx) -> c64 + Sync),
+    bc: &'a (dyn Fn(&FaceCtx) -> FaceBc + Sync),
+    current: &'a (dyn Fn(&TetCtx, [f64; 3]) -> [c64; 3] + Sync),
+    div: &'a (dyn Fn(&TetCtx, [f64; 3]) -> c64 + Sync),
+) -> DrivenAdaptSpec<'a> {
+    let mut spec = DrivenAdaptSpec::new(mesh, 2.0, eps, bc, current, div);
+    spec.lumped_ports = vec![LumpedPortSpec {
+        e_hat: [0.0, 1.0, 0.0],
+        resistance: 1.0,
+        width: 0.5,
+        length: 1.0,
+        v_inc: c(1.0),
+    }];
+    spec
+}
+
+/// Golden 10: `adapt_driven` accepts a lumped port whose faces are all
+/// interior, keeps the sheet tagged, interior, planar and area-conserving
+/// on every level (it is refined), and the estimate is COMPLETE with the
+/// sheet counted as covered `lumped_port` faces and `η` falling.
+#[test]
+fn golden10_interior_sheet_port_adapts_and_stays_conforming() {
+    let eps = |_: &TetCtx| c(1.0);
+    let current = |_: &TetCtx, _: [f64; 3]| [ZERO; 3];
+    let div = |_: &TetCtx, _: [f64; 3]| ZERO;
+    let mesh = sheet_cube(4);
+    let n0 = mesh.triangles_with_tag(SHEET_TAG).len();
+    assert!(n0 > 0, "the fixture has no interior sheet");
+    let rows: Mutex<Vec<(usize, f64, bool)>> = Mutex::new(Vec::new());
+    let observe = |ctx: &LevelContext<'_>, _: &[DrivenSolution]| {
+        let tm = ctx.mesh;
+        let bset: std::collections::BTreeSet<[u32; 3]> =
+            tm.mesh.boundary_faces().into_iter().collect();
+        let fset: std::collections::BTreeSet<[u32; 3]> = tm.mesh.faces().into_iter().collect();
+        let (mut area, mut ok) = (0.0, true);
+        for (t, &tag) in tm.boundary_triangles.iter().zip(&tm.triangle_physical_tags) {
+            if tag != SHEET_TAG {
+                continue;
+            }
+            let mut s = *t;
+            s.sort_unstable();
+            ok &= fset.contains(&s) && !bset.contains(&s);
+            let p: [[f64; 3]; 3] = std::array::from_fn(|i| tm.mesh.nodes[t[i] as usize]);
+            ok &= p.iter().all(|q| (q[2] - 0.5).abs() < 1e-12);
+            let u: [f64; 3] = std::array::from_fn(|d| p[1][d] - p[0][d]);
+            let v: [f64; 3] = std::array::from_fn(|d| p[2][d] - p[0][d]);
+            area += 0.5 * (u[0] * v[1] - u[1] * v[0]).abs();
+        }
+        rows.lock()
+            .unwrap()
+            .push((tm.triangles_with_tag(SHEET_TAG).len(), area, ok));
+    };
+    let mut spec = sheet_spec(mesh, &eps, &sheet_bc, &current, &div);
+    spec.observer = Some(&observe);
+    let opts = AdaptOptions {
+        target_rel_error: 0.0,
+        max_iterations: 4,
+        ..AdaptOptions::default()
+    };
+    let r = adapt_driven::<B>(&spec, &opts, &device()).expect("adapt");
+    let rows = rows.into_inner().unwrap();
+    for (l, row) in rows.iter().enumerate() {
+        eprintln!(
+            "golden10: level {l}: {} sheet triangles, area {:.15}, interior+planar {}",
+            row.0, row.1, row.2
+        );
+        assert!(
+            row.2,
+            "level {l}: a sheet triangle left the plane or became a boundary face"
+        );
+        assert!((row.1 - 0.5).abs() < 1e-12, "level {l}: area {}", row.1);
+    }
+    assert!(rows.last().unwrap().0 > n0, "the sheet was never refined");
+    assert!(r.report.history.iter().all(|h| h.coverage_complete));
+    let cov = &r.estimates[0].coverage;
+    assert!(cov.robin_faces.get("lumped_port").copied().unwrap_or(0) >= rows.last().unwrap().0);
+    let eta: Vec<f64> = r.report.history.iter().map(|h| h.eta_rel).collect();
+    eprintln!("golden10: eta_rel per level {eta:?}");
+    assert!(eta.last().unwrap() < eta.first().unwrap(), "{eta:?}");
+}
+
+/// Golden 10b: the estimator carries the sheet term. On the final mesh and
+/// solution of golden 10, the estimate that treats the sheet faces as a
+/// lumped port differs from the one that leaves them plain interior faces,
+/// and the volume and boundary terms (and the interior-face count) are
+/// unchanged: only the jump terms and the Robin coverage move.
+#[test]
+fn golden10b_estimator_responds_to_the_sheet_term() {
+    let eps = |_: &TetCtx| c(1.0);
+    let current = |_: &TetCtx, _: [f64; 3]| [ZERO; 3];
+    let div = |_: &TetCtx, _: [f64; 3]| ZERO;
+    let spec = sheet_spec(sheet_cube(4), &eps, &sheet_bc, &current, &div);
+    let opts = AdaptOptions {
+        target_rel_error: 0.0,
+        max_iterations: 2,
+        ..AdaptOptions::default()
+    };
+    let r = adapt_driven::<B>(&spec, &opts, &device()).expect("adapt");
+    let mesh = &r.mesh.mesh;
+    let space = HcurlSpace::build(mesh, ElementOrder::P1);
+    let sheet: std::collections::HashSet<[u32; 3]> = r
+        .mesh
+        .triangles_with_tag(SHEET_TAG)
+        .into_iter()
+        .map(|mut t| {
+            t.sort_unstable();
+            t
+        })
+        .collect();
+    let eps_v = vec![c(1.0); mesh.n_tets()];
+    let nu = vec![1.0; mesh.n_tets()];
+    let robin = [RobinBoundary::lumped_port(
+        2.0,
+        [0.0, 1.0, 0.0],
+        1.0,
+        0.5,
+        1.0,
+        c(1.0),
+    )];
+    let with = |f: [u32; 3]| {
+        if sheet.contains(&f) {
+            BoundaryFaceKind::Robin(0)
+        } else {
+            BoundaryFaceKind::Pec
+        }
+    };
+    let without = |_: [u32; 3]| BoundaryFaceKind::Pec;
+    let x = &r.solutions[0].e_edges;
+    let est = |k: &(dyn Fn([u32; 3]) -> BoundaryFaceKind + Sync)| {
+        let input = EstimatorInput::new(mesh, &space, x, c(4.0), &eps_v, &nu, k).with_robin(&robin);
+        estimate_hcurl(&input).expect("estimate")
+    };
+    let (a, b) = (est(&with), est(&without));
+    eprintln!(
+        "golden10b: eta with sheet {:.6e}, without {:.6e}",
+        a.eta, b.eta
+    );
+    assert!(
+        (a.eta - b.eta).abs() > 1e-6 * b.eta,
+        "{} vs {}",
+        a.eta,
+        b.eta
+    );
+    assert_eq!(a.components.volume, b.components.volume);
+    assert_eq!(a.components.boundary, b.components.boundary);
+    assert_eq!(
+        a.coverage.robin_faces.get("lumped_port"),
+        Some(&sheet.len())
+    );
+    assert!(b.coverage.robin_faces.is_empty());
+    assert_eq!(a.coverage.interior_faces, b.coverage.interior_faces);
 }

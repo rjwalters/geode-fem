@@ -125,6 +125,7 @@ use super::port_modes::{
 use super::waveguide::{TriMesh, tri_nedelec_local, tri_p1_local};
 use crate::eigen::dense::EigenError;
 use crate::eigen::lanczos::negligible;
+use crate::sparse_ops::lu_solve;
 
 /// Allowance factor on `|Im β²| ≤ IM_ALLOWANCE · k₀² max|ε″|` used by the
 /// coverage certificate (module docs).
@@ -328,35 +329,8 @@ pub fn assemble_lossy_hybrid_pencil(
 // Complex linear-algebra helpers
 // ---------------------------------------------------------------------------
 
-/// `y = A x` (overwrite), complex CSC.
-pub(crate) fn cmatvec(a: SparseColMatRef<'_, usize, c64>, x: &[c64], y: &mut [c64]) {
-    y.iter_mut().for_each(|v| *v = ZERO);
-    let (cp, ri, val) = (a.col_ptr(), a.row_idx(), a.val());
-    for j in 0..a.ncols() {
-        let xj = x[j];
-        if xj == ZERO {
-            continue;
-        }
-        for k in cp[j]..cp[j + 1] {
-            y[ri[k]] += val[k] * xj;
-        }
-    }
-}
-
-/// `y = A x` (overwrite), real CSC times a complex vector.
-pub(crate) fn rmatvec(a: SparseColMatRef<'_, usize, f64>, x: &[c64], y: &mut [c64]) {
-    y.iter_mut().for_each(|v| *v = ZERO);
-    let (cp, ri, val) = (a.col_ptr(), a.row_idx(), a.val());
-    for j in 0..a.ncols() {
-        let xj = x[j];
-        if xj == ZERO {
-            continue;
-        }
-        for k in cp[j]..cp[j + 1] {
-            y[ri[k]] += xj * val[k];
-        }
-    }
-}
+pub(crate) use crate::sparse_ops::spmv_c_into as cmatvec;
+pub(crate) use crate::sparse_ops::spmv_rc_into as rmatvec;
 
 /// Unconjugated `aᵀb`.
 pub(crate) fn dot_u(a: &[c64], b: &[c64]) -> c64 {
@@ -377,15 +351,6 @@ fn norm1_c(a: SparseColMatRef<'_, usize, c64>) -> f64 {
     (0..a.ncols())
         .map(|j| v[cp[j]..cp[j + 1]].iter().map(|x| x.norm()).sum::<f64>())
         .fold(0.0, f64::max)
-}
-
-fn lu_solve_c(lu: &Lu<usize, c64>, rhs: &[c64], out: &mut [c64]) {
-    let n = rhs.len();
-    let mut work: Mat<c64> = Mat::from_fn(n, 1, |i, _| rhs[i]);
-    lu.solve_in_place(work.as_mut());
-    for i in 0..n {
-        out[i] = work[(i, 0)];
-    }
 }
 
 /// `1/z` by Smith's algorithm (the #796 dense path's reciprocal).
@@ -466,7 +431,7 @@ pub(crate) fn shift_invert_arnoldi_complex(
     let mut h_scale = 0.0_f64;
     for j in 0..m {
         cmatvec(b, &basis[j], &mut bv);
-        lu_solve_c(&lu, &bv, &mut w);
+        lu_solve(&lu, &bv, &mut w);
         if let Some(p) = project {
             p(&mut w);
         }

@@ -1,0 +1,13 @@
+# #1263 gate evidence (run on loom-worker-1, -j2, debug profile)
+# cargo test -p geode-cli --test periodic_bloch
+test result: ok. 7 passed; 0 failed (bloch point/path, check pairing, rejections, gamma, translation given/inferred, unchanged cavity spec)
+# cargo test -p geode-cli --bin geode
+# (tests/ targets) test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 87.57s
+# (tests/ targets) test result: ok. 7 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.01s
+# (tests/ targets) test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.40s
+# (tests/ targets) test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 12.53s
+test result: ok. 113 passed; 0 failed (bin unit tests incl. spec/layout/geo periodic)
+# cargo clippy -p geode-cli -p geode-core --tests -j2 -- -D warnings : exit 0
+# RUSTDOCFLAGS=-D warnings cargo doc -p geode-cli -p geode-core --no-deps : exit 0
+# cargo fmt --all -- --check : ok
+# NOT run: clippy --features arpack (system ARPACK not provisioned on this worker); gmsh-backed mesh tests (gmsh absent)

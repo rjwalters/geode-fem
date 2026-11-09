@@ -8,13 +8,14 @@ use geode_core::assembly::nedelec::sparsity_pattern_from_tet_edges;
 
 use crate::dispersion::DispersionModel;
 use crate::error::CliError;
-use crate::problem::{self, MaterialSource, Problem};
+use crate::problem::{self, BlochTarget, MaterialSource, Problem};
 use crate::report::{
-    CapacitanceSettingsSummary, CheckReport, ConductorSummary, CurrentPathSummary,
-    DebyePoleSummary, DispersionSummary, EigenSettingsSummary, ExtractSettingsSummary,
-    FrequencySummary, InductanceSettingsSummary, LeontovichSummary, MeshSummary, OrderComparison,
-    PecSummary, PortSummary, Provenance, RegionSummary, ResourceEstimate, RoughnessSummary,
-    SilverMullerSummary, SolverSummary, UpmlSummary, WavePortMediumSummary, WavePortSummary,
+    BlochRequestSummary, CapacitanceSettingsSummary, CheckReport, ConductorSummary,
+    CurrentPathSummary, DebyePoleSummary, DispersionSummary, EigenSettingsSummary,
+    ExtractSettingsSummary, FrequencySummary, InductanceSettingsSummary, LeontovichSummary,
+    MeshSummary, OrderComparison, PecSummary, PeriodicPairSummary, PeriodicSummary, PortSummary,
+    Provenance, RegionSummary, ResourceEstimate, RoughnessSummary, SilverMullerSummary,
+    SolverSummary, UpmlSummary, WavePortMediumSummary, WavePortSummary,
 };
 use crate::spec::{DispersionSpec, FrequencyUnit, RoughnessSpec, SolverSpec};
 
@@ -27,6 +28,10 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
     }
     p.print_load_warnings();
     let mut warnings = check_warnings(&p);
+    let periodic = periodic_summary(&p);
+    if p.periodic.is_some() {
+        warnings.extend(periodic_warnings(&p)?);
+    }
     let (wave_ports, hybrid_warnings) = wave_port_previews(&p)?;
     warnings.extend(hybrid_warnings);
     Ok(CheckReport {
@@ -70,6 +75,7 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
         // electrostatic system: no fabricated estimate. (The inductance
         // system is a real Nédélec curl-curl, like the anchor's pencil.)
         resources: p.capacitance.is_none().then(|| resource_estimate(&p)),
+        periodic,
         warnings,
         adaptive_mesh: p
             .spec
@@ -77,6 +83,31 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
             .as_ref()
             .map(|a| adaptive_mesh_summary(&p, a)),
     })
+}
+
+/// The warnings of the periodic pairing, reported before any solve: the
+/// matcher's snap notes and the constraint's one-sided-PEC note. Printed
+/// on stderr like every report warning.
+fn periodic_warnings(p: &Problem) -> Result<Vec<crate::report::WarningResult>, CliError> {
+    let setup = p.periodic.as_ref().expect("periodic problem");
+    let constraint = crate::bloch::constraint(p)?;
+    let mut out = Vec::new();
+    let mut push = |kind: &'static str, message: String| {
+        eprintln!("warning: {message}");
+        out.push(crate::report::WarningResult {
+            kind,
+            wave_port: None,
+            physical_group: None,
+            message,
+        });
+    };
+    for w in setup.map.report().warnings() {
+        push("periodic_snap", w);
+    }
+    for w in constraint.warnings() {
+        push("periodic_one_sided_pec", w);
+    }
+    Ok(out)
 }
 
 /// What `adaptive_mesh` would cost, without solving or refining anything
@@ -297,9 +328,15 @@ pub const ITERATIVE_BASIS: &str = "vector count (no measured anchor), 2026-09-28
 /// memory on the spiral smoke mesh ~1.6× **low** (process and mesh
 /// overhead are not modelled). See `crates/geode-cli/README.md`.
 pub fn resource_estimate(p: &Problem) -> ResourceEstimate {
+    resource_estimate_with_dof_limit(p, DIRECT_LU_DOF_LIMIT)
+}
+
+/// [`resource_estimate`] with the order-2 direct-LU DOF limit injected, so
+/// the "will not fit" verdict can be exercised without a ~1M-DOF mesh.
+fn resource_estimate_with_dof_limit(p: &Problem, dof_limit: usize) -> ResourceEstimate {
     let mut est = resource_estimate_scaled(p, 1.0);
     if let Some(space) = &p.hcurl_space {
-        est.order_comparison = Some(order_comparison(p, space, &est, nnz_p1(p)));
+        est.order_comparison = Some(order_comparison(p, space, &est, nnz_p1(p), dof_limit));
     }
     est
 }
@@ -366,13 +403,14 @@ fn order_comparison(
     space: &geode_core::assembly::hcurl_space::HcurlSpace,
     est: &ResourceEstimate,
     nnz_p1: usize,
+    dof_limit: usize,
 ) -> OrderComparison {
     let lists: Vec<&[[u32; 3]]> = p.pec.iter().map(|s| s.triangles.as_slice()).collect();
     let mask_p1 = geode_core::mesh::pec_interior_mask_from_triangles(&p.edges, &lists);
     let n_interior_p1 = mask_p1.iter().filter(|&&k| k).count();
     let n_interior_p2 = p.n_interior();
     let est_p1 = resource_estimate_with_nnz_n(p, nnz_p1, n_interior_p1, 1.0);
-    let fits = est.solver_mode == "direct" && n_interior_p2 < DIRECT_LU_DOF_LIMIT;
+    let fits = est.solver_mode == "direct" && n_interior_p2 < dof_limit;
     let dof_ratio = n_interior_p2 as f64 / n_interior_p1 as f64;
     let verdict = if fits {
         format!(
@@ -384,7 +422,7 @@ fn order_comparison(
     } else {
         format!(
             "order 2 on this mesh will NOT fit direct LU: {n_interior_p2} DOFs (limit about \
-             {DIRECT_LU_DOF_LIMIT}), ~{:.1} GB; order 1 needs {n_interior_p1} DOFs, ~{:.1} GB \
+             {dof_limit}), ~{:.1} GB; order 1 needs {n_interior_p1} DOFs, ~{:.1} GB \
              (coarsen the mesh or use element_order = 1)",
             est.peak_memory_gb, est_p1.peak_memory_gb
         )
@@ -399,7 +437,7 @@ fn order_comparison(
         nnz_ratio: est.nnz_a as f64 / nnz_p1 as f64,
         peak_memory_gb_p1: est_p1.peak_memory_gb,
         memory_ratio: est.peak_memory_gb / est_p1.peak_memory_gb,
-        direct_lu_dof_limit: DIRECT_LU_DOF_LIMIT,
+        direct_lu_dof_limit: dof_limit,
         fits_direct_lu: fits,
         verdict,
         memory_model: "p1_anchor_linear_in_nnz",
@@ -657,6 +695,55 @@ pub fn eigen_settings_summary(p: &Problem) -> Option<EigenSettingsSummary> {
         max_iters: e.max_iters,
         tol: e.tol,
         residual_tol: e.residual_tol,
+        bloch: p.bloch.as_ref().map(|b| BlochRequestSummary {
+            mode: match b {
+                BlochTarget::Point(_) => "point",
+                BlochTarget::Path { .. } => "path",
+            },
+            n_k_points: crate::bloch::n_k_points(b),
+            path: match b {
+                BlochTarget::Point(_) => None,
+                BlochTarget::Path { vertices, .. } => {
+                    Some(vertices.iter().map(|(l, _)| l.clone()).collect())
+                }
+            },
+        }),
+    })
+}
+
+/// The periodic pairing report (`None` without `boundary_conditions.periodic`).
+/// The matcher ran at load time, so this is available before any solve.
+pub fn periodic_summary(p: &Problem) -> Option<PeriodicSummary> {
+    let setup = p.periodic.as_ref()?;
+    let report = setup.map.report();
+    let axes = setup.periodic_axes();
+    Some(PeriodicSummary {
+        pairs: setup
+            .pairs
+            .iter()
+            .zip(&report.pairs)
+            .map(|(pair, r)| PeriodicPairSummary {
+                master: pair.master.name.clone(),
+                slave: pair.slave.name.clone(),
+                translation: r.translation,
+                translation_inferred: r.translation_inferred,
+                translation_residual: r.translation_residual,
+                n_nodes: r.n_nodes,
+                n_edges: r.n_edges,
+                n_faces: r.n_faces,
+                n_snapped: r.n_snapped,
+                max_snap_displacement: r.max_snap_displacement,
+                n_orientation_reversed: r.n_orientation_reversed,
+            })
+            .collect(),
+        axes: ["x", "y", "z"]
+            .into_iter()
+            .zip(axes)
+            .filter_map(|(name, on)| on.then_some(name))
+            .collect(),
+        n_chained_nodes: report.n_chained_nodes,
+        n_chained_edges: report.n_chained_edges,
+        warnings: report.warnings(),
     })
 }
 
@@ -840,5 +927,52 @@ fn dispersion_summary(d: &problem::DispersiveRegion, p: &Problem) -> DispersionS
         (_, DispersionModel::DjordjevicSarkar(_)) => {
             unreachable!("the model is built from its own spec")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Issue #1265: the "will not fit" branch of `resources.order_comparison`,
+    /// reached by injecting a tiny DOF limit instead of a ~1M-DOF mesh.
+    #[test]
+    fn order_comparison_reports_will_not_fit_past_the_dof_limit() {
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let raw = std::fs::read_to_string(fixtures.join("spiral_golden_smoke.json")).unwrap();
+        let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let mesh = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../geode-core/tests/fixtures/spiral_3p5_smoke.msh")
+            .canonicalize()
+            .unwrap();
+        v["mesh"]["path"] = mesh.display().to_string().into();
+        v["element_order"] = serde_json::json!(2);
+        let dir = tempfile::tempdir().unwrap();
+        let spec = dir.path().join("spec.json");
+        std::fs::write(&spec, serde_json::to_string(&v).unwrap()).unwrap();
+        let p = problem::load(&spec, None).unwrap();
+
+        let fits = resource_estimate(&p).order_comparison.unwrap();
+        assert!(fits.fits_direct_lu, "{}", fits.verdict);
+        assert!(fits.verdict.starts_with("order 2 fits direct LU"));
+
+        let limit = 10;
+        let c = resource_estimate_with_dof_limit(&p, limit)
+            .order_comparison
+            .unwrap();
+        assert!(!c.fits_direct_lu);
+        assert_eq!(c.direct_lu_dof_limit, limit);
+        assert!(c.n_interior_p2 >= limit);
+        assert!(
+            c.verdict.contains("will NOT fit direct LU"),
+            "{}",
+            c.verdict
+        );
+        assert!(c.verdict.contains("element_order = 1"), "{}", c.verdict);
+        assert!(
+            c.verdict.contains(&format!("limit about {limit}")),
+            "{}",
+            c.verdict
+        );
     }
 }

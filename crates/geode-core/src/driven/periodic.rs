@@ -65,8 +65,9 @@ use faer::sparse::linalg::solvers::Lu;
 
 use crate::assembly::periodic::{DofAliasMap, PeriodicConstraint, PeriodicError};
 use crate::driven::solve::{DrivenOperator, DrivenSolution};
-use crate::eigen::complex::{solve_with_lu, spmv};
+use crate::eigen::complex::spmv;
 use crate::elements::ElementOrder;
+use crate::sparse_ops::lu_solve;
 
 /// A p=1 driven operator under a zero-phase periodic constraint (see the
 /// [module docs](self)).
@@ -264,7 +265,8 @@ impl FactoredPeriodicOperator<'_, '_> {
     pub fn back_solve(&self, b_r: &[c64], out: &mut [c64]) -> Result<(), PeriodicError> {
         assert_eq!(b_r.len(), self.op.n_reduced(), "b_r length mismatch");
         assert_eq!(out.len(), self.op.n_reduced(), "out length mismatch");
-        solve_with_lu(&self.lu, b_r, out).map_err(|e| PeriodicError::Solve(format!("{e}")))
+        lu_solve(&self.lu, b_r, out);
+        Ok(())
     }
 
     /// Back-substitute through the **transpose** `A_r(ω)ᵀ` of the cached
