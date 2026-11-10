@@ -11,6 +11,11 @@
 //!   extraction (energy method + surface-flux cross-check), `E = −∇φ`
 //!   recovery, and field-energy postprocessing (Epic #475, Palace
 //!   `Electrostatic` parity).
+//! - [`conduction`]: steady DC current conduction `∇·(σ∇φ) = 0` on a
+//!   [`TetMesh`](crate::mesh::TetMesh) — per-tet `σ`, Dirichlet or
+//!   lumped-resistance terminals, the terminal conductance matrix, `J`,
+//!   Joule density and power balance, Jacobi-scaled LU for 12+ decades of
+//!   contrast (issue #1476).
 //! - [`electrostatic_2d`]: the planar (`TriMesh`, P1) sibling of
 //!   [`electrostatic`] with the same contract — per-triangle `ε_r`/`ρ`,
 //!   electrode node sets, `Result` errors, `E = −∇φ` recovery and the
@@ -73,6 +78,7 @@
 //!   Arkkio's volume-averaged variant (Epic #448 Phase 3), with the shared
 //!   contour/triangle-location sampler they build on.
 
+pub mod conduction;
 pub mod current_path;
 mod dense_scatter;
 pub mod electrostatic;
