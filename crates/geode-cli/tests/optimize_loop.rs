@@ -281,7 +281,13 @@ fn resumed_run_equals_the_uninterrupted_run_bit_for_bit() {
     // The second leg really continued past the first leg's 2 iterations (the
     // run reaches its target and stalls at round-off, so < the 4 allowed).
     assert!(full["iterations"].as_u64().unwrap() >= 3, "{full}");
-    for k in ["objective_best", "iterations", "evaluations", "stop_status"] {
+    for k in [
+        "objective_initial",
+        "objective_best",
+        "iterations",
+        "evaluations",
+        "stop_status",
+    ] {
         assert_eq!(resumed[k], full[k], "{k}");
     }
     assert_eq!(

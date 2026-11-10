@@ -4708,6 +4708,32 @@
       ],
       "type": "object"
     },
+    "OptimizeRemeshSpec": {
+      "additionalProperties": false,
+      "description": "Re-mesh policy of an [`OptimizeSpec`]: the spec's own mesh is rung 0 and\n`rungs` are the following ones, in order. Within an outer iteration (and\nits line search) the topology stays frozen; at the iteration boundary the\nrun moves to the rung whose meshed parameter values are nearest (in\noptimizer units) to the current design among the later rungs that accept\nit under `min_volume_ratio`, re-baselines the objective there and starts\na fresh L-BFGS-B / MMA state at the current design.",
+      "properties": {
+        "every": {
+          "description": "Also re-mesh after every this many iterations on a rung (`≥ 1`;\ndefault: only when the guard trips). Once no later rung is usable the\ncadence is skipped; a guard breach then fails the run.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rungs": {
+          "description": "Complete geode specs (a mesh and the parameter values it was meshed\nat), later rungs after earlier ones; relative paths resolve against\nthe directory of the spec. Each must have the same `sensitivity`\nparameters, observables and frequencies as the spec.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "rungs"
+      ],
+      "type": "object"
+    },
     "OptimizeReport": {
       "description": "`geode optimize` report (`kind = \"optimize\"`; Epic #841 Phase 6b).",
       "properties": {
@@ -4807,6 +4833,12 @@
           "format": "double",
           "type": "number"
         },
+        "remeshes": {
+          "description": "Re-meshes onto a later rung of `optimize.remesh` (`0` without it).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
         "schema_version": {
           "const": 1,
           "description": "[`REPORT_SCHEMA_VERSION`].",
@@ -4879,6 +4911,7 @@
         "iterations",
         "evaluations",
         "failed_evaluations",
+        "remeshes",
         "objective_initial",
         "objective_best",
         "max_violation_best",
@@ -4909,7 +4942,7 @@
           "type": "array"
         },
         "min_volume_ratio": {
-          "description": "Mesh-quality guard: a trial design whose morphed mesh has a tet\nwhose volume falls below this fraction of its meshed volume (the\n`geode-core` `min_tet_volume_ratio`) is a failed evaluation (the\noptimizer backs off and the history records it). Default `0.1`;\n`0 ≤ r < 1`. Re-meshing past the budget is not yet available.",
+          "description": "Mesh-quality guard: a trial design whose morphed mesh has a tet\nwhose volume falls below this fraction of its meshed volume (the\n`geode-core` `min_tet_volume_ratio`) is a failed evaluation (the\noptimizer backs off and the history records it). Default `0.1`;\n`0 ≤ r < 1`. Without a `remesh` section the run only backs off at the\nguard; with one, the iteration ends in a re-mesh onto the next rung.",
           "format": "double",
           "type": [
             "number",
@@ -4930,6 +4963,17 @@
             "number",
             "null"
           ]
+        },
+        "remesh": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OptimizeRemeshSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Re-mesh policy: a ladder of pre-meshed specs to continue on when the\nmesh-quality guard trips or every `every` iterations."
         },
         "stop": {
           "anyOf": [

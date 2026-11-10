@@ -1678,8 +1678,21 @@ parameters and observables. The `optimize` section only *names* them:
 * **Mesh-quality guard** `min_volume_ratio`: the mesh is *morphed* from the
   loaded one along the fixed shape columns (topology frozen); a trial design
   whose smallest tet volume falls below this fraction of its meshed volume is a
-  failed evaluation (the optimizer backs off). **Re-meshing is not available
-  yet**: a design that needs it stops at the guard.
+  failed evaluation (the optimizer backs off). Without `optimize.remesh` a
+  design that needs a new mesh stops at the guard.
+* **Re-meshing** `optimize.remesh = {"every": K, "rungs": ["rung1.json", ...]}`:
+  the spec's own mesh is rung 0 and `rungs` are complete geode specs (a mesh and
+  the parameter values it was meshed at; same `sensitivity` parameters,
+  observables and frequencies) in order. The topology stays frozen within an
+  iteration and its line search; at the iteration boundary, when a trial tripped
+  the guard (or every `every` iterations), the run moves to the nearest later
+  rung that accepts the design, re-baselines the objective there and starts a
+  fresh optimizer state (no L-BFGS memory) at the same physical design. A
+  `{"kind": "remesh", ...}` line in `history.jsonl` records the objective before
+  and after (the discontinuity); the baseline line on the new mesh repeats the
+  iteration label. A breach with no usable later rung fails the run; the
+  `every` cadence is then skipped. `--resume` stays bit-exact across a
+  re-mesh (the checkpoint carries the active rung).
 * **Passivity tripwire**: `σ_max(S) ≤ 1 + passivity_tol` at every evaluation; a
   violation is a failed evaluation recorded in the history.
 * **Outputs** (in `--outdir`, default the directory of `-o`, else

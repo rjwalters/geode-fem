@@ -30,9 +30,19 @@
 //! mesh-quality guard `min_volume_ratio`) are `EvalError`s: the optimizers
 //! back off and count them. A failure at the starting design is fatal.
 //!
-//! **Not in this phase** (tracked in the issue): re-meshing when the guard
-//! trips or every K iterations (the run backs off at the guard instead), and
-//! the waveguide iris golden.
+//! **Re-meshing** (issue #1303, `optimize.remesh`). Without that section the
+//! run only backs off at the guard. With it, the spec's mesh is rung 0 of a
+//! *ladder* (the listed `rungs` follow): complete geode specs, each a mesh
+//! and the parameter values it was meshed at. The topology stays frozen
+//! within an outer iteration and its line search; at the iteration boundary,
+//! when a trial in that iteration tripped the guard (or every `every`
+//! iterations), the run moves to the nearest later rung that accepts the
+//! current design, carries the design over as absolute physical values,
+//! re-baselines the objective there and starts a **fresh** optimizer state
+//! (no L-BFGS memory). A `remesh` line in the history records the objective
+//! discontinuity. The checkpoint carries the active rung and the segment
+//! bookkeeping (`geode_remesh`), so a resumed run is bit-exact across a
+//! re-mesh. The waveguide iris golden is tracked in #1471.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -46,7 +56,7 @@ use geode_optimize::{
     Bounds, EvalError, Evaluation, Lbfgsb, LbfgsbOptions, Mma, MmaOptions, Objective,
     OptimizeError, Optimizer, Scaled, Status, StopCriteria,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::error::CliError;
@@ -58,6 +68,12 @@ use crate::s_sensitivity::{self, Design};
 use crate::spec::{
     Analysis, OptimizeAggregate, OptimizeSpec, SensitivityParameterKind, ShapeMotion, TargetMode,
 };
+
+/// The tag every mesh-quality-guard failure message starts with; the re-mesh
+/// trigger finds it in an iteration's notes.
+const GUARD_TAG: &str = "mesh-quality guard";
+/// The checkpoint key holding [`RemeshState`] (ignored by the optimizers).
+const CHECKPOINT_KEY: &str = "geode_remesh";
 
 /// Default mesh-quality budget ([`OptimizeSpec::min_volume_ratio`]).
 const DEFAULT_MIN_VOLUME_RATIO: f64 = 0.1;
@@ -152,6 +168,17 @@ pub struct Plan {
     pub passivity_tol: f64,
     /// Stopping criteria.
     pub stop: StopCriteria,
+    /// The re-mesh policy (`optimize.remesh`), when present.
+    pub remesh: Option<RemeshPlan>,
+}
+
+/// The resolved `optimize.remesh` section.
+#[derive(Debug, Clone)]
+pub struct RemeshPlan {
+    /// Cadence in iterations on a rung.
+    pub every: Option<usize>,
+    /// The later rungs' spec paths, as written.
+    pub rungs: Vec<PathBuf>,
 }
 
 /// A sensitivity parameter's name in the `optimize` section.
@@ -348,6 +375,21 @@ pub fn resolve(p: &Problem) -> Result<Plan, CliError> {
             ));
         }
     }
+    let remesh = match &o.remesh {
+        None => None,
+        Some(r) => {
+            if r.rungs.is_empty() {
+                return Err(invalid("remesh: `rungs` must list at least one spec"));
+            }
+            if r.every == Some(0) {
+                return Err(invalid("remesh: `every` must be ≥ 1"));
+            }
+            Some(RemeshPlan {
+                every: r.every,
+                rungs: r.rungs.clone(),
+            })
+        }
+    };
     Ok(Plan {
         vars,
         terms,
@@ -355,6 +397,7 @@ pub fn resolve(p: &Problem) -> Result<Plan, CliError> {
         min_volume_ratio,
         passivity_tol,
         stop,
+        remesh,
     })
 }
 
@@ -602,8 +645,8 @@ impl<'a> Evaluator<'a> {
         let ratio = geode_core::shape::min_tet_volume_ratio(&self.base.tagged.mesh, &q.tagged.mesh);
         if ratio.is_nan() || ratio < self.plan.min_volume_ratio {
             return Err(format!(
-                "mesh-quality guard: the morphed mesh's smallest tet volume ratio {ratio:.3e} is \
-                 below min_volume_ratio {} (re-meshing is not available yet)",
+                "{GUARD_TAG}: the morphed mesh's smallest tet volume ratio {ratio:.3e} is \
+                 below min_volume_ratio {} (an `optimize.remesh` ladder can replace the mesh)",
                 self.plan.min_volume_ratio
             ));
         }
@@ -887,7 +930,7 @@ fn msh_text(t: &TaggedTetMesh) -> String {
 /// to the spec), the materials set, and each variable's `initial` / bounds
 /// re-based onto the new mesh (a `translate` parameter is `0` at its own
 /// mesh, so its bounds shift by the motion).
-fn best_spec_json(ev: &Evaluator<'_>, phys: &[f64]) -> Result<String, CliError> {
+fn best_spec_json(ev: &Evaluator<'_>, phys: &[f64], rest: &[PathBuf]) -> Result<String, CliError> {
     let params = ev.params(phys);
     let q = ev.morph(&params, false)?;
     let sens = ev.base.sensitivity.as_ref().expect("resolved");
@@ -918,6 +961,13 @@ fn best_spec_json(ev: &Evaluator<'_>, phys: &[f64]) -> Result<String, CliError> 
         }
     }
     if let Some(o) = &mut spec.optimize {
+        // The best mesh stands in for the rung it was found on; only the
+        // later rungs (by absolute path) remain to re-mesh onto.
+        if rest.is_empty() {
+            o.remesh = None;
+        } else if let Some(r) = &mut o.remesh {
+            r.rungs = rest.to_vec();
+        }
         for ((v, var), &at) in o.variables.iter_mut().zip(&ev.plan.vars).zip(phys) {
             let prm = &sens.parameters[var.index];
             let translate = matches!(
@@ -935,12 +985,17 @@ fn best_spec_json(ev: &Evaluator<'_>, phys: &[f64]) -> Result<String, CliError> 
     Ok(json)
 }
 
-fn write_best(ev: &Evaluator<'_>, dir: &Path, phys: &[f64]) -> Result<(), CliError> {
+fn write_best(
+    ev: &Evaluator<'_>,
+    dir: &Path,
+    phys: &[f64],
+    rest: &[PathBuf],
+) -> Result<(), CliError> {
     let q = ev.morph(&ev.params(phys), false)?;
     write_atomic(&dir.join(BEST_MESH_FILE), msh_text(&q.tagged).as_bytes())?;
     write_atomic(
         &dir.join(BEST_SPEC_FILE),
-        best_spec_json(ev, phys)?.as_bytes(),
+        best_spec_json(ev, phys, rest)?.as_bytes(),
     )
 }
 
@@ -992,10 +1047,169 @@ impl Best {
     }
 }
 
+/// Segment bookkeeping of a re-meshing run, stored in the checkpoint under
+/// [`CHECKPOINT_KEY`]. A *segment* is the run on one rung since the last
+/// re-mesh; the optimizer state counts from zero in each.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct RemeshState {
+    /// The active rung (0 = the spec's own mesh).
+    rung: usize,
+    /// Iterations completed before this segment (the history label of the
+    /// segment's iteration 0).
+    iter_base: usize,
+    /// Evaluations / failed evaluations spent before this segment.
+    evals_base: usize,
+    failed_base: usize,
+    /// History lines before this segment's first iteration line (earlier
+    /// segments and the `remesh` line that opened this one).
+    lines_before: usize,
+    /// Re-meshes so far.
+    remeshes: usize,
+    /// Bits of the objective at the very first starting point.
+    f_initial_bits: Option<u64>,
+}
+
 struct Ctx {
     dir: PathBuf,
     best: Option<Best>,
     history: Vec<String>,
+    /// Whether the spec has an `optimize.remesh` section (the checkpoint
+    /// then carries [`RemeshState`]).
+    remesh: bool,
+    rm: RemeshState,
+    /// Absolute paths of rungs 1.. (empty without `optimize.remesh`).
+    ladder: Vec<PathBuf>,
+}
+
+/// A loaded rung of the ladder.
+struct Rung {
+    p: Problem,
+    d: Design,
+    /// The spec path (`None` for rung 0, the spec itself).
+    path: Option<PathBuf>,
+}
+
+/// Why an iteration ended in a re-mesh.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Trigger {
+    /// A trial in the iteration tripped the mesh-quality guard.
+    Guard,
+    /// The `every` cadence.
+    Every,
+}
+
+impl Trigger {
+    fn name(self) -> &'static str {
+        match self {
+            Trigger::Guard => "mesh_quality_guard",
+            Trigger::Every => "every",
+        }
+    }
+}
+
+/// What the next segment learns about the re-mesh that opened it.
+struct Pending {
+    trigger: Trigger,
+    from_rung: usize,
+    to_rung: usize,
+    rung: String,
+    x: Vec<f64>,
+    f_before: f64,
+}
+
+/// The `remesh` history line.
+#[derive(Serialize)]
+struct RemeshEntry {
+    kind: &'static str,
+    /// The iteration it follows (the label of the last iteration on the
+    /// old mesh; the new mesh's baseline line carries the same label).
+    iter: usize,
+    trigger: &'static str,
+    from_rung: usize,
+    to_rung: usize,
+    rung: String,
+    /// The design carried over, in the parameters' units.
+    x: Vec<f64>,
+    objective_before: f64,
+    objective_after: f64,
+    objective_discontinuity: f64,
+}
+
+/// Whether `rec`'s notes show a guard failure.
+fn guard_tripped(rec: Option<&geode_optimize::IterationRecord>) -> bool {
+    rec.is_some_and(|r| r.notes.iter().any(|n| n.contains(GUARD_TAG)))
+}
+
+/// The nearest later rung (by distance in optimizer units between its
+/// meshed parameter values and `phys`) whose mesh accepts `phys` under the
+/// quality budget.
+fn pick_rung(rungs: &[Rung], plan: &Plan, from: usize, phys: &[f64]) -> Option<usize> {
+    (from + 1..rungs.len())
+        .filter_map(|j| {
+            let r = &rungs[j];
+            let ev = Evaluator::new(&r.p, &r.d, plan);
+            let q = ev.morph(&ev.params(phys), false).ok()?;
+            let ratio = geode_core::shape::min_tet_volume_ratio(&r.p.tagged.mesh, &q.tagged.mesh);
+            if ratio.is_nan() || ratio < plan.min_volume_ratio {
+                return None;
+            }
+            let sens = r.p.sensitivity.as_ref()?;
+            let dist = plan
+                .vars
+                .iter()
+                .zip(phys)
+                .map(|(v, &x)| ((x - sens.parameters[v.index].value) / v.scale).powi(2))
+                .sum::<f64>();
+            Some((j, dist))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(j, _)| j)
+}
+
+/// Rung `r` must describe the same sensitivity problem as the spec: the
+/// plan's indices are used for every rung.
+fn check_rung(base: &Problem, r: &Problem, at: &str) -> Result<(), CliError> {
+    let (Some(a), Some(b)) = (base.sensitivity.as_ref(), r.sensitivity.as_ref()) else {
+        return Err(invalid(format!(
+            "remesh: {at} has no `sensitivity` section"
+        )));
+    };
+    let names = |s: &crate::problem::SensitivityTarget| -> Vec<String> {
+        s.parameters.iter().map(param_name).collect()
+    };
+    let labels = |s: &crate::problem::SensitivityTarget| -> Vec<String> {
+        s.observables.iter().map(|o| o.label.clone()).collect()
+    };
+    let freqs = |p: &Problem, s: &crate::problem::SensitivityTarget| -> Vec<u64> {
+        s.frequency_indices
+            .iter()
+            .map(|&i| p.frequencies[i].hz.to_bits())
+            .collect()
+    };
+    if !b.n_port || names(a) != names(b) || labels(a) != labels(b) || freqs(base, a) != freqs(r, b)
+    {
+        return Err(invalid(format!(
+            "remesh: {at} must have the same `sensitivity` parameters, observables and \
+             differentiated frequencies as the spec"
+        )));
+    }
+    Ok(())
+}
+
+/// Insert the segment bookkeeping into a checkpoint JSON text.
+fn with_remesh_state(cp: &str, rm: &RemeshState) -> Result<String, CliError> {
+    let mut v: serde_json::Value = serde_json::from_str(cp)?;
+    v[CHECKPOINT_KEY] = serde_json::to_value(rm)?;
+    Ok(serde_json::to_string_pretty(&v)?)
+}
+
+/// The segment bookkeeping of a checkpoint text (zeros when absent).
+fn remesh_state_of(text: &str) -> Result<RemeshState, CliError> {
+    let v: serde_json::Value = serde_json::from_str(text)?;
+    match v.get(CHECKPOINT_KEY) {
+        Some(x) => Ok(serde_json::from_value(x.clone())?),
+        None => Ok(RemeshState::default()),
+    }
 }
 
 fn opt_err(e: OptimizeError) -> CliError {
@@ -1023,6 +1237,10 @@ fn note_best(ctx: &mut Ctx, rec: &geode_optimize::IterationRecord, phys: &[f64])
     improved
 }
 
+/// Drive one segment: until the optimizer finishes (`None`) or `check`
+/// asks for a re-mesh at the iteration boundary (`Some`, the state is
+/// returned as it stands).
+#[allow(clippy::too_many_arguments)]
 fn drive<O: Optimizer>(
     opt: &O,
     resumed: Option<O::State>,
@@ -1030,36 +1248,76 @@ fn drive<O: Optimizer>(
     bounds: &Bounds,
     x0: &[f64],
     ctx: &mut Ctx,
-) -> Result<O::State, CliError> {
+    pending: Option<&Pending>,
+    check: &dyn Fn(&geode_optimize::Progress) -> Option<Trigger>,
+) -> Result<(O::State, Option<Trigger>), CliError> {
     let is_resume = resumed.is_some();
     let mut state = match resumed {
         Some(s) => s,
         None => opt.start(scaled, x0, bounds).map_err(opt_err)?,
     };
-    // Resume: keep the history lines of the iterations the state holds.
+    if ctx.rm.f_initial_bits.is_none() {
+        // A resumed state carries its whole history, so the true starting
+        // objective is its first record (not the checkpoint's current one).
+        let prog = O::progress(&state);
+        let f0 = prog.history.first().map_or(prog.f, |r| r.f);
+        ctx.rm.f_initial_bits = Some(f0.to_bits());
+    }
+    if let (false, Some(pd)) = (is_resume, pending) {
+        let after = O::progress(&state).f;
+        let entry = RemeshEntry {
+            kind: "remesh",
+            iter: ctx.rm.iter_base,
+            trigger: pd.trigger.name(),
+            from_rung: pd.from_rung,
+            to_rung: pd.to_rung,
+            rung: pd.rung.clone(),
+            x: pd.x.clone(),
+            objective_before: pd.f_before,
+            objective_after: after,
+            objective_discontinuity: after - pd.f_before,
+        };
+        ctx.history.push(serde_json::to_string(&entry)?);
+        ctx.rm.lines_before = ctx.history.len();
+    }
+    // Resume: keep the lines of the earlier segments and those of this one
+    // up to the state's iteration (a later segment's lines are dropped).
     if is_resume && let Ok(text) = std::fs::read_to_string(ctx.dir.join(HISTORY_FILE)) {
-        let keep = O::progress(&state).iter;
-        ctx.history = text
-            .lines()
-            .filter(|l| {
-                serde_json::from_str::<serde_json::Value>(l)
-                    .ok()
-                    .and_then(|v| v["iter"].as_u64())
-                    .is_some_and(|i| i as usize <= keep)
-            })
-            .map(str::to_string)
-            .collect();
+        let keep = ctx.rm.iter_base + O::progress(&state).iter;
+        let lines: Vec<&str> = text.lines().collect();
+        let head = ctx.rm.lines_before.min(lines.len());
+        ctx.history = lines[..head].iter().map(|l| (*l).to_string()).collect();
+        ctx.history.extend(
+            lines[head..]
+                .iter()
+                .filter(|l| {
+                    serde_json::from_str::<serde_json::Value>(l)
+                        .ok()
+                        .filter(|v| v.get("kind").is_none())
+                        .and_then(|v| v["iter"].as_u64())
+                        .is_some_and(|i| i as usize <= keep)
+                })
+                .map(|l| (*l).to_string()),
+        );
+        ctx.rm.lines_before = head;
     }
     // The state's records: re-derive the best design and write the entries
-    // not on disk yet (iteration 0 of a fresh run).
-    for rec in O::progress(&state).history.clone() {
+    // not on disk yet (iteration 0 of a fresh segment).
+    let present = ctx.history.len().saturating_sub(ctx.rm.lines_before);
+    for (idx, rec) in O::progress(&state).history.clone().into_iter().enumerate() {
         let phys = scaled.to_physical(&rec.x);
         let improved = note_best(ctx, &rec, &phys);
-        if ctx.history.len() <= rec.iter {
+        if idx >= present {
             record(opt, &state, &*scaled, ctx, &rec, &phys, improved)?;
         }
     }
-    while !O::progress(&state).status.is_finished() {
+    loop {
+        if O::progress(&state).status.is_finished() {
+            return Ok((state, None));
+        }
+        if let Some(t) = check(O::progress(&state)) {
+            return Ok((state, Some(t)));
+        }
         let before = O::progress(&state).history.len();
         opt.step(scaled, &mut state).map_err(opt_err)?;
         for rec in O::progress(&state).history[before..].iter().cloned() {
@@ -1068,7 +1326,6 @@ fn drive<O: Optimizer>(
             record(opt, &state, &*scaled, ctx, &rec, &phys, improved)?;
         }
     }
-    Ok(state)
 }
 
 /// Write one iteration: history line, best artifacts, checkpoint.
@@ -1089,7 +1346,7 @@ fn record<O: Optimizer>(
         .unwrap_or_default();
     warnings.extend(ev.forward_warnings(phys));
     let entry = HistoryEntry {
-        iter: rec.iter,
+        iter: ctx.rm.iter_base + rec.iter,
         x: phys.to_vec(),
         objective: rec.f,
         gradient_norm: O::progress(state)
@@ -1100,8 +1357,8 @@ fn record<O: Optimizer>(
         constraints: rec.constraints.clone(),
         max_violation: rec.max_violation,
         step_length: rec.step_length,
-        n_evals: rec.n_evals,
-        n_failed_evals: rec.n_failed_evals,
+        n_evals: ctx.rm.evals_base + rec.n_evals,
+        n_failed_evals: ctx.rm.failed_base + rec.n_failed_evals,
         failed_this_iter: rec.failed_this_iter,
         notes: rec.notes.clone(),
         term_values: diag
@@ -1112,15 +1369,19 @@ fn record<O: Optimizer>(
         min_volume_ratio: diag.as_ref().map(|d| d.min_volume_ratio),
         warnings,
     };
-    ctx.history.truncate(rec.iter);
+    ctx.history.truncate(ctx.rm.lines_before + rec.iter);
     ctx.history.push(serde_json::to_string(&entry)?);
     let mut text = ctx.history.join("\n");
     text.push('\n');
     write_atomic(&ctx.dir.join(HISTORY_FILE), text.as_bytes())?;
     if improved || ctx.best.is_none() {
-        write_best(ev, &ctx.dir, phys)?;
+        let rest = ctx.ladder.get(ctx.rm.rung..).unwrap_or_default();
+        write_best(ev, &ctx.dir, phys, rest)?;
     }
-    let cp = opt.checkpoint_json(state).map_err(opt_err)?;
+    let mut cp = opt.checkpoint_json(state).map_err(opt_err)?;
+    if ctx.remesh {
+        cp = with_remesh_state(&cp, &ctx.rm)?;
+    }
     write_atomic(&ctx.dir.join(CHECKPOINT_FILE), cp.as_bytes())
 }
 
@@ -1173,6 +1434,121 @@ fn final_fd_check(ev: &Evaluator<'_>, phys: &[f64], jobs: usize) -> OptimizeFdCh
     }
 }
 
+/// One optimizer's hooks for the generic segment loop.
+struct Alg<O: Optimizer> {
+    /// The options a fresh run starts from.
+    options: O::Options,
+    /// Replace the stopping criteria in `options`.
+    set_stop: fn(&mut O::Options, StopCriteria),
+}
+
+/// Run segments (one per rung visited) to the end of the run. Returns the
+/// final progress, the evaluator's `Scaled` wrapper of the last segment and
+/// the rung it ran on.
+fn run_segments<'a, O: Optimizer>(
+    alg: &Alg<O>,
+    resumed: Option<O::State>,
+    ctx: &mut Ctx,
+    plan: &'a Plan,
+    rungs: &'a [Rung],
+) -> Result<(geode_optimize::Progress, Scaled<Evaluator<'a>>), CliError> {
+    let offset: Vec<f64> = plan.vars.iter().map(|v| v.initial).collect();
+    let scale: Vec<f64> = plan.vars.iter().map(|v| v.scale).collect();
+    let phys_bounds = Bounds::new(
+        plan.vars.iter().map(|v| v.lower).collect(),
+        plan.vars.iter().map(|v| v.upper).collect(),
+    )
+    .map_err(opt_err)?;
+    let mut resumed = resumed;
+    let mut pending: Option<Pending> = None;
+    let mut carry: Option<Vec<f64>> = None;
+    loop {
+        let rung = &rungs[ctx.rm.rung];
+        let ev = Evaluator::new(&rung.p, &rung.d, plan);
+        let mut scaled = Scaled::new(ev, offset.clone(), scale.clone(), 1.0);
+        let bounds = scaled.bounds_to_design(&phys_bounds);
+        let x0 = match &carry {
+            Some(phys) => scaled.to_design(phys),
+            None => vec![0.0; plan.vars.len()],
+        };
+        // The budget is the run's: this segment gets what the earlier ones
+        // left.
+        let mut stop = plan.stop.clone();
+        stop.max_iter = stop.max_iter.saturating_sub(ctx.rm.iter_base).max(1);
+        stop.max_evals = stop.max_evals.saturating_sub(ctx.rm.evals_base).max(1);
+        let mut options = alg.options.clone();
+        (alg.set_stop)(&mut options, stop);
+        let opt = O::from_options(options);
+        let (cur, n_rungs) = (ctx.rm.rung, rungs.len());
+        let check = |p: &geode_optimize::Progress| -> Option<Trigger> {
+            let policy = plan.remesh.as_ref()?;
+            if guard_tripped(p.history.last()) {
+                return Some(Trigger::Guard);
+            }
+            let k = policy.every?;
+            if p.iter > 0 && p.iter.is_multiple_of(k) && cur + 1 < n_rungs {
+                // Only when a later rung can take the design; else skip.
+                let phys = scaled_phys(&offset, &scale, &p.x);
+                return pick_rung(rungs, plan, cur, &phys).map(|_| Trigger::Every);
+            }
+            None
+        };
+        let (state, trigger) = drive(
+            &opt,
+            resumed.take(),
+            &mut scaled,
+            &bounds,
+            &x0,
+            ctx,
+            pending.take().as_ref(),
+            &check,
+        )?;
+        let prog = O::progress(&state).clone();
+        let Some(trigger) = trigger else {
+            return Ok((prog, scaled));
+        };
+        let phys = scaled.to_physical(&prog.x);
+        let Some(next) = pick_rung(rungs, plan, ctx.rm.rung, &phys) else {
+            return Err(invalid(format!(
+                "remesh: the mesh-quality guard tripped after iteration {} on rung {} and no \
+                 later rung accepts the design (min_volume_ratio {}); add a rung or relax \
+                 `min_volume_ratio`",
+                ctx.rm.iter_base + prog.iter,
+                ctx.rm.rung,
+                plan.min_volume_ratio
+            )));
+        };
+        pending = Some(Pending {
+            trigger,
+            from_rung: ctx.rm.rung,
+            to_rung: next,
+            rung: rungs[next]
+                .path
+                .as_ref()
+                .map_or_else(String::new, |q| q.display().to_string()),
+            x: phys.clone(),
+            f_before: prog.f,
+        });
+        ctx.rm.rung = next;
+        ctx.rm.iter_base += prog.iter;
+        ctx.rm.evals_base += prog.n_evals;
+        ctx.rm.failed_base += prog.n_failed_evals;
+        ctx.rm.remeshes += 1;
+        // Objectives on different meshes are not comparable: the best-so-far
+        // restarts on the new baseline.
+        ctx.best = None;
+        carry = Some(phys);
+    }
+}
+
+fn scaled_phys(offset: &[f64], scale: &[f64], x: &[f64]) -> Vec<f64> {
+    x.iter()
+        .zip(offset)
+        .zip(scale)
+        .map(|((x, o), s)| o + s * x)
+        .collect()
+}
+
 /// `geode optimize`: see the module docs.
 ///
 /// # Errors
@@ -1202,69 +1578,84 @@ pub fn run(
     };
     std::fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
     let d = s_sensitivity::design(&p, sens)?;
-    let ev = Evaluator::new(&p, &d, &plan);
-    let offset: Vec<f64> = plan.vars.iter().map(|v| v.initial).collect();
-    let scale: Vec<f64> = plan.vars.iter().map(|v| v.scale).collect();
-    let mut scaled = Scaled::new(ev, offset, scale, 1.0);
-    let phys_bounds = Bounds::new(
-        plan.vars.iter().map(|v| v.lower).collect(),
-        plan.vars.iter().map(|v| v.upper).collect(),
-    )
-    .map_err(opt_err)?;
-    let bounds = scaled.bounds_to_design(&phys_bounds);
-    let x0 = vec![0.0; plan.vars.len()];
+    // The ladder: rung 0 is the spec itself, then the listed rungs.
+    let spec_dir = spec_path.parent().unwrap_or_else(|| Path::new("."));
+    let mut ladder: Vec<PathBuf> = Vec::new();
+    let mut rungs = vec![Rung {
+        p: p.clone(),
+        d,
+        path: None,
+    }];
+    for (i, r) in plan.remesh.iter().flat_map(|m| &m.rungs).enumerate() {
+        let path = if r.is_absolute() {
+            r.clone()
+        } else {
+            spec_dir.join(r)
+        };
+        let at = format!("rungs[{i}] ({})", path.display());
+        let q = problem::load(&path, Some(Analysis::Driven))?;
+        check_rung(&p, &q, &at)?;
+        let qd = s_sensitivity::design(&q, q.sensitivity.as_ref().expect("checked"))?;
+        ladder.push(std::path::absolute(&path).unwrap_or_else(|_| path.clone()));
+        rungs.push(Rung {
+            p: q,
+            d: qd,
+            path: Some(path),
+        });
+    }
     let mut ctx = Ctx {
         dir: dir.clone(),
         best: None,
         history: Vec::new(),
+        remesh: plan.remesh.is_some(),
+        rm: RemeshState::default(),
+        ladder,
     };
     let resume_text = resume
         .map(|r| std::fs::read_to_string(r).map_err(|e| io_err(r, e)))
         .transpose()?;
-    let (algorithm, state_progress) = if plan.cons.is_empty() {
-        let (opt, st) = match &resume_text {
+    if let (Some(t), true) = (&resume_text, ctx.remesh) {
+        ctx.rm = remesh_state_of(t)?;
+        if ctx.rm.rung >= rungs.len() {
+            return Err(invalid(format!(
+                "remesh: the checkpoint is on rung {} but the spec has {} rungs",
+                ctx.rm.rung,
+                rungs.len()
+            )));
+        }
+    }
+    let (algorithm, state_progress, scaled) = if plan.cons.is_empty() {
+        let (options, st) = match &resume_text {
             Some(t) => {
                 // The stopping criteria are the spec's, so a resumed run can
                 // be given a larger budget; the path itself is unchanged.
                 let (o, mut s) = Lbfgsb::resume_json(t).map_err(opt_err)?;
                 reopen(&mut s.progress.status);
-                let opts = LbfgsbOptions {
-                    stop: plan.stop.clone(),
-                    ..o.options().clone()
-                };
-                (Lbfgsb::from_options(opts), Some(s))
+                (o.options().clone(), Some(s))
             }
-            None => (
-                Lbfgsb::from_options(LbfgsbOptions {
-                    stop: plan.stop.clone(),
-                    ..LbfgsbOptions::default()
-                }),
-                None,
-            ),
+            None => (LbfgsbOptions::default(), None),
         };
-        let s = drive(&opt, st, &mut scaled, &bounds, &x0, &mut ctx)?;
-        ("lbfgsb", Lbfgsb::progress(&s).clone())
+        let alg = Alg::<Lbfgsb> {
+            options,
+            set_stop: |o, stop| o.stop = stop,
+        };
+        let (prog, sc) = run_segments(&alg, st, &mut ctx, &plan, &rungs)?;
+        ("lbfgsb", prog, sc)
     } else {
-        let (opt, st) = match &resume_text {
+        let (options, st) = match &resume_text {
             Some(t) => {
                 let (o, mut s) = Mma::resume_json(t).map_err(opt_err)?;
                 reopen(&mut s.progress.status);
-                let opts = MmaOptions {
-                    stop: plan.stop.clone(),
-                    ..o.options().clone()
-                };
-                (Mma::from_options(opts), Some(s))
+                (o.options().clone(), Some(s))
             }
-            None => (
-                Mma::from_options(MmaOptions {
-                    stop: plan.stop.clone(),
-                    ..MmaOptions::default()
-                }),
-                None,
-            ),
+            None => (MmaOptions::default(), None),
         };
-        let s = drive(&opt, st, &mut scaled, &bounds, &x0, &mut ctx)?;
-        ("mma", Mma::progress(&s).clone())
+        let alg = Alg::<Mma> {
+            options,
+            set_stop: |o, stop| o.stop = stop,
+        };
+        let (prog, sc) = run_segments(&alg, st, &mut ctx, &plan, &rungs)?;
+        ("mma", prog, sc)
     };
     let ev = scaled.inner();
     let best = ctx.best.clone().expect("iteration 0 is always recorded");
@@ -1278,7 +1669,7 @@ pub fn run(
     }
     let mut warnings = diag.warnings.clone();
     warnings.extend(ev.forward_warnings(&best.phys));
-    let first = state_progress.history.first().map_or(f64::NAN, |r| r.f);
+    let first = ctx.rm.f_initial_bits.map_or(f64::NAN, f64::from_bits);
     let best_rec = state_progress
         .history
         .iter()
@@ -1290,9 +1681,10 @@ pub fn run(
         algorithm,
         converged: state_progress.status.is_converged(),
         stop_status: status_text(&state_progress.status),
-        iterations: state_progress.iter,
-        evaluations: state_progress.n_evals,
-        failed_evaluations: state_progress.n_failed_evals,
+        iterations: ctx.rm.iter_base + state_progress.iter,
+        evaluations: ctx.rm.evals_base + state_progress.n_evals,
+        failed_evaluations: ctx.rm.failed_base + state_progress.n_failed_evals,
+        remeshes: ctx.rm.remeshes,
         objective_initial: first,
         objective_best: best.f,
         max_violation_best: best.violation,

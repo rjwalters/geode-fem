@@ -2221,6 +2221,8 @@ pub struct OptimizeReport {
     /// Of which failed (forward error, passivity tripwire, mesh-quality
     /// guard); the optimizer backed off each.
     pub failed_evaluations: usize,
+    /// Re-meshes onto a later rung of `optimize.remesh` (`0` without it).
+    pub remeshes: usize,
     /// Objective at the starting point.
     pub objective_initial: f64,
     /// Objective at the best design (`best_*` artifacts).
