@@ -867,10 +867,15 @@ pub fn solve_transmon_eigenmodes_full_with_port_model(
 /// ungauged [`solve_transmon_eigenmodes`] remains the committed benchmark
 /// path.
 ///
+/// This is a test-support entry point that pins a superseded negative
+/// result and is hidden from the rendered docs; the physical path is
+/// [`crate::eigen::projection::solve_transmon_eigenmodes_projected`].
+///
 /// # Errors
 ///
 /// Propagates [`EigenError`] from the reduced assembly or the Lanczos
 /// solve; errors if the gauge leaves no cotree DOFs.
+#[doc(hidden)]
 pub fn solve_transmon_eigenmodes_gauged(
     pencil: &TransmonPencil<'_>,
     sigma: f64,
