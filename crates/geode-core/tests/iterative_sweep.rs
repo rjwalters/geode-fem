@@ -26,7 +26,6 @@
 mod common;
 use common::{all_plane_faces, pec_mask_for_planes};
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::analytic::waveguide::{rect_tri_mesh, solve_rect_waveguide_modes};
 use geode_core::driven::extraction::{
@@ -41,13 +40,9 @@ use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, IterativeSettings, SolverMode,
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn vacuum(mesh: &TetMesh) -> Vec<c64> {
     vec![c64::new(1.0, 0.0); mesh.n_tets()]

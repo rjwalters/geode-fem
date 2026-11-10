@@ -33,16 +33,11 @@ use geode_core::driven::transient::{TransientError, TransientSolver};
 use geode_core::elements::ElementOrder;
 use geode_core::elements::nedelec_p2::{tet_barycentric_gradients, tet_quad_deg4};
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
-use burn::tensor::backend::BackendTypes;
 use common::Lcg;
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// `cube_tet_mesh(n)` with interior nodes jittered by up to `0.12·h`: an
 /// unstructured, flat-sided box.

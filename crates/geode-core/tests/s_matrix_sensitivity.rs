@@ -23,7 +23,6 @@
 //! cargo test -p geode-core --release --test s_matrix_sensitivity -- --nocapture
 //! ```
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::analytic::waveguide::{rect_tri_mesh, solve_rect_waveguide_modes};
 use geode_core::assembly::hcurl_space::HcurlSpace;
@@ -48,7 +47,7 @@ use geode_core::driven::solve::{
 };
 use geode_core::mesh::{TetMesh, pec_interior_mask_from_triangles};
 use geode_core::shape::apply_node_motion;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -62,10 +61,6 @@ const NZ: usize = 4;
 const TOL: f64 = 1e-4;
 /// Central-difference step (relative to O(1) parameters).
 const H: f64 = 1e-5;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn guide() -> ExtrudedWaveguideMesh {
     extruded_rect_waveguide_mesh(NX, NY, NZ, A, B_DIM, LEN)

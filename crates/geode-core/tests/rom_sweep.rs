@@ -36,15 +36,9 @@ use geode_core::driven::solve::{
     SurfaceImpedanceModel, SurfaceRoughness,
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
-
-use burn::tensor::backend::BackendTypes;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn vacuum(mesh: &TetMesh) -> Vec<c64> {
     vec![c64::new(1.0, 0.0); mesh.n_tets()]

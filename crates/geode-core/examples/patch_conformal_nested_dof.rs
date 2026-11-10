@@ -121,7 +121,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use sha2::{Digest, Sha256};
 
@@ -149,7 +148,7 @@ use geode_core::shape::conformal_basis::{
     outline_columns, radial_columns, substrate_top_triangles,
 };
 use geode_core::shape::{FreeformBoundaryMorph, min_tet_volume_ratio, worst_tet_volume_ratio};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::fixture::BackendInfo;
 use geode_util::units::ghz_to_omega_mm;
 
@@ -200,10 +199,6 @@ const FEED_CORE_FRAC: f64 = 0.75;
 const FEED_SUPPORT_FRAC: f64 = 4.0;
 /// RSS sampling period.
 const RSS_SAMPLE: Duration = Duration::from_millis(100);
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 // ── CLI ──────────────────────────────────────────────────────────────────
 

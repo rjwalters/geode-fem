@@ -24,7 +24,6 @@ use std::path::PathBuf;
 
 use faer::c64;
 
-use burn::tensor::backend::BackendTypes;
 use geode_core::constants::{C_MM_PER_S, ETA_0_OHM as ETA_0};
 use geode_core::driven::extraction::{s11_sq_and_dg_dv, s11_sq_objective};
 use geode_core::driven::ports::assemble_port_flux;
@@ -34,16 +33,12 @@ use geode_core::mesh::{
     PatchFixture, TetMesh, pec_interior_mask_from_triangles, read_patch_smoke_fixture,
 };
 use geode_core::shape::chain_node_motion;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
 const R_PORT_OHM: f64 = 50.0;
 const F0_GHZ: f64 = 2.0;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn omega_natural(f_ghz: f64) -> f64 {
     2.0 * std::f64::consts::PI * f_ghz * 1e9 / C_MM_PER_S

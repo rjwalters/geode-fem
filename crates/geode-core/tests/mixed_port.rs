@@ -33,7 +33,6 @@
 //! cargo test -p geode-core --release --test mixed_port
 //! ```
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::analytic::waveguide::{rect_tri_mesh, solve_rect_waveguide_modes};
 use geode_core::driven::extraction::s_parameter_frequency_sweep_with_mode;
@@ -44,7 +43,7 @@ use geode_core::driven::ports::{
 };
 use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, SolverMode};
 use geode_core::mesh::TetMesh;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -54,10 +53,6 @@ const LEN: f64 = 1.2;
 const NX: usize = 8;
 const NY: usize = 4;
 const NZ: usize = 4;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn guide() -> ExtrudedWaveguideMesh {
     extruded_rect_waveguide_mesh(NX, NY, NZ, A, B_DIM, LEN)

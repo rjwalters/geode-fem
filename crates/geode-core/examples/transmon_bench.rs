@@ -142,7 +142,6 @@
 use std::time::Instant;
 
 use burn::tensor::Tensor;
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::nedelec::{
@@ -163,7 +162,7 @@ use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
 use geode_core::mesh::{
     TetMesh, TransmonFixture, read_transmon_fixture_from_bytes, read_transmon_smoke_fixture,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -175,10 +174,6 @@ const JUNCTION_C_F: f64 = 5.5e-15;
 /// The DeviceLayout transmon mesh is in **micrometres** (substrate 4 mm ≈ 4000
 /// mesh units; see the provenance file).
 const M_PER_UNIT: f64 = 1e-6;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Read a `[nnz]` Burn value tensor to a host `Vec<f64>`.
 fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {

@@ -9,12 +9,11 @@
 //!      K symmetry, K row sums (partition of unity → zero), and M row sums
 //!      (equal to per-element volume for consistent mass).
 
-use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Tensor, TensorData};
 
 use geode_core::elements::p1::batched_p1_local_matrices;
 use geode_core::mesh::{GmshReader, MeshReader};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 mod common;
 use common::readback_f64;
@@ -25,10 +24,6 @@ const UNIT_CUBE_MSH: &[u8] = include_bytes!("fixtures/unit_cube.msh");
 
 /// f32 tolerance — Burn's default float backend is f32, reference is f64.
 const F32_TOL: f64 = 1e-5;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn coords_tensor_from_vec(tets: &[[[f64; 3]; 4]]) -> Tensor<B, 3> {
     let n = tets.len();

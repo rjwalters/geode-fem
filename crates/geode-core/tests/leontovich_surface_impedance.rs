@@ -44,7 +44,6 @@ mod common;
 use common::edge_tables;
 
 use burn::tensor::Tensor;
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use std::collections::BTreeMap;
 use std::f64::consts::PI;
@@ -61,13 +60,9 @@ use geode_core::driven::solve::{
 };
 use geode_core::mesh::TET_LOCAL_EDGES;
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn readback_f64<const D: usize>(t: Tensor<B, D>) -> Vec<f64> {
     t.into_data().iter::<f64>().collect()

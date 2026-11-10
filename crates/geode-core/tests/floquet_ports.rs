@@ -36,7 +36,6 @@ mod fixtures;
 
 use std::f64::consts::PI;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::nedelec::tet_centroid as centroid;
@@ -49,7 +48,7 @@ use geode_core::mesh::TetMesh;
 use geode_core::mesh::periodic::{
     PeriodicMap, PeriodicMatchOptions, boundary_triangles_on_plane, box_periodic_pairs,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 #[path = "common/rcwa1d.rs"]
 mod rcwa1d;
@@ -59,10 +58,6 @@ use rcwa1d::{Rcwa1d, RcwaPol};
 
 type B = TestBackend;
 use FloquetPolarization::{Te, Tm};
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 const J: c64 = c64 { re: 0.0, im: 1.0 };
 const ONE: c64 = c64 { re: 1.0, im: 0.0 };

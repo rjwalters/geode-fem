@@ -174,7 +174,6 @@ use common::{all_plane_faces, pec_mask_for_planes};
 
 use std::time::Instant;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::driven::ports::LumpedPort;
 use geode_core::driven::solve::{
@@ -182,13 +181,9 @@ use geode_core::driven::solve::{
     IterativeSettings, SolverMode,
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Default mesh sizes swept. `cube_tet_mesh(n)` yields (edges): n=6 → 1854,
 /// n=9 → 5859, n=12 → 13428, n=15 → 25695 (≈ 7.6·n³ edges in general, so

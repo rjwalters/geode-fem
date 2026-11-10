@@ -38,8 +38,6 @@
 //!     --test sphere_pml_anisotropic_eigenmode -- --ignored
 //! ```
 
-use burn::tensor::backend::BackendTypes;
-
 use geode_core::analytic::mie::{MiePolarisation, merged_roots};
 use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_anisotropic_epsilon, assemble_global_nedelec_with_complex_epsilon,
@@ -50,13 +48,9 @@ use geode_core::assembly::p1::upload_mesh;
 use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, R_SPHERE, read_sphere_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 #[test]
 fn anisotropic_pml_tensor_sigma_zero_is_isotropic() {

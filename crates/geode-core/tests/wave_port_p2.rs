@@ -54,7 +54,6 @@
 
 use std::f64::consts::PI;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::assembly::surface_p2::assemble_p2_surface_mass_triplets;
@@ -80,13 +79,9 @@ use geode_core::eigen::pec_cavity::{
 };
 use geode_core::elements::ElementOrder;
 use geode_core::mesh::TetMesh;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 const ORDERS: [ElementOrder; 2] = [ElementOrder::P1, ElementOrder::P2];
 

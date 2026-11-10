@@ -39,7 +39,6 @@ mod common;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use burn::tensor::backend::BackendTypes;
 use common::Lcg;
 use faer::{Mat, MatRef, Side};
 use geode_core::assembly::nedelec::{
@@ -51,7 +50,7 @@ use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer,
 };
 use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -155,10 +154,6 @@ fn synthetic_null_cluster_pencil_matches_exact_spectrum() {
         err < 1e-10,
         "max relative error vs exact spectrum {err:.3e}"
     );
-}
-
-fn device() -> <B as BackendTypes>::Device {
-    Default::default()
 }
 
 /// The real part `(Re K, Re M)` of the reduced Mie PML pencil from the

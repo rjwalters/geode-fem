@@ -18,16 +18,11 @@ use geode_core::driven::solve::{
 use geode_core::elements::ElementOrder;
 use geode_core::elements::nedelec_p2::tet_barycentric_gradients;
 use geode_core::mesh::{TetMesh, cube_tet_mesh, pec_interior_mask_from_triangles};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
-use burn::tensor::backend::BackendTypes;
 use common::Lcg;
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// `cube_tet_mesh(n)` with every **interior** node jittered by up to
 /// `0.12·h` per axis: an unstructured, flat-sided box (boundary nodes stay

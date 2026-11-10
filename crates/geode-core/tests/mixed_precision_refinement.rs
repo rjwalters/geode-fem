@@ -74,13 +74,9 @@ use geode_core::assembly::nedelec::cube_pec_interior_edges;
 use geode_core::assembly::p1::upload_mesh;
 use geode_core::mesh::cube_tet_mesh;
 use geode_core::solver::ksp_burn::{ComplexMatrixFreeOperator, SplitComplex};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 // ---------------------------------------------------------------------------
 // f32-rounding primitives — the whole point of the simulation

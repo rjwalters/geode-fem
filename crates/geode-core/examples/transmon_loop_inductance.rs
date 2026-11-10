@@ -57,7 +57,6 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use burn::tensor::Tensor;
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::nedelec::{
@@ -78,7 +77,7 @@ use geode_core::quantum::transmon::{
     DEVICELAYOUT_RESONATOR_FREQUENCY_HZ, TransmonAnchor, coupled_lc_bare_pair_hz,
     coupled_lc_dressed_pair_hz, harmonic_frequency_hz, series_loop_inductance_from_participations,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::fixture::BackendInfo;
 
 type B = TestBackend;
@@ -186,10 +185,6 @@ const FINGER_LEN_UM: f64 = 620.0;
 const WIRE_W_UM: f64 = 1.0;
 const WIRE_LEN_UM: f64 = 12.0;
 const MU0: f64 = 1.256_637_062_12e-6;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
     t.into_data().iter::<f64>().collect()

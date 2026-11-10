@@ -19,7 +19,7 @@ use geode_core::elements::nedelec::{
     batched_nedelec_local_matrices, batched_nedelec_local_rhs, tet_edges,
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 mod common;
 use common::readback_f64;
@@ -28,10 +28,6 @@ type B = TestBackend;
 
 /// f32 tolerance — Burn's default float backend is f32, reference is f64.
 const F32_TOL: f64 = 1e-5;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn coords_tensor_from_vec(tets: &[[[f64; 3]; 4]]) -> Tensor<B, 3> {
     let n = tets.len();

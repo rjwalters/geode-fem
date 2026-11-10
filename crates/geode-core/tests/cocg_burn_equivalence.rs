@@ -38,7 +38,6 @@
 mod common;
 use common::edge_tables;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use faer::sparse::{SparseColMat, Triplet};
 use geode_core::assembly::nedelec::{
@@ -50,13 +49,9 @@ use geode_core::solver::ksp::{Cocg, IdentityPreconditioner, JacobiPreconditioner
 use geode_core::solver::ksp_burn::{
     BurnCocg, ComplexMatrixFreeOperator, InnerProduct, SplitComplex,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Read a dense `[n, n]` Burn matrix to a host row-major `Vec<f64>`.
 fn dense_to_host(t: burn::tensor::Tensor<B, 2>) -> Vec<f64> {

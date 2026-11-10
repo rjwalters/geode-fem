@@ -87,7 +87,7 @@ use geode_core::assembly::p1::upload_mesh;
 use geode_core::derham::apply_gradient;
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask};
 use geode_core::mesh::{R_BUFFER, TetMesh, cube_tet_mesh, read_sphere_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -110,10 +110,6 @@ fn residual_tol() -> f64 {
 /// Cube refinement — matches the `nedelec_cavity.rs` cavity tests so the
 /// interior-node / interior-edge counts line up with the eigenmode story.
 const N_CUBE: usize = 8;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Deterministic LCG, same constants and reduction as
 /// `tests/p1_local_matrices.rs::deterministic_tet`, so failures are
