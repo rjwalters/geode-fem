@@ -110,28 +110,28 @@ type B = CompiledBackend;
 
 /// How a CLI parameter maps onto the library's flat parameter list.
 #[derive(Debug, Clone, Copy)]
-struct ParamMap {
+pub(crate) struct ParamMap {
     /// Index into [`SSensitivitySweep::params`].
-    index: usize,
+    pub(crate) index: usize,
     /// Chain factor (`ε′` for `tan δ`, `1/length_unit_m` for shape).
-    factor: f64,
+    pub(crate) factor: f64,
 }
 
 /// The library design of the spec's parameters, the CLI → library map and
 /// the shape columns (mesh units per unit parameter in mesh units).
-struct Design {
-    sdesign: SDesign,
+pub(crate) struct Design {
+    pub(crate) sdesign: SDesign,
     /// Per CLI parameter: the library parameter of its derivative.
-    map: Vec<ParamMap>,
+    pub(crate) map: Vec<ParamMap>,
     /// Per CLI parameter: its node-motion column (shape parameters only).
-    columns: Vec<Option<Vec<[f64; 3]>>>,
+    pub(crate) columns: Vec<Option<Vec<[f64; 3]>>>,
 }
 
 /// The library error of the sensitivity, as a CLI error: every fenced or
 /// inconsistent combination (`Unsupported`, `InvalidDesign`, a degenerate
 /// face-mode cluster) is the spec's — `invalid_spec`, with the library's
 /// message naming what lifts it; a forward failure is `solve_failed`.
-fn lib_error(e: SSensitivityError) -> CliError {
+pub(crate) fn lib_error(e: SSensitivityError) -> CliError {
     match e {
         SSensitivityError::Driven(e) => CliError::Solve(e),
         e @ (SSensitivityError::Unsupported { .. }
@@ -147,7 +147,7 @@ fn lib_error(e: SSensitivityError) -> CliError {
 /// with a material parameter (in order of first appearance), the
 /// geometric-port fills that follow a design region, and one shape column
 /// per shape parameter.
-fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
+pub(crate) fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
     let mut regions: Vec<usize> = Vec::new();
     let (mut need_prime, mut need_dprime, mut need_sigma) = (false, false, false);
     for prm in sens.parameters.iter().filter(|q| q.kind.is_material()) {
@@ -424,7 +424,7 @@ fn wave_specs(p: &Problem, solves: &PortSolves<'_>) -> Result<Vec<WavePortSpec>,
 /// (`port_modes`: also the hybrid port-mode observables). The golden
 /// `tests/sensitivity_nport.rs` rebuilds this network in-process from the
 /// mesh and checks the CLI's gradients against it bit for bit.
-fn library_sweep(
+pub(crate) fn library_sweep(
     p: &Problem,
     design: &SDesign,
     omegas: &[f64],
@@ -758,7 +758,7 @@ fn row_value(p: &Problem, o: &ObservableDef, row: &FrequencyResult) -> Result<f6
 
 /// The value and per-library-parameter complex derivative of observable
 /// `o` at one sensitivity point.
-fn point_observable(
+pub(crate) fn point_observable(
     p: &Problem,
     o: &ObservableDef,
     pt: &geode_core::driven::s_sensitivity::SSensitivityPoint,
@@ -1483,7 +1483,7 @@ fn perturbed(
 }
 
 /// The shipped driven forward's report rows of `q`.
-fn forward_rows(q: &Problem, jobs: usize) -> Result<Vec<FrequencyResult>, CliError> {
+pub(crate) fn forward_rows(q: &Problem, jobs: usize) -> Result<Vec<FrequencyResult>, CliError> {
     let opts = SweepOptions {
         jobs: if q.wave_ports.is_empty() { jobs } else { 1 },
         jobs_explicit: false,

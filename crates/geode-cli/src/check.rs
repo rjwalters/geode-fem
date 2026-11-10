@@ -22,6 +22,10 @@ use crate::spec::{DispersionSpec, FrequencyUnit, RoughnessSpec, SolverSpec};
 /// Load + resolve the spec and summarize it (no 3-D assembly or solve).
 pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliError> {
     let p = problem::load(spec_path, None)?;
+    // A malformed `optimize` section is rejected here too (issue #1261).
+    if p.spec.optimize.is_some() {
+        crate::optimize::resolve(&p)?;
+    }
     p.print_load_warnings();
     let mut warnings = check_warnings(&p);
     let periodic = periodic_summary(&p);
