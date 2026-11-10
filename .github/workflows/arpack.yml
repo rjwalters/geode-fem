@@ -332,11 +332,13 @@ jobs:
     # Cold dependency build + the debug default tier. The release
     # `--ignored` benchmark tiers run in the parallel `geode-cli-release`
     # job below. The apt Gmsh install alone has taken ~11 min on a slow
-    # mirror (15m31s observed, issue #1320). Budget: the default-tier test
-    # step takes ~30-44 min on passing runs, plus up to ~15 min for a slow
-    # Gmsh install (13s normally); 60 min bounds queue-wait (issue #354)
-    # with that headroom.
-    timeout-minutes: 60
+    # mirror (15m31s observed, issue #1320). Budget (measured 2026-11-10,
+    # issue #1485): the default-tier test step takes ~30-58 min depending on
+    # runner load, the example-crates bin-test step adds ~2 min, and the
+    # Gmsh install is 12-20 s normally (up to ~15 min on a slow mirror);
+    # 90 min leaves >=30 min headroom over that worst case while still
+    # bounding queue-wait (issue #354) far below the 24 h ceiling.
+    timeout-minutes: 90
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
