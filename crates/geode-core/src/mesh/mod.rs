@@ -75,10 +75,11 @@ pub use transmon::{
 /// independent of the (possibly sparse, 1-based) tags in the source file.
 ///
 /// Not to be confused with the [`Mesh`](crate::traits::Mesh) trait in the crate
-/// root — that one is a placeholder for in-pipeline (potentially GPU-resident)
-/// mesh objects parameterized by a Burn backend. `TetMesh` is the raw CPU
-/// output of mesh I/O; a `Mesh`-implementing struct would typically wrap
-/// (or be constructed from) a `TetMesh` plus device-side tensors.
+/// root — that one is a reserved, currently unused trait for in-pipeline
+/// (potentially GPU-resident) mesh objects parameterized by a Burn backend.
+/// `TetMesh` is the raw CPU output of mesh I/O; a `Mesh`-implementing struct
+/// would typically wrap (or be constructed from) a `TetMesh` plus device-side
+/// tensors.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TetMesh {
     /// Node coordinates, `nodes[i] = [x, y, z]`.
