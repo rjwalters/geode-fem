@@ -447,6 +447,77 @@ fn octagon_ring_with_hole_meshes_and_tags_by_footprint() {
     ok(geode(&["check", s(&spec)]), "geode check");
 }
 
+/// `edge_radius` (issue #1482): the generated script rounds the plate's
+/// four convex corners with tangent arcs (no Gmsh needed), and a radius
+/// too large for the feature is rejected before Gmsh runs.
+#[cfg(unix)]
+#[test]
+fn edge_radius_emits_arcs_and_rejects_oversized_radius() {
+    let geo = geo_script_of(
+        &fixtures().join("mesh_rounded_plate.layout.json"),
+        "capacitance",
+        "rounded-plate-geo",
+    );
+    assert_eq!(geo.matches("Circle(").count(), 4, "{geo}");
+    assert!(geo.contains("Plane Surface(s_c1_0)"), "{geo}");
+
+    let dir = scratch("rounded-too-big");
+    let mut layout: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(fixtures().join("mesh_rounded_plate.layout.json")).unwrap(),
+    )
+    .unwrap();
+    // Shortest plate edge is 4: radius 2.5 > 2 is too large.
+    layout["conductors"][1]["polygons"][0]["edge_radius"] = serde_json::json!(2.5);
+    let path = dir.join("big.layout.json");
+    write_json(&path, &layout);
+    let out = geode(&[
+        "mesh",
+        s(&path),
+        "--analysis",
+        "capacitance",
+        "--mesh-out",
+        s(&dir.join("m.msh")),
+    ]);
+    let msg = assert_error(&out, "invalid_spec");
+    assert!(
+        msg.contains("edge_radius") && msg.contains("too large"),
+        "{msg}"
+    );
+}
+
+/// The rounded plate meshes and its tagged sheet area matches the exact
+/// rounded-rectangle area `w h - (4 - pi) r^2` (linear elements inscribe the
+/// arcs, so the mesh area sits just below it).
+///
+/// NOT a peak-field check: the `E_max / E_ref` enhancement needs the
+/// peak-field observable of #1477 (children A/B), which is not on `main`.
+#[test]
+fn rounded_plate_meshes_with_the_exact_rounded_area() {
+    if !gmsh_or_skip("rounded_plate_meshes_with_the_exact_rounded_area") {
+        return;
+    }
+    let dir = scratch("rounded-plate");
+    let mesh = dir.join("r.msh");
+    ok(
+        geode(&[
+            "mesh",
+            s(&fixtures().join("mesh_rounded_plate.layout.json")),
+            "--analysis",
+            "capacitance",
+            "--mesh-out",
+            s(&mesh),
+        ]),
+        "geode mesh",
+    );
+    let tagged = geode_core::mesh::read_tagged_tet_mesh(&std::fs::read(&mesh).unwrap()).unwrap();
+    let exact = 10.0 * 4.0 - (4.0 - std::f64::consts::PI);
+    let got = group_area(&tagged, "plate");
+    assert!(
+        got <= exact * (1.0 + 1e-9) && got > exact * 0.995,
+        "plate area {got} vs exact {exact}"
+    );
+}
+
 /// Two conductor layers joined by a via on one net mesh as one conductor
 /// group (issue #1287): one `sig` shell, ground sheet separate, and the
 /// capacitance starter spec loads (one terminal, no shared nodes).
