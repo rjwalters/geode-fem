@@ -1139,6 +1139,275 @@
       ],
       "type": "object"
     },
+    "ConductionReport": {
+      "description": "`geode conduction` report (`kind = \"conduction\"`, additive in v1).\n\nThe conductance matrix is real, in siemens (SI: the mesh length unit is\nfolded in), row-major `g_siemens[row][col]` in terminal order.",
+      "properties": {
+        "backend": {
+          "description": "Compiled-in Burn backend: `ndarray`, `wgpu`, `cuda` or `metal`.",
+          "type": "string"
+        },
+        "conduction": {
+          "$ref": "#/$defs/ConductionSettingsSummary",
+          "description": "The conduction settings and system size."
+        },
+        "g_siemens": {
+          "description": "The N×N terminal conductance matrix (S): `I_i = Σ_j G_ij V_j`,\nsymmetric; rows sum to zero when no terminal drains to ground.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "geode_version": {
+          "description": "`geode-cli` crate version.",
+          "type": "string"
+        },
+        "git_sha": {
+          "description": "Git revision baked in at build time (`<sha>[-dirty]` or `unknown`).",
+          "type": "string"
+        },
+        "kind": {
+          "const": "conduction",
+          "description": "Always `\"conduction\"`.",
+          "type": "string"
+        },
+        "max_current_density_a_m2": {
+          "description": "Largest per-element current density `|J|` (A/m²) at the operating\npoint.",
+          "format": "double",
+          "type": "number"
+        },
+        "max_joule_density_w_m3": {
+          "description": "Largest per-element Joule density `σ|∇φ|²` (W/m³) at the operating\npoint.",
+          "format": "double",
+          "type": "number"
+        },
+        "max_rel_asymmetry": {
+          "description": "`max |G_ij − G_ji| / max(|G_ij|, |G_ji|)` over off-diagonal pairs.",
+          "format": "double",
+          "type": "number"
+        },
+        "max_rel_row_sum": {
+          "description": "`max_i |Σ_j G_ij| / G_ii`.",
+          "format": "double",
+          "type": "number"
+        },
+        "mesh": {
+          "$ref": "#/$defs/MeshSummary",
+          "description": "Mesh summary (the scalar system size is in `conduction`)."
+        },
+        "per_element_fields": {
+          "description": "Whether per-element `J` / Joule fields are exported: the existing\nexport path has no scalar-static field output, so they are not.",
+          "type": "string"
+        },
+        "power_balance_rel_error": {
+          "description": "`|P_diss − Σ V_i I_i| / |Σ V_i I_i|`: the power-balance check\n(degrades above ~8 decades of conductivity contrast, see the\nlibrary docs).",
+          "format": "double",
+          "type": "number"
+        },
+        "regions": {
+          "description": "Volume regions (`eps_r` is unused by a conduction solve).",
+          "items": {
+            "$ref": "#/$defs/RegionSummary"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "const": 1,
+          "description": "[`REPORT_SCHEMA_VERSION`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "solver": {
+          "$ref": "#/$defs/ConductionSolverStats",
+          "description": "Solver statistics."
+        },
+        "spec_path": {
+          "description": "Spec path as given on the command line.",
+          "type": "string"
+        },
+        "status": {
+          "const": "ok",
+          "description": "Always `\"ok\"` (failures produce an [`ErrorReport`]).",
+          "type": "string"
+        },
+        "terminal_current_a": {
+          "description": "Current (A) entering the network at each terminal at the reported\noperating point (first terminal 1 V, the rest 0 V).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "terminals": {
+          "description": "Terminal names in matrix row/column order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "threads": {
+          "description": "`--threads` value, or `null` when not given (library defaults).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "total_power_w": {
+          "description": "Total dissipated power (W) at the operating point (volume Joule\nheat plus any `r_ext` resistors).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "schema_version",
+        "geode_version",
+        "git_sha",
+        "backend",
+        "threads",
+        "spec_path",
+        "kind",
+        "status",
+        "mesh",
+        "regions",
+        "conduction",
+        "terminals",
+        "g_siemens",
+        "max_rel_asymmetry",
+        "max_rel_row_sum",
+        "terminal_current_a",
+        "total_power_w",
+        "power_balance_rel_error",
+        "max_current_density_a_m2",
+        "max_joule_density_w_m3",
+        "per_element_fields",
+        "solver"
+      ],
+      "type": "object"
+    },
+    "ConductionSettingsSummary": {
+      "description": "Echo of a resolved `conduction` spec section plus the size of the\nscalar system (additive in v1, issue #1479).",
+      "properties": {
+        "element": {
+          "description": "Always `\"p1_tet\"`.",
+          "type": "string"
+        },
+        "n_dof": {
+          "description": "Scalar DOFs before Dirichlet elimination (= mesh nodes).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_free_dof": {
+          "description": "Free DOFs after pinning every ideal terminal's nodes.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_solves": {
+          "description": "Unit-voltage solves (one per terminal), sharing one LU.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "operating_point_v": {
+          "description": "Terminal voltages (V) of the reported operating point: the first\nterminal at 1 V, every other terminal at 0 V.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "r_ext_ohm": {
+          "description": "Lumped series resistance (Ω) per terminal, `null` for a pinned\n(ideal Dirichlet) terminal.",
+          "items": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "type": "array"
+        },
+        "terminals": {
+          "description": "Terminals in matrix row/column order.",
+          "items": {
+            "$ref": "#/$defs/ConductorSummary"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "terminals",
+        "r_ext_ohm",
+        "operating_point_v",
+        "element",
+        "n_dof",
+        "n_free_dof",
+        "n_solves"
+      ],
+      "type": "object"
+    },
+    "ConductionSolverStats": {
+      "description": "Statistics of a `geode conduction` solve.",
+      "properties": {
+        "inner": {
+          "description": "Always `\"direct_lu_jacobi_scaled\"`.",
+          "type": "string"
+        },
+        "max_rel_residual": {
+          "description": "Worst relative residual `‖K u − b‖/‖b‖` over every solve.",
+          "format": "double",
+          "type": "number"
+        },
+        "method": {
+          "description": "Always `\"gradient_energy\"`: `G_ij = Σ σ V ∇φ_i·∇φ_j` element-wise.",
+          "type": "string"
+        },
+        "wall_time_s": {
+          "description": "Wall time of assembly + every solve + post-processing, seconds.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "method",
+        "inner",
+        "max_rel_residual",
+        "wall_time_s"
+      ],
+      "type": "object"
+    },
+    "ConductionSpec": {
+      "additionalProperties": false,
+      "description": "Steady DC current-conduction settings (`geode conduction`, issue\n#1479).\n\nSolves `∇·(σ∇φ) = 0` (P1 on the tets, per-region `σ` from\n`materials[].conductivity_s_m`, S/m) with every terminal a Dirichlet\nsurface and all other boundaries insulating\n([`geode_core::assembly::conduction`]). The terminal conductance matrix\n`G` (`I_i = Σ_j G_ij V_j`) comes from one unit-voltage solve per\nterminal. The reported operating point (per-terminal currents, total\npower, power balance) drives the **first terminal at 1 V and every\nother terminal at 0 V**.\n\nEvery `materials` entry of a conduction spec must give\n`conductivity_s_m`; tets in unlisted regions are insulating (`σ = 0`).",
+      "properties": {
+        "r_ext": {
+          "additionalProperties": {
+            "format": "double",
+            "type": "number"
+          },
+          "description": "Optional lumped series resistance (Ω, finite, `> 0`) per terminal,\nkeyed by terminal name: the terminal's surface is then held at its\napplied voltage through that resistor instead of being pinned.",
+          "type": "object"
+        },
+        "terminals": {
+          "description": "Dimension-2 physical-group names, one per terminal, in matrix\nrow/column order (`≥ 1`, distinct).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "terminals"
+      ],
+      "type": "object"
+    },
     "ConductorSummary": {
       "description": "One conductor of a capacitance spec (terminal or ground surface).",
       "properties": {
@@ -5759,6 +6028,17 @@
           ],
           "description": "Static capacitance-extraction settings (additive in v1, issue\n#705). Its presence makes this a **capacitance spec** (for `geode\ncapacitance`)."
         },
+        "conduction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConductionSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Steady DC current-conduction settings (additive in v1, issue #1479).\nIts presence makes this a **conduction spec** (for `geode\nconduction`)."
+        },
         "eigen": {
           "anyOf": [
             {
@@ -7669,7 +7949,7 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Output of every `geode` subcommand except `schema`: exactly one JSON document, one of nine kinds discriminated by the top-level `kind` (`check`, `driven`, `eigen`, `extract`, `capacitance`, `inductance`, `optimize`, `mesh`, `error`). Each branch pins `kind` and `status` with `const`, so exactly one branch matches. Report objects are open (no `additionalProperties: false`): fields added within report schema v1 are additive, and consumers should ignore fields they do not know.",
+  "description": "Output of every `geode` subcommand except `schema`: exactly one JSON document, one of ten kinds discriminated by the top-level `kind` (`check`, `driven`, `eigen`, `extract`, `capacitance`, `inductance`, `conduction`, `optimize`, `mesh`, `error`). Each branch pins `kind` and `status` with `const`, so exactly one branch matches. Report objects are open (no `additionalProperties: false`): fields added within report schema v1 are additive, and consumers should ignore fields they do not know.",
   "oneOf": [
     {
       "$ref": "#/$defs/CheckReport"
@@ -7688,6 +7968,9 @@
     },
     {
       "$ref": "#/$defs/InductanceReport"
+    },
+    {
+      "$ref": "#/$defs/ConductionReport"
     },
     {
       "$ref": "#/$defs/OptimizeReport"

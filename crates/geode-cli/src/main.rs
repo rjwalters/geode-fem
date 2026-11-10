@@ -9,6 +9,7 @@
 //! geode extract <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
 //!                   [--touchstone PATH] [--jobs N] [--progress]
 //! geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice PATH [--spice-ret-pin]]
+//! geode conduction <spec.json|spec.toml> [-o report.json] [--threads N]
 //! geode inductance <spec.json|spec.toml> [-o report.json] [--threads N]
 //!                   [--spice PATH [--spice-ret-pin] [--spice-positive-k]]
 //! geode optimize <spec.json|spec.toml> [-o report.json] [--outdir DIR] [--resume CHECKPOINT]
@@ -34,6 +35,7 @@ mod backend;
 mod bloch;
 mod capacitance;
 mod check;
+mod conduction;
 mod dataset;
 mod dispersion;
 mod driven;
@@ -116,6 +118,14 @@ enum Command {
     /// `inductance` section, `boundary_conditions.pec`, and no ports or
     /// frequencies.
     Inductance(InductanceArgs),
+    /// DC terminal conductance matrix (S) between named terminal surfaces:
+    /// one conduction solve (`div(sigma grad phi) = 0`, per-region
+    /// `conductivity_s_m`, insulating elsewhere) per terminal at 1 V with
+    /// every other terminal at 0 V; optional per-terminal series `r_ext`.
+    /// The reported currents / power are for the first terminal at 1 V,
+    /// the rest at 0 V. Needs a spec with a `conduction` section and no
+    /// ports or frequencies.
+    Conduction(StaticArgs),
     /// Gradient-based design loop (L-BFGS-B, or MMA with constraints) over
     /// the spec's `optimize` section: design variables, a weighted objective
     /// and constraints on the `sensitivity` section's parameters and
@@ -481,6 +491,13 @@ impl App for Cli {
                 };
                 let result = capacitance::run(&a.spec, prov.clone(), spice.as_deref(), opts);
                 finish("capacitance", prov, a.output.as_deref(), result)
+            }
+            Command::Conduction(a) => {
+                let threads = a.threads.map(NonZeroUsize::get);
+                let prov = Self::provenance(&a.spec, threads);
+                let _par = threads.map(apply_thread_cap);
+                let result = conduction::run(&a.spec, prov.clone());
+                finish("conduction", prov, a.output.as_deref(), result)
             }
             Command::Inductance(InductanceArgs {
                 base: a,

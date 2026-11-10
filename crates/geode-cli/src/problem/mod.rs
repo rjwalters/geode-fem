@@ -498,6 +498,17 @@ impl CapacitanceTarget {
     }
 }
 
+/// A resolved `conduction` section (issue #1479).
+#[derive(Debug, Clone)]
+pub struct ConductionTarget {
+    /// Terminals, in spec (= matrix row/column) order.
+    pub terminals: Vec<Conductor>,
+    /// Optional lumped series resistance (Ω) per terminal.
+    pub r_ext: Vec<Option<f64>>,
+    /// Per-tet conductivity (S/m); `0` in unlisted (insulating) regions.
+    pub sigma_s_m: Vec<f64>,
+}
+
 /// One resolved open current path of an inductance spec.
 #[derive(Debug, Clone)]
 pub struct CurrentPath {
@@ -732,6 +743,8 @@ pub struct Problem {
     pub capacitance: Option<CapacitanceTarget>,
     /// The resolved `inductance` section (inductance specs only).
     pub inductance: Option<InductanceTarget>,
+    /// The resolved `conduction` section (conduction specs only).
+    pub conduction: Option<ConductionTarget>,
     /// The resolved `sensitivity` section, if present (issue #707).
     pub sensitivity: Option<SensitivityTarget>,
     /// The resolved periodic boundary pairs (`boundary_conditions.periodic`;
@@ -1197,6 +1210,9 @@ pub fn p2_support(analysis: Analysis) -> P2Support {
             "`capacitance` specs have no CLI order-2 path: the electrostatic solve is scalar P1 \
              (the scalar P2 kernels exist in the library but are not wired to the CLI)",
         ),
+        Analysis::Conduction => P2Support::Unsupported(
+            "`conduction` specs have no CLI order-2 path: the DC conduction solve is scalar P1",
+        ),
         Analysis::Inductance => P2Support::Unsupported(
             "`inductance` specs have no CLI order-2 path: the magnetostatic P2 kernels are not \
              wired to the CLI",
@@ -1296,6 +1312,7 @@ pub fn load_parsed(
         ("extract", spec.extract.is_some()),
         ("capacitance", spec.capacitance.is_some()),
         ("inductance", spec.inductance.is_some()),
+        ("conduction", spec.conduction.is_some()),
     ]
     .into_iter()
     .filter_map(|(name, present)| present.then_some(name))
@@ -1303,7 +1320,7 @@ pub fn load_parsed(
     if sections.len() > 1 {
         return Err(invalid(format!(
             "a spec describes one analysis: it cannot have more than one of the `eigen` / \
-             `extract` / `capacitance` / `inductance` sections (found `{}`)",
+             `extract` / `capacitance` / `inductance` / `conduction` sections (found `{}`)",
             sections.join("` and `")
         )));
     }
@@ -1349,7 +1366,12 @@ pub fn load_parsed(
                     m.physical_group
                 )));
             }
-            if sigma != 0.0 && !matches!(analysis, Analysis::Driven | Analysis::Extract) {
+            if sigma != 0.0
+                && !matches!(
+                    analysis,
+                    Analysis::Driven | Analysis::Extract | Analysis::Conduction
+                )
+            {
                 return Err(invalid(format!(
                     "materials[{}].conductivity_s_m is only supported by `geode driven` and \
                      `geode extract` in schema v1; the {} solver has no conduction term and \
@@ -1418,6 +1440,7 @@ pub fn load_parsed(
         Analysis::Eigen => validate_eigen(&spec)?,
         Analysis::Capacitance => validate_capacitance(&spec)?,
         Analysis::Inductance => validate_inductance(&spec)?,
+        Analysis::Conduction => validate_conduction(&spec)?,
     }
     validate_sensitivity(&spec, analysis)?;
     validate_sweep(&spec, analysis)?;
@@ -1571,6 +1594,14 @@ pub fn load_parsed(
                 .collect(),
         ),
         None => (Vec::new(), Vec::new()),
+    };
+    let conduction_tags: Vec<Option<i32>> = match &spec.conduction {
+        Some(c) => c
+            .terminals
+            .iter()
+            .map(|n| resolve(2, n, "conduction terminal"))
+            .collect(),
+        None => Vec::new(),
     };
     let path_tags: Vec<[Option<i32>; 3]> = match &spec.inductance {
         Some(ind) => ind
@@ -1912,6 +1943,19 @@ pub fn load_parsed(
         None => None,
     };
 
+    // ---- conduction terminals ----------------------------------------
+    let conduction = match &spec.conduction {
+        Some(c) => {
+            let sigma: Vec<f64> = tagged
+                .tet_physical_tags
+                .iter()
+                .map(|t| sigma_by_tag.get(t).copied().unwrap_or(0.0))
+                .collect();
+            Some(resolve_conduction(c, &conduction_tags, sigma, &surface)?)
+        }
+        None => None,
+    };
+
     // ---- inductance current paths ------------------------------------
     let inductance = match &spec.inductance {
         Some(ind) => Some(resolve_inductance(
@@ -2043,6 +2087,7 @@ pub fn load_parsed(
         extract,
         capacitance,
         inductance,
+        conduction,
         sensitivity,
         periodic,
         bloch,
@@ -2180,6 +2225,7 @@ fn wrong_subcommand(want: Analysis, got: Analysis) -> String {
         Analysis::Extract => "an extract spec (it has an `extract` section)",
         Analysis::Capacitance => "a capacitance spec (it has a `capacitance` section)",
         Analysis::Inductance => "an inductance spec (it has an `inductance` section)",
+        Analysis::Conduction => "a conduction spec (it has a `conduction` section)",
     };
     let fix = match want {
         Analysis::Driven => "drop the analysis section for a plain driven sweep",
@@ -2190,6 +2236,10 @@ fn wrong_subcommand(want: Analysis, got: Analysis) -> String {
         Analysis::Capacitance => {
             "`geode capacitance` needs a `capacitance` section (`terminals` + `ground`) and no \
              ports / frequencies"
+        }
+        Analysis::Conduction => {
+            "`geode conduction` needs a `conduction` section (`terminals`), materials with \
+             `conductivity_s_m` and no ports / frequencies"
         }
         Analysis::Inductance => {
             "`geode inductance` needs an `inductance` section (`paths`), a \
@@ -2391,6 +2441,9 @@ fn validate_dispersion(
         ),
         Analysis::Inductance => {
             Some("the magnetostatic solve has no permittivity term and would silently ignore it")
+        }
+        Analysis::Conduction => {
+            Some("the DC conduction solve has no permittivity term and would silently ignore it")
         }
     };
     if let Some(why) = why {
@@ -3240,7 +3293,11 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
         ),
         None => (Vec::new(), Vec::new()),
     };
-    let lists: [(&'static str, Vec<&str>); 10] = [
+    let conduction_terminals: Vec<&str> = match &spec.conduction {
+        Some(c) => c.terminals.iter().map(String::as_str).collect(),
+        None => Vec::new(),
+    };
+    let lists: [(&'static str, Vec<&str>); 11] = [
         (
             "port",
             spec.ports
@@ -3278,6 +3335,7 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
         ("capacitance ground surface", ground),
         ("inductance source terminal", sources),
         ("inductance sink terminal", sinks),
+        ("conduction terminal", conduction_terminals),
     ];
     for (role, names) in &lists {
         for &name in names {
@@ -3487,10 +3545,12 @@ fn sorted_tet_faces(tets: &[[u32; 4]]) -> std::collections::HashSet<[u32; 3]> {
 }
 
 mod capacitance;
+mod conduction;
 mod ports;
 mod sensitivity;
 
 use capacitance::*;
+use conduction::*;
 use ports::*;
 use sensitivity::*;
 #[allow(unused_imports)] // external paths kept valid (issue #1398)

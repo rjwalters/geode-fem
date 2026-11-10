@@ -251,6 +251,31 @@
       ],
       "type": "object"
     },
+    "ConductionSpec": {
+      "additionalProperties": false,
+      "description": "Steady DC current-conduction settings (`geode conduction`, issue\n#1479).\n\nSolves `∇·(σ∇φ) = 0` (P1 on the tets, per-region `σ` from\n`materials[].conductivity_s_m`, S/m) with every terminal a Dirichlet\nsurface and all other boundaries insulating\n([`geode_core::assembly::conduction`]). The terminal conductance matrix\n`G` (`I_i = Σ_j G_ij V_j`) comes from one unit-voltage solve per\nterminal. The reported operating point (per-terminal currents, total\npower, power balance) drives the **first terminal at 1 V and every\nother terminal at 0 V**.\n\nEvery `materials` entry of a conduction spec must give\n`conductivity_s_m`; tets in unlisted regions are insulating (`σ = 0`).",
+      "properties": {
+        "r_ext": {
+          "additionalProperties": {
+            "format": "double",
+            "type": "number"
+          },
+          "description": "Optional lumped series resistance (Ω, finite, `> 0`) per terminal,\nkeyed by terminal name: the terminal's surface is then held at its\napplied voltage through that resistor instead of being pinned.",
+          "type": "object"
+        },
+        "terminals": {
+          "description": "Dimension-2 physical-group names, one per terminal, in matrix\nrow/column order (`≥ 1`, distinct).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "terminals"
+      ],
+      "type": "object"
+    },
     "ConstraintSpec": {
       "additionalProperties": false,
       "description": "An observable inequality `max over the band of (v − bound) ≤ 0`\n(`below`) or `max over the band of (bound − v) ≤ 0` (`above`), the max\nsmoothed by KS.",
@@ -2050,6 +2075,17 @@
         }
       ],
       "description": "Static capacitance-extraction settings (additive in v1, issue\n#705). Its presence makes this a **capacitance spec** (for `geode\ncapacitance`)."
+    },
+    "conduction": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConductionSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Steady DC current-conduction settings (additive in v1, issue #1479).\nIts presence makes this a **conduction spec** (for `geode\nconduction`)."
     },
     "eigen": {
       "anyOf": [

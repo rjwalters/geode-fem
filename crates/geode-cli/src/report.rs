@@ -1006,6 +1006,94 @@ pub struct CapacitanceReport {
     pub sensitivities: Option<SensitivityReport>,
 }
 
+/// Echo of a resolved `conduction` spec section plus the size of the
+/// scalar system (additive in v1, issue #1479).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ConductionSettingsSummary {
+    /// Terminals in matrix row/column order.
+    pub terminals: Vec<ConductorSummary>,
+    /// Lumped series resistance (Ω) per terminal, `null` for a pinned
+    /// (ideal Dirichlet) terminal.
+    pub r_ext_ohm: Vec<Option<f64>>,
+    /// Terminal voltages (V) of the reported operating point: the first
+    /// terminal at 1 V, every other terminal at 0 V.
+    pub operating_point_v: Vec<f64>,
+    /// Always `"p1_tet"`.
+    pub element: &'static str,
+    /// Scalar DOFs before Dirichlet elimination (= mesh nodes).
+    pub n_dof: usize,
+    /// Free DOFs after pinning every ideal terminal's nodes.
+    pub n_free_dof: usize,
+    /// Unit-voltage solves (one per terminal), sharing one LU.
+    pub n_solves: usize,
+}
+
+/// Statistics of a `geode conduction` solve.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ConductionSolverStats {
+    /// Always `"gradient_energy"`: `G_ij = Σ σ V ∇φ_i·∇φ_j` element-wise.
+    pub method: &'static str,
+    /// Always `"direct_lu_jacobi_scaled"`.
+    pub inner: &'static str,
+    /// Worst relative residual `‖K u − b‖/‖b‖` over every solve.
+    pub max_rel_residual: f64,
+    /// Wall time of assembly + every solve + post-processing, seconds.
+    pub wall_time_s: f64,
+}
+
+/// `geode conduction` report (`kind = "conduction"`, additive in v1).
+///
+/// The conductance matrix is real, in siemens (SI: the mesh length unit is
+/// folded in), row-major `g_siemens[row][col]` in terminal order.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ConductionReport {
+    /// Provenance (flattened).
+    #[serde(flatten)]
+    pub provenance: Provenance,
+    /// Always `"conduction"`.
+    #[schemars(extend("const" = "conduction"))]
+    pub kind: &'static str,
+    /// Always `"ok"` (failures produce an [`ErrorReport`]).
+    #[schemars(extend("const" = "ok"))]
+    pub status: &'static str,
+    /// Mesh summary (the scalar system size is in `conduction`).
+    pub mesh: MeshSummary,
+    /// Volume regions (`eps_r` is unused by a conduction solve).
+    pub regions: Vec<RegionSummary>,
+    /// The conduction settings and system size.
+    pub conduction: ConductionSettingsSummary,
+    /// Terminal names in matrix row/column order.
+    pub terminals: Vec<String>,
+    /// The N×N terminal conductance matrix (S): `I_i = Σ_j G_ij V_j`,
+    /// symmetric; rows sum to zero when no terminal drains to ground.
+    pub g_siemens: Vec<Vec<f64>>,
+    /// `max |G_ij − G_ji| / max(|G_ij|, |G_ji|)` over off-diagonal pairs.
+    pub max_rel_asymmetry: f64,
+    /// `max_i |Σ_j G_ij| / G_ii`.
+    pub max_rel_row_sum: f64,
+    /// Current (A) entering the network at each terminal at the reported
+    /// operating point (first terminal 1 V, the rest 0 V).
+    pub terminal_current_a: Vec<f64>,
+    /// Total dissipated power (W) at the operating point (volume Joule
+    /// heat plus any `r_ext` resistors).
+    pub total_power_w: f64,
+    /// `|P_diss − Σ V_i I_i| / |Σ V_i I_i|`: the power-balance check
+    /// (degrades above ~8 decades of conductivity contrast, see the
+    /// library docs).
+    pub power_balance_rel_error: f64,
+    /// Largest per-element current density `|J|` (A/m²) at the operating
+    /// point.
+    pub max_current_density_a_m2: f64,
+    /// Largest per-element Joule density `σ|∇φ|²` (W/m³) at the operating
+    /// point.
+    pub max_joule_density_w_m3: f64,
+    /// Whether per-element `J` / Joule fields are exported: the existing
+    /// export path has no scalar-static field output, so they are not.
+    pub per_element_fields: &'static str,
+    /// Solver statistics.
+    pub solver: ConductionSolverStats,
+}
+
 /// One current path of an inductance spec.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct CurrentPathSummary {
