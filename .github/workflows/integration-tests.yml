@@ -134,6 +134,7 @@ jobs:
               --test eigensolver \
               --test electrostatic_capacitance \
               --test electrostatic_capacitance_2d \
+              --test eqs_transient \
               --test extraction \
               --test faer_qz_debug_overflow_guard \
               --test fe_assemble \
@@ -230,6 +231,7 @@ jobs:
               --test eigensolver \
               --test electrostatic_capacitance \
               --test electrostatic_capacitance_2d \
+              --test eqs_transient \
               --test extraction \
               --test faer_qz_debug_overflow_guard \
               --test fe_assemble \
