@@ -16,6 +16,10 @@
 //!   lumped-resistance terminals, the terminal conductance matrix, `J`,
 //!   Joule density and power balance, Jacobi-scaled LU for 12+ decades of
 //!   contrast (issue #1476).
+//! - [`eqs_transient`]: electro-quasi-static `∇·(σ∇φ + ∂ₜ(ε∇φ)) = 0` —
+//!   θ-method time stepping with driven terminals and floating conductors
+//!   (conduction / displacement current split, region fields, charge
+//!   residual) and the small-signal admittance `Y = G + jωC` (issue #1478).
 //! - [`electrostatic_2d`]: the planar (`TriMesh`, P1) sibling of
 //!   [`electrostatic`] with the same contract — per-triangle `ε_r`/`ρ`,
 //!   electrode node sets, `Result` errors, `E = −∇φ` recovery and the
@@ -84,6 +88,7 @@ mod dense_scatter;
 pub mod electrostatic;
 pub mod electrostatic_2d;
 pub mod electrostatic_dual;
+pub mod eqs_transient;
 pub mod fe;
 pub mod hcurl_space;
 pub mod magnetostatic;
