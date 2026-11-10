@@ -206,9 +206,14 @@ pub struct OptimizeSpec {
     /// whose volume falls below this fraction of its meshed volume (the
     /// `geode-core` `min_tet_volume_ratio`) is a failed evaluation (the
     /// optimizer backs off and the history records it). Default `0.1`;
-    /// `0 ≤ r < 1`. Re-meshing past the budget is not yet available.
+    /// `0 ≤ r < 1`. Without a `remesh` section the run only backs off at the
+    /// guard; with one, the iteration ends in a re-mesh onto the next rung.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_volume_ratio: Option<f64>,
+    /// Re-mesh policy: a ladder of pre-meshed specs to continue on when the
+    /// mesh-quality guard trips or every `every` iterations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remesh: Option<OptimizeRemeshSpec>,
     /// Passivity tripwire tolerance: `σ_max(S) ≤ 1 + tol` at every
     /// evaluation (default `1e-6`). A violation is a failed evaluation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -308,6 +313,28 @@ pub struct ConstraintSpec {
     /// KS sharpness (default `50`, in 1 / (observable unit)).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ks_rho: Option<f64>,
+}
+
+/// Re-mesh policy of an [`OptimizeSpec`]: the spec's own mesh is rung 0 and
+/// `rungs` are the following ones, in order. Within an outer iteration (and
+/// its line search) the topology stays frozen; at the iteration boundary the
+/// run moves to the rung whose meshed parameter values are nearest (in
+/// optimizer units) to the current design among the later rungs that accept
+/// it under `min_volume_ratio`, re-baselines the objective there and starts
+/// a fresh L-BFGS-B / MMA state at the current design.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OptimizeRemeshSpec {
+    /// Also re-mesh after every this many iterations on a rung (`≥ 1`;
+    /// default: only when the guard trips). Once no later rung is usable the
+    /// cadence is skipped; a guard breach then fails the run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub every: Option<usize>,
+    /// Complete geode specs (a mesh and the parameter values it was meshed
+    /// at), later rungs after earlier ones; relative paths resolve against
+    /// the directory of the spec. Each must have the same `sensitivity`
+    /// parameters, observables and frequencies as the spec.
+    pub rungs: Vec<PathBuf>,
 }
 
 /// Stopping criteria of an [`OptimizeSpec`].
