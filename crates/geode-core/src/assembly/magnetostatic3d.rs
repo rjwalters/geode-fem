@@ -98,7 +98,7 @@ use crate::vec3::{cross3 as cross, dot3 as dot, scale3 as scale, sub3 as sub};
 use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
-pub use crate::assembly::p1::SparsityPattern;
+pub use crate::assembly::sparsity::SparsityPattern;
 use crate::eigen::gauge::TreeCotreeGauge;
 use crate::mesh::{TET_LOCAL_EDGES, TetMesh};
 

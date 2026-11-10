@@ -75,7 +75,7 @@ use crate::sparse_ops::bilinear_form;
 use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
-pub use crate::assembly::p1::SparsityPattern;
+pub use crate::assembly::sparsity::SparsityPattern;
 use crate::elements::p2::{TET_P2_DOFS, tet_p2_local, tet_p2_local_tensor};
 use crate::mesh::TetMesh;
 
@@ -206,6 +206,7 @@ impl ElectrostaticSystem {
     /// `g` (ignored for free nodes). The charge RHS is taken as zero
     /// (capacitance runs are source-free); non-zero charge belongs in the
     /// [`assemble_electrostatic`] `rho` hook.
+    #[cfg(feature = "tensor")]
     pub(crate) fn solve_with_pinned(
         &self,
         pinned_value: &[f64],

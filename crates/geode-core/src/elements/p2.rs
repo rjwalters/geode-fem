@@ -46,7 +46,7 @@
 //! live here in `elements/` rather than inline in the assembler, per the
 //! issue-#602 scoping.
 
-use crate::elements::nedelec::{TET_QUAD4_A, TET_QUAD4_B};
+use crate::elements::quadrature::{TET_QUAD4_A, TET_QUAD4_B};
 use crate::mesh::TET_LOCAL_EDGES;
 use crate::vec3::{cross3 as cross, dot3 as dot, sub3 as sub};
 

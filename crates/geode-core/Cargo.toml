@@ -8,7 +8,7 @@ rust-version.workspace = true
 description = "GEODE-FEM solver primitives: tensor ops over Burn."
 
 [dependencies]
-burn = { workspace = true, features = ["ndarray"] }
+burn = { workspace = true, features = ["ndarray"], optional = true }
 
 # Bunsen standard library — machine-checked tensor shape contracts
 # (`shape_contract!` / `unpack_shape_contract!`) for the FEM assembly
@@ -17,7 +17,7 @@ burn = { workspace = true, features = ["ndarray"] }
 # `std`-only (see the workspace `bunsen` line for the pinned rev + the two
 # upstream fixes it depends on); we deliberately do NOT enable `testing`
 # (pulls `burn/flex`) or default features (pull `reflection`/`train`/…).
-bunsen = { workspace = true }
+bunsen = { workspace = true, optional = true }
 
 # `sparse-linalg` is added on top of the workspace base feature set
 # (`std`, `linalg`) for the sparse shift-invert Lanczos eigensolver.
@@ -54,7 +54,15 @@ toml = { workspace = true }
 pkg-config = { workspace = true, optional = true }
 
 [features]
-default = ["faer-parallel"]
+default = ["faer-parallel", "tensor"]
+
+# Burn/bunsen tensor surface (issue #1365). On by default so every existing
+# consumer keeps today's behavior. Disabling it (`--no-default-features`)
+# yields a slim build with only the burn-free modules (electrostatic
+# assembly, `mesh::TetMesh` + MSH reader, `faer`) and drops `burn*`,
+# `bunsen*` and `colored` from the dependency graph. Every backend /
+# test feature that needs burn implies `tensor`.
+tensor = ["dep:burn", "dep:bunsen"]
 
 # Multi-threaded faer factorization for the sparse shift-invert Lanczos
 # eigensolve (issue #518). Enables faer's `rayon` feature (so `Par::rayon(n)`
@@ -71,8 +79,8 @@ default = ["faer-parallel"]
 # yields a strictly single-threaded build for the correctness-gate baseline.
 faer-parallel = ["faer/rayon", "dep:rayon"]
 
-wgpu = ["burn/wgpu"]
-cuda = ["burn/cuda"]
+wgpu = ["tensor", "burn/wgpu"]
+cuda = ["tensor", "burn/cuda"]
 # Flex CPU backend (burn-flex, pure Rust) — SPIKE-ONLY wiring for issue #451.
 # Exposed solely to compile the `flex_precision_spike` example, which probes
 # whether Epic #374's proposed `flex` CPU migration can deliver the f64 precision
@@ -80,7 +88,7 @@ cuda = ["burn/cuda"]
 # solver backend and not exercised by any production code path or CI lane. The
 # spike example itself opts into this feature via `required-features` below, so
 # it is skipped for the default (and every other) feature selection.
-flex = ["burn/flex"]
+flex = ["tensor", "burn/flex"]
 # Apple-GPU backend — opt-in, local-only (Apple platforms). `burn::backend::Metal`
 # is Burn's alias for its `Wgpu` backend pinned to the Metal graphics API / MSL
 # (`cubecl-msl`) shader pipeline, instantiated here as `Metal<f64>`
@@ -89,9 +97,9 @@ flex = ["burn/flex"]
 # picks the first enabled of `cuda`, `metal`, `wgpu`, falling back to `ndarray`.
 # Not exercised on CI (no Apple runner); verify locally with
 # `cargo test -p geode-core --features metal`.
-metal = ["burn/metal"]
+metal = ["tensor", "burn/metal"]
 # Autodiff backend wrapper — opt-in (gradient tests / inverse design).
-autodiff = ["burn/autodiff"]
+autodiff = ["tensor", "burn/autodiff"]
 # Enable the ARPACK-backed sparse eigensolver. Off by default — the
 # default sparse path is `geode_core::lanczos::SparseShiftInvertLanczos`
 # (pure Rust, faer sparse LU under the hood). Turning this on requires a
@@ -107,7 +115,7 @@ arpack = ["dep:pkg-config"]
 # `--features spade-mesh`. 2-D only — does not affect 3-D tet meshing.
 spade-mesh = ["dep:spade"]
 
-testing = ["dep:regex"]
+testing = ["tensor", "dep:regex"]
 
 [dev-dependencies]
 # Self-reference to enable the `autodiff` feature for the gradient tests

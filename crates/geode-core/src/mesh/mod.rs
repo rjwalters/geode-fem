@@ -17,36 +17,56 @@ use std::collections::BTreeMap;
 
 use mshio::mshfile::ElementType;
 
+#[cfg(feature = "tensor")]
 pub mod design_remesh;
 pub mod electrostatic_fixtures;
+#[cfg(feature = "tensor")]
 pub mod extrude;
+#[cfg(feature = "tensor")]
 pub mod icem_controlpoints;
+#[cfg(feature = "tensor")]
 pub mod icem_domain;
+#[cfg(feature = "tensor")]
 pub mod icem_parametric;
+#[cfg(feature = "tensor")]
 pub mod magnetostatic_fixtures;
 pub mod msh_tags;
+#[cfg(feature = "tensor")]
 pub mod msh_write;
+#[cfg(feature = "tensor")]
 pub mod partition;
+#[cfg(feature = "tensor")]
 pub mod patch;
+#[cfg(feature = "tensor")]
 pub mod periodic;
+#[cfg(feature = "tensor")]
 pub mod polar_sector;
 pub mod red_refine;
+#[cfg(feature = "tensor")]
 pub mod sphere;
+#[cfg(feature = "tensor")]
 pub mod spiral;
+#[cfg(feature = "tensor")]
 pub mod tagged_tri;
+#[cfg(feature = "tensor")]
 pub mod transmon;
 
+#[cfg(feature = "tensor")]
 pub use extrude::{ExtrudedEdge, ExtrudedTriMesh, extrude_tri_mesh, extrude_tri_mesh_layers};
+#[cfg(feature = "tensor")]
 pub use msh_write::write_tagged_tet_mesh;
+#[cfg(feature = "tensor")]
 pub use sphere::{
     PHYS_OUTER_BOUNDARY, PHYS_PML_INTERFACE, PHYS_PML_SHELL, PHYS_SPHERE_INTERIOR,
     PHYS_SPHERE_SURFACE, PHYS_VACUUM_GAP, R_BUFFER, R_PML_INNER, R_SPHERE, SphereFixture,
     read_sphere_fine_fixture, read_sphere_fixture, read_sphere_fixture_from_bytes,
 };
+#[cfg(feature = "tensor")]
 pub use tagged_tri::{TaggedTriMesh, read_tagged_tri_mesh};
 // The spiral fixture's PHYS_* tag constants stay namespaced under
 // `mesh::spiral` — several names (e.g. `PHYS_OUTER_BOUNDARY`) would
 // collide with the sphere fixture's crate-root re-exports above.
+#[cfg(feature = "tensor")]
 pub use spiral::{
     GENERIC_MATERIALS, SLCFET_3HP_MATERIALS, SpiralFixture, SpiralMaterials, SpiralPort,
     pec_interior_mask_from_triangles, read_spiral_fixture, read_spiral_fixture_from_bytes,
@@ -56,6 +76,7 @@ pub use spiral::{
 // The patch fixture's PHYS_* tag constants stay namespaced under
 // `mesh::patch` — like the spiral, several names (e.g.
 // `PHYS_OUTER_BOUNDARY`) would collide with the sphere re-exports above.
+#[cfg(feature = "tensor")]
 pub use patch::{
     CURVED_SMOKE_BEND_RADIUS, CURVED_SMOKE_PML_THICK, FR4_MATERIALS, PatchFixture, PatchMaterials,
     PatchPort, read_patch_fixture, read_patch_fixture_from_bytes, read_patch_fixture_path,
@@ -64,6 +85,7 @@ pub use patch::{
 // The transmon fixture's PHYS_* tag constants stay namespaced under
 // `mesh::transmon` — several names (`PHYS_SUBSTRATE`, `PHYS_VACUUM`)
 // would collide with the spiral/patch re-exports.
+#[cfg(feature = "tensor")]
 pub use transmon::{
     ClawResonatorSplit, ClawSplitSpec, GroupTags, MetalComponent, MetalRole, TransmonFixture,
     TransmonPort, read_transmon_fixture_from_bytes, read_transmon_smoke_fixture,
