@@ -37,15 +37,9 @@ use geode_core::driven::solve::{
 };
 use geode_core::elements::nedelec_p2::{tet_barycentric_gradients, tet_quad_deg4};
 use geode_core::mesh::{TET_LOCAL_EDGES, cube_tet_mesh};
-use geode_core::testing::TestBackend;
-
-use burn::tensor::backend::BackendTypes;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Least-squares slope of `log(err)` vs `log(h)` — the empirical convergence
 /// order `p` in `err ≈ C h^p` (same estimator as `nedelec2_convergence.rs`).

@@ -53,7 +53,6 @@
 //!   --no-default-features --test wave_port_step_mode_matching -- --ignored
 //! ```
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::analytic::waveguide::{rect_tri_mesh, solve_rect_waveguide_modes};
 use geode_core::driven::ports::{
@@ -62,13 +61,9 @@ use geode_core::driven::ports::{
 };
 use geode_core::driven::solve::{DrivenBcs, DrivenMaterials};
 use geode_core::mesh::TetMesh;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn vacuum(mesh: &TetMesh) -> Vec<c64> {
     vec![c64::new(1.0, 0.0); mesh.n_tets()]

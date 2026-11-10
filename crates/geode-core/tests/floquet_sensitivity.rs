@@ -18,7 +18,6 @@
 #[path = "common/periodic_fixtures.rs"]
 mod fixtures;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::nedelec::tet_centroid as centroid;
@@ -35,15 +34,11 @@ use geode_core::mesh::TetMesh;
 use geode_core::mesh::periodic::{
     PeriodicMap, PeriodicMatchOptions, boundary_triangles_on_plane, box_periodic_pairs,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 use fixtures::{box_tet_mesh, renumber};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 const K0: f64 = 2.5;
 /// The acceptance bound on the Frobenius-relative FD error.

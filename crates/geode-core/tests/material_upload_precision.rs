@@ -19,7 +19,7 @@
 mod common;
 use common::edge_tables;
 
-use burn::tensor::backend::{Backend, BackendTypes};
+use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, TensorData};
 use faer::c64;
 use geode_core::assembly::nedelec::{
@@ -33,7 +33,7 @@ use geode_core::assembly::nedelec::{
 use geode_core::assembly::nedelec_matvec::MatrixFreeNedelecOperator;
 use geode_core::assembly::p1::upload_mesh;
 use geode_core::mesh::cube_tet_mesh;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -42,10 +42,6 @@ const S: f64 = 1.0001;
 /// Relative (to the largest entry) bound on `|A(s·w) − s·A(w)|`. The old
 /// f32 upload violates it by four orders of magnitude (`~3e-8`).
 const TOL: f64 = 1e-12;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// True when the backend stores floats as f64 (the only case the
 /// precision claim applies to).

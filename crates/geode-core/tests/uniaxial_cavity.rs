@@ -61,14 +61,13 @@
 //! cargo test -p geode-core --release --test uniaxial_cavity -- --ignored
 //! ```
 
-use burn::tensor::backend::BackendTypes;
 use geode_core::assembly::nedelec::cube_pec_interior_edges;
 use geode_core::eigen::pec_cavity::{
     PecCavityMaterials, PecCavitySettings, solve_pec_cavity_modes,
     solve_pec_cavity_modes_with_materials,
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -80,10 +79,6 @@ const N_COARSE: usize = 8;
 const REL_TOL: f64 = 0.005;
 /// Modes compared.
 const N_MODES: usize = 7;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Face-exact PEC mask: an edge is eliminated iff it lies on a boundary
 /// face (a face owned by one tet) — what `cube_pec_interior_edges` does

@@ -44,13 +44,9 @@ use geode_core::mesh::{
     PHYS_PML_SHELL, PHYS_SPHERE_INTERIOR, PHYS_VACUUM_GAP, R_PML_INNER, R_SPHERE, TetMesh,
     cube_tet_mesh,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn readback_f64<const D: usize>(t: Tensor<B, D>) -> Vec<f64> {
     t.into_data().iter::<f64>().collect()

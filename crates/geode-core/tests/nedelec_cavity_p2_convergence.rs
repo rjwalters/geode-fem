@@ -32,15 +32,9 @@
 
 use geode_core::eigen::cavity::{ElementOrder, solve_pec_cube_cavity_modes};
 use geode_core::mesh::cube_tet_mesh;
-use geode_core::testing::TestBackend;
-
-use burn::tensor::backend::BackendTypes;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Least-squares slope of `log(err)` vs `log(h)` (the empirical
 /// convergence order `p` in `err ≈ C · h^p`).

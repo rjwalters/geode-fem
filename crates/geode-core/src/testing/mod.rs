@@ -14,6 +14,7 @@
 use burn::Tensor;
 use burn::prelude::Backend;
 use burn::tensor::DType;
+use burn::tensor::backend::BackendTypes;
 use regex::Regex;
 
 std::cfg_select! {
@@ -29,6 +30,14 @@ std::cfg_select! {
     _ => {
         pub type TestBackend = burn::backend::NdArray<f64, i32>;
     }
+}
+
+/// The default device of [`TestBackend`], for tests and examples that run
+/// against it.
+///
+/// Shared replacement for the per-file `fn device()` helper.
+pub fn test_device() -> <TestBackend as BackendTypes>::Device {
+    <TestBackend as BackendTypes>::Device::default()
 }
 
 /// Error returned by [`device_tolerances`] when a tolerance set cannot be

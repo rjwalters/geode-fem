@@ -37,7 +37,6 @@
 //! cargo test -p geode-core --release --test s_matrix_sensitivity_hybrid -- --nocapture
 //! ```
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::analytic::microstrip::{ShieldedStripFace, StripFaceMesh, StripMeshOpts};
 use geode_core::analytic::port_mode_sensitivity::{FaceDesign, FaceParamKind, strip_face_groups};
@@ -57,7 +56,7 @@ use geode_core::driven::s_sensitivity::{
 use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, ElementOrder, SolverMode};
 use geode_core::mesh::{ExtrudedEdge, TetMesh, extrude_tri_mesh};
 use geode_core::shape::apply_node_motion;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -71,10 +70,6 @@ const TOL: f64 = 1e-4;
 const STRIP_TOL: f64 = 1e-6;
 /// The forward-parity bar (the #853 drift guard).
 const PARITY_TOL: f64 = 1e-12;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn quiet() -> HybridWavePortOpts {
     HybridWavePortOpts {

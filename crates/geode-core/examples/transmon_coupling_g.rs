@@ -84,7 +84,6 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use burn::tensor::Tensor;
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::electrostatic::{
@@ -109,7 +108,7 @@ use geode_core::quantum::transmon::{
     DEVICELAYOUT_RESONATOR_FREQUENCY_HZ, TransmonAnchor, coupled_lc_bare_pair_hz,
     coupled_lc_dressed_pair_hz,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::fixture::BackendInfo;
 
 type B = TestBackend;
@@ -173,10 +172,6 @@ const CLAW_Y_UM: f64 = 720.0;
 /// upper).
 const BRACKET_1066_DESIGN_FF: (f64, f64) = (92.758828, 92.998561);
 const BRACKET_CORRECTED_FF: (f64, f64) = (93.891607, 94.136104);
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
     t.into_data().iter::<f64>().collect()

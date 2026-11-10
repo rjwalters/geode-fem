@@ -91,7 +91,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use sha2::{Digest, Sha256};
 
@@ -111,7 +110,7 @@ use geode_core::mesh::patch::{
 };
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles};
 use geode_core::shape::{BoundaryMotionDof, FreeformBoundaryMorph};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::fixture::BackendInfo;
 use geode_util::units::ghz_to_omega_mm;
 
@@ -150,10 +149,6 @@ const LADDER_REPORT_GHZ: [f64; 4] = [2.28, 2.31, 2.40, 2.4835];
 
 /// The level stems of the h-ladder, finest last.
 const LEVELS: [&str; 4] = ["L0", "L1", "L2", "L3"];
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes)

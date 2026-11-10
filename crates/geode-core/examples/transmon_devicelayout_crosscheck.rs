@@ -45,7 +45,6 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use burn::tensor::Tensor;
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::nedelec::{
@@ -60,7 +59,7 @@ use geode_core::eigen::transmon::{
 use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
 use geode_core::mesh::transmon::{JUNCTION_CAPACITANCE_F, JUNCTION_INDUCTANCE_H};
 use geode_core::mesh::{TetMesh, TransmonFixture, read_transmon_fixture_from_bytes};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::fixture::BackendInfo;
 
 type B = TestBackend;
@@ -79,10 +78,6 @@ const PALACE_DIR: &str = "reference/fixtures/transmon_palace/results_crosscheck_
 /// Palace modes with a port EPR below this are the port-sheet artifact
 /// (#1045); they are dropped before the modes are ordered.
 const PORT_SHEET_ARTIFACT_MAX_P: f64 = 1e-6;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
     t.into_data().iter::<f64>().collect()

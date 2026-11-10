@@ -26,7 +26,6 @@ use transmon_util::scaled_mesh;
 use common::edge_tables;
 
 use burn::tensor::Tensor;
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::electrostatic::{
@@ -46,13 +45,9 @@ use geode_core::quantum::transmon::{
     TransmonAnchor, duffing_kerr_from_epr, e_c_hz_from_c_sigma, e_j_hz_from_inductance,
     harmonic_frequency_hz, minev_participation, self_kerr_from_epr, transmon_spectrum,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 const M_PER_UNIT: f64 = 1e-6;
 

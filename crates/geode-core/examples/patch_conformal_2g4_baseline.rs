@@ -68,7 +68,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use sha2::{Digest, Sha256};
 
@@ -84,7 +83,7 @@ use geode_core::mesh::patch::{
     read_patch_fixture_path,
 };
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::fixture::BackendInfo;
 use geode_util::units::{ghz_to_omega_mm, omega_to_ghz_mm};
 
@@ -99,10 +98,6 @@ const FLUX_SHRINK: f64 = 0.10;
 
 /// RSS sampling period during a solve.
 const RSS_SAMPLE: Duration = Duration::from_millis(50);
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Default sweep grid (GHz): 20 MHz steps over 2.10–2.18 and 2.62–2.70,
 /// 10 MHz steps over 2.20–2.60 (41 points), plus the 2.4835 GHz upper ISM

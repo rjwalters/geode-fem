@@ -13,7 +13,6 @@
 mod common;
 use common::boundary_plane_faces;
 
-use burn::tensor::backend::BackendTypes;
 use common::Lcg;
 use faer::c64;
 use geode_core::assembly::hcurl_space::HcurlSpace;
@@ -25,16 +24,12 @@ use geode_core::driven::solve::{
 };
 use geode_core::elements::ElementOrder;
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
 const OMEGA: f64 = 1.3;
 const FD_H: f64 = 1e-6;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn objective(x: &[c64]) -> (f64, Vec<c64>) {
     (

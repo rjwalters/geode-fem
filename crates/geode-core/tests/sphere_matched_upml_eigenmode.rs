@@ -181,7 +181,6 @@
 mod common;
 use common::edge_tables;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use faer::sparse::{SparseColMat, Triplet};
@@ -200,13 +199,9 @@ use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, SphereFixture, read_spher
 use geode_core::postproc::mode_character::{
     ClassifiedMode, MultipoleFamily, classify_sphere_modes, select_multiplet,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Refractive index inside the sphere (matches the analytic catalog).
 const N_INSIDE: f64 = 1.5;

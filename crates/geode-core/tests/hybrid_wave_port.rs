@@ -7,7 +7,6 @@
 //!
 //! Run: `cargo test -p geode-core --release --test hybrid_wave_port -- --nocapture`.
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::analytic::loaded_guide::SlabLoadedGuide;
 use geode_core::analytic::port_mode_accuracy::{UniformRefinement, mode_accuracy, observed_rate};
@@ -25,7 +24,7 @@ use geode_core::driven::rom::{DrivenRom, RomError, RomSettings};
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SolverMode,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -33,10 +32,6 @@ const A: f64 = 2.0;
 const BH: f64 = 1.0;
 const D: f64 = 0.5;
 const LEN: f64 = 1.2;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn guide(nx: usize, ny: usize, nz: usize) -> ExtrudedWaveguideMesh {
     extruded_rect_waveguide_mesh(nx, ny, nz, A, BH, LEN)

@@ -36,7 +36,6 @@ use common::boundary_plane_faces;
 
 use std::f64::consts::PI;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use faer::{Mat, Side};
 
@@ -62,13 +61,9 @@ use geode_core::eigen::transmon::LondonSurface;
 use geode_core::elements::ElementOrder;
 use geode_core::mesh::electrostatic_fixtures::{coax_shell_mesh, sphere_shell_mesh};
 use geode_core::mesh::{TaggedTetMesh, TetMesh, read_tagged_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 const ORDERS: [ElementOrder; 2] = [ElementOrder::P1, ElementOrder::P2];
 

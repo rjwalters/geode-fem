@@ -36,7 +36,6 @@
 use std::f64::consts::PI;
 use std::time::Instant;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::adapt::estimator::{
@@ -59,13 +58,9 @@ use geode_core::elements::ElementOrder;
 use geode_core::elements::nedelec_p2::tet_quad_deg4;
 use geode_core::mesh::periodic::{PeriodicMap, PeriodicMatchOptions, box_periodic_pairs};
 use geode_core::mesh::{TetMesh, read_transmon_smoke_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn c(re: f64) -> c64 {
     c64::new(re, 0.0)

@@ -13,7 +13,6 @@
 mod common;
 use common::boundary_plane_faces;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use common::Lcg;
@@ -28,13 +27,9 @@ use geode_core::eigen::sensitivity::{
 };
 use geode_core::elements::ElementOrder;
 use geode_core::mesh::TetMesh;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 // --- Meshes (same construction as `eigen_p2_tagged.rs`) -------------------
 

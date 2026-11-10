@@ -39,15 +39,9 @@ use geode_core::driven::solve::{
     driven_solve_with_surface_impedance,
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
-
-use burn::tensor::backend::BackendTypes;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// FNV-1a over the bit patterns of a complex vector (re then im).
 fn hash_c(v: &[c64]) -> u64 {

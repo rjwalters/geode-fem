@@ -84,7 +84,6 @@ use std::path::PathBuf;
 
 use faer::c64;
 
-use burn::tensor::backend::BackendTypes;
 use geode_core::constants::ETA_0_OHM as ETA_0;
 use geode_core::driven::extraction::{s11_sq_and_dg_dv, s11_sq_objective};
 use geode_core::driven::ports::assemble_port_flux;
@@ -97,7 +96,7 @@ use geode_core::mesh::patch::{
 };
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_smoke_fixture};
 use geode_core::shape::{BoundaryMotionDof, FreeformBoundaryMorph};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::fixture::BackendInfo;
 use geode_util::units::omega_to_ghz_mm;
 
@@ -149,10 +148,6 @@ const MAX_BACKTRACKS: usize = 50;
 /// the substrate thickness: a design coefficient `x_p = 1` moves its patch node
 /// `DIR_SCALE_FRAC · h` mm along the outward radial normal.
 const DIR_SCALE_FRAC: f64 = 0.5;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// `section.key → value` parameter values of the committed smoke fixture
 /// (`tests/fixtures/patch_2g4_smoke.provenance.txt`), recorded in `[meta]`.

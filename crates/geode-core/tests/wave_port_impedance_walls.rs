@@ -31,7 +31,6 @@
 //! cargo test -p geode-core --release --test wave_port_impedance_walls
 //! ```
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::analytic::waveguide::{
     rect_tri_mesh, solve_rect_waveguide_modes, te10_conductor_attenuation,
@@ -47,7 +46,7 @@ use geode_core::driven::solve::{
     SurfaceRoughness,
 };
 use geode_core::mesh::TetMesh;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -62,10 +61,6 @@ const SIGMA_LOSSY_NAT: f64 = 1e4 * ETA_0_OHM * LENGTH_UNIT_M;
 const SIGMA_COPPER_NAT: f64 = 5.8e7 * ETA_0_OHM * LENGTH_UNIT_M;
 /// Hammerstad RMS roughness ≈ δ(9.54 GHz) of the lossy wall, in mesh units.
 const RMS_NAT: f64 = 51.5e-6 / LENGTH_UNIT_M;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn guide(n: usize) -> ExtrudedWaveguideMesh {
     extruded_rect_waveguide_mesh(2 * n, n, n, A, B_DIM, LEN)

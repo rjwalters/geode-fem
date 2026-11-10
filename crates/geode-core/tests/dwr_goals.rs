@@ -32,15 +32,9 @@ use geode_core::driven::solve::{
 };
 use geode_core::elements::ElementOrder;
 use geode_core::mesh::{TaggedTetMesh, TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
-
-use burn::tensor::backend::BackendTypes;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// A driven PEC unit-cube cavity at one order.
 fn cavity(

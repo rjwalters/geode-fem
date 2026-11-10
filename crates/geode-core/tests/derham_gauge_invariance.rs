@@ -99,7 +99,6 @@
 //! cargo test -p geode-core --release --test derham_gauge_invariance
 //! ```
 
-use burn::tensor::backend::BackendTypes;
 use faer::Mat;
 use faer::linalg::solvers::Solve;
 
@@ -110,7 +109,7 @@ use geode_core::eigen::dense::{
     FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
 use geode_core::mesh::cube_tet_mesh;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -142,10 +141,6 @@ const KERNEL_FRAC_OF_MAX: f64 = 1e-3;
 /// Sanity bound for TM_{1,1}: discrete `λ` must lie within 15% of `2π²`
 /// at n=8 (mirrors the bound in `nedelec_cavity.rs:227`).
 const TM11_TOL: f64 = 0.15;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Deterministic LCG (same constants as `derham_gradient_kernel.rs::lcg`
 /// and `p1_local_matrices.rs::deterministic_tet`). Distinct seed family

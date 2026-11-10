@@ -39,7 +39,6 @@ mod fixtures;
 
 use std::f64::consts::PI;
 
-use burn::tensor::backend::BackendTypes;
 use faer::Mat;
 use faer::c64;
 use faer::linalg::solvers::Solve;
@@ -57,15 +56,11 @@ use geode_core::mesh::TetMesh;
 use geode_core::mesh::periodic::{
     PeriodicMap, PeriodicMatchOptions, boundary_triangles_on_plane, box_periodic_pairs,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 use fixtures::{box_tet_mesh, renumber};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// A Bloch cell on `mesh`, periodic along `axes`, optional PEC z-lids, and
 /// per-tet `eps`.

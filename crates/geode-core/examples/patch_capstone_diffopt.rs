@@ -52,7 +52,6 @@ use std::path::PathBuf;
 
 use faer::c64;
 
-use burn::tensor::backend::BackendTypes;
 use geode_core::constants::ETA_0_OHM as ETA_0;
 use geode_core::driven::extraction::{s11, s11_sq_and_dg_dv, s11_sq_objective};
 use geode_core::driven::ports::assemble_port_flux;
@@ -66,7 +65,7 @@ use geode_core::mesh::patch::{FR4_MATERIALS, PHYS_UPML};
 use geode_core::mesh::{
     PatchFixture, pec_interior_mask_from_triangles, read_patch_fixture, read_patch_smoke_fixture,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::units::ghz_to_omega_mm as ghz_to_omega;
 
 type B = TestBackend;
@@ -98,10 +97,6 @@ const MAX_STEPS: usize = 10;
 /// — below this a tet is deemed over-distorted (heading toward the inverted /
 /// `Dual::abs` det-kink regime the shape kernel assumes is bounded away from 0).
 const MIN_DET_RATIO: f64 = 0.25;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Six-times the signed tet volume `det[v1−v0, v2−v0, v3−v0]` (sign = orientation).
 fn signed_det6(v: &[[f64; 3]; 4]) -> f64 {
