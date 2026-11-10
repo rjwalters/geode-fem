@@ -147,6 +147,11 @@ pub struct ProblemSpec {
     /// inductance`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inductance: Option<InductanceSpec>,
+    /// Steady DC current-conduction settings (additive in v1, issue #1479).
+    /// Its presence makes this a **conduction spec** (for `geode
+    /// conduction`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conduction: Option<ConductionSpec>,
     /// Design sensitivities of the analysis's observable (additive in v1,
     /// issues #707 / #739 / #883). Not an analysis section: it rides on a
     /// `capacitance` (two-terminal), `inductance`, lossless `eigen` or
@@ -515,6 +520,8 @@ pub enum Analysis {
     Capacitance,
     /// Static Maxwell inductance matrix (`geode inductance`).
     Inductance,
+    /// DC terminal conductance matrix (`geode conduction`).
+    Conduction,
 }
 
 impl Analysis {
@@ -526,6 +533,7 @@ impl Analysis {
             Analysis::Extract => "extract",
             Analysis::Capacitance => "capacitance",
             Analysis::Inductance => "inductance",
+            Analysis::Conduction => "conduction",
         }
     }
 }
@@ -544,6 +552,8 @@ impl ProblemSpec {
             Analysis::Capacitance
         } else if self.inductance.is_some() {
             Analysis::Inductance
+        } else if self.conduction.is_some() {
+            Analysis::Conduction
         } else {
             Analysis::Driven
         }
@@ -671,6 +681,33 @@ pub struct CapacitanceSpec {
     /// shield, enclosure. At least one is required in v1.
     #[serde(default)]
     pub ground: Vec<String>,
+}
+
+/// Steady DC current-conduction settings (`geode conduction`, issue
+/// #1479).
+///
+/// Solves `∇·(σ∇φ) = 0` (P1 on the tets, per-region `σ` from
+/// `materials[].conductivity_s_m`, S/m) with every terminal a Dirichlet
+/// surface and all other boundaries insulating
+/// ([`geode_core::assembly::conduction`]). The terminal conductance matrix
+/// `G` (`I_i = Σ_j G_ij V_j`) comes from one unit-voltage solve per
+/// terminal. The reported operating point (per-terminal currents, total
+/// power, power balance) drives the **first terminal at 1 V and every
+/// other terminal at 0 V**.
+///
+/// Every `materials` entry of a conduction spec must give
+/// `conductivity_s_m`; tets in unlisted regions are insulating (`σ = 0`).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConductionSpec {
+    /// Dimension-2 physical-group names, one per terminal, in matrix
+    /// row/column order (`≥ 1`, distinct).
+    pub terminals: Vec<String>,
+    /// Optional lumped series resistance (Ω, finite, `> 0`) per terminal,
+    /// keyed by terminal name: the terminal's surface is then held at its
+    /// applied voltage through that resistor instead of being pinned.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub r_ext: std::collections::BTreeMap<String, f64>,
 }
 
 /// Static inductance-extraction settings (`geode inductance`, issue

@@ -207,6 +207,7 @@ fn committed_schemas_are_valid_draft_2020_12() {
             "extract",
             "capacitance",
             "inductance",
+            "conduction",
             "optimize",
             "mesh",
             "error"
