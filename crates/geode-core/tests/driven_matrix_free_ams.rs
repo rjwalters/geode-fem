@@ -23,7 +23,9 @@
 //! The observed iteration counts are printed to stderr (the
 //! `iterative_sweep.rs` convention).
 
-use burn::tensor::backend::BackendTypes;
+mod common;
+use common::{all_plane_faces, pec_mask_for_planes};
+
 use faer::c64;
 use geode_core::driven::matrix_free::host_ams_supported;
 use geode_core::driven::ports::LumpedPort;
@@ -32,42 +34,15 @@ use geode_core::driven::solve::{
     DrivenSolution, IterativePreconditioner, IterativeSettings, PreconditionerFallbackReason,
     SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel,
 };
-use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::mesh::cube_tet_mesh;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Whether the active test backend is the one the host-side AMS supports
 /// (CPU ndarray, f64). On any other backend the tests check the rejection.
 fn host_ams_backend() -> bool {
     host_ams_supported::<B>(&device())
-}
-
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
-fn pec_mask_for_planes(mesh: &TetMesh, edges: &[[u32; 2]], planes: &[(usize, f64)]) -> Vec<bool> {
-    edges
-        .iter()
-        .map(|e| {
-            let a = mesh.nodes[e[0] as usize];
-            let b = mesh.nodes[e[1] as usize];
-            !planes.iter().any(|&(axis, value)| {
-                (a[axis] - value).abs() < 1e-12 && (b[axis] - value).abs() < 1e-12
-            })
-        })
-        .collect()
 }
 
 /// The #520 fixture (`tests/gpu_driven_scaling.rs`): a σ = 2 cube between PEC
@@ -77,8 +52,8 @@ fn pec_mask_for_planes(mesh: &TetMesh, edges: &[[u32; 2]], planes: &[(usize, f64
 fn fixture(n: usize, leontovich: bool) -> DrivenOperator {
     let mesh = cube_tet_mesh(n, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
-    let wall_faces = plane_faces(&mesh, 0, 1.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
+    let wall_faces = all_plane_faces(&mesh, 0, 1.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
     let eps = vec![c64::new(1.0, 0.0); mesh.n_tets()];
     let sigma = vec![2.0_f64; mesh.n_tets()];

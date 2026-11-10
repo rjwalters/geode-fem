@@ -11,6 +11,8 @@
 //! geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice PATH [--spice-ret-pin]]
 //! geode inductance <spec.json|spec.toml> [-o report.json] [--threads N]
 //!                   [--spice PATH [--spice-ret-pin] [--spice-positive-k]]
+//! geode optimize <spec.json|spec.toml> [-o report.json] [--outdir DIR] [--resume CHECKPOINT]
+//!                   [--threads N] [--backend ndarray] [--jobs N]
 //! geode mesh   <layout.json|layout.toml> [--analysis driven|capacitance|inductance] [--mesh-out mesh.msh] [--spec-out spec.json] [--gmsh PATH] [-o report.json]
 //! geode schema spec|report|layout [-o schema.json]   # JSON Schema (draft 2020-12)
 //! geode --version   # "geode <crate-version> (<git-sha>[-dirty])"
@@ -42,6 +44,7 @@ mod extract;
 mod hybrid;
 mod inductance;
 mod mesh_cmd;
+mod optimize;
 mod port_solves;
 mod problem;
 mod progress;
@@ -65,7 +68,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
-use geode_app::{App, Verbosity};
+use geode_app::App;
 use geode_core::eigen::parallel::{NUM_THREADS_ENV, ParallelismGuard};
 use serde::Serialize;
 
@@ -82,9 +85,6 @@ const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GEODE_GIT_S
 struct Cli {
     #[command(subcommand)]
     command: Command,
-
-    #[command(flatten)]
-    verbose: Verbosity,
 }
 
 #[derive(Subcommand)]
@@ -116,6 +116,13 @@ enum Command {
     /// `inductance` section, `boundary_conditions.pec`, and no ports or
     /// frequencies.
     Inductance(InductanceArgs),
+    /// Gradient-based design loop (L-BFGS-B, or MMA with constraints) over
+    /// the spec's `optimize` section: design variables, a weighted objective
+    /// and constraints on the `sensitivity` section's parameters and
+    /// observables. Writes a JSONL history, a resumable checkpoint and the
+    /// best-so-far spec and mesh, and ends with the Phase 5a gradient
+    /// self-check at the best design. Needs a driven spec.
+    Optimize(OptimizeArgs),
     /// Layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged
     /// Gmsh mesh + starter problem spec, via the external `gmsh` binary.
     Mesh(mesh_cmd::MeshArgs),
@@ -133,6 +140,35 @@ struct CheckArgs {
     /// Write the JSON report here instead of stdout.
     #[arg(short = 'o', long = "output", value_name = "PATH")]
     output: Option<PathBuf>,
+}
+
+/// `geode optimize` arguments.
+#[derive(Args)]
+struct OptimizeArgs {
+    /// Problem spec with an `optimize` section (`.toml` → TOML, else JSON).
+    spec: PathBuf,
+    /// Write the JSON report here instead of stdout.
+    #[arg(short = 'o', long = "output", value_name = "PATH")]
+    output: Option<PathBuf>,
+    /// Directory for `history.jsonl`, `checkpoint.json`, `best_spec.json`
+    /// and `best_mesh.msh` (created if missing; same-named files are
+    /// overwritten). Default: the directory of `-o`, else `./geode-optimize`.
+    #[arg(long, value_name = "DIR")]
+    outdir: Option<PathBuf>,
+    /// Continue from a checkpoint written by an earlier run of this spec
+    /// (the run's `checkpoint.json`). A resumed run reproduces the
+    /// uninterrupted one bit for bit.
+    #[arg(long, value_name = "CHECKPOINT")]
+    resume: Option<PathBuf>,
+    /// Confirm the compute backend (see `geode driven --backend`).
+    #[arg(long, value_enum, value_name = "BACKEND")]
+    backend: Option<BackendChoice>,
+    /// Cap worker threads (sets `GEODE_NUM_THREADS`).
+    #[arg(long, value_name = "N")]
+    threads: Option<NonZeroUsize>,
+    /// Concurrent frequencies of the final FD check's forward sweeps.
+    #[arg(long, value_name = "N")]
+    jobs: Option<NonZeroUsize>,
 }
 
 #[derive(Args)]
@@ -462,13 +498,26 @@ impl App for Cli {
                 let result = inductance::run(&a.spec, prov.clone(), spice.as_deref(), opts);
                 finish("inductance", prov, a.output.as_deref(), result)
             }
+            Command::Optimize(a) => {
+                let threads = a.threads.map(NonZeroUsize::get);
+                let prov = Self::provenance(&a.spec, threads);
+                let _par = threads.map(apply_thread_cap);
+                let jobs = a.jobs.map_or(1, NonZeroUsize::get);
+                let result = backend::confirm(a.backend).and_then(|()| {
+                    optimize::run(
+                        &a.spec,
+                        prov.clone(),
+                        a.outdir.as_deref(),
+                        a.output.as_deref(),
+                        a.resume.as_deref(),
+                        jobs,
+                    )
+                });
+                finish("optimize", prov, a.output.as_deref(), result)
+            }
             Command::Mesh(a) => mesh_cmd::dispatch(a),
             Command::Schema(a) => schema::run(a),
         }
-    }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
     }
 }
 

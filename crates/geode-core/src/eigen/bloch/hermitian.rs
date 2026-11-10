@@ -65,36 +65,11 @@ use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 use faer::{Mat, Side};
 
 use super::BlochError;
+use crate::sparse_ops::norm2_c as norm2;
 
 const ZERO: c64 = c64 { re: 0.0, im: 0.0 };
 
-/// `y = A x` for a complex CSC matrix.
-pub(crate) fn spmv_c(a: SparseColMatRef<'_, usize, c64>, x: &[c64]) -> Vec<c64> {
-    let mut y = vec![ZERO; a.nrows()];
-    for (j, &xj) in x.iter().enumerate().take(a.ncols()) {
-        if xj == ZERO {
-            continue;
-        }
-        for (i, &v) in a.row_idx_of_col(j).zip(a.val_of_col(j)) {
-            y[i] += v * xj;
-        }
-    }
-    y
-}
-
-/// `y = A x` for a real CSC matrix and a complex vector.
-pub(crate) fn spmv_rc(a: SparseColMatRef<'_, usize, f64>, x: &[c64]) -> Vec<c64> {
-    let mut y = vec![ZERO; a.nrows()];
-    for (j, &xj) in x.iter().enumerate().take(a.ncols()) {
-        if xj == ZERO {
-            continue;
-        }
-        for (i, &v) in a.row_idx_of_col(j).zip(a.val_of_col(j)) {
-            y[i] += xj * v;
-        }
-    }
-    y
-}
+pub(crate) use crate::sparse_ops::{spmv_c, spmv_rc};
 
 /// `y = Aᴴ x` for a complex CSC matrix.
 fn spmv_c_adjoint(a: SparseColMatRef<'_, usize, c64>, x: &[c64]) -> Vec<c64> {
@@ -116,10 +91,6 @@ pub(crate) fn dotc(u: &[c64], v: &[c64]) -> c64 {
         acc += a.conj() * b;
     }
     acc
-}
-
-fn norm2(u: &[c64]) -> f64 {
-    u.iter().map(|z| z.norm_sqr()).sum::<f64>().sqrt()
 }
 
 /// The realification `[[Re A, −Im A], [Im A, Re A]]` (`2n × 2n`, real) of

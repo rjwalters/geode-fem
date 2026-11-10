@@ -91,7 +91,7 @@ use burn::tensor::backend::{Backend, BackendTypes};
 use clap::Parser;
 use faer::c64;
 
-use geode_app::{App, OutputDir, Verbosity};
+use geode_app::{App, OutputDir};
 use geode_core::analytic::spiral::{
     SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
 };
@@ -537,9 +537,6 @@ struct Args {
 
     #[command(flatten)]
     out: OutputDir,
-
-    #[command(flatten)]
-    verbose: Verbosity,
 }
 
 impl App for Args {
@@ -561,10 +558,6 @@ impl App for Args {
         };
         run::<B>(&device, choice);
         Ok(())
-    }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
     }
 }
 

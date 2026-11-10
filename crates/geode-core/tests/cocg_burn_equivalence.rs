@@ -35,34 +35,23 @@
 //! `burn-cuda 0.21` has no f64 (cubecl disables it), so it runs only on the
 //! rented EC2 box, never in CI.
 
-use burn::tensor::backend::BackendTypes;
+mod common;
+use common::edge_tables;
+
 use faer::c64;
 use faer::sparse::{SparseColMat, Triplet};
 use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_epsilon, assemble_nedelec_sigma_damping, cube_pec_interior_edges,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::mesh::{TetMesh, cube_tet_mesh};
+use geode_core::mesh::cube_tet_mesh;
 use geode_core::solver::ksp::{Cocg, IdentityPreconditioner, JacobiPreconditioner, KspSolve};
 use geode_core::solver::ksp_burn::{
     BurnCocg, ComplexMatrixFreeOperator, InnerProduct, SplitComplex,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-/// Split `mesh.tet_edges()` into the `(idx, sign)` tables the assemblers take.
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter().map(|r| std::array::from_fn(|i| r[i].0)).collect(),
-        te.iter().map(|r| std::array::from_fn(|i| r[i].1)).collect(),
-    )
-}
 
 /// Read a dense `[n, n]` Burn matrix to a host row-major `Vec<f64>`.
 fn dense_to_host(t: burn::tensor::Tensor<B, 2>) -> Vec<f64> {

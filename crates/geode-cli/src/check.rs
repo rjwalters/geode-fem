@@ -22,6 +22,10 @@ use crate::spec::{DispersionSpec, FrequencyUnit, RoughnessSpec, SolverSpec};
 /// Load + resolve the spec and summarize it (no 3-D assembly or solve).
 pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliError> {
     let p = problem::load(spec_path, None)?;
+    // A malformed `optimize` section is rejected here too (issue #1261).
+    if p.spec.optimize.is_some() {
+        crate::optimize::resolve(&p)?;
+    }
     p.print_load_warnings();
     let mut warnings = check_warnings(&p);
     let periodic = periodic_summary(&p);
@@ -324,9 +328,15 @@ pub const ITERATIVE_BASIS: &str = "vector count (no measured anchor), 2026-09-28
 /// memory on the spiral smoke mesh ~1.6× **low** (process and mesh
 /// overhead are not modelled). See `crates/geode-cli/README.md`.
 pub fn resource_estimate(p: &Problem) -> ResourceEstimate {
+    resource_estimate_with_dof_limit(p, DIRECT_LU_DOF_LIMIT)
+}
+
+/// [`resource_estimate`] with the order-2 direct-LU DOF limit injected, so
+/// the "will not fit" verdict can be exercised without a ~1M-DOF mesh.
+fn resource_estimate_with_dof_limit(p: &Problem, dof_limit: usize) -> ResourceEstimate {
     let mut est = resource_estimate_scaled(p, 1.0);
     if let Some(space) = &p.hcurl_space {
-        est.order_comparison = Some(order_comparison(p, space, &est, nnz_p1(p)));
+        est.order_comparison = Some(order_comparison(p, space, &est, nnz_p1(p), dof_limit));
     }
     est
 }
@@ -393,13 +403,14 @@ fn order_comparison(
     space: &geode_core::assembly::hcurl_space::HcurlSpace,
     est: &ResourceEstimate,
     nnz_p1: usize,
+    dof_limit: usize,
 ) -> OrderComparison {
     let lists: Vec<&[[u32; 3]]> = p.pec.iter().map(|s| s.triangles.as_slice()).collect();
     let mask_p1 = geode_core::mesh::pec_interior_mask_from_triangles(&p.edges, &lists);
     let n_interior_p1 = mask_p1.iter().filter(|&&k| k).count();
     let n_interior_p2 = p.n_interior();
     let est_p1 = resource_estimate_with_nnz_n(p, nnz_p1, n_interior_p1, 1.0);
-    let fits = est.solver_mode == "direct" && n_interior_p2 < DIRECT_LU_DOF_LIMIT;
+    let fits = est.solver_mode == "direct" && n_interior_p2 < dof_limit;
     let dof_ratio = n_interior_p2 as f64 / n_interior_p1 as f64;
     let verdict = if fits {
         format!(
@@ -411,7 +422,7 @@ fn order_comparison(
     } else {
         format!(
             "order 2 on this mesh will NOT fit direct LU: {n_interior_p2} DOFs (limit about \
-             {DIRECT_LU_DOF_LIMIT}), ~{:.1} GB; order 1 needs {n_interior_p1} DOFs, ~{:.1} GB \
+             {dof_limit}), ~{:.1} GB; order 1 needs {n_interior_p1} DOFs, ~{:.1} GB \
              (coarsen the mesh or use element_order = 1)",
             est.peak_memory_gb, est_p1.peak_memory_gb
         )
@@ -426,7 +437,7 @@ fn order_comparison(
         nnz_ratio: est.nnz_a as f64 / nnz_p1 as f64,
         peak_memory_gb_p1: est_p1.peak_memory_gb,
         memory_ratio: est.peak_memory_gb / est_p1.peak_memory_gb,
-        direct_lu_dof_limit: DIRECT_LU_DOF_LIMIT,
+        direct_lu_dof_limit: dof_limit,
         fits_direct_lu: fits,
         verdict,
         memory_model: "p1_anchor_linear_in_nnz",
@@ -916,5 +927,52 @@ fn dispersion_summary(d: &problem::DispersiveRegion, p: &Problem) -> DispersionS
         (_, DispersionModel::DjordjevicSarkar(_)) => {
             unreachable!("the model is built from its own spec")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Issue #1265: the "will not fit" branch of `resources.order_comparison`,
+    /// reached by injecting a tiny DOF limit instead of a ~1M-DOF mesh.
+    #[test]
+    fn order_comparison_reports_will_not_fit_past_the_dof_limit() {
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let raw = std::fs::read_to_string(fixtures.join("spiral_golden_smoke.json")).unwrap();
+        let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let mesh = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../geode-core/tests/fixtures/spiral_3p5_smoke.msh")
+            .canonicalize()
+            .unwrap();
+        v["mesh"]["path"] = mesh.display().to_string().into();
+        v["element_order"] = serde_json::json!(2);
+        let dir = tempfile::tempdir().unwrap();
+        let spec = dir.path().join("spec.json");
+        std::fs::write(&spec, serde_json::to_string(&v).unwrap()).unwrap();
+        let p = problem::load(&spec, None).unwrap();
+
+        let fits = resource_estimate(&p).order_comparison.unwrap();
+        assert!(fits.fits_direct_lu, "{}", fits.verdict);
+        assert!(fits.verdict.starts_with("order 2 fits direct LU"));
+
+        let limit = 10;
+        let c = resource_estimate_with_dof_limit(&p, limit)
+            .order_comparison
+            .unwrap();
+        assert!(!c.fits_direct_lu);
+        assert_eq!(c.direct_lu_dof_limit, limit);
+        assert!(c.n_interior_p2 >= limit);
+        assert!(
+            c.verdict.contains("will NOT fit direct LU"),
+            "{}",
+            c.verdict
+        );
+        assert!(c.verdict.contains("element_order = 1"), "{}", c.verdict);
+        assert!(
+            c.verdict.contains(&format!("limit about {limit}")),
+            "{}",
+            c.verdict
+        );
     }
 }

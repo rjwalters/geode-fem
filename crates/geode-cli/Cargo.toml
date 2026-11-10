@@ -21,6 +21,9 @@ geode-core = { workspace = true }
 # export. Workspace base features only: backend selection stays with
 # geode-core (above).
 geode-util = { workspace = true }
+# The gradient-based optimizer core (L-BFGS-B / MMA, checkpoint / resume) behind
+# `geode optimize` (Epic #841 Phase 6b, issue #1261).
+geode-optimize = { workspace = true }
 # `Backend` / `BackendTypes` for the compile-time backend alias.
 burn = { workspace = true }
 # `faer::c64` for the complex impedance / S-matrix arithmetic.

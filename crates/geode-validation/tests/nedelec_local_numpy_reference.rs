@@ -48,11 +48,10 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use burn::prelude::Backend;
-use burn::tensor::backend::BackendTypes;
 use burn::tensor::{DType, Tensor, TensorData};
 
 use geode_core::elements::nedelec::batched_nedelec_local_matrices;
-use geode_core::testing::{TestBackend, device_tolerances};
+use geode_core::testing::{TestBackend, device_tolerances, test_device as device};
 use geode_util::compare::{MixedTol, check_close};
 use geode_validation::{Fixture, FixtureFormat};
 
@@ -115,10 +114,6 @@ const CASES: &[&str] = &[
 // ---------------------------------------------------------------------------
 // Burn driver
 // ---------------------------------------------------------------------------
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// True when the active backend stores floats as f64 (ndarray / wgpu<f64>
 /// / metal<f64>); false for f32 backends (e.g. cuda). Replaces the former

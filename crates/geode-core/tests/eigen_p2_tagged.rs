@@ -31,14 +31,18 @@
 //! cargo test -p geode-core --release --test eigen_p2_tagged -- --nocapture
 //! ```
 
+mod common;
+use common::boundary_plane_faces;
+
 use std::f64::consts::PI;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use faer::{Mat, Side};
 
+use common::Lcg;
 use geode_core::analytic::loaded_guide::{LsFamily, SlabLoadedGuide};
 use geode_core::assembly::hcurl_space::HcurlSpace;
+use geode_core::assembly::nedelec::tet_centroid as centroid;
 use geode_core::driven::solve::{DrivenError, SurfaceImpedanceBc, SurfaceImpedanceModel};
 use geode_core::eigen::hcurl_null::GradientNullSpace;
 use geode_core::eigen::lossy_cavity::{
@@ -57,13 +61,9 @@ use geode_core::eigen::transmon::LondonSurface;
 use geode_core::elements::ElementOrder;
 use geode_core::mesh::electrostatic_fixtures::{coax_shell_mesh, sphere_shell_mesh};
 use geode_core::mesh::{TaggedTetMesh, TetMesh, read_tagged_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 const ORDERS: [ElementOrder; 2] = [ElementOrder::P1, ElementOrder::P2];
 
@@ -77,17 +77,6 @@ fn p(order: ElementOrder) -> usize {
 // ---------------------------------------------------------------------------
 // Meshes
 // ---------------------------------------------------------------------------
-
-struct Lcg(u64);
-impl Lcg {
-    fn next(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        ((self.0 >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
-    }
-}
 
 /// Structured box `[0, len]` with `n` cells per axis, 6 tets per hex.
 fn box_mesh(n: [usize; 3], len: [f64; 3]) -> TetMesh {
@@ -162,33 +151,18 @@ fn jitter(
     }
 }
 
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.boundary_faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
 /// The six walls of the box `[0, len]` as separate tagged triangle lists.
 fn box_walls(mesh: &TetMesh, len: [f64; 3]) -> Vec<Vec<[u32; 3]>> {
     let mut out = Vec::new();
     for (axis, &l) in len.iter().enumerate() {
-        out.push(plane_faces(mesh, axis, 0.0));
-        out.push(plane_faces(mesh, axis, l));
+        out.push(boundary_plane_faces(mesh, axis, 0.0));
+        out.push(boundary_plane_faces(mesh, axis, l));
     }
     out
 }
 
 fn refs(lists: &[Vec<[u32; 3]>]) -> Vec<&[[u32; 3]]> {
     lists.iter().map(Vec::as_slice).collect()
-}
-
-fn centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
-    let tet = mesh.tets[t];
-    std::array::from_fn(|d| tet.iter().map(|&v| mesh.nodes[v as usize][d]).sum::<f64>() / 4.0)
 }
 
 fn fixture(name: &str) -> TaggedTetMesh {
@@ -879,8 +853,8 @@ fn golden4_exact_null_count_dense_tripwire() {
             "two PEC plates",
             &plates_mesh,
             vec![
-                plane_faces(&plates_mesh, 0, 0.0),
-                plane_faces(&plates_mesh, 0, 1.0),
+                boundary_plane_faces(&plates_mesh, 0, 0.0),
+                boundary_plane_faces(&plates_mesh, 0, 1.0),
             ],
         ),
         ("no PEC", &plates_mesh, vec![]),
@@ -943,7 +917,7 @@ fn annulus() -> (TetMesh, [Vec<[u32; 3]>; 3]) {
     };
     let inner = all_in(&coax.inner);
     let outer = all_in(&coax.outer);
-    let cap = plane_faces(&coax.mesh, 2, 0.0);
+    let cap = boundary_plane_faces(&coax.mesh, 2, 0.0);
     assert_eq!(inner.len(), coax.inner_triangles.len());
     assert!(!outer.is_empty() && !cap.is_empty());
     (coax.mesh, [inner, outer, cap])

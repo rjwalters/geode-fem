@@ -23,7 +23,9 @@
 //! scope rails: "Document observed iteration counts in the regression
 //! so future regressions catch convergence-degradation").
 
-use burn::tensor::backend::BackendTypes;
+mod common;
+use common::{all_plane_faces, pec_mask_for_planes};
+
 use faer::c64;
 use geode_core::analytic::waveguide::{rect_tri_mesh, solve_rect_waveguide_modes};
 use geode_core::driven::extraction::{
@@ -38,13 +40,9 @@ use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenMaterials, IterativeSettings, SolverMode,
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn vacuum(mesh: &TetMesh) -> Vec<c64> {
     vec![c64::new(1.0, 0.0); mesh.n_tets()]
@@ -54,29 +52,6 @@ fn zero_source(mesh: &TetMesh) -> CurrentSource {
     CurrentSource {
         j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
     }
-}
-
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
-fn pec_mask_for_planes(mesh: &TetMesh, edges: &[[u32; 2]], planes: &[(usize, f64)]) -> Vec<bool> {
-    edges
-        .iter()
-        .map(|e| {
-            let a = mesh.nodes[e[0] as usize];
-            let b = mesh.nodes[e[1] as usize];
-            !planes.iter().any(|&(axis, value)| {
-                (a[axis] - value).abs() < 1e-12 && (b[axis] - value).abs() < 1e-12
-            })
-        })
-        .collect()
 }
 
 // ===========================================================================
@@ -96,7 +71,7 @@ fn pec_mask_for_planes(mesh: &TetMesh, edges: &[[u32; 2]], planes: &[(usize, f64
 fn driven_frequency_sweep_iterative_matches_direct() {
     let mesh = cube_tet_mesh(4, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
     let sigma = 2.0;
     let eps = vacuum(&mesh);
@@ -188,8 +163,8 @@ fn s_parameter_sweep_iterative_matches_direct() {
     // a transmission path port-1 → port-2.
     let mesh = cube_tet_mesh(3, 1.0);
     let edges = mesh.edges();
-    let port1_faces = plane_faces(&mesh, 2, 0.0);
-    let port2_faces = plane_faces(&mesh, 2, 1.0);
+    let port1_faces = all_plane_faces(&mesh, 2, 0.0);
+    let port2_faces = all_plane_faces(&mesh, 2, 1.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
     let eps = vacuum(&mesh);
     let port1 = LumpedPort {

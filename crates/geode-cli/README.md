@@ -1334,7 +1334,7 @@ consumed by that subcommand.
 | `inductance` | every `L_ij` (H) | `nu_r` (= `1/μ_r`), `mu_r` | self-adjoint energy form (`inductance_adjoint_sensitivity`), `∂L/∂μ_r = −ν_r² ∂L/∂ν_r` | the forward solves again on one factorization; no adjoint solve |
 | `eigen`, **lossless** (real `eps_r`, no `absorbing_regions`) | `frequency_hz` of each `modes[]` entry | `eps_r` | Hellmann–Feynman (`EigenSensitivity::deigenvalue_deps`), `∂f/∂ε = (f/2λ) ∂λ/∂ε` | a local contraction; no solve |
 | `driven`, **exactly one** lumped port, no `wave_ports` / `absorbing_regions`, direct solver, dense sweep (issue #739) | `s11_mag_sq` = `\|S11\|²` at **every** swept frequency (dimensionless) | `eps_r` | port-loaded discrete adjoint (`driven_material_adjoint_gradient_ports` + `s11_sq_objective`) | per frequency: one assembly + LU of the port-loaded `A(ω)`, one forward + one adjoint back-solve |
-| `driven` with `observables`, `frequencies`, a non-`eps_r` kind or any other port set — lumped, wave (geometric, filled), mixed, walled, hybrid (issue #883) | `driven_observables`: any `S_ij` (`mag` / `mag_sq` / `db` / `phase_deg` / `real` / `imag`), `Σ\|S_ij\|²`, a hybrid port's `z0` / `eps_eff` | `eps_r`, `eps_r_imag`, `tan_delta`, `sigma`, `shape`, `wall_sigma`, `wall_rms_roughness`, `wall_ball_radius`, `wall_ball_density` | N-port S-matrix adjoint (`s_matrix_sensitivity_sweep`; reciprocity) | per frequency: one LU (the forward's own excitation solves, **zero** extra solves) — see [N-port driven sensitivities](#n-port-driven-sensitivities-issue-883) |
+| `driven` with `observables`, `frequencies`, a non-`eps_r` kind or any other port set — lumped, wave (geometric, filled), mixed, walled, hybrid (issue #883) | `driven_observables`: any `S_ij` (`mag` / `mag_sq` / `db` / `phase_deg` / `real` / `imag`), `Σ\|S_ij\|²`, a hybrid port's `z0` / `eps_eff` | `eps_r`, `eps_r_imag`, `tan_delta`, `sigma`, `shape`, `wall_sigma`, `wall_rms_roughness`, `wall_ball_radius`, `wall_ball_density`, `dispersion` (lumped ports) | N-port S-matrix adjoint (`s_matrix_sensitivity_sweep`; reciprocity) | per frequency: one LU (the forward's own excitation solves, **zero** extra solves) — see [N-port driven sensitivities](#n-port-driven-sensitivities-issue-883) |
 
 - **Parameters.** `physical_group` is any dimension-3 group (listed in
   `materials` or not — an unlisted group is differentiated at its vacuum
@@ -1476,6 +1476,17 @@ lumped-port spec whose parameters are all `eps_r` and that has no
   `ε″` held; `eps_r_imag` is `ε″` (`ε_r = ε′ − jε″`) with `ε′` held — at a
   lossless point the gradient is the passive-side (`ε″ → 0⁺`) one;
   `tan_delta` is `tan δ = ε″/ε′` with `ε′` held (`∂/∂tan δ = ε′·∂/∂ε″`).
+  `dispersion` (issue #1259; lumped-port specs) differentiates a parameter of
+  the group's `materials[].dispersion` model, named by `model_parameter`:
+  `eps_r` / `tan_delta` (`djordjevic_sarkar`), `eps_inf` / `delta_eps` /
+  `tau_s` (`debye`; the last two need `pole`, the 0-based pole index) or
+  `eps_inf` / `omega_p_rad_s` / `gamma_rad_s` (`drude`), in the model's own
+  unit. The adjoint runs per frequency at the forward's own `ε(ω)` and
+  contracts the model's `∂ε(ω)/∂θ` with the region mass, so it still costs no
+  extra solves; `--check-gradient` re-runs the shipped dispersive forward with
+  the parameter moved. A dispersive group admits `dispersion` parameters only
+  (a constant-`ε` kind on it is `invalid_spec`), and a spec with `wave_ports`
+  and a dispersive material is not differentiable yet.
   `sigma` is the volumetric conductivity `materials[].conductivity_s_m` in
   S/m (absent = 0, the design point; issue #1254): `∂A/∂σ = jωM` through
   the same zero-extra-solve adjoint, gradient per S/m. At `σ = 0` the
@@ -1632,6 +1643,69 @@ then observable, then frequency. From the microstrip cookbook
 — `∂Z₀/∂w = −15.3 Ω/mm` of the 50 Ω line, against `−15.7 Ω/mm` from the
 differentiated Hammerstad–Jensen formula of the open line (the shield
 box and the mesh account for the 2.8 %).
+
+## Design optimization (`geode optimize`, issue #1261)
+
+`geode optimize spec.json [-o report.json] [--outdir DIR] [--resume CHECKPOINT]`
+runs a gradient-based design loop (Epic #841 Phase 6b) over a **driven** spec
+whose `sensitivity` section (N-port, `observables` present) defines the design
+parameters and observables. The `optimize` section only *names* them:
+
+```json
+"optimize": {
+  "variables": [{ "parameter": "strip_width", "lower": 0.0012, "upper": 0.0026,
+                  "initial": 0.0014, "scale": 0.0005 }],
+  "objective": [{ "observable": "real(z0[port_in, mode 0])", "mode": "equal",
+                  "target": 50.0, "aggregate": "sum_sq", "band_hz": [1.9e9, 2.1e9] }],
+  "constraints": [{ "observable": "db(S[1,0])", "mode": "above", "bound": -0.5 }],
+  "min_volume_ratio": 0.1, "passivity_tol": 1e-6,
+  "stop": { "max_iter": 50, "pg_tol": 1e-6 }
+}
+```
+
+* **Variables** are sensitivity parameters by report name: a shape parameter's
+  `name`, or `kind(physical_group)` for a material one (`eps_r(substrate)`).
+  Bounds, `initial` and `scale` are in the parameter's unit (metres for a shape
+  parameter); the optimizer works on `(p − initial) / scale`.
+* **Objective** terms are weighted (`weight`, default 1) sums of an
+  `aggregate` (`sum_sq`, `mean`, `max`; `max` is the Kreisselmeier–Steinhauser
+  smooth maximum of the squared residuals, sharpness `ks_rho`) of the residual
+  of an observable (by its report `label`) against a `target` in `below` /
+  `above` / `equal` mode, over the differentiated frequencies inside `band_hz`.
+* **Constraints** are observable inequalities (`below` / `above` a `bound`, the
+  KS maximum over the band). Without constraints the loop is L-BFGS-B; with any,
+  MMA. Geometric bounds are the variables' bounds.
+* **Mesh-quality guard** `min_volume_ratio`: the mesh is *morphed* from the
+  loaded one along the fixed shape columns (topology frozen); a trial design
+  whose smallest tet volume falls below this fraction of its meshed volume is a
+  failed evaluation (the optimizer backs off). Without `optimize.remesh` a
+  design that needs a new mesh stops at the guard.
+* **Re-meshing** `optimize.remesh = {"every": K, "rungs": ["rung1.json", ...]}`:
+  the spec's own mesh is rung 0 and `rungs` are complete geode specs (a mesh and
+  the parameter values it was meshed at; same `sensitivity` parameters,
+  observables and frequencies) in order. The topology stays frozen within an
+  iteration and its line search; at the iteration boundary, when a trial tripped
+  the guard (or every `every` iterations), the run moves to the nearest later
+  rung that accepts the design, re-baselines the objective there and starts a
+  fresh optimizer state (no L-BFGS memory) at the same physical design. A
+  `{"kind": "remesh", ...}` line in `history.jsonl` records the objective before
+  and after (the discontinuity); the baseline line on the new mesh repeats the
+  iteration label. A breach with no usable later rung fails the run; the
+  `every` cadence is then skipped. `--resume` stays bit-exact across a
+  re-mesh (the checkpoint carries the active rung).
+* **Passivity tripwire**: `σ_max(S) ≤ 1 + passivity_tol` at every evaluation; a
+  violation is a failed evaluation recorded in the history.
+* **Outputs** (in `--outdir`, default the directory of `-o`, else
+  `./geode-optimize`): `history.jsonl` (one line per iteration, plus
+  iteration 0: design vector, objective, gradient norm, constraint values,
+  passivity `σ_max`, mesh-quality ratio, mode-gap / port-accuracy warnings),
+  `checkpoint.json`, `best_spec.json` + `best_mesh.msh` (re-load with `geode
+  check`). `--resume` continues from a checkpoint of the same spec and
+  reproduces the uninterrupted run bit for bit; the stopping criteria are read
+  from the spec, so a resumed run may be given a larger budget.
+* **Final FD check**: the report ends with Phase 5a's `fd_check` (re-running the
+  shipped forward at each parameter ± a step) at the best design
+  (`final_fd_check`); a disagreement is reported, not fatal.
 
 ## Field / far-field export (`--outdir`, issue #684)
 
@@ -2684,6 +2758,15 @@ against order 1 on the same mesh, and `fits_direct_lu` with a plain verdict
 anchor linear in `nnz`; there is **no order-2 anchor measurement yet**, so
 `peak_memory_confidence` stays `"order_of_magnitude"`.
 
+A lossless order-2 `geode eigen` report also carries
+`accuracy.order_estimate`: the same pencil is re-solved at order 1 on the
+same mesh and each mode's `delta_f_hz` / `delta_f_rel` (`|f_p2 − f_p1| / f_p2`)
+is reported, with `delta_f_rel_max` against a fixed `threshold` of 0.5 %. Above
+it, `above_threshold` is `true` and a `warning` is added (also on stderr).
+This is an indicator of the order-1 error on that mesh, not a certified bound
+on the order-2 error. It is absent at order 1, for lossy / open pencils and for
+`eigen.bloch`; the driven `|ΔS|` counterpart is not implemented.
+
 ## Resource estimate (`geode check`, issue #703)
 
 `geode check` reports a `resources` block so an agent can pick mesh and
@@ -2963,8 +3046,13 @@ Each periodic axis replaces its two PEC walls by the groups `x_lo` /
 the two faces mesh identically. The starter spec lists the pairs as
 `boundary_conditions.periodic` with the cell period as explicit
 `translation`, and asks for the Bloch bands at Γ; the other walls stay in
-`outer_boundary` (PEC). Without `periodic`, `--analysis eigen` gives a
-plain PEC-cavity eigen starter spec.
+`outer_boundary` (PEC). The emitted `eigen` block uses `unit: "k0"` (rad
+per mesh length unit) with a shift scaled to the cell, `1.5 π / OPL` with
+`OPL = Σ thicknessᵢ·√Re(eps_rᵢ)` the optical path through the dielectric
+stack: a fixed GHz number would land in the Γ null space of a
+micron-scale cell and not converge. It is a starting point; edit `shift`
+to look at other bands. Without `periodic`, `--analysis eigen` gives a
+plain PEC-cavity eigen starter spec (1 GHz placeholder shift).
 
 ```sh
 geode mesh cell.layout.json --analysis eigen --spec-out cell.json && geode check cell.json

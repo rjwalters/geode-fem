@@ -92,6 +92,10 @@
 //! artifact carries a SUPERSEDED ANCHOR note. The current anchor is
 //! `geode_core::quantum::transmon::TransmonAnchor::devicelayout`.
 
+#[path = "common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::scaled_mesh;
+
 use std::path::PathBuf;
 
 use geode_core::assembly::electrostatic::{
@@ -327,16 +331,6 @@ fn committed_results_toml_pins_convergence() {
 // -------------------------------------------------------------------------
 
 const M_PER_UNIT: f64 = 1e-6;
-
-fn scaled_mesh(mesh: &TetMesh, s: f64) -> TetMesh {
-    let mut m = mesh.clone();
-    for n in m.nodes.iter_mut() {
-        n[0] *= s;
-        n[1] *= s;
-        n[2] *= s;
-    }
-    m
-}
 
 /// The issue #589 pipeline on the real 133k-tet DeviceLayout mesh, pinning
 /// every committed `pad_results.toml` number (regenerate with the

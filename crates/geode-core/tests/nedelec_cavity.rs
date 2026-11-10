@@ -79,21 +79,15 @@
 //! cargo test -p geode-core --release --test nedelec_cavity
 //! ```
 
-use burn::tensor::backend::BackendTypes;
-
 use geode_core::assembly::nedelec::{assemble_global_nedelec, cube_pec_interior_edges};
 use geode_core::assembly::p1::upload_mesh;
 use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
 use geode_core::mesh::cube_tet_mesh;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Mesh refinement for the cavity acceptance tests. n=8 yields 512 hex
 /// cells × 6 tets = 3072 elements and several thousand edges — comfortably

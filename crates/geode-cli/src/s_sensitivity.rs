@@ -61,12 +61,13 @@ use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::constants::ETA_0_OHM;
 use geode_core::driven::ports::WavePortSpec;
 use geode_core::driven::s_sensitivity::{
-    MaterialDesign, PortModeObservables, SDesign, SNetwork, SSensitivityError, SSensitivityOptions,
-    SSensitivitySweep, ShapeDesign, s_matrix_sensitivity_sweep,
+    EpsDirection, MaterialDesign, PortModeObservables, SDesign, SNetwork, SSensitivityError,
+    SSensitivityOptions, SSensitivitySweep, ShapeDesign, s_matrix_sensitivity_sweep,
 };
 use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, ElementOrder, WallParam};
 
 use crate::backend::CompiledBackend;
+use crate::dispersion::DispersionModel;
 use crate::error::CliError;
 use crate::port_solves::PortSolves;
 use crate::problem::{ObservableDef, Problem, SensitivityParameter, SensitivityTarget};
@@ -77,8 +78,8 @@ use crate::report::{
 };
 use crate::sensitivity::{FD_SCALE_FLOOR, rel_error};
 use crate::spec::{
-    ImpedanceDefinition, ObservableForm, ObservableQuantity, RoughnessSpec,
-    SensitivityParameterKind,
+    DispersionParameter, DispersionSpec, ImpedanceDefinition, ObservableForm, ObservableQuantity,
+    RoughnessSpec, SensitivityParameterKind,
 };
 
 /// Largest accepted relative difference between the sensitivity's S matrix
@@ -109,28 +110,28 @@ type B = CompiledBackend;
 
 /// How a CLI parameter maps onto the library's flat parameter list.
 #[derive(Debug, Clone, Copy)]
-struct ParamMap {
+pub(crate) struct ParamMap {
     /// Index into [`SSensitivitySweep::params`].
-    index: usize,
+    pub(crate) index: usize,
     /// Chain factor (`ε′` for `tan δ`, `1/length_unit_m` for shape).
-    factor: f64,
+    pub(crate) factor: f64,
 }
 
 /// The library design of the spec's parameters, the CLI → library map and
 /// the shape columns (mesh units per unit parameter in mesh units).
-struct Design {
-    sdesign: SDesign,
+pub(crate) struct Design {
+    pub(crate) sdesign: SDesign,
     /// Per CLI parameter: the library parameter of its derivative.
-    map: Vec<ParamMap>,
+    pub(crate) map: Vec<ParamMap>,
     /// Per CLI parameter: its node-motion column (shape parameters only).
-    columns: Vec<Option<Vec<[f64; 3]>>>,
+    pub(crate) columns: Vec<Option<Vec<[f64; 3]>>>,
 }
 
 /// The library error of the sensitivity, as a CLI error: every fenced or
 /// inconsistent combination (`Unsupported`, `InvalidDesign`, a degenerate
 /// face-mode cluster) is the spec's — `invalid_spec`, with the library's
 /// message naming what lifts it; a forward failure is `solve_failed`.
-fn lib_error(e: SSensitivityError) -> CliError {
+pub(crate) fn lib_error(e: SSensitivityError) -> CliError {
     match e {
         SSensitivityError::Driven(e) => CliError::Solve(e),
         e @ (SSensitivityError::Unsupported { .. }
@@ -146,7 +147,7 @@ fn lib_error(e: SSensitivityError) -> CliError {
 /// with a material parameter (in order of first appearance), the
 /// geometric-port fills that follow a design region, and one shape column
 /// per shape parameter.
-fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
+pub(crate) fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
     let mut regions: Vec<usize> = Vec::new();
     let (mut need_prime, mut need_dprime, mut need_sigma) = (false, false, false);
     for prm in sens.parameters.iter().filter(|q| q.kind.is_material()) {
@@ -156,6 +157,8 @@ fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
         match prm.kind {
             SensitivityParameterKind::EpsR => need_prime = true,
             SensitivityParameterKind::Sigma => need_sigma = true,
+            // A model parameter is a complex direction, not an ε′/ε″ column.
+            SensitivityParameterKind::Dispersion => {}
             _ => need_dprime = true,
         }
     }
@@ -168,11 +171,21 @@ fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
             .map(|r| regions.iter().position(|q| q == r))
             .collect();
         let names = regions.iter().map(|&r| p.regions[r].name.clone()).collect();
+        // Dispersion-model parameters, in spec order (issue #1259).
+        let hz_per_k0 = p.frequencies.first().map_or(1.0, |f| f.hz / f.k0);
+        let directions = sens
+            .parameters
+            .iter()
+            .filter(|prm| prm.kind == SensitivityParameterKind::Dispersion)
+            .map(|prm| dispersion_direction(p, prm, &regions, hz_per_k0))
+            .collect::<Result<Vec<_>, CliError>>()?;
         Some(
             MaterialDesign::from_regions(labels, names)
                 .map_err(lib_error)?
                 .with_components(need_prime, need_dprime)
-                .with_sigma(need_sigma),
+                .with_sigma(need_sigma)
+                .with_directions(directions)
+                .map_err(lib_error)?,
         )
     };
     // A geometric port filled by a design region follows it (#777): bind it.
@@ -232,10 +245,17 @@ fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
     let n_reg = regions.len();
     let dprime_base = if need_prime { n_reg } else { 0 };
     let sigma_base = dprime_base + if need_dprime { n_reg } else { 0 };
-    let shape_base = sigma_base + if need_sigma { n_reg } else { 0 };
+    let dir_base = sigma_base + if need_sigma { n_reg } else { 0 };
+    let n_dir = sens
+        .parameters
+        .iter()
+        .filter(|prm| prm.kind == SensitivityParameterKind::Dispersion)
+        .count();
+    let shape_base = dir_base + n_dir;
     let wall_base = shape_base + n_shape;
     let mut next_shape = 0;
     let mut next_wall = 0;
+    let mut next_dir = 0;
     let map = sens
         .parameters
         .iter()
@@ -260,6 +280,15 @@ fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
                     index: sigma_base + slot(prm.region),
                     factor: geode_core::constants::ETA_0_OHM * p.length_unit_m(),
                 },
+                // `∂ε(ω)/∂θ` is in the model's own unit: no chain factor.
+                SensitivityParameterKind::Dispersion => {
+                    let m = ParamMap {
+                        index: dir_base + next_dir,
+                        factor: 1.0,
+                    };
+                    next_dir += 1;
+                    m
+                }
                 SensitivityParameterKind::Shape => {
                     let m = ParamMap {
                         index: shape_base + next_shape,
@@ -294,6 +323,80 @@ fn design(p: &Problem, sens: &SensitivityTarget) -> Result<Design, CliError> {
     })
 }
 
+/// `∂ε(ω)/∂θ` of a dispersion-model parameter at `hz` (Epic #841 Phase 2a,
+/// issue #1259), in the solver's `ε = ε′ − jε″` convention, from the
+/// model's own derivative ([`crate::dispersion`]).
+fn d_eps_d_model_parameter(
+    model: &DispersionModel,
+    spec: &DispersionSpec,
+    param: DispersionParameter,
+    pole: usize,
+    hz: f64,
+) -> c64 {
+    use DispersionParameter as P;
+    match (model, spec, param) {
+        (
+            DispersionModel::DjordjevicSarkar(m),
+            &DispersionSpec::DjordjevicSarkar {
+                eps_r,
+                tan_delta,
+                f_ref_hz,
+                ..
+            },
+            P::EpsR,
+        ) => m.d_eps_d_datasheet(hz, eps_r, tan_delta, f_ref_hz).0,
+        (
+            DispersionModel::DjordjevicSarkar(m),
+            &DispersionSpec::DjordjevicSarkar {
+                eps_r,
+                tan_delta,
+                f_ref_hz,
+                ..
+            },
+            P::TanDelta,
+        ) => m.d_eps_d_datasheet(hz, eps_r, tan_delta, f_ref_hz).1,
+        (DispersionModel::Debye(_), _, P::EpsInf) | (DispersionModel::Drude(_), _, P::EpsInf) => {
+            c64::new(1.0, 0.0)
+        }
+        (DispersionModel::Debye(m), _, P::DeltaEps) => m.d_eps_d_pole(hz, pole).0,
+        (DispersionModel::Debye(m), _, P::TauS) => m.d_eps_d_pole(hz, pole).1,
+        (DispersionModel::Drude(m), _, P::OmegaPRadS) => m.d_eps(hz).1,
+        (DispersionModel::Drude(m), _, P::GammaRadS) => m.d_eps(hz).2,
+        _ => unreachable!("model / parameter pairing validated at load"),
+    }
+}
+
+/// The library direction of one `kind = "dispersion"` parameter. `hz_per_k0`
+/// converts the library's `ω ≡ k₀` to Hz (one constant for every frequency).
+fn dispersion_direction(
+    p: &Problem,
+    prm: &SensitivityParameter,
+    regions: &[usize],
+    hz_per_k0: f64,
+) -> Result<EpsDirection, CliError> {
+    let def = prm.dispersion.expect("a dispersion parameter");
+    let tag = p.regions[prm.region].tag;
+    let d = p
+        .dispersion
+        .iter()
+        .find(|d| d.tag == tag)
+        .expect("validated at load");
+    let slot = regions
+        .iter()
+        .position(|&r| r == prm.region)
+        .expect("a region");
+    let (model, spec) = (d.model.clone(), d.spec.clone());
+    let name = match def.param {
+        DispersionParameter::DeltaEps | DispersionParameter::TauS => {
+            format!("{}.{}[{}]", prm.physical_group, def.param.name(), def.pole)
+        }
+        _ => format!("{}.{}", prm.physical_group, def.param.name()),
+    };
+    Ok(EpsDirection::new(slot, name, move |omega| {
+        d_eps_d_model_parameter(&model, &spec, def.param, def.pole, omega * hz_per_k0)
+    }))
+}
+
 /// The spec's wave ports as library [`WavePortSpec`]s, exactly as the
 /// shipped sweep builds them (geometric ports at their constant fill, hybrid
 /// ports with the accuracy estimate off — it is a diagnostic, not part of S).
@@ -321,8 +424,37 @@ fn wave_specs(p: &Problem, solves: &PortSolves<'_>) -> Result<Vec<WavePortSpec>,
 /// (`port_modes`: also the hybrid port-mode observables). The golden
 /// `tests/sensitivity_nport.rs` rebuilds this network in-process from the
 /// mesh and checks the CLI's gradients against it bit for bit.
-fn library_sweep(
+pub(crate) fn library_sweep(
     p: &Problem,
+    design: &SDesign,
+    omegas: &[f64],
+    port_modes: bool,
+    solves: &PortSolves<'_>,
+) -> Result<SSensitivitySweep, CliError> {
+    if p.dispersion.is_empty() {
+        return library_sweep_at(p, &p.eps, design, omegas, port_modes, solves);
+    }
+    // A dispersive material makes ε a function of ω: the library sweeps one
+    // fixed ε, so every frequency is its own sweep at the forward's own
+    // `ε(ω)` (the one `geode driven` solves), their points concatenated
+    // (issue #1259).
+    let hz_per_k0 = p.frequencies.first().map_or(1.0, |f| f.hz / f.k0);
+    let mut out: Option<SSensitivitySweep> = None;
+    for &omega in omegas {
+        let eps = p.eps_at(omega * hz_per_k0);
+        let one = library_sweep_at(p, &eps, design, &[omega], port_modes, solves)?;
+        match &mut out {
+            None => out = Some(one),
+            Some(acc) => acc.points.extend(one.points),
+        }
+    }
+    Ok(out.expect("a dispersive sensitivity solves at least one frequency"))
+}
+
+/// One library sweep of `omegas` at the fixed per-tet permittivity `eps`.
+fn library_sweep_at(
+    p: &Problem,
+    eps: &[c64],
     design: &SDesign,
     omegas: &[f64],
     port_modes: bool,
@@ -341,7 +473,7 @@ fn library_sweep(
     let net = SNetwork {
         space: &space,
         mesh,
-        materials: DrivenMaterials::Scalar(&p.eps),
+        materials: DrivenMaterials::Scalar(eps),
         sigma_tet: p.sigma(),
         bcs: &bcs,
         lumped: &lumped,
@@ -626,7 +758,7 @@ fn row_value(p: &Problem, o: &ObservableDef, row: &FrequencyResult) -> Result<f6
 
 /// The value and per-library-parameter complex derivative of observable
 /// `o` at one sensitivity point.
-fn point_observable(
+pub(crate) fn point_observable(
     p: &Problem,
     o: &ObservableDef,
     pt: &geode_core::driven::s_sensitivity::SSensitivityPoint,
@@ -1139,7 +1271,14 @@ fn parameter_summary(
         physical_group: prm.physical_group.clone(),
         kind: prm.kind.name(),
         value: prm.value,
-        name: sh.map(|s| s.name.clone()),
+        name: sh.map(|s| s.name.clone()).or_else(|| {
+            prm.dispersion.map(|d| match d.param {
+                DispersionParameter::DeltaEps | DispersionParameter::TauS => {
+                    format!("{}[{}]", d.param.name(), d.pole)
+                }
+                _ => d.param.name().to_string(),
+            })
+        }),
         motion: sh.map(|s| s.shape_motion.name()),
         axis: sh.map(|s| match s.motion.kind {
             geode_core::driven::s_sensitivity::GroupMotionKind::Translate { dir } => dir,
@@ -1147,10 +1286,15 @@ fn parameter_summary(
         }),
         pinned: sh.map(|s| s.pinned.clone()).unwrap_or_default(),
         moved_groups: col.map(|c| moved_groups(p, c)),
-        unit: Some(match (&prm.wall, sh) {
-            (Some(w), _) => w.unit,
-            (None, Some(_)) => "m",
-            (None, None) => "1",
+        unit: Some(match (&prm.wall, sh, prm.dispersion) {
+            (Some(w), _, _) => w.unit,
+            (None, Some(_), _) => "m",
+            (None, None, Some(d)) => match d.param {
+                DispersionParameter::TauS => "s",
+                DispersionParameter::OmegaPRadS | DispersionParameter::GammaRadS => "rad/s",
+                _ => "1",
+            },
+            (None, None, None) => "1",
         }),
     }
 }
@@ -1170,6 +1314,24 @@ fn parameter_scale(p: &Problem, prm: &SensitivityParameter) -> f64 {
         // (a lossy-silicon scale) is tiny against the 10 S/m cookbook value
         // and keeps the FD above round-off; a σ > 0 steps relative to itself.
         (None, SensitivityParameterKind::Sigma) => prm.value.abs().max(1.0),
+        // A lossless Drude `γ = 0` has no relative scale: a step of 1 % of
+        // `ω_p` (the model's own rate) keeps the FD above round-off.
+        (None, SensitivityParameterKind::Dispersion)
+            if prm.value == 0.0
+                && prm
+                    .dispersion
+                    .is_some_and(|d| d.param == DispersionParameter::GammaRadS) =>
+        {
+            match p
+                .dispersion
+                .iter()
+                .find(|d| d.tag == p.regions[prm.region].tag)
+                .map(|d| &d.spec)
+            {
+                Some(DispersionSpec::Drude { omega_p_rad_s, .. }) => 1e-2 * omega_p_rad_s,
+                _ => 1.0,
+            }
+        }
         _ => prm.value.abs(),
     }
 }
@@ -1202,6 +1364,49 @@ fn perturbed(
                     prm.physical_group
                 )));
             }
+        }
+        (SensitivityParameterKind::Dispersion, _) => {
+            let def = prm.dispersion.expect("a dispersion parameter");
+            let tag = p.regions[prm.region].tag;
+            let d = q
+                .dispersion
+                .iter_mut()
+                .find(|d| d.tag == tag)
+                .expect("validated at load");
+            let v = prm.value + delta;
+            match (&mut d.spec, def.param) {
+                (DispersionSpec::DjordjevicSarkar { eps_r, .. }, DispersionParameter::EpsR) => {
+                    *eps_r = v;
+                }
+                (
+                    DispersionSpec::DjordjevicSarkar { tan_delta, .. },
+                    DispersionParameter::TanDelta,
+                ) => *tan_delta = v,
+                (
+                    DispersionSpec::Debye { eps_inf, .. } | DispersionSpec::Drude { eps_inf, .. },
+                    DispersionParameter::EpsInf,
+                ) => *eps_inf = v,
+                (DispersionSpec::Debye { poles, .. }, DispersionParameter::DeltaEps) => {
+                    poles[def.pole].delta_eps = v;
+                }
+                (DispersionSpec::Debye { poles, .. }, DispersionParameter::TauS) => {
+                    poles[def.pole].tau_s = v;
+                }
+                (DispersionSpec::Drude { omega_p_rad_s, .. }, DispersionParameter::OmegaPRadS) => {
+                    *omega_p_rad_s = v;
+                }
+                (DispersionSpec::Drude { gamma_rad_s, .. }, DispersionParameter::GammaRadS) => {
+                    *gamma_rad_s = v;
+                }
+                _ => unreachable!("model / parameter pairing validated at load"),
+            }
+            d.model = DispersionModel::from_spec(&d.spec).map_err(|e| {
+                CliError::InvalidSpec(format!(
+                    "`sensitivity` FD check: the step {delta:e} of `{}` leaves the dispersion \
+                     model's domain ({e}) — lower sensitivity.fd_check.relative_step",
+                    prm.physical_group
+                ))
+            })?;
         }
         (SensitivityParameterKind::Sigma, _) => {
             // The region's σ (S/m) moved by `delta`; σ_nat = σ·η₀·L.
@@ -1278,7 +1483,7 @@ fn perturbed(
 }
 
 /// The shipped driven forward's report rows of `q`.
-fn forward_rows(q: &Problem, jobs: usize) -> Result<Vec<FrequencyResult>, CliError> {
+pub(crate) fn forward_rows(q: &Problem, jobs: usize) -> Result<Vec<FrequencyResult>, CliError> {
     let opts = SweepOptions {
         jobs: if q.wave_ports.is_empty() { jobs } else { 1 },
         jobs_explicit: false,
@@ -1504,6 +1709,8 @@ pub fn driven(
                         SensitivityParameterKind::EpsRImag
                             | SensitivityParameterKind::TanDelta
                             | SensitivityParameterKind::Sigma
+                            // `Δε`, `tan δ`, `γ` are ≥ 0: `p − h` is not a model.
+                            | SensitivityParameterKind::Dispersion
                     );
                 let run = |delta: f64| -> Result<Vec<FrequencyResult>, CliError> {
                     let mut q = perturbed(p, prm, col, delta)?;

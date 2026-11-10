@@ -19,6 +19,9 @@
 //! 5. **Constants.** A uniform field `E = ŷ` reads back the exact port
 //!    voltage `V = l` at p=2.
 
+mod common;
+
+use common::Lcg;
 use faer::c64;
 use geode_core::analytic::waveguide::tri_nedelec2_local;
 use geode_core::assembly::hcurl_space::{HcurlSpace, TetOrientation};
@@ -32,17 +35,6 @@ use geode_core::elements::ElementOrder;
 use geode_core::elements::nedelec_p2::{tet_barycentric_gradients, tet_nedelec2_shapes};
 use geode_core::mesh::{TET_LOCAL_FACES, TetMesh, cube_tet_mesh};
 
-struct Lcg(u64);
-impl Lcg {
-    fn next(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        (self.0 >> 11) as f64 / (1u64 << 53) as f64
-    }
-}
-
 /// `cube_tet_mesh(n)` with interior nodes jittered and face-interior
 /// boundary nodes jittered **within** their face plane (still flat walls).
 fn jittered(n: usize, seed: u64) -> TetMesh {
@@ -55,7 +47,7 @@ fn jittered(n: usize, seed: u64) -> TetMesh {
             .collect();
         if free.len() >= 2 {
             for d in free {
-                p[d] += 0.15 * h * (2.0 * rng.next() - 1.0);
+                p[d] += 0.15 * h * (2.0 * rng.next_unit() - 1.0);
             }
         }
     }
@@ -135,7 +127,7 @@ fn tet_restriction_equals_trace_kernel_on_every_boundary_face() {
         };
         let tet_dofs = space.tet_dofs(*t);
         for _ in 0..5 {
-            let (a, b) = (rng.next(), rng.next());
+            let (a, b) = (rng.next_unit(), rng.next_unit());
             let (a, b) = if a + b > 1.0 {
                 (1.0 - a, 1.0 - b)
             } else {
@@ -176,7 +168,7 @@ fn surface_mass_equals_flat_tri_nedelec2_mass() {
     let mut rng = Lcg(3);
     let mut worst = 0.0_f64;
     for _ in 0..20 {
-        let v: [[f64; 3]; 3] = std::array::from_fn(|_| std::array::from_fn(|_| rng.next()));
+        let v: [[f64; 3]; 3] = std::array::from_fn(|_| std::array::from_fn(|_| rng.next_unit()));
         let s3 = tri_nedelec2_surface_mass(&v);
         // Lay the triangle flat in an orthonormal in-plane frame.
         let e1 = sub(v[1], v[0]);
@@ -236,7 +228,7 @@ fn assembled_surface_mass_and_flux_match_field_integrals() {
     let tris: Vec<[u32; 3]> = faces.iter().map(|f| f.0).collect();
     let mut rng = Lcg(5);
     let x: Vec<c64> = (0..space.n_dofs())
-        .map(|_| c64::new(rng.next() - 0.5, rng.next() - 0.5))
+        .map(|_| c64::new(rng.next_unit() - 0.5, rng.next_unit() - 0.5))
         .collect();
     let e_hat = [0.3, -0.5, 0.81_f64.sqrt()];
 
@@ -293,7 +285,7 @@ fn prolonged_p1_field_has_the_p1_surface_energy_and_flux() {
     let tris: Vec<[u32; 3]> = mesh.boundary_faces();
     let mut rng = Lcg(13);
     let x1: Vec<c64> = (0..edges.len())
-        .map(|_| c64::new(rng.next() - 0.5, rng.next() - 0.5))
+        .map(|_| c64::new(rng.next_unit() - 0.5, rng.next_unit() - 0.5))
         .collect();
     let x2 = p2.prolong_p1(&x1);
     let quad = |trip: &[(usize, usize, f64)], x: &[c64]| -> c64 {

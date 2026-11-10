@@ -36,7 +36,6 @@
 use std::f64::consts::PI;
 use std::time::Instant;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::adapt::estimator::{
@@ -46,6 +45,7 @@ use geode_core::adapt::estimator::{
 use geode_core::analytic::loaded_guide::{LsFamily, SlabLoadedGuide};
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::assembly::nedelec::boundary_pec_interior_edges;
+use geode_core::assembly::nedelec::tet_centroid as centroid;
 use geode_core::driven::ports::LumpedPort;
 use geode_core::driven::solve::{
     DrivenBcs, DrivenMaterials, DrivenOperator, DrivenSource, QuadCurrentSource,
@@ -58,13 +58,9 @@ use geode_core::elements::ElementOrder;
 use geode_core::elements::nedelec_p2::tet_quad_deg4;
 use geode_core::mesh::periodic::{PeriodicMap, PeriodicMatchOptions, box_periodic_pairs};
 use geode_core::mesh::{TetMesh, read_transmon_smoke_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn c(re: f64) -> c64 {
     c64::new(re, 0.0)
@@ -152,11 +148,6 @@ fn box_mesh(
         tets,
         physical_groups: Default::default(),
     }
-}
-
-fn centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
-    let tet = mesh.tets[t];
-    std::array::from_fn(|d| tet.iter().map(|&v| mesh.nodes[v as usize][d]).sum::<f64>() / 4.0)
 }
 
 // ---------------------------------------------------------------------------

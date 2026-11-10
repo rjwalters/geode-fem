@@ -18,7 +18,9 @@
 //!    `driven_solve` exactly; a passive port with zero source stays
 //!    identically zero; invalid port specs error instead of panicking.
 
-use burn::tensor::backend::BackendTypes;
+mod common;
+use common::{all_plane_faces, pec_mask_for_planes};
+
 use faer::c64;
 use geode_core::assembly::nedelec::assemble_nedelec_current_rhs;
 use geode_core::assembly::p1::upload_mesh;
@@ -28,13 +30,9 @@ use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, driven_solve, driven_solve_with_ports,
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn vacuum(mesh: &TetMesh) -> Vec<c64> {
     vec![c64::new(1.0, 0.0); mesh.n_tets()]
@@ -46,33 +44,6 @@ fn zero_source(mesh: &TetMesh) -> CurrentSource {
     }
 }
 
-/// Boundary faces of the mesh lying entirely in the plane
-/// `coord[axis] == value`.
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
-/// PEC interior-edge mask eliminating every edge whose **both**
-/// endpoints lie on the same listed plane `(axis, value)`.
-fn pec_mask_for_planes(mesh: &TetMesh, edges: &[[u32; 2]], planes: &[(usize, f64)]) -> Vec<bool> {
-    edges
-        .iter()
-        .map(|e| {
-            let a = mesh.nodes[e[0] as usize];
-            let b = mesh.nodes[e[1] as usize];
-            !planes.iter().any(|&(axis, value)| {
-                (a[axis] - value).abs() < 1e-12 && (b[axis] - value).abs() < 1e-12
-            })
-        })
-        .collect()
-}
-
 /// Solve the parallel-plate transmission line (unit cube, PEC plates at
 /// y = 0/1, PEC short at z = 1, natural/PMC side walls at x = 0/1, port
 /// across the full z = 0 face with ê = ŷ) and return the input
@@ -80,7 +51,7 @@ fn pec_mask_for_planes(mesh: &TetMesh, edges: &[[u32; 2]], planes: &[(usize, f64
 fn parallel_plate_z_in(n: usize, omega: f64, resistance: f64) -> c64 {
     let mesh = cube_tet_mesh(n, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     assert!(!port_faces.is_empty(), "port surface must be non-empty");
 
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0), (2, 1.0)]);
@@ -159,8 +130,8 @@ fn transmission_line_input_impedance_matches_analytic() {
 fn two_port_line_s(n: usize, omegas: &[f64], r1: f64, r2: f64) -> Vec<SParameterSweepPoint> {
     let mesh = cube_tet_mesh(n, 1.0);
     let edges = mesh.edges();
-    let p1_faces = plane_faces(&mesh, 2, 0.0);
-    let p2_faces = plane_faces(&mesh, 2, 1.0);
+    let p1_faces = all_plane_faces(&mesh, 2, 0.0);
+    let p2_faces = all_plane_faces(&mesh, 2, 1.0);
     assert!(!p1_faces.is_empty() && !p2_faces.is_empty());
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0)]);
     let eps = vacuum(&mesh);
@@ -359,7 +330,7 @@ fn reciprocity_holds_with_port_present() {
     let mesh = cube_tet_mesh(n, 1.0);
     let edges = mesh.edges();
     let n_edges = edges.len();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0), (2, 1.0)]);
     let eps = vacuum(&mesh);
     // Passive port (pure resistive termination): the admittance term is
@@ -470,7 +441,7 @@ fn pec_backed_cavity_with_port_composes() {
     let n = 4;
     let mesh = cube_tet_mesh(n, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     // PEC everywhere except the port face z = 0.
     let mask = pec_mask_for_planes(
         &mesh,
@@ -579,7 +550,7 @@ fn empty_port_list_matches_driven_solve() {
 fn passive_port_with_zero_source_gives_zero_field() {
     let mesh = cube_tet_mesh(2, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0), (2, 1.0)]);
     let eps = vacuum(&mesh);
     let port = LumpedPort {
@@ -611,7 +582,7 @@ fn passive_port_with_zero_source_gives_zero_field() {
 fn invalid_port_specs_error() {
     let mesh = cube_tet_mesh(2, 1.0);
     let edges = mesh.edges();
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = all_plane_faces(&mesh, 2, 0.0);
     let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0), (2, 1.0)]);
     let eps = vacuum(&mesh);
     let bcs = DrivenBcs {

@@ -155,6 +155,13 @@ pub struct ProblemSpec {
     /// `sensitivities` block to that report. Extract specs reject it in v1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sensitivity: Option<SensitivitySpec>,
+    /// Gradient-based design loop for `geode optimize` (additive in v1,
+    /// Epic #841 Phase 6b, issue #1261). Not an analysis section: it rides
+    /// on a `driven` spec whose `sensitivity` section (N-port observables)
+    /// defines the design parameters and observables it references by name.
+    /// The other subcommands ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub optimize: Option<OptimizeSpec>,
     /// Nédélec element order of the H(curl) space (additive in v1, issue
     /// #1265, Epic #836 Phase 5a): `1` (default, lowest-order edge
     /// elements) or `2` (second-order, `2·n_edges + 2·n_faces` DOFs).
@@ -171,6 +178,181 @@ pub struct ProblemSpec {
     /// `sweep.adaptive`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adaptive_mesh: Option<AdaptiveMeshSpec>,
+}
+
+/// The `optimize` section (Epic #841 Phase 6b): design variables, a
+/// weighted objective and constraints, over the parameters and observables
+/// of the spec's `sensitivity` section (no second parameter vocabulary).
+///
+/// Variables are named as the sensitivity parameter's report name: a shape
+/// parameter's `name`, or `kind(physical_group)` for a material one, e.g.
+/// `eps_r(substrate)`. Observables are named by their report `label`, e.g.
+/// `real(z0[port_in, mode 0])` as listed by `geode check`'s sensitivity
+/// summary. Values are in the parameter's own unit (metres for a shape
+/// parameter). With no `constraints` the loop runs L-BFGS-B; with any, MMA
+/// (which needs finite variable bounds).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OptimizeSpec {
+    /// The design variables (`≥ 1`, distinct). Sensitivity parameters not
+    /// listed here stay at their spec value.
+    pub variables: Vec<OptimizeVariableSpec>,
+    /// Weighted objective terms (`≥ 1`); the objective is their weighted sum.
+    pub objective: Vec<ObjectiveTermSpec>,
+    /// Observable inequality constraints (default none).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub constraints: Vec<ConstraintSpec>,
+    /// Mesh-quality guard: a trial design whose morphed mesh has a tet
+    /// whose volume falls below this fraction of its meshed volume (the
+    /// `geode-core` `min_tet_volume_ratio`) is a failed evaluation (the
+    /// optimizer backs off and the history records it). Default `0.1`;
+    /// `0 ≤ r < 1`. Without a `remesh` section the run only backs off at the
+    /// guard; with one, the iteration ends in a re-mesh onto the next rung.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_volume_ratio: Option<f64>,
+    /// Re-mesh policy: a ladder of pre-meshed specs to continue on when the
+    /// mesh-quality guard trips or every `every` iterations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remesh: Option<OptimizeRemeshSpec>,
+    /// Passivity tripwire tolerance: `σ_max(S) ≤ 1 + tol` at every
+    /// evaluation (default `1e-6`). A violation is a failed evaluation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub passivity_tol: Option<f64>,
+    /// Stopping criteria and L-BFGS memory (defaults of `geode-optimize`
+    /// except `max_iter = 50`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop: Option<OptimizeStopSpec>,
+}
+
+/// One design variable of an [`OptimizeSpec`].
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OptimizeVariableSpec {
+    /// The sensitivity parameter's report name (see [`OptimizeSpec`]).
+    pub parameter: String,
+    /// Lower bound, in the parameter's unit (`< upper`).
+    pub lower: f64,
+    /// Upper bound, in the parameter's unit.
+    pub upper: f64,
+    /// Starting value (default: the parameter's value at the spec's
+    /// geometry / materials); within the bounds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial: Option<f64>,
+    /// Length of one optimizer unit in the parameter's unit (default:
+    /// `upper − lower`); the optimizer works on `(p − initial) / scale`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<f64>,
+}
+
+/// How a term's per-frequency residuals become one number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OptimizeAggregate {
+    /// `Σ r²` over the band.
+    SumSq,
+    /// `(1/N) Σ r²` over the band.
+    Mean,
+    /// The worst squared residual `max r²`, smoothed by the
+    /// Kreisselmeier–Steinhauser function (`ks_rho`).
+    Max,
+}
+
+/// Which side of the target is penalized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TargetMode {
+    /// `r = max(0, v − target)`: the value should be at most the target.
+    Below,
+    /// `r = max(0, target − v)`: at least the target.
+    Above,
+    /// `r = v − target`.
+    Equal,
+}
+
+/// One term of the objective: `weight · aggregate(r(observable, band))`.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ObjectiveTermSpec {
+    /// The sensitivity observable's report `label`.
+    pub observable: String,
+    /// `[lo_hz, hi_hz]`: the differentiated frequencies inside the band
+    /// (inclusive). Default: all of them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub band_hz: Option<[f64; 2]>,
+    /// Default `sum_sq`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aggregate: Option<OptimizeAggregate>,
+    /// Default `equal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<TargetMode>,
+    /// The target value, in the observable's unit.
+    pub target: f64,
+    /// Term weight (default `1`, `≥ 0`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weight: Option<f64>,
+    /// KS sharpness for `max` (default `50`, in 1 / (squared-residual unit)).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ks_rho: Option<f64>,
+}
+
+/// An observable inequality `max over the band of (v − bound) ≤ 0`
+/// (`below`) or `max over the band of (bound − v) ≤ 0` (`above`), the max
+/// smoothed by KS.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConstraintSpec {
+    /// The sensitivity observable's report `label`.
+    pub observable: String,
+    /// `[lo_hz, hi_hz]` (default: all differentiated frequencies).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub band_hz: Option<[f64; 2]>,
+    /// `below` or `above` (`equal` is not an inequality).
+    pub mode: TargetMode,
+    /// The bound, in the observable's unit.
+    pub bound: f64,
+    /// KS sharpness (default `50`, in 1 / (observable unit)).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ks_rho: Option<f64>,
+}
+
+/// Re-mesh policy of an [`OptimizeSpec`]: the spec's own mesh is rung 0 and
+/// `rungs` are the following ones, in order. Within an outer iteration (and
+/// its line search) the topology stays frozen; at the iteration boundary the
+/// run moves to the rung whose meshed parameter values are nearest (in
+/// optimizer units) to the current design among the later rungs that accept
+/// it under `min_volume_ratio`, re-baselines the objective there and starts
+/// a fresh L-BFGS-B / MMA state at the current design.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OptimizeRemeshSpec {
+    /// Also re-mesh after every this many iterations on a rung (`≥ 1`;
+    /// default: only when the guard trips). Once no later rung is usable the
+    /// cadence is skipped; a guard breach then fails the run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub every: Option<usize>,
+    /// Complete geode specs (a mesh and the parameter values it was meshed
+    /// at), later rungs after earlier ones; relative paths resolve against
+    /// the directory of the spec. Each must have the same `sensitivity`
+    /// parameters, observables and frequencies as the spec.
+    pub rungs: Vec<PathBuf>,
+}
+
+/// Stopping criteria of an [`OptimizeSpec`].
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OptimizeStopSpec {
+    /// Maximum iterations (default 50).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_iter: Option<usize>,
+    /// Maximum evaluations, failed ones included (default 5000).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_evals: Option<usize>,
+    /// Projected-gradient / KKT tolerance, in optimizer units (default `1e-6`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pg_tol: Option<f64>,
+    /// Relative objective change (default `1e-12`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub f_rel_tol: Option<f64>,
 }
 
 /// `element_order`: `1` or `2` (any other value is a `spec_parse` error).
@@ -743,6 +925,54 @@ pub struct SensitivityParameterSpec {
     /// Shape only: 2-D / 3-D physical groups whose nodes stay fixed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned: Option<Vec<String>>,
+    /// `kind = "dispersion"` only (required): the parameter of the group's
+    /// `materials[].dispersion` model to differentiate — `eps_r` /
+    /// `tan_delta` (`djordjevic_sarkar`), `eps_inf` / `delta_eps` / `tau_s`
+    /// (`debye`), `eps_inf` / `omega_p_rad_s` / `gamma_rad_s` (`drude`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_parameter: Option<DispersionParameter>,
+    /// `kind = "dispersion"` with a `debye` model, `delta_eps` / `tau_s`
+    /// only (required there): the 0-based index of the relaxation pole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pole: Option<usize>,
+}
+
+/// A differentiable parameter of a [`DispersionSpec`] model (Epic #841
+/// Phase 2a, issue #1259): the `model_parameter` of a
+/// [`SensitivityParameterKind::Dispersion`] parameter. Units are the
+/// model's own (`tau_s` s, `omega_p_rad_s` / `gamma_rad_s` rad/s).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DispersionParameter {
+    /// Djordjevic–Sarkar datasheet `ε′` at `f_ref_hz` (`tan δ` held).
+    EpsR,
+    /// Djordjevic–Sarkar datasheet `tan δ` at `f_ref_hz` (`ε′` held).
+    TanDelta,
+    /// Debye / Drude high-frequency permittivity `ε∞`.
+    EpsInf,
+    /// Debye pole step `Δε_k` (needs `pole`).
+    DeltaEps,
+    /// Debye pole relaxation time `τ_k` in s (needs `pole`).
+    TauS,
+    /// Drude plasma angular frequency `ω_p` (rad/s).
+    OmegaPRadS,
+    /// Drude collision rate `γ` (rad/s).
+    GammaRadS,
+}
+
+impl DispersionParameter {
+    /// Snake-case name, as in the spec.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::EpsR => "eps_r",
+            Self::TanDelta => "tan_delta",
+            Self::EpsInf => "eps_inf",
+            Self::DeltaEps => "delta_eps",
+            Self::TauS => "tau_s",
+            Self::OmegaPRadS => "omega_p_rad_s",
+            Self::GammaRadS => "gamma_rad_s",
+        }
+    }
 }
 
 /// The motion of a shape [`SensitivityParameterSpec`].
@@ -806,6 +1036,12 @@ pub enum SensitivityParameterKind {
     /// Huray sphere density `N/A_tile` (1/m²) of a Leontovich wall, at
     /// fixed sphere radius.
     WallBallDensity,
+    /// A parameter of the group's `materials[].dispersion` model (driven
+    /// N-port S sensitivity, Epic #841 Phase 2a, issue #1259): see
+    /// [`SensitivityParameterSpec::model_parameter`]. Costs zero extra
+    /// solves: `∂ε(ω)/∂θ` is contracted with the region's mass at every
+    /// frequency.
+    Dispersion,
 }
 
 impl SensitivityParameterKind {
@@ -823,6 +1059,7 @@ impl SensitivityParameterKind {
             SensitivityParameterKind::WallRmsRoughness => "wall_rms_roughness",
             SensitivityParameterKind::WallBallRadius => "wall_ball_radius",
             SensitivityParameterKind::WallBallDensity => "wall_ball_density",
+            SensitivityParameterKind::Dispersion => "dispersion",
         }
     }
 
@@ -1954,6 +2191,7 @@ mod tests {
         assert!(
             !serde_json::to_string(&ProblemSpec {
                 sensitivity: None,
+                optimize: None,
                 ..spec
             })
             .unwrap()

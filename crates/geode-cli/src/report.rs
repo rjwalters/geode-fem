@@ -1542,6 +1542,53 @@ pub struct DrivenReport {
     /// present only with a spec `adaptive_mesh` section).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adaptive_mesh: Option<AdaptiveMeshReport>,
+    /// Accuracy diagnostics (additive in v1, issue #1265); present only for
+    /// an `element_order = 2` lumped-port sweep.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accuracy: Option<DrivenAccuracy>,
+}
+
+/// Accuracy diagnostics of a driven report (issue #1265).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct DrivenAccuracy {
+    /// Same-mesh order-1 vs order-2 comparison.
+    pub order_estimate: DrivenOrderEstimate,
+}
+
+/// Same-mesh p=1 vs p=2 S-matrix difference (issue #1265): an indicator of
+/// the order-1 discretization error on this mesh, **not** a rigorous bound
+/// on the order-2 error. The goal-oriented DWR estimator of Epic #835
+/// (`adapt/dwr.rs`) needs a goal functional and an adjoint solve per
+/// frequency; the direct order-1 solve of the same operator is the
+/// cheaper indicator the issue asks for, and matches the eigen report's.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct DrivenOrderEstimate {
+    /// The comparison order, always `1`.
+    pub reference_order: u8,
+    /// One entry per frequency, in report order.
+    pub points: Vec<DrivenOrderEstimatePoint>,
+    /// `max` over frequencies of `delta_s_max`.
+    pub delta_s_max: f64,
+    /// Warning threshold on `delta_s_max` (absolute, S is dimensionless).
+    pub threshold: f64,
+    /// `delta_s_max > threshold`.
+    pub above_threshold: bool,
+    /// Human-readable warning (also printed to stderr) when above threshold.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+/// One frequency of a [`DrivenOrderEstimate`].
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct DrivenOrderEstimatePoint {
+    /// Index into the report's `results`.
+    pub index: usize,
+    /// The frequency (Hz).
+    pub frequency_hz: f64,
+    /// `max_ij |S2_ij − S1_ij|` over the S-matrix entries.
+    pub delta_s_max: f64,
+    /// `|S2_11 − S1_11|`, the first port's reflection.
+    pub delta_s11: f64,
 }
 
 /// Adaptive mesh refinement record of a `driven` / `eigen` report (additive
@@ -1896,6 +1943,51 @@ pub struct EigenReport {
     /// present only with a spec `adaptive_mesh` section).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adaptive_mesh: Option<AdaptiveMeshReport>,
+    /// Accuracy diagnostics (additive in v1, issue #1265); present only for
+    /// a lossless `element_order = 2` eigen solve.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accuracy: Option<EigenAccuracy>,
+}
+
+/// Accuracy diagnostics of an eigen report (issue #1265).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct EigenAccuracy {
+    /// Same-mesh order-1 vs order-2 comparison.
+    pub order_estimate: OrderEstimate,
+}
+
+/// Same-mesh p=1 vs p=2 resonant-frequency difference (issue #1265): an
+/// indicator of the order-1 discretization error on this mesh, **not** a
+/// rigorous bound on the order-2 error (the p=2 result is only presumed
+/// closer to the truth). Modes are paired by ascending index.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct OrderEstimate {
+    /// The comparison order, always `1`.
+    pub reference_order: u8,
+    /// Per-mode differences.
+    pub modes: Vec<OrderEstimateMode>,
+    /// `max_i |Δf_i| / f_i` (p=2 as the denominator).
+    pub delta_f_rel_max: f64,
+    /// Warning threshold on `delta_f_rel_max`.
+    pub threshold: f64,
+    /// `delta_f_rel_max > threshold`.
+    pub above_threshold: bool,
+    /// Human-readable warning (also printed to stderr) when above threshold.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+/// One mode of an [`OrderEstimate`].
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct OrderEstimateMode {
+    /// Mode index (ascending frequency).
+    pub index: usize,
+    /// The order-1 resonant frequency on the same mesh (Hz).
+    pub frequency_hz_p1: f64,
+    /// `f_p2 − f_p1` (Hz).
+    pub delta_f_hz: f64,
+    /// `|f_p2 − f_p1| / f_p2`.
+    pub delta_f_rel: f64,
 }
 
 /// Material design sensitivities of a report's observable (additive in
@@ -2099,6 +2191,97 @@ pub struct FdCheckSummary {
     /// Extra forward solves the check ran (`2` per parameter; on the
     /// N-port path, `2` full forward sweeps per parameter).
     pub n_forward_solves: usize,
+}
+
+/// `geode optimize` report (`kind = "optimize"`; Epic #841 Phase 6b).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct OptimizeReport {
+    /// Provenance (flattened).
+    #[serde(flatten)]
+    pub provenance: Provenance,
+    /// Always `"optimize"`.
+    #[schemars(extend("const" = "optimize"))]
+    pub kind: &'static str,
+    /// Always `"ok"` (a run that ends unconverged, e.g. at `max_iter`, is
+    /// still a report; see `converged` / `stop_status`).
+    #[schemars(extend("const" = "ok"))]
+    pub status: &'static str,
+    /// `"lbfgsb"` (no constraints) or `"mma"`.
+    pub algorithm: &'static str,
+    /// Whether a convergence criterion was met.
+    pub converged: bool,
+    /// The optimizer's final status (`running` when paused is never
+    /// reported): `converged:<reason>`, `max_iterations`, `max_evaluations`
+    /// or `stalled: <message>`.
+    pub stop_status: String,
+    /// Outer iterations run (including those before a `--resume`).
+    pub iterations: usize,
+    /// Evaluations spent, failed ones included.
+    pub evaluations: usize,
+    /// Of which failed (forward error, passivity tripwire, mesh-quality
+    /// guard); the optimizer backed off each.
+    pub failed_evaluations: usize,
+    /// Re-meshes onto a later rung of `optimize.remesh` (`0` without it).
+    pub remeshes: usize,
+    /// Objective at the starting point.
+    pub objective_initial: f64,
+    /// Objective at the best design (`best_*` artifacts).
+    pub objective_best: f64,
+    /// Largest constraint violation at the best design (`0` = feasible).
+    pub max_violation_best: f64,
+    /// The best design's variables.
+    pub variables: Vec<OptimizeVariableResult>,
+    /// Each objective term's value at the best design (unweighted).
+    pub term_values: Vec<f64>,
+    /// The constraint values `g ≤ 0` at the best design.
+    pub constraint_values: Vec<f64>,
+    /// `σ_max(S)` worst over the best design's differentiated frequencies.
+    pub passivity_sigma_max: f64,
+    /// Smallest tet-volume ratio of the best design's mesh against the
+    /// meshed one.
+    pub min_volume_ratio: f64,
+    /// The per-iteration JSONL history.
+    pub history_file: FileRef,
+    /// The resumable checkpoint (`--resume`).
+    pub checkpoint_file: FileRef,
+    /// The best design as a spec (`optimize.variables[].initial` set).
+    pub best_spec_file: FileRef,
+    /// The best design's mesh (Gmsh MSH 4.1).
+    pub best_mesh_file: FileRef,
+    /// The 5a gradient self-check at the best design, through the shipped
+    /// forward.
+    pub final_fd_check: OptimizeFdCheck,
+    /// Port-accuracy / mode-gap warnings of the best design's forward.
+    pub warnings: Vec<String>,
+    /// Wall time of the run (s).
+    pub wall_time_s: f64,
+}
+
+/// One design variable of an [`OptimizeReport`].
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct OptimizeVariableResult {
+    /// The sensitivity parameter's report name.
+    pub parameter: String,
+    /// Starting value (the parameter's unit).
+    pub initial: f64,
+    /// Value at the best design.
+    pub value: f64,
+    /// Lower bound.
+    pub lower: f64,
+    /// Upper bound.
+    pub upper: f64,
+}
+
+/// The final FD check of an [`OptimizeReport`] (Phase 5a's `fd_check`).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct OptimizeFdCheck {
+    /// Whether every gradient entry agreed with its FD estimate within
+    /// `tolerance`.
+    pub passed: bool,
+    /// The 5a summary when it passed.
+    pub summary: Option<FdCheckSummary>,
+    /// The disagreement (or the error that stopped the check) otherwise.
+    pub detail: Option<String>,
 }
 
 /// Error body.

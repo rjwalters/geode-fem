@@ -34,7 +34,6 @@
 use std::sync::Mutex;
 use std::time::Instant;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::adapt::driver::AdaptError;
@@ -57,13 +56,9 @@ use geode_core::elements::ElementOrder;
 use geode_core::elements::nedelec_p2::{tet_barycentric_gradients, tet_quad_deg4};
 use geode_core::mesh::periodic::{PeriodicMatchOptions, box_periodic_pairs};
 use geode_core::mesh::{TaggedTetMesh, TetMesh, read_spiral_smoke_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 const ZERO: c64 = c64 { re: 0.0, im: 0.0 };
 const PI: f64 = std::f64::consts::PI;

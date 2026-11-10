@@ -13,6 +13,8 @@ pub mod adjoint;
 pub mod analytic;
 pub mod assembly;
 pub mod constants;
+#[cfg(feature = "tensor")]
+pub(crate) mod dense_ops;
 pub mod derham;
 #[cfg(feature = "tensor")]
 pub mod driven;
@@ -31,8 +33,10 @@ pub mod quantum;
 pub mod shape;
 #[cfg(feature = "tensor")]
 pub mod solver;
+pub(crate) mod sparse_ops;
 #[cfg(feature = "tensor")]
 pub mod traits;
+pub(crate) mod vec3;
 
 #[cfg(feature = "testing")]
 #[cfg(feature = "tensor")]

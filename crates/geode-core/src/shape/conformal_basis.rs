@@ -1254,17 +1254,6 @@ impl ChartMorph {
             .collect()
     }
 
-    /// Chart displacement `(Δs, Δy)` at `x` of every node of
-    /// [`Self::exact_nodes`], parallel to it.
-    pub fn chart_displacements(&self, x: &[f64]) -> Vec<[f64; 2]> {
-        (0..self.exact.len())
-            .map(|k| {
-                let (ds, dy) = self.chart_disp(k, x);
-                [ds, dy]
-            })
-            .collect()
-    }
-
     /// Design gradient `∂g/∂x_q = Σ_n grad_node_n · ∂X_n/∂x_q (x)` through the
     /// exact Jacobian at `x` (substrate nodes) and the harmonic columns (air).
     ///

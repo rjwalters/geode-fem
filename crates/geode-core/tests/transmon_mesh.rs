@@ -15,8 +15,6 @@
 //! `transmon_smoke.provenance.txt` and the adapter itself is numbering-
 //! agnostic.
 
-use burn::tensor::backend::BackendTypes;
-
 use geode_core::assembly::nedelec::assemble_global_nedelec_with_epsilon;
 use geode_core::assembly::p1::upload_mesh;
 use geode_core::eigen::dense::{
@@ -29,13 +27,9 @@ use geode_core::mesh::transmon::{
     PORT_E_HAT, PORT_RESISTANCE_OHM, sapphire_eps_lab, sapphire_eps_scalar,
 };
 use geode_core::mesh::{TransmonFixture, read_transmon_smoke_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 // ---- Exact per-group counts from `transmon_smoke.provenance.txt`. -------
 // REAL DeviceLayout.jl v1.15.0 `SingleTransmon` mesh (generated 2026-07-14).

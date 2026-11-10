@@ -96,7 +96,6 @@
 
 use std::path::PathBuf;
 
-use burn::tensor::backend::BackendTypes;
 use faer::sparse::{SparseColMat, Triplet};
 use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
@@ -107,7 +106,7 @@ use geode_core::assembly::p1::upload_mesh;
 use geode_core::eigen::complex::{SparseComplexEigenSolver, SparseComplexShiftInvertLanczos};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use sha2::{Digest, Sha256};
 
 type B = TestBackend;
@@ -209,10 +208,6 @@ fn regenerated_fixture_path() -> PathBuf {
 const REGEN_CMD: &str = "GEODE_BLESS_DENSE_ORACLE=1 cargo test -p geode-core --release \
                          --test sparse_complex_eigensolver -- --ignored --exact \
                          regenerate_dense_oracle_fixture";
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// The sparse complex Mie pencil `(K_int, M_int)` on the bundled sphere
 /// fixture (PEC-reduced to interior edges).

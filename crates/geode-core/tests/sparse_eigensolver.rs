@@ -39,15 +39,9 @@ use geode_core::eigen::dense::{
 };
 use geode_core::eigen::lanczos::{SparseEigenSolver, SparseShiftInvertLanczos};
 use geode_core::mesh::cube_tet_mesh;
-use geode_core::testing::TestBackend;
-
-use burn::tensor::backend::BackendTypes;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Solve the lowest `n_modes` eigenvalues with the sparse Lanczos backend
 /// on an `n×n×n` unit-cube Dirichlet Laplacian.

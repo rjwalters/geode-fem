@@ -39,8 +39,10 @@
 //!   ([`real_transmon_eigenmodes_release`]) with the blog sanity band and
 //!   the committed Palace oracle comparison.
 
+mod common;
+use common::edge_tables;
+
 use burn::tensor::Tensor;
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::nedelec::{
@@ -54,13 +56,9 @@ use geode_core::eigen::transmon::{
 };
 use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
 use geode_core::mesh::{TetMesh, TransmonFixture, cube_tet_mesh, read_transmon_smoke_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// The DeviceLayout transmon mesh is in **micrometres** (substrate
 /// 4 mm ≈ 4000 mesh units; see the provenance file).
@@ -69,18 +67,6 @@ const M_PER_UNIT: f64 = 1e-6;
 /// Read a `[nnz]` Burn value tensor to a host Vec<f64>.
 fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
     t.into_data().iter::<f64>().collect()
-}
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
 }
 
 /// Assemble the REAL transmon pencil value vectors `(k_vals, m_vals)` via
