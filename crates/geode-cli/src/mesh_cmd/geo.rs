@@ -47,7 +47,9 @@
 use std::fmt::Write as _;
 
 pub use crate::mesh_cmd::layout::ConductorBody;
-use crate::mesh_cmd::layout::{Axis, BoundaryDef, OUTER_BOUNDARY, PolyShape, Rect, ResolvedLayout};
+use crate::mesh_cmd::layout::{
+    Axis, BoundaryDef, OUTER_BOUNDARY, PolyShape, Rect, ResolvedLayout, RingSeg,
+};
 
 /// What a generated physical group is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,6 +201,75 @@ fn bbox_lohi(kind: &str, lo: [f64; 3], hi: [f64; 3], eps: f64) -> String {
     )
 }
 
+/// Emit the outer ring with rounded convex corners as `Point` / `Line` /
+/// `Circle` (tangent arcs, start → centre → end) and a `Curve Loop`.
+fn rounded_loop(w: &mut String, p: &str, l: &str, ll: &str, shape: &PolyShape, z: f64) {
+    let segs = shape.rounded_outer();
+    let pt = |w: &mut String, idx: usize, q: [f64; 2]| {
+        let _ = writeln!(
+            w,
+            "Point({p}+{idx}) = {{{}, {}, {}}};",
+            num(q[0]),
+            num(q[1]),
+            num(z)
+        );
+    };
+    // Boundary points of each segment in ring order; an arc also has a
+    // centre point (not on the loop).
+    let mut idx = 0usize;
+    let mut ends: Vec<(usize, usize)> = Vec::new(); // (first, last) boundary point ids
+    let mut centres: Vec<Option<usize>> = Vec::new();
+    let _ = writeln!(w, "{p} = newp;");
+    for seg in &segs {
+        match *seg {
+            RingSeg::Corner(q) => {
+                pt(w, idx, q);
+                ends.push((idx, idx));
+                centres.push(None);
+                idx += 1;
+            }
+            RingSeg::Arc {
+                t_in,
+                centre,
+                t_out,
+            } => {
+                pt(w, idx, t_in);
+                pt(w, idx + 1, t_out);
+                pt(w, idx + 2, centre);
+                ends.push((idx, idx + 1));
+                centres.push(Some(idx + 2));
+                idx += 3;
+            }
+        }
+    }
+    let _ = writeln!(w, "{l} = newl;");
+    let n = segs.len();
+    let mut ids = Vec::new();
+    let mut c = 0usize;
+    for i in 0..n {
+        if let Some(cen) = centres[i] {
+            let _ = writeln!(
+                w,
+                "Circle({l}+{c}) = {{{p}+{}, {p}+{cen}, {p}+{}}};",
+                ends[i].0, ends[i].1
+            );
+            ids.push(format!("{l}+{c}"));
+            c += 1;
+        }
+        let next = ends[(i + 1) % n].0;
+        if ends[i].1 != next {
+            let _ = writeln!(w, "Line({l}+{c}) = {{{p}+{}, {p}+{next}}};", ends[i].1);
+            ids.push(format!("{l}+{c}"));
+            c += 1;
+        }
+    }
+    let _ = writeln!(
+        w,
+        "{ll} = newll; Curve Loop({ll}) = {{{}}};",
+        ids.join(", ")
+    );
+}
+
 /// Emit `shape` at height `z` as `Point` / `Line` / `Curve Loop` /
 /// `Plane Surface` (outer loop first, hole loops after) and bind the
 /// surface to the variable `s`.
@@ -214,6 +285,11 @@ fn plane_surface(w: &mut String, s: &str, shape: &PolyShape, z: f64) {
             format!("{s}_l{k}"),
             format!("{s}_ll{k}"),
         );
+        if k == 0 && shape.edge_radius > 0.0 {
+            rounded_loop(w, &p, &l, &ll, shape, z);
+            loops.push(ll);
+            continue;
+        }
         let _ = writeln!(w, "{p} = newp;");
         for (i, q) in ring.iter().enumerate() {
             let _ = writeln!(
@@ -651,6 +727,7 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
                         let hb = PolyShape {
                             outer: hole.clone(),
                             holes: Vec::new(),
+                            edge_radius: 0.0,
                         }
                         .bbox();
                         let mut zs = vec![p.z0];
@@ -1240,6 +1317,92 @@ mod tests {
             g.find("Physical Surface(\"pad\""),
         );
         assert!(pad < ring, "inner group first:\n{g}");
+    }
+
+    fn rounded_layout(radius: f64, outer: serde_json::Value) -> Layout {
+        serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [{"name": "air", "z_bottom": -1, "thickness": 12}],
+            "ground": [],
+            "conductors": [
+                {"name": "plate", "z_bottom": 1, "thickness": 0.5, "polygons": [
+                    {"outer": outer, "edge_radius": radius}]}
+            ],
+            "ports": [],
+            "margin": 3,
+            "mesh": {"size_max": 3, "size_conductor": 1}
+        }))
+        .unwrap()
+    }
+
+    const RECT: &str = "[[0,0],[10,0],[10,4],[0,4]]";
+
+    #[test]
+    fn edge_radius_emits_tangent_arcs_and_refines_the_mesh() {
+        let outer: serde_json::Value = serde_json::from_str(RECT).unwrap();
+        let r = rounded_layout(1.0, outer.clone())
+            .resolve_for(crate::mesh_cmd::layout::MeshAnalysis::Capacitance)
+            .unwrap();
+        let g = generate(&r, "test").text;
+        // Four arcs, four straight edges, one extruded plane surface.
+        assert_eq!(g.matches("Circle(").count(), 4, "{g}");
+        assert_eq!(g.matches("Line(sb_c0_0_l0+").count(), 4, "{g}");
+        assert!(g.contains("Plane Surface(sb_c0_0) = {sb_c0_0_ll0};"), "{g}");
+        assert!(g.contains("Extrude {0, 0, 0.5}"), "{g}");
+        // Corner (0,0): tangent points (0,1) and (1,0), centre (1,1).
+        assert!(g.contains("Point(sb_c0_0_p0+0) = {0, 1, 1};"), "{g}");
+        assert!(g.contains("Point(sb_c0_0_p0+1) = {1, 0, 1};"), "{g}");
+        assert!(g.contains("Point(sb_c0_0_p0+2) = {1, 1, 1};"), "{g}");
+        // The layer size (1) is refined to pi/2 * r / ARC_ELEMENTS.
+        let want = std::f64::consts::FRAC_PI_2 / crate::mesh_cmd::layout::ARC_ELEMENTS;
+        assert!(
+            (r.group_size(0) - want).abs() < 1e-12,
+            "{}",
+            r.group_size(0)
+        );
+        // Radius 0 is today's path: a Box, no arcs, no refinement.
+        let r0 = rounded_layout(0.0, outer)
+            .resolve_for(crate::mesh_cmd::layout::MeshAnalysis::Capacitance)
+            .unwrap();
+        let g0 = generate(&r0, "test").text;
+        assert!(g0.contains("Box(v_c0_0)") && !g0.contains("Circle("));
+        assert_eq!(r0.group_size(0), 1.0);
+    }
+
+    #[test]
+    fn edge_radius_rounds_only_convex_corners() {
+        // L shape: five convex corners, one reflex.
+        let outer = serde_json::json!([[0, 0], [6, 0], [6, 2], [2, 2], [2, 6], [0, 6]]);
+        let r = rounded_layout(0.5, outer)
+            .resolve_for(crate::mesh_cmd::layout::MeshAnalysis::Capacitance)
+            .unwrap();
+        let g = generate(&r, "test").text;
+        assert_eq!(g.matches("Circle(").count(), 5, "{g}");
+        // The reflex corner (2, 2) stays a sharp point.
+        assert!(g.contains("= {2, 2, 1};"), "{g}");
+    }
+
+    #[test]
+    fn edge_radius_is_validated() {
+        let rect: serde_json::Value = serde_json::from_str(RECT).unwrap();
+        let err = |radius: f64, outer: serde_json::Value| {
+            rounded_layout(radius, outer)
+                .resolve_for(crate::mesh_cmd::layout::MeshAnalysis::Capacitance)
+                .map(|_| ())
+                .unwrap_err()
+        };
+        // Shortest edge is 4: radius 2 is allowed (stadium end), 2.5 is not.
+        assert!(
+            rounded_layout(2.0, rect.clone())
+                .resolve_for(crate::mesh_cmd::layout::MeshAnalysis::Capacitance)
+                .is_ok()
+        );
+        let e = err(2.5, rect.clone());
+        assert!(e.contains("too large") && e.contains("plate"), "{e}");
+        assert!(err(-1.0, rect).contains("edge_radius"));
+        let e = err(0.5, serde_json::json!([[0, 0], [4, 0], [4, 4]]));
+        assert!(e.contains("axis-parallel"), "{e}");
     }
 
     #[test]

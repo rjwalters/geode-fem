@@ -183,6 +183,18 @@ pub struct Polygon {
     /// hole.
     #[serde(default)]
     pub holes: Vec<Vec<[f64; 2]>>,
+    /// Optional edge radius (`≥ 0`, default `0` = sharp corners): every
+    /// **convex** corner of the outer ring is replaced by a tangent
+    /// circular arc of this radius (in the layer plane, extruded through
+    /// the layer thickness). Reflex corners and hole rings stay sharp.
+    /// Only axis-parallel outer rings can be rounded, and the radius must
+    /// not exceed half the shortest outer edge.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub edge_radius: f64,
+}
+
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
 }
 
 /// Port kind. v1 knows only lumped gap ports.
@@ -509,7 +521,16 @@ impl ResolvedLayout {
         self.groups[g]
             .parts
             .iter()
-            .map(|p| self.conductor_size(p.layer))
+            .map(|p| {
+                let arc = p.poly.as_ref().map_or(f64::INFINITY, |s| {
+                    if s.edge_radius > 0.0 {
+                        std::f64::consts::FRAC_PI_2 * s.edge_radius / ARC_ELEMENTS
+                    } else {
+                        f64::INFINITY
+                    }
+                });
+                self.conductor_size(p.layer).min(arc)
+            })
             .fold(f64::INFINITY, f64::min)
     }
 
@@ -675,6 +696,29 @@ pub struct PolyShape {
     pub outer: Vec<[f64; 2]>,
     /// Hole rings (no closing vertices).
     pub holes: Vec<Vec<[f64; 2]>>,
+    /// Radius of the tangent arcs replacing the outer ring's convex
+    /// corners (`0` = sharp; see [`Polygon::edge_radius`]).
+    pub edge_radius: f64,
+}
+
+/// Elements the mesher puts along one rounded-corner quarter arc: the
+/// layer's target size is refined to `π r / 2 / ARC_ELEMENTS` near it.
+pub const ARC_ELEMENTS: f64 = 4.0;
+
+/// One vertex of a (possibly rounded) outer ring.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RingSeg {
+    /// A sharp corner.
+    Corner([f64; 2]),
+    /// A convex corner replaced by the arc `t_in → t_out` about `centre`.
+    Arc {
+        /// Tangent point on the incoming edge.
+        t_in: [f64; 2],
+        /// Arc centre.
+        centre: [f64; 2],
+        /// Tangent point on the outgoing edge.
+        t_out: [f64; 2],
+    },
 }
 
 /// Where a point lies relative to a ring.
@@ -877,7 +921,77 @@ impl PolyShape {
         Ok(PolyShape {
             outer,
             holes: checked,
+            edge_radius: 0.0,
         })
+    }
+
+    /// Round the outer ring's convex corners with radius `r` (`> 0`).
+    /// Errors (relative to the polygon) when the outer ring has a
+    /// non-axis-parallel edge or `r` exceeds half the shortest outer edge.
+    pub fn with_edge_radius(mut self, r: f64) -> Result<Self, String> {
+        if !(r.is_finite() && r >= 0.0) {
+            return Err(format!("edge_radius must be finite and ≥ 0 (got {r})"));
+        }
+        if r == 0.0 {
+            return Ok(self);
+        }
+        if !ring_edges(&self.outer).all(|(a, b)| a[0] == b[0] || a[1] == b[1]) {
+            return Err(
+                "edge_radius is supported only on axis-parallel outer rings (a ±45° edge \
+                 cannot be rounded yet)"
+                    .into(),
+            );
+        }
+        let shortest = ring_edges(&self.outer)
+            .map(|(a, b)| (b[0] - a[0]).hypot(b[1] - a[1]))
+            .fold(f64::INFINITY, f64::min);
+        if r > 0.5 * shortest {
+            return Err(format!(
+                "edge_radius {r} is too large for the feature: it must not exceed half the \
+                 shortest outer edge ({})",
+                0.5 * shortest
+            ));
+        }
+        self.edge_radius = r;
+        Ok(self)
+    }
+
+    /// The outer ring with its convex corners rounded, as a list of
+    /// [`RingSeg`]s (a plain polygon when `edge_radius` is `0`).
+    pub fn rounded_outer(&self) -> Vec<RingSeg> {
+        let n = self.outer.len();
+        let signed: f64 = ring_edges(&self.outer)
+            .map(|(a, b)| a[0] * b[1] - b[0] * a[1])
+            .sum();
+        let mut out = Vec::new();
+        for i in 0..n {
+            let (prev, v, next) = (
+                self.outer[(i + n - 1) % n],
+                self.outer[i],
+                self.outer[(i + 1) % n],
+            );
+            let convex = cross(prev, v, next) * signed > 0.0;
+            if self.edge_radius > 0.0 && convex {
+                let dir = |a: [f64; 2]| {
+                    let (dx, dy) = (a[0] - v[0], a[1] - v[1]);
+                    let l = dx.hypot(dy);
+                    [dx / l, dy / l]
+                };
+                let (u, w) = (dir(prev), dir(next));
+                let r = self.edge_radius;
+                let t_in = [v[0] + r * u[0], v[1] + r * u[1]];
+                let t_out = [v[0] + r * w[0], v[1] + r * w[1]];
+                let centre = [v[0] + r * (u[0] + w[0]), v[1] + r * (u[1] + w[1])];
+                out.push(RingSeg::Arc {
+                    t_in,
+                    centre,
+                    t_out,
+                });
+            } else {
+                out.push(RingSeg::Corner(v));
+            }
+        }
+        out
     }
 
     /// Bounding box of the outer ring.
@@ -901,6 +1015,7 @@ impl PolyShape {
         PolyShape {
             outer: rect_ring(r),
             holes: Vec::new(),
+            edge_radius: 0.0,
         }
     }
 
@@ -1180,16 +1295,18 @@ impl Layout {
                 // Rectilinear without holes: the v1 rectangle
                 // decomposition (byte-stable output). Anything else is one
                 // polygon part.
-                let (r, poly) = if p.holes.is_empty() && is_rectilinear(&p.outer) {
-                    let r = decompose_rectilinear(&p.outer)
-                        .map_err(|e| format!("conductors[{}] polygon {label}: {e}", c.name))?;
-                    let n = r.len();
-                    (r, vec![None; n])
-                } else {
-                    let shape = PolyShape::new(&p.outer, &p.holes)
-                        .map_err(|e| format!("conductors[{}] polygon {label}: {e}", c.name))?;
-                    (vec![shape.bbox()], vec![Some(shape)])
-                };
+                let (r, poly) =
+                    if p.holes.is_empty() && p.edge_radius == 0.0 && is_rectilinear(&p.outer) {
+                        let r = decompose_rectilinear(&p.outer)
+                            .map_err(|e| format!("conductors[{}] polygon {label}: {e}", c.name))?;
+                        let n = r.len();
+                        (r, vec![None; n])
+                    } else {
+                        let shape = PolyShape::new(&p.outer, &p.holes)
+                            .and_then(|s| s.with_edge_radius(p.edge_radius))
+                            .map_err(|e| format!("conductors[{}] polygon {label}: {e}", c.name))?;
+                        (vec![shape.bbox()], vec![Some(shape)])
+                    };
                 rects.extend_from_slice(&r);
                 polys.extend(poly.iter().cloned());
                 shapes.push(Shape {
@@ -1274,6 +1391,7 @@ impl Layout {
                     let void = PolyShape {
                         outer: hole.clone(),
                         holes: Vec::new(),
+                        edge_radius: 0.0,
                     };
                     for (lj, (c2, shapes2)) in self.conductors.iter().zip(&shape_rects).enumerate()
                     {
