@@ -56,10 +56,14 @@
 //!    cargo test -p geode-cli --release --test patch_extract_golden -- --ignored
 //!    ```
 
+#[path = "support/scratch.rs"]
+mod scratch_support;
+
 use std::path::PathBuf;
 use std::process::Command;
 
 use geode_core::analytic::patch::PatchCavity;
+use scratch_support::Scratch;
 
 fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -82,26 +86,6 @@ const F_RES_REL_BAND: f64 = 0.08;
 
 /// UPML strength of both specs (`examples/patch_antenna`'s `SIGMA_0`).
 const SIGMA_0: f64 = 25.0;
-
-/// A scratch directory removed (recursively) on drop, so repeated runs
-/// do not accumulate `$TMPDIR/geode-cli-patch-*` directories.
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn new(name: &str) -> Self {
-        let dir =
-            std::env::temp_dir().join(format!("geode-cli-patch-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        Self(dir)
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
 
 fn run_geode(cmd: &str, spec: &std::path::Path) -> serde_json::Value {
     run_geode_args(cmd, spec, &[])
@@ -326,8 +310,8 @@ fn patch_smoke_silver_muller_outer_wall_matches_library() {
     });
     v["frequencies"] = serde_json::json!({ "unit": "ghz", "values": [2.4] });
     v.as_object_mut().unwrap().remove("extract");
-    let dir = TempDir::new("sm");
-    let spec = dir.0.join("spec.json");
+    let dir = Scratch::new("geode-cli-patch-", "sm");
+    let spec = dir.join("spec.json");
     std::fs::write(&spec, serde_json::to_string_pretty(&v).unwrap()).unwrap();
 
     let report = run_geode("driven", &spec);
@@ -358,8 +342,8 @@ fn patch_smoke_extract_default_iterative_reports_upml_preconditioner_fallback_wa
         .expect("smoke mesh");
     v["mesh"]["path"] = mesh.display().to_string().into();
     v["solver"] = serde_json::json!({ "mode": "iterative", "tol": 1e-3, "max_iters": 20000 });
-    let dir = TempDir::new("pcfallback");
-    let spec = dir.0.join("spec.json");
+    let dir = Scratch::new("geode-cli-patch-", "pcfallback");
+    let spec = dir.join("spec.json");
     std::fs::write(&spec, serde_json::to_string_pretty(&v).unwrap()).unwrap();
 
     let out = Command::new(env!("CARGO_BIN_EXE_geode"))
@@ -421,9 +405,9 @@ fn vtu_points(vtu: &str) -> usize {
 
 #[test]
 fn patch_smoke_outdir_exports_field_and_ntff_matching_library() {
-    let dir = TempDir::new("outdir");
+    let dir = Scratch::new("geode-cli-patch-", "outdir");
     // A not-yet-existing nested directory is created on demand.
-    let outdir = dir.0.join("fields/run1");
+    let outdir = dir.join("fields/run1");
     let report = run_geode_args(
         "extract",
         &fixture_spec("patch_extract_smoke.json"),
