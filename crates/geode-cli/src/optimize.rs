@@ -1257,7 +1257,11 @@ fn drive<O: Optimizer>(
         None => opt.start(scaled, x0, bounds).map_err(opt_err)?,
     };
     if ctx.rm.f_initial_bits.is_none() {
-        ctx.rm.f_initial_bits = Some(O::progress(&state).f.to_bits());
+        // A resumed state carries its whole history, so the true starting
+        // objective is its first record (not the checkpoint's current one).
+        let prog = O::progress(&state);
+        let f0 = prog.history.first().map_or(prog.f, |r| r.f);
+        ctx.rm.f_initial_bits = Some(f0.to_bits());
     }
     if let (false, Some(pd)) = (is_resume, pending) {
         let after = O::progress(&state).f;
