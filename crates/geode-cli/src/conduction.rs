@@ -26,6 +26,7 @@ use geode_core::assembly::conduction::{
 
 use crate::check::{mesh_summary, region_summaries};
 use crate::error::CliError;
+use crate::export::OutDir;
 use crate::problem;
 use crate::report::{
     ConductionReport, ConductionSettingsSummary, ConductionSolverStats, ConductorSummary,
@@ -33,8 +34,17 @@ use crate::report::{
 };
 use crate::spec::Analysis;
 
+/// Name of the per-element field file written under `--outdir`.
+pub const FIELDS_FILE_NAME: &str = "conduction_fields.vtu";
+
 /// Load, solve and report.
-pub fn run(spec_path: &Path, provenance: Provenance) -> Result<ConductionReport, CliError> {
+pub fn run(
+    spec_path: &Path,
+    provenance: Provenance,
+    outdir: Option<&Path>,
+) -> Result<ConductionReport, CliError> {
+    // Create `--outdir` up front so an unwritable path fails before the solve.
+    let out = OutDir::create_opt(outdir)?;
     let p = problem::load(spec_path, Some(Analysis::Conduction))?;
     let target = p
         .conduction
@@ -114,6 +124,23 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<ConductionReport,
         / scale;
     let max_joule_w_m3 = sol.joule_density.iter().copied().fold(0.0, f64::max) / (scale * scale);
 
+    let fields_file = out
+        .as_ref()
+        .map(|o| {
+            let j_si: Vec<[f64; 3]> = sol
+                .j
+                .iter()
+                .map(|j| [j[0] / scale, j[1] / scale, j[2] / scale])
+                .collect();
+            let joule_si: Vec<f64> = sol
+                .joule_density
+                .iter()
+                .map(|q| q / (scale * scale))
+                .collect();
+            o.write_cell_fields(FIELDS_FILE_NAME, mesh, &j_si, &joule_si, &target.sigma_s_m)
+        })
+        .transpose()?;
+
     Ok(ConductionReport {
         provenance,
         kind: "conduction",
@@ -130,8 +157,12 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<ConductionReport,
         power_balance_rel_error: sol.power_rel_mismatch,
         max_current_density_a_m2: max_j_a_m2,
         max_joule_density_w_m3: max_joule_w_m3,
-        per_element_fields: "not_exported: `geode conduction` reports the maxima \
-                             (`max_current_density_a_m2`, `max_joule_density_w_m3`) only",
+        per_element_fields: if fields_file.is_some() {
+            "exported: see `fields_file`"
+        } else {
+            "not_exported: pass `--outdir DIR` to write the per-element fields"
+        },
+        fields_file,
         solver: ConductionSolverStats {
             method: "gradient_energy",
             inner: "direct_lu_jacobi_scaled",
