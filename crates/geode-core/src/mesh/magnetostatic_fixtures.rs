@@ -22,7 +22,7 @@
 //!   PEC-bounded cylinder, for the Maxwell **mutual-inductance** off-diagonal
 //!   oracle.
 
-use crate::vec3::{cross3 as cross, dot3 as dot, sub3 as sub};
+use crate::mesh::tet_split::{push_hex_tets, push_prism_tets};
 use std::f64::consts::PI;
 
 use crate::mesh::TetMesh;
@@ -116,7 +116,7 @@ pub fn solid_coax_mesh(
             let p1 = node_idx(1, ith + 1, iz);
             let q0 = node_idx(1, ith, iz + 1);
             let q1 = node_idx(1, ith + 1, iz + 1);
-            push_prism_tets(&mut tets, [a0, p0, p1], [a1, q0, q1], &nodes);
+            push_prism_tets(&mut tets, [a0, p0, p1, a1, q0, q1], &nodes);
 
             // Outer annular hex cells.
             for ir in 1..(n_rings - 1) {
@@ -227,7 +227,7 @@ pub fn loop_pair_mesh(
             let p1 = node_idx(1, ith + 1, iz);
             let q0 = node_idx(1, ith, iz + 1);
             let q1 = node_idx(1, ith + 1, iz + 1);
-            push_prism_tets(&mut tets, [a0, p0, p1], [a1, q0, q1], &nodes);
+            push_prism_tets(&mut tets, [a0, p0, p1, a1, q0, q1], &nodes);
 
             for ir in 1..(n_rings - 1) {
                 let c = [
@@ -313,48 +313,4 @@ pub fn cylinder_cap_nodes(mesh: &TetMesh, length: f64) -> Vec<u32> {
         .filter(|(_, p)| p[2].abs() < tolz || (p[2] - length).abs() < tolz)
         .map(|(i, _)| i as u32)
         .collect()
-}
-
-/// Split a triangular prism `[bottom triple][top triple]` into 3 tets,
-/// choosing a diagonal split consistent with ascending global indices (so
-/// shared faces between neighbouring prisms/hexes match).
-fn push_prism_tets(tets: &mut Vec<[u32; 4]>, bottom: [u32; 3], top: [u32; 3], nodes: &[[f64; 3]]) {
-    let [b0, b1, b2] = bottom;
-    let [t0, t1, t2] = top;
-    // Standard prism → 3 tets.
-    for tet in [[b0, b1, b2, t2], [b0, b1, t2, t1], [b0, t1, t2, t0]] {
-        tets.push(orient(tet, nodes));
-    }
-}
-
-/// Split a hex cell (8 corners in the local order used by the generators)
-/// into 6 tets.
-fn push_hex_tets(tets: &mut Vec<[u32; 4]>, c: &[u32; 8], nodes: &[[f64; 3]]) {
-    // Corners: 0-3 bottom face (CCW), 4-7 top face (CCW). Standard
-    // 6-tet Kuhn decomposition sharing the 0-6 main diagonal.
-    const KUHN: [[usize; 4]; 6] = [
-        [0, 1, 2, 6],
-        [0, 2, 3, 6],
-        [0, 3, 7, 6],
-        [0, 7, 4, 6],
-        [0, 4, 5, 6],
-        [0, 5, 1, 6],
-    ];
-    for k in KUHN {
-        tets.push(orient([c[k[0]], c[k[1]], c[k[2]], c[k[3]]], nodes));
-    }
-}
-
-/// Ensure a tet has positive signed volume (swap two vertices if inverted).
-fn orient(t: [u32; 4], nodes: &[[f64; 3]]) -> [u32; 4] {
-    let v0 = nodes[t[0] as usize];
-    let e1 = sub(nodes[t[1] as usize], v0);
-    let e2 = sub(nodes[t[2] as usize], v0);
-    let e3 = sub(nodes[t[3] as usize], v0);
-    let det = dot(e1, cross(e2, e3));
-    if det < 0.0 {
-        [t[0], t[1], t[3], t[2]]
-    } else {
-        t
-    }
 }

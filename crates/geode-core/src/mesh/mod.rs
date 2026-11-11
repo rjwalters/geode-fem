@@ -34,6 +34,7 @@ pub mod red_refine;
 pub mod sphere;
 pub mod spiral;
 pub mod tagged_tri;
+pub(crate) mod tet_split;
 pub mod transmon;
 
 pub use extrude::{ExtrudedEdge, ExtrudedTriMesh, extrude_tri_mesh, extrude_tri_mesh_layers};
