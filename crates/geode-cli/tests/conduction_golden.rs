@@ -201,3 +201,106 @@ fn invalid_specs_are_rejected() {
         "one analysis",
     );
 }
+
+/// Numbers of the `DataArray` whose tag line contains `needle`.
+fn vtu_array(text: &str, needle: &str) -> Vec<f64> {
+    let start = text
+        .find(needle)
+        .unwrap_or_else(|| panic!("array {needle} missing"));
+    let body = &text[start..];
+    let body = &body[body.find('>').unwrap() + 1..];
+    body[..body.find("</DataArray>").unwrap()]
+        .split_whitespace()
+        .map(|t| t.parse().unwrap())
+        .collect()
+}
+
+#[test]
+fn field_export_writes_cell_data_consistent_with_report() {
+    let dir = Scratch::new("geode-", "conduction-export");
+    let mesh = write_bar(&dir);
+    let spec_path = dir.join("bar.json");
+    std::fs::write(
+        &spec_path,
+        serde_json::to_vec(&spec(&mesh, json!({}))).unwrap(),
+    )
+    .unwrap();
+    let outdir = dir.join("fields");
+
+    // Without --outdir: nothing is written and no file is referenced.
+    let plain = geode(&["conduction", spec_path.to_str().unwrap()]);
+    let plain: Value = serde_json::from_slice(&plain.stdout).unwrap();
+    assert!(plain.get("fields_file").is_none());
+    assert!(
+        plain["per_element_fields"]
+            .as_str()
+            .unwrap()
+            .starts_with("not_exported")
+    );
+    assert!(!outdir.exists());
+
+    let out = geode(&[
+        "conduction",
+        spec_path.to_str().unwrap(),
+        "--outdir",
+        outdir.to_str().unwrap(),
+    ]);
+    assert!(out.status.success());
+    let r: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(
+        r["per_element_fields"]
+            .as_str()
+            .unwrap()
+            .starts_with("exported")
+    );
+    let name = r["fields_file"]["path"].as_str().unwrap();
+    assert_eq!(r["fields_file"]["sha256"].as_str().unwrap().len(), 64);
+    let text = std::fs::read_to_string(outdir.join(name)).unwrap();
+
+    // Round trip: one cell per tet, same maxima as the report.
+    let conn = vtu_array(&text, "Name=\"connectivity\"");
+    let n_tets = conn.len() / 4;
+    assert_eq!(n_tets, 6 * 4 * 4 * 4, "cube_tet_mesh(4) has 6*4^3 tets");
+    let j = vtu_array(&text, "Name=\"J\"");
+    let joule = vtu_array(&text, "Name=\"joule_density\"");
+    let sigma = vtu_array(&text, "Name=\"sigma\"");
+    assert_eq!(
+        (j.len(), joule.len(), sigma.len()),
+        (3 * n_tets, n_tets, n_tets)
+    );
+    let max_j = j
+        .chunks(3)
+        .map(|v| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt())
+        .fold(0.0, f64::max);
+    let max_q = joule.iter().copied().fold(0.0, f64::max);
+    assert!(rel(max_j, r["max_current_density_a_m2"].as_f64().unwrap()) < 1e-12);
+    assert!(rel(max_q, r["max_joule_density_w_m3"].as_f64().unwrap()) < 1e-12);
+    assert!(sigma.iter().all(|&s| s == SIGMA));
+    // Uniform bar: J = σ V / L along x.
+    let j_ref = SIGMA / (LX * UNIT_M);
+    assert!(rel(j[0], j_ref) < 1e-6 && j[1].abs() < 1e-6 * j_ref);
+
+    // The volume integral of the exported Joule density is V² G (V = 1,
+    // no r_ext, so the lumped-resistor power is zero), with the tet
+    // volumes recomputed from the exported points (mesh units → m).
+    let pts = vtu_array(&text, "NumberOfComponents=\"3\" format=\"ascii\"");
+    let vol: f64 = conn
+        .chunks(4)
+        .zip(&joule)
+        .map(|(t, q)| {
+            let p = |i: usize| {
+                let k = 3 * t[i] as usize;
+                [pts[k], pts[k + 1], pts[k + 2]]
+            };
+            let (a, b, c, d) = (p(0), p(1), p(2), p(3));
+            let u = |x: [f64; 3]| [x[0] - a[0], x[1] - a[1], x[2] - a[2]];
+            let (u1, u2, u3) = (u(b), u(c), u(d));
+            let det = u1[0] * (u2[1] * u3[2] - u2[2] * u3[1])
+                - u1[1] * (u2[0] * u3[2] - u2[2] * u3[0])
+                + u1[2] * (u2[0] * u3[1] - u2[1] * u3[0]);
+            q * det.abs() / 6.0 * UNIT_M.powi(3)
+        })
+        .sum();
+    let g = r["g_siemens"][0][0].as_f64().unwrap();
+    assert!(rel(vol, g) < 1e-6, "∫q dV {vol} vs V²G {g}");
+}
