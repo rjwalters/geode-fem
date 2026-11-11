@@ -1082,14 +1082,23 @@ pub struct ConductionReport {
     /// library docs).
     pub power_balance_rel_error: f64,
     /// Largest per-element current density `|J|` (A/m²) at the operating
-    /// point.
+    /// point. **Mesh-dependent**: at a re-entrant corner the P1 current
+    /// density is singular and this maximum grows without bound under
+    /// refinement; do not read it as a converged peak.
     pub max_current_density_a_m2: f64,
     /// Largest per-element Joule density `σ|∇φ|²` (W/m³) at the operating
-    /// point.
+    /// point. **Mesh-dependent** in the same way as
+    /// `max_current_density_a_m2`.
     pub max_joule_density_w_m3: f64,
-    /// Whether per-element `J` / Joule fields are exported: the existing
-    /// export path has no scalar-static field output, so they are not.
+    /// Whether per-element `J` / Joule fields are exported: `exported`
+    /// (see `fields_file`) with `--outdir`, otherwise a `not_exported`
+    /// marker.
     pub per_element_fields: &'static str,
+    /// Cell-data `.vtu` with per-tet `J` (A/m²), `joule_density` (W/m³) and
+    /// `sigma` (S/m) in SI at the reported operating point; points are in
+    /// mesh units. Present only with `--outdir` (additive in v1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fields_file: Option<FileRef>,
     /// Solver statistics.
     pub solver: ConductionSolverStats,
 }

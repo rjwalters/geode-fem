@@ -9,7 +9,7 @@
 //! geode extract <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
 //!                   [--touchstone PATH] [--jobs N] [--progress]
 //! geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice PATH [--spice-ret-pin]]
-//! geode conduction <spec.json|spec.toml> [-o report.json] [--threads N]
+//! geode conduction <spec.json|spec.toml> [-o report.json] [--threads N] [--outdir DIR]
 //! geode eqs <spec.json|spec.toml> [-o report.json] [--threads N]
 //! geode inductance <spec.json|spec.toml> [-o report.json] [--threads N]
 //!                   [--spice PATH [--spice-ret-pin] [--spice-positive-k]]
@@ -127,7 +127,7 @@ enum Command {
     /// The reported currents / power are for the first terminal at 1 V,
     /// the rest at 0 V. Needs a spec with a `conduction` section and no
     /// ports or frequencies.
-    Conduction(StaticArgs),
+    Conduction(ConductionArgs),
     /// Electro-quasi-static solve (`div(sigma grad phi + d/dt(eps grad phi))
     /// = 0`) between named terminals with optional floating conductors:
     /// either a transient under per-terminal waveforms (step / pulse /
@@ -204,6 +204,20 @@ struct StaticArgs {
     /// `GEODE_NUM_THREADS`). Default: the library defaults.
     #[arg(long, value_name = "N")]
     threads: Option<NonZeroUsize>,
+}
+
+/// `geode conduction` arguments: the shared static-solve arguments plus
+/// `--outdir` for the per-element field export.
+#[derive(Args)]
+struct ConductionArgs {
+    #[command(flatten)]
+    base: StaticArgs,
+    /// Write the per-element `J` / Joule density / sigma cell-data `.vtu`
+    /// (`conduction_fields.vtu`) here (created if missing; an existing
+    /// file of that name is overwritten). The report's `fields_file`
+    /// references it. Default: nothing is written.
+    #[arg(long, value_name = "DIR")]
+    outdir: Option<PathBuf>,
 }
 
 /// `geode capacitance` arguments: the shared static-solve arguments plus
@@ -504,11 +518,11 @@ impl App for Cli {
                 let result = capacitance::run(&a.spec, prov.clone(), spice.as_deref(), opts);
                 finish("capacitance", prov, a.output.as_deref(), result)
             }
-            Command::Conduction(a) => {
+            Command::Conduction(ConductionArgs { base: a, outdir }) => {
                 let threads = a.threads.map(NonZeroUsize::get);
                 let prov = Self::provenance(&a.spec, threads);
                 let _par = threads.map(apply_thread_cap);
-                let result = conduction::run(&a.spec, prov.clone());
+                let result = conduction::run(&a.spec, prov.clone(), outdir.as_deref());
                 finish("conduction", prov, a.output.as_deref(), result)
             }
             Command::Eqs(a) => {

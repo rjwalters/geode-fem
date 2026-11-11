@@ -1150,6 +1150,17 @@
           "$ref": "#/$defs/ConductionSettingsSummary",
           "description": "The conduction settings and system size."
         },
+        "fields_file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Cell-data `.vtu` with per-tet `J` (A/m²), `joule_density` (W/m³) and\n`sigma` (S/m) in SI at the reported operating point; points are in\nmesh units. Present only with `--outdir` (additive in v1)."
+        },
         "g_siemens": {
           "description": "The N×N terminal conductance matrix (S): `I_i = Σ_j G_ij V_j`,\nsymmetric; rows sum to zero when no terminal drains to ground.",
           "items": {
@@ -1175,12 +1186,12 @@
           "type": "string"
         },
         "max_current_density_a_m2": {
-          "description": "Largest per-element current density `|J|` (A/m²) at the operating\npoint.",
+          "description": "Largest per-element current density `|J|` (A/m²) at the operating\npoint. **Mesh-dependent**: at a re-entrant corner the P1 current\ndensity is singular and this maximum grows without bound under\nrefinement; do not read it as a converged peak.",
           "format": "double",
           "type": "number"
         },
         "max_joule_density_w_m3": {
-          "description": "Largest per-element Joule density `σ|∇φ|²` (W/m³) at the operating\npoint.",
+          "description": "Largest per-element Joule density `σ|∇φ|²` (W/m³) at the operating\npoint. **Mesh-dependent** in the same way as\n`max_current_density_a_m2`.",
           "format": "double",
           "type": "number"
         },
@@ -1199,7 +1210,7 @@
           "description": "Mesh summary (the scalar system size is in `conduction`)."
         },
         "per_element_fields": {
-          "description": "Whether per-element `J` / Joule fields are exported: the existing\nexport path has no scalar-static field output, so they are not.",
+          "description": "Whether per-element `J` / Joule fields are exported: `exported`\n(see `fields_file`) with `--outdir`, otherwise a `not_exported`\nmarker.",
           "type": "string"
         },
         "power_balance_rel_error": {
