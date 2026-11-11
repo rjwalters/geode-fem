@@ -49,14 +49,13 @@
 
 #[path = "../tests/common/transmon_util.rs"]
 mod transmon_util;
-use transmon_util::git_head;
+use transmon_util::{arr, edge_tables, git_head, vals_to_host};
 
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use burn::tensor::Tensor;
 use faer::c64;
 
 use geode_core::assembly::nedelec::{
@@ -70,7 +69,7 @@ use geode_core::eigen::transmon::{
 };
 use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
 use geode_core::mesh::transmon::{JUNCTION_CAPACITANCE_F, JUNCTION_INDUCTANCE_H};
-use geode_core::mesh::{TetMesh, TransmonFixture, read_transmon_smoke_fixture};
+use geode_core::mesh::{TransmonFixture, read_transmon_smoke_fixture};
 use geode_core::quantum::transmon::{
     DEVICELAYOUT_COUPLING_K, DEVICELAYOUT_COUPLING_K_BAND, DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H,
     DEVICELAYOUT_LOOP_INDUCTANCE_H, DEVICELAYOUT_QUBIT_FREQUENCY_HZ,
@@ -185,22 +184,6 @@ const FINGER_LEN_UM: f64 = 620.0;
 const WIRE_W_UM: f64 = 1.0;
 const WIRE_LEN_UM: f64 = 12.0;
 const MU0: f64 = 1.256_637_062_12e-6;
-
-fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
-    t.into_data().iter::<f64>().collect()
-}
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
-}
 
 /// The fixture with the wire's port stretch set to `[y_lo, y_hi]` (µm).
 /// Returns the variant and the number of retagged triangles.
@@ -464,16 +447,6 @@ fn floor_dp(x: f64, dp: i32) -> f64 {
 fn ceil_dp(x: f64, dp: i32) -> f64 {
     let s = 10f64.powi(dp);
     (x * s).ceil() / s
-}
-
-fn arr(v: &[f64], prec: usize) -> String {
-    format!(
-        "[{}]",
-        v.iter()
-            .map(|x| format!("{x:.prec$}"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    )
 }
 
 fn arr_e(v: &[f64]) -> String {
