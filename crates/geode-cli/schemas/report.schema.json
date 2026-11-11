@@ -2562,6 +2562,506 @@
       ],
       "type": "object"
     },
+    "EqsAdmittanceReport": {
+      "description": "Small-signal terminal admittance at one frequency (SI units).",
+      "properties": {
+        "c_farad": {
+          "description": "`C = Im Y / omega` (F); `null` at `omega = 0`, where it is not\ndefined by the admittance (use `geode capacitance`).",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "frequency_hz": {
+          "description": "Frequency (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "g_siemens": {
+          "description": "`Re Y` (S), `I_i = sum_j Y_ij V_j`; this is the conductance `G`.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "omega_rad_s": {
+          "description": "`omega = 2 pi f` (rad/s).",
+          "format": "double",
+          "type": "number"
+        },
+        "y_im_siemens": {
+          "description": "`Im Y` (S).",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "frequency_hz",
+        "omega_rad_s",
+        "g_siemens",
+        "y_im_siemens",
+        "c_farad"
+      ],
+      "type": "object"
+    },
+    "EqsReport": {
+      "description": "`geode eqs` report (`kind = \"eqs\"`, additive in v1). Exactly one of\n`transient` and `admittance` is present, matching `eqs.mode`.",
+      "properties": {
+        "admittance": {
+          "description": "Admittance per frequency (frequency mode), in `eqs.frequencies`\norder.",
+          "items": {
+            "$ref": "#/$defs/EqsAdmittanceReport"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "backend": {
+          "description": "Compiled-in Burn backend: `ndarray`, `wgpu`, `cuda` or `metal`.",
+          "type": "string"
+        },
+        "eqs": {
+          "$ref": "#/$defs/EqsSettingsSummary",
+          "description": "The EQS settings and system size."
+        },
+        "floating": {
+          "description": "Floating-conductor names.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "geode_version": {
+          "description": "`geode-cli` crate version.",
+          "type": "string"
+        },
+        "git_sha": {
+          "description": "Git revision baked in at build time (`<sha>[-dirty]` or `unknown`).",
+          "type": "string"
+        },
+        "kind": {
+          "const": "eqs",
+          "description": "Always `\"eqs\"`.",
+          "type": "string"
+        },
+        "mesh": {
+          "$ref": "#/$defs/MeshSummary",
+          "description": "Mesh summary."
+        },
+        "regions": {
+          "description": "Volume regions.",
+          "items": {
+            "$ref": "#/$defs/RegionSummary"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "const": 1,
+          "description": "[`REPORT_SCHEMA_VERSION`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "solver": {
+          "$ref": "#/$defs/EqsSolverStats",
+          "description": "Solver statistics."
+        },
+        "spec_path": {
+          "description": "Spec path as given on the command line.",
+          "type": "string"
+        },
+        "status": {
+          "const": "ok",
+          "description": "Always `\"ok\"` (failures produce an [`ErrorReport`]).",
+          "type": "string"
+        },
+        "terminals": {
+          "description": "Terminal names in report row/column order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "threads": {
+          "description": "`--threads` value, or `null` when not given (library defaults).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "transient": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EqsTransientReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Time-domain result (transient mode)."
+        }
+      },
+      "required": [
+        "schema_version",
+        "geode_version",
+        "git_sha",
+        "backend",
+        "threads",
+        "spec_path",
+        "kind",
+        "status",
+        "mesh",
+        "regions",
+        "eqs",
+        "terminals",
+        "floating",
+        "solver"
+      ],
+      "type": "object"
+    },
+    "EqsSettingsSummary": {
+      "description": "Echo of a resolved `eqs` spec section plus the size of the scalar system\n(additive in v1, issue #1494).",
+      "properties": {
+        "element": {
+          "description": "Always `\"p1_tet\"`.",
+          "type": "string"
+        },
+        "floating": {
+          "description": "Floating conductors.",
+          "items": {
+            "$ref": "#/$defs/ConductorSummary"
+          },
+          "type": "array"
+        },
+        "mode": {
+          "description": "`\"transient\"` or `\"admittance\"`.",
+          "type": "string"
+        },
+        "n_dof": {
+          "description": "Scalar DOFs before elimination (= mesh nodes).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "terminals": {
+          "description": "Driven terminals in report order.",
+          "items": {
+            "$ref": "#/$defs/ConductorSummary"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "terminals",
+        "floating",
+        "mode",
+        "element",
+        "n_dof"
+      ],
+      "type": "object"
+    },
+    "EqsSolverStats": {
+      "description": "Statistics of a `geode eqs` solve.",
+      "properties": {
+        "inner": {
+          "description": "Always `\"direct_lu\"`.",
+          "type": "string"
+        },
+        "method": {
+          "description": "`\"theta_method\"` (transient) or `\"complex_block\"` (admittance).",
+          "type": "string"
+        },
+        "wall_time_s": {
+          "description": "Wall time of assembly + solve + post-processing, seconds.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "method",
+        "inner",
+        "wall_time_s"
+      ],
+      "type": "object"
+    },
+    "EqsSpec": {
+      "additionalProperties": false,
+      "description": "Electro-quasi-static settings (`geode eqs`, issue #1494).\n\nSolves `div(sigma grad phi + d/dt(eps grad phi)) = 0`\n([`geode_core::assembly::eqs_transient`]) with per-region `eps_r` and\n`conductivity_s_m` from `materials[]` (every material needs\n`conductivity_s_m`; unlisted regions are vacuum, `sigma = 0`). Exactly\none of `transient` (time-domain response to the terminal waveforms) and\n`frequencies` (small-signal admittance) must be given.",
+      "properties": {
+        "floating": {
+          "description": "Floating conductors (dimension-2 physical groups): equipotential,\nzero net current, initially uncharged.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "frequencies": {
+          "description": "Frequency-domain mode: frequencies in Hz (finite, `>= 0`).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "terminals": {
+          "description": "Driven terminals (dimension-2 physical groups), in report order.",
+          "items": {
+            "$ref": "#/$defs/EqsTerminalSpec"
+          },
+          "type": "array"
+        },
+        "transient": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EqsTransientSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Time-domain mode."
+        }
+      },
+      "required": [
+        "terminals"
+      ],
+      "type": "object"
+    },
+    "EqsStepReport": {
+      "description": "One time level of an `eqs` transient (SI units).",
+      "properties": {
+        "charge_residual": {
+          "description": "`|sum of all terminal and floating currents| / max|I|` for `t > 0`;\n`null` at `t = 0`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "floating_current_a": {
+          "description": "Total current (A) into each floating conductor (zero up to round-off\nfor `t > 0`).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "floating_phi_v": {
+          "description": "Potential (V) of each floating conductor.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "i_cond_a": {
+          "description": "Conduction current (A) into the network at each terminal.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "i_disp_a": {
+          "description": "Displacement current (A) into the network at each terminal (zero at\n`t = 0`, where it is impulsive).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "region_e_v_m": {
+          "description": "Volume-averaged `E` (V/m) per region (`regions` order).",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "t_s": {
+          "description": "Time (s).",
+          "format": "double",
+          "type": "number"
+        },
+        "v": {
+          "description": "Applied terminal voltages (V), terminal order.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "t_s",
+        "v",
+        "floating_phi_v",
+        "i_cond_a",
+        "i_disp_a",
+        "floating_current_a",
+        "region_e_v_m",
+        "charge_residual"
+      ],
+      "type": "object"
+    },
+    "EqsTerminalSpec": {
+      "additionalProperties": false,
+      "description": "One driven terminal of an `eqs` spec.",
+      "properties": {
+        "name": {
+          "description": "Dimension-2 physical-group name of the terminal surface.",
+          "type": "string"
+        },
+        "waveform": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WaveformSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Drive waveform; required with `transient`, forbidden with\n`frequencies` (the admittance uses a unit drive per terminal)."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "EqsTransientReport": {
+      "description": "Time-domain result of `geode eqs`.",
+      "properties": {
+        "delivered_energy_cond_j": {
+          "description": "Energy (J) delivered into the network by each terminal through its\nconduction current, `integral V I_cond dt`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "delivered_energy_disp_j": {
+          "description": "Energy (J) delivered by each terminal through its displacement\ncurrent, `integral V I_disp dt` (stored field energy plus recovered\ncharge, so it can be negative on discharge).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "dt_s": {
+          "description": "Time step (s).",
+          "format": "double",
+          "type": "number"
+        },
+        "energy_quadrature": {
+          "description": "Quadrature of both energies: `\"trapezoid\"` over the reported steps\n(`V I` sampled at the step times; the impulsive displacement current\nat `t = 0` is zero, so a step at `t = 0` excludes its initial\ncharging pulse).",
+          "type": "string"
+        },
+        "n_steps": {
+          "description": "Number of steps (`steps` has one more entry, `t = 0` first).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "regions": {
+          "description": "Region names for `region_e_v_m` (the `materials[]` volume groups).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "steps": {
+          "description": "Per-step results.",
+          "items": {
+            "$ref": "#/$defs/EqsStepReport"
+          },
+          "type": "array"
+        },
+        "theta": {
+          "description": "θ-method weight.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "dt_s",
+        "n_steps",
+        "theta",
+        "regions",
+        "steps",
+        "delivered_energy_cond_j",
+        "delivered_energy_disp_j",
+        "energy_quadrature"
+      ],
+      "type": "object"
+    },
+    "EqsTransientSpec": {
+      "additionalProperties": false,
+      "description": "θ-method time stepping of an `eqs` transient.",
+      "properties": {
+        "dt": {
+          "description": "Time step (s, `> 0`). Give exactly one of `dt` and `n_steps`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "n_steps": {
+          "description": "Number of steps (`>= 1`); `dt = t_end / n_steps`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "t_end": {
+          "description": "End time (s, `> 0`).",
+          "format": "double",
+          "type": "number"
+        },
+        "theta": {
+          "default": 1.0,
+          "description": "θ-method weight in `[0.5, 1]` (default `1`, backward Euler;\n`0.5` is Crank-Nicolson).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "t_end",
+        "theta"
+      ],
+      "type": "object"
+    },
     "ErrorBody": {
       "description": "Error body.",
       "properties": {
@@ -6055,6 +6555,17 @@
           "$ref": "#/$defs/ElementOrderSpec",
           "description": "Nédélec element order of the H(curl) space (additive in v1, issue\n#1265, Epic #836 Phase 5a): `1` (default, lowest-order edge\nelements) or `2` (second-order, `2·n_edges + 2·n_faces` DOFs).\nOrder 2 is supported by lossless / lossy `eigen` specs and by `driven`\nspecs with lumped ports, a direct solver and a dense sweep; every\nother combination is rejected with `invalid_spec` naming the feature\n(never solved at order 1 and reported as order 2)."
         },
+        "eqs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EqsSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Electro-quasi-static transient / admittance settings (additive in\nv1, issue #1494). Its presence makes this an **eqs spec** (for\n`geode eqs`)."
+        },
         "extract": {
           "anyOf": [
             {
@@ -7946,10 +8457,113 @@
         "tm_margin"
       ],
       "type": "object"
+    },
+    "WaveformSpec": {
+      "description": "A terminal drive waveform `V(t)` (volts, `t` in seconds), a pure\nfunction of time (`geode eqs`, issue #1494).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "`0` before `t0`, `v` from `t0` on.",
+          "properties": {
+            "kind": {
+              "const": "step",
+              "type": "string"
+            },
+            "t0": {
+              "description": "Step time (s, finite, `>= 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "v": {
+              "description": "Level after the step (V).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "t0",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "SPICE-style trapezoidal pulse from 0 to `v`: `0` until `delay`,\nlinear rise over `rise`, flat for `width`, linear fall over `fall`,\nthen `0`. A zero `rise` / `fall` is an instantaneous edge.",
+          "properties": {
+            "delay": {
+              "description": "Start of the rising edge (s, `>= 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "fall": {
+              "description": "Fall time (s, `>= 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "pulse",
+              "type": "string"
+            },
+            "rise": {
+              "description": "Rise time (s, `>= 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "v": {
+              "description": "Pulse level (V).",
+              "format": "double",
+              "type": "number"
+            },
+            "width": {
+              "description": "Flat-top width (s, `>= 0`).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "delay",
+            "rise",
+            "width",
+            "fall",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Piecewise-linear `[[t, v], ...]` (`t` strictly increasing); the\nfirst / last value is held before / after the table.",
+          "properties": {
+            "kind": {
+              "const": "pl",
+              "type": "string"
+            },
+            "points": {
+              "description": "`(t_s, v)` points, at least one.",
+              "items": {
+                "items": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "points"
+          ],
+          "type": "object"
+        }
+      ]
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Output of every `geode` subcommand except `schema`: exactly one JSON document, one of ten kinds discriminated by the top-level `kind` (`check`, `driven`, `eigen`, `extract`, `capacitance`, `inductance`, `conduction`, `optimize`, `mesh`, `error`). Each branch pins `kind` and `status` with `const`, so exactly one branch matches. Report objects are open (no `additionalProperties: false`): fields added within report schema v1 are additive, and consumers should ignore fields they do not know.",
+  "description": "Output of every `geode` subcommand except `schema`: exactly one JSON document, one of eleven kinds discriminated by the top-level `kind` (`check`, `driven`, `eigen`, `extract`, `capacitance`, `inductance`, `conduction`, `eqs`, `optimize`, `mesh`, `error`). Each branch pins `kind` and `status` with `const`, so exactly one branch matches. Report objects are open (no `additionalProperties: false`): fields added within report schema v1 are additive, and consumers should ignore fields they do not know.",
   "oneOf": [
     {
       "$ref": "#/$defs/CheckReport"
@@ -7971,6 +8585,9 @@
     },
     {
       "$ref": "#/$defs/ConductionReport"
+    },
+    {
+      "$ref": "#/$defs/EqsReport"
     },
     {
       "$ref": "#/$defs/OptimizeReport"

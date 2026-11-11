@@ -152,6 +152,11 @@ pub struct ProblemSpec {
     /// conduction`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conduction: Option<ConductionSpec>,
+    /// Electro-quasi-static transient / admittance settings (additive in
+    /// v1, issue #1494). Its presence makes this an **eqs spec** (for
+    /// `geode eqs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eqs: Option<EqsSpec>,
     /// Design sensitivities of the analysis's observable (additive in v1,
     /// issues #707 / #739 / #883). Not an analysis section: it rides on a
     /// `capacitance` (two-terminal), `inductance`, lossless `eigen` or
@@ -522,6 +527,8 @@ pub enum Analysis {
     Inductance,
     /// DC terminal conductance matrix (`geode conduction`).
     Conduction,
+    /// EQS transient / admittance (`geode eqs`).
+    Eqs,
 }
 
 impl Analysis {
@@ -534,6 +541,7 @@ impl Analysis {
             Analysis::Capacitance => "capacitance",
             Analysis::Inductance => "inductance",
             Analysis::Conduction => "conduction",
+            Analysis::Eqs => "eqs",
         }
     }
 }
@@ -554,6 +562,8 @@ impl ProblemSpec {
             Analysis::Inductance
         } else if self.conduction.is_some() {
             Analysis::Conduction
+        } else if self.eqs.is_some() {
+            Analysis::Eqs
         } else {
             Analysis::Driven
         }
@@ -708,6 +718,148 @@ pub struct ConductionSpec {
     /// applied voltage through that resistor instead of being pinned.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub r_ext: std::collections::BTreeMap<String, f64>,
+}
+
+/// A terminal drive waveform `V(t)` (volts, `t` in seconds), a pure
+/// function of time (`geode eqs`, issue #1494).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum WaveformSpec {
+    /// `0` before `t0`, `v` from `t0` on.
+    Step {
+        /// Step time (s, finite, `>= 0`).
+        t0: f64,
+        /// Level after the step (V).
+        v: f64,
+    },
+    /// SPICE-style trapezoidal pulse from 0 to `v`: `0` until `delay`,
+    /// linear rise over `rise`, flat for `width`, linear fall over `fall`,
+    /// then `0`. A zero `rise` / `fall` is an instantaneous edge.
+    Pulse {
+        /// Start of the rising edge (s, `>= 0`).
+        delay: f64,
+        /// Rise time (s, `>= 0`).
+        rise: f64,
+        /// Flat-top width (s, `>= 0`).
+        width: f64,
+        /// Fall time (s, `>= 0`).
+        fall: f64,
+        /// Pulse level (V).
+        v: f64,
+    },
+    /// Piecewise-linear `[[t, v], ...]` (`t` strictly increasing); the
+    /// first / last value is held before / after the table.
+    Pl {
+        /// `(t_s, v)` points, at least one.
+        points: Vec<[f64; 2]>,
+    },
+}
+
+impl WaveformSpec {
+    /// Value (V) at time `t` (s).
+    pub fn eval(&self, t: f64) -> f64 {
+        match self {
+            WaveformSpec::Step { t0, v } => {
+                if t >= *t0 {
+                    *v
+                } else {
+                    0.0
+                }
+            }
+            WaveformSpec::Pulse {
+                delay,
+                rise,
+                width,
+                fall,
+                v,
+            } => {
+                let u = t - delay;
+                if u < 0.0 {
+                    0.0
+                } else if u < *rise {
+                    v * u / rise
+                } else if u <= rise + width {
+                    *v
+                } else if u < rise + width + fall {
+                    v * (1.0 - (u - rise - width) / fall)
+                } else {
+                    0.0
+                }
+            }
+            WaveformSpec::Pl { points } => {
+                let first = points[0];
+                let last = points[points.len() - 1];
+                if t <= first[0] {
+                    return first[1];
+                }
+                if t >= last[0] {
+                    return last[1];
+                }
+                let k = points.partition_point(|p| p[0] <= t);
+                let (a, b) = (points[k - 1], points[k]);
+                a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0])
+            }
+        }
+    }
+}
+
+/// One driven terminal of an `eqs` spec.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EqsTerminalSpec {
+    /// Dimension-2 physical-group name of the terminal surface.
+    pub name: String,
+    /// Drive waveform; required with `transient`, forbidden with
+    /// `frequencies` (the admittance uses a unit drive per terminal).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waveform: Option<WaveformSpec>,
+}
+
+/// θ-method time stepping of an `eqs` transient.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EqsTransientSpec {
+    /// Time step (s, `> 0`). Give exactly one of `dt` and `n_steps`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dt: Option<f64>,
+    /// Number of steps (`>= 1`); `dt = t_end / n_steps`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_steps: Option<usize>,
+    /// End time (s, `> 0`).
+    pub t_end: f64,
+    /// θ-method weight in `[0.5, 1]` (default `1`, backward Euler;
+    /// `0.5` is Crank-Nicolson).
+    #[serde(default = "default_eqs_theta")]
+    pub theta: f64,
+}
+
+fn default_eqs_theta() -> f64 {
+    1.0
+}
+
+/// Electro-quasi-static settings (`geode eqs`, issue #1494).
+///
+/// Solves `div(sigma grad phi + d/dt(eps grad phi)) = 0`
+/// ([`geode_core::assembly::eqs_transient`]) with per-region `eps_r` and
+/// `conductivity_s_m` from `materials[]` (every material needs
+/// `conductivity_s_m`; unlisted regions are vacuum, `sigma = 0`). Exactly
+/// one of `transient` (time-domain response to the terminal waveforms) and
+/// `frequencies` (small-signal admittance) must be given.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EqsSpec {
+    /// Driven terminals (dimension-2 physical groups), in report order.
+    pub terminals: Vec<EqsTerminalSpec>,
+    /// Floating conductors (dimension-2 physical groups): equipotential,
+    /// zero net current, initially uncharged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub floating: Vec<String>,
+    /// Time-domain mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transient: Option<EqsTransientSpec>,
+    /// Frequency-domain mode: frequencies in Hz (finite, `>= 0`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frequencies: Option<Vec<f64>>,
 }
 
 /// Static inductance-extraction settings (`geode inductance`, issue

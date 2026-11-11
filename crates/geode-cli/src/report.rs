@@ -1094,6 +1094,134 @@ pub struct ConductionReport {
     pub solver: ConductionSolverStats,
 }
 
+/// Echo of a resolved `eqs` spec section plus the size of the scalar system
+/// (additive in v1, issue #1494).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct EqsSettingsSummary {
+    /// Driven terminals in report order.
+    pub terminals: Vec<ConductorSummary>,
+    /// Floating conductors.
+    pub floating: Vec<ConductorSummary>,
+    /// `"transient"` or `"admittance"`.
+    pub mode: &'static str,
+    /// Always `"p1_tet"`.
+    pub element: &'static str,
+    /// Scalar DOFs before elimination (= mesh nodes).
+    pub n_dof: usize,
+}
+
+/// One time level of an `eqs` transient (SI units).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct EqsStepReport {
+    /// Time (s).
+    pub t_s: f64,
+    /// Applied terminal voltages (V), terminal order.
+    pub v: Vec<f64>,
+    /// Potential (V) of each floating conductor.
+    pub floating_phi_v: Vec<f64>,
+    /// Conduction current (A) into the network at each terminal.
+    pub i_cond_a: Vec<f64>,
+    /// Displacement current (A) into the network at each terminal (zero at
+    /// `t = 0`, where it is impulsive).
+    pub i_disp_a: Vec<f64>,
+    /// Total current (A) into each floating conductor (zero up to round-off
+    /// for `t > 0`).
+    pub floating_current_a: Vec<f64>,
+    /// Volume-averaged `E` (V/m) per region (`regions` order).
+    pub region_e_v_m: Vec<[f64; 3]>,
+    /// `|sum of all terminal and floating currents| / max|I|` for `t > 0`;
+    /// `null` at `t = 0`.
+    pub charge_residual: Option<f64>,
+}
+
+/// Time-domain result of `geode eqs`.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct EqsTransientReport {
+    /// Time step (s).
+    pub dt_s: f64,
+    /// Number of steps (`steps` has one more entry, `t = 0` first).
+    pub n_steps: usize,
+    /// θ-method weight.
+    pub theta: f64,
+    /// Region names for `region_e_v_m` (the `materials[]` volume groups).
+    pub regions: Vec<String>,
+    /// Per-step results.
+    pub steps: Vec<EqsStepReport>,
+    /// Energy (J) delivered into the network by each terminal through its
+    /// conduction current, `integral V I_cond dt`.
+    pub delivered_energy_cond_j: Vec<f64>,
+    /// Energy (J) delivered by each terminal through its displacement
+    /// current, `integral V I_disp dt` (stored field energy plus recovered
+    /// charge, so it can be negative on discharge).
+    pub delivered_energy_disp_j: Vec<f64>,
+    /// Quadrature of both energies: `"trapezoid"` over the reported steps
+    /// (`V I` sampled at the step times; the impulsive displacement current
+    /// at `t = 0` is zero, so a step at `t = 0` excludes its initial
+    /// charging pulse).
+    pub energy_quadrature: &'static str,
+}
+
+/// Small-signal terminal admittance at one frequency (SI units).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct EqsAdmittanceReport {
+    /// Frequency (Hz).
+    pub frequency_hz: f64,
+    /// `omega = 2 pi f` (rad/s).
+    pub omega_rad_s: f64,
+    /// `Re Y` (S), `I_i = sum_j Y_ij V_j`; this is the conductance `G`.
+    pub g_siemens: Vec<Vec<f64>>,
+    /// `Im Y` (S).
+    pub y_im_siemens: Vec<Vec<f64>>,
+    /// `C = Im Y / omega` (F); `null` at `omega = 0`, where it is not
+    /// defined by the admittance (use `geode capacitance`).
+    pub c_farad: Option<Vec<Vec<f64>>>,
+}
+
+/// Statistics of a `geode eqs` solve.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct EqsSolverStats {
+    /// `"theta_method"` (transient) or `"complex_block"` (admittance).
+    pub method: &'static str,
+    /// Always `"direct_lu"`.
+    pub inner: &'static str,
+    /// Wall time of assembly + solve + post-processing, seconds.
+    pub wall_time_s: f64,
+}
+
+/// `geode eqs` report (`kind = "eqs"`, additive in v1). Exactly one of
+/// `transient` and `admittance` is present, matching `eqs.mode`.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct EqsReport {
+    /// Provenance (flattened).
+    #[serde(flatten)]
+    pub provenance: Provenance,
+    /// Always `"eqs"`.
+    #[schemars(extend("const" = "eqs"))]
+    pub kind: &'static str,
+    /// Always `"ok"` (failures produce an [`ErrorReport`]).
+    #[schemars(extend("const" = "ok"))]
+    pub status: &'static str,
+    /// Mesh summary.
+    pub mesh: MeshSummary,
+    /// Volume regions.
+    pub regions: Vec<RegionSummary>,
+    /// The EQS settings and system size.
+    pub eqs: EqsSettingsSummary,
+    /// Terminal names in report row/column order.
+    pub terminals: Vec<String>,
+    /// Floating-conductor names.
+    pub floating: Vec<String>,
+    /// Time-domain result (transient mode).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transient: Option<EqsTransientReport>,
+    /// Admittance per frequency (frequency mode), in `eqs.frequencies`
+    /// order.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admittance: Option<Vec<EqsAdmittanceReport>>,
+    /// Solver statistics.
+    pub solver: EqsSolverStats,
+}
+
 /// One current path of an inductance spec.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct CurrentPathSummary {

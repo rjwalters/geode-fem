@@ -30,6 +30,11 @@ pub(super) fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Re
                 "`sensitivity` is not supported for a `conduction` spec in schema v1",
             ));
         }
+        Analysis::Eqs => {
+            return Err(invalid(
+                "`sensitivity` is not supported for an `eqs` spec in schema v1",
+            ));
+        }
         Analysis::Extract => {
             return Err(invalid(
                 "`sensitivity` is not supported for an `extract` spec in schema v1: there is no \

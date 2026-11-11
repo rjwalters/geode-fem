@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "mesh": {
+    "path": "two_layer.msh",
+    "length_unit_m": 0.001
+  },
+  "materials": [
+    {"physical_group": "layer1", "eps_r": [4.0, 0.0], "conductivity_s_m": 1e-10},
+    {"physical_group": "layer2", "eps_r": [2.0, 0.0], "conductivity_s_m": 3e-10}
+  ],
+  "eqs": {
+    "terminals": [
+      {"name": "a", "waveform": {"kind": "step", "t0": 0.0, "v": 10.0}},
+      {"name": "b", "waveform": {"kind": "step", "t0": 0.0, "v": 0.0}}
+    ],
+    "floating": ["plate"],
+    "transient": {"n_steps": 600, "t_end": 0.8}
+  }
+}
