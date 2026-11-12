@@ -248,7 +248,9 @@ use faer::sparse::{SparseColMat, Triplet};
 use crate::analytic::waveguide::TRI_QUAD_DEG4;
 use crate::assembly::hcurl_space::HcurlSpace;
 use crate::assembly::periodic::{DofAliasMap, PeriodicConstraint, PeriodicError};
+use crate::dense_ops::dense_solve_multi;
 use crate::driven::periodic::lu_solve_transpose;
+use crate::driven::rom::{RomSettings, dot_h, grow_reduced};
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator,
 };
@@ -338,6 +340,12 @@ pub enum FloquetError {
     /// Sparse assembly / factorization / solve failure.
     #[error("Floquet solve failed: {0}")]
     Solve(String),
+    /// The fixed-`k_t` reduced-order model does not apply to this band: the
+    /// set of channels `(port, order, polarization)` changes across it, so
+    /// the port vectors cannot be projected once (see [`FloquetProm`]). A
+    /// dense sweep handles it.
+    #[error("Floquet PROM does not apply: {0}")]
+    PromUnsupported(String),
 }
 
 /// A Floquet mode polarization.
@@ -1773,6 +1781,521 @@ impl FactoredFloquetCell<'_> {
             fields,
             residual_rel,
             warnings: self.warnings.clone(),
+        })
+    }
+}
+
+/// One frequency of a [`FloquetPromSweep`].
+#[derive(Debug, Clone)]
+pub struct FloquetPromPoint {
+    /// Angular frequency (`= k₀`).
+    pub omega: f64,
+    /// The S-matrix over the propagating channels. For a point evaluated
+    /// through the reduced model `fields` is empty and `residual_rel` is the
+    /// full-order residual indicator `‖A_r V x_k − b‖/‖b‖` (not a solver
+    /// residual).
+    pub solution: FloquetSolution,
+    /// `true` for a full-order solve (a greedy snapshot or a fallback),
+    /// `false` for a point evaluated through the reduced model.
+    pub solved: bool,
+}
+
+/// The result of [`FloquetProm::sweep`]: the points (in input order) and
+/// the greedy diagnostics.
+#[derive(Debug, Clone)]
+pub struct FloquetPromSweep {
+    /// One point per requested frequency, in input order.
+    pub points: Vec<FloquetPromPoint>,
+    /// Dimension of the reduced model.
+    pub reduced_order: usize,
+    /// Whether the greedy loop reached the tolerance over every frequency
+    /// within the snapshot budget.
+    pub converged: bool,
+    /// Worst residual indicator over the grid when the greedy loop stopped
+    /// (before any fallback solve).
+    pub worst_residual: f64,
+    /// Greedy snapshot frequencies, in selection order (band ends and
+    /// midpoint first).
+    pub snapshot_omegas: Vec<f64>,
+    /// Frequencies above the tolerance after the greedy loop, solved
+    /// full-order instead (empty when `converged`).
+    pub fallback_omegas: Vec<f64>,
+    /// Sparse LU factorizations spent (snapshots + fallbacks).
+    pub n_factorizations: usize,
+}
+
+/// A **projection-based reduced-order model (PROM) of a Floquet cell at a
+/// fixed transverse wave vector `k_t`** (issue #1521, Epic #837 Phase 4b).
+///
+/// With `k_t` fixed the Bloch-phased reduction `P` is fixed, and
+/// `A_r(ω) = Pᴴ A(ω) P + Σ_q c_q(ω) h̄_q h_qᵀ` has an affine structure that
+/// can be projected **once**:
+///
+/// - `Pᴴ A(ω) P = K + iωC − ω²M` (the driven operator's own K/M/C family);
+/// - the port vectors `h_q = Pᵀ g_q` depend on `ω` **not at all**: the mode
+///   integrals `g_q` use only `κ_q = k_t + m b₁ + n b₂` and the unit
+///   polarization `ê_q`, both functions of `k_t` and the order. Only the
+///   scalar `c_q(ω) = iω y_q(ω)` varies (`y_TE = k_z/ω`, `y_TM = ω ε/k_z`,
+///   `k_z = √(k² − κ²)`, non-affine but a closed form per channel).
+///
+/// So `V` (an orthonormal basis of full-order snapshot solutions at greedily
+/// chosen frequencies) gives the reduced operator
+/// `Vᴴ A_r(ω) V = Kᵣ + iωCᵣ − ω²Mᵣ + Σ_q c_q(ω) w̄_q w_qᵀ` with
+/// `w_q = Vᵀ h_q`, in which `Kᵣ, Cᵣ, Mᵣ, w_q` are computed once per basis
+/// vector and every frequency costs a dense `k × k` solve.
+///
+/// A diffraction order that switches between propagating and evanescent
+/// across the band is fine (only `c_q` and the S read-out columns change).
+/// A band over which the channel *set* changes (a new order enters outside
+/// the evanescent rings) is not: [`Self::build`] returns
+/// [`FloquetError::PromUnsupported`] and the caller runs the dense sweep.
+/// A cell with a modal feed is likewise rejected.
+///
+/// The residual indicator is the full-order relative residual of the
+/// reduced solution, so (as for [`crate::driven::rom::DrivenRom`]) it bounds
+/// the residual, not the error in `S`, by the conditioning of `A_r(ω)`. It
+/// has a round-off floor (measured `≈ 2e-9` on the slab fixture, where the
+/// true `|ΔS|` against the dense sweep is `≈ 1e-12`): a tolerance below the
+/// floor never converges and ends in the full-order fallback.
+pub struct FloquetProm<'a> {
+    cell: &'a FloquetCell,
+    k_t: [f64; 3],
+    phi: f64,
+    keys: Vec<FloquetLabel>,
+    port_support: Vec<Vec<usize>>,
+    /// `h_q` on `port_support[port of q]`.
+    h: Vec<Vec<c64>>,
+    /// Reduced operators at `ω = 0, s, 2s` (`K`, `K + isC − s²M`, …).
+    a_ref: [SparseColMat<usize, c64>; 3],
+    scale: f64,
+    basis: Vec<Vec<c64>>,
+    kv: Vec<Vec<c64>>,
+    cv: Vec<Vec<c64>>,
+    mv: Vec<Vec<c64>>,
+    kr: Vec<Vec<c64>>,
+    cr: Vec<Vec<c64>>,
+    mr: Vec<Vec<c64>>,
+    /// `w[q][j] = h_qᵀ v_j`.
+    w: Vec<Vec<c64>>,
+    snapshots: Vec<f64>,
+    worst_residual: f64,
+    converged: bool,
+    n_factorizations: usize,
+}
+
+fn channel_keys(channels: &[FloquetChannel]) -> Vec<FloquetLabel> {
+    channels.iter().map(|c| (c.port, c.order, c.pol)).collect()
+}
+
+impl<'a> FloquetProm<'a> {
+    /// Build the PROM over the candidate frequencies `omegas` (at least
+    /// one, each finite and `> 0`) by greedy snapshot selection: the band
+    /// ends and midpoint seed it, then the candidate with the worst
+    /// residual indicator is added until `settings.tolerance` is reached or
+    /// `settings.max_snapshots` full-order factorizations are spent. Each
+    /// snapshot adds the solutions of every propagating excitation.
+    ///
+    /// # Errors
+    ///
+    /// [`FloquetError::InvalidSpec`] for bad frequencies / settings or a
+    /// modal-feed cell; [`FloquetError::PromUnsupported`] if the channel
+    /// set changes across `omegas`; the errors of [`FloquetCell::channels_at`]
+    /// and [`FloquetCell::factor`].
+    pub fn build(
+        cell: &'a FloquetCell,
+        k_t: [f64; 3],
+        phi: f64,
+        omegas: &[f64],
+        settings: RomSettings,
+    ) -> Result<Self, FloquetError> {
+        if omegas.is_empty() || !omegas.iter().all(|w| w.is_finite() && *w > 0.0) {
+            return Err(FloquetError::InvalidSpec(
+                "PROM frequencies must be a non-empty list of finite ω > 0".into(),
+            ));
+        }
+        if settings.max_snapshots == 0 || settings.tolerance.is_nan() || settings.tolerance <= 0.0 {
+            return Err(FloquetError::InvalidSpec(
+                "PROM needs tolerance > 0 and max_snapshots >= 1".into(),
+            ));
+        }
+        if cell.ports.iter().any(|p| p.modal.is_some()) {
+            return Err(FloquetError::InvalidSpec(
+                "the Floquet PROM does not support a modal feed".into(),
+            ));
+        }
+        // The channel set must be one fixed list across the band.
+        let mut cands = Vec::with_capacity(omegas.len());
+        let mut keys: Option<Vec<FloquetLabel>> = None;
+        for &omega in omegas {
+            let (channels, warnings) = cell.channels_at(omega, k_t, phi)?;
+            let k = channel_keys(&channels);
+            match &keys {
+                None => keys = Some(k),
+                Some(k0) if *k0 != k => {
+                    return Err(FloquetError::PromUnsupported(format!(
+                        "the channel set changes across the band (at ω = {omega}); run the \\
+                         dense sweep"
+                    )));
+                }
+                Some(_) => {}
+            }
+            cands.push((omega, channels, warnings));
+        }
+        let keys = keys.expect("non-empty");
+        // Seeds: band ends and midpoint of the sorted candidate list.
+        let mut order: Vec<usize> = (0..omegas.len()).collect();
+        order.sort_by(|&a, &b| omegas[a].total_cmp(&omegas[b]));
+        let mut seeds = vec![order[0], order[order.len() / 2], order[order.len() - 1]];
+        seeds.dedup();
+        let (lo, hi) = (omegas[order[0]], omegas[order[order.len() - 1]]);
+        let scale = 0.5 * (lo + hi);
+
+        let phased = cell.constraint.with_bloch_phase(k_t);
+        let interior = phased.dofs().restrict_rows(&cell.interior_to_full);
+        let a_at = |w: f64| -> Result<SparseColMat<usize, c64>, FloquetError> {
+            let a = cell.op.matrix_at(w)?;
+            Ok(interior.reduce_matrix(a.as_ref())?)
+        };
+        let a_ref = [a_at(0.0)?, a_at(scale)?, a_at(2.0 * scale)?];
+
+        let first = cell.factor(omegas[seeds[0]], k_t, phi)?;
+        let n_q = keys.len();
+        let mut prom = Self {
+            cell,
+            k_t,
+            phi,
+            keys,
+            port_support: first.port_support.clone(),
+            h: first.h.clone(),
+            a_ref,
+            scale,
+            basis: Vec::new(),
+            kv: Vec::new(),
+            cv: Vec::new(),
+            mv: Vec::new(),
+            kr: Vec::new(),
+            cr: Vec::new(),
+            mr: Vec::new(),
+            w: vec![Vec::new(); n_q],
+            snapshots: Vec::new(),
+            worst_residual: 0.0,
+            converged: false,
+            n_factorizations: 0,
+        };
+        prom.add_snapshot(omegas[seeds[0]], &first)?;
+        drop(first);
+        for &i in &seeds[1..] {
+            if prom.snapshots.len() >= settings.max_snapshots {
+                break;
+            }
+            let fac = cell.factor(omegas[i], k_t, phi)?;
+            prom.add_snapshot(omegas[i], &fac)?;
+        }
+        // Greedy loop over the non-snapshot candidates.
+        loop {
+            let mut worst = (0.0_f64, usize::MAX);
+            for (i, (omega, channels, warnings)) in cands.iter().enumerate() {
+                if prom.snapshots.contains(omega) {
+                    continue;
+                }
+                let eta = prom.evaluate_with(*omega, channels, warnings)?.residual_rel;
+                if eta > worst.0 {
+                    worst = (eta, i);
+                }
+            }
+            prom.worst_residual = worst.0;
+            if worst.1 == usize::MAX || worst.0 <= settings.tolerance {
+                prom.converged = true;
+                break;
+            }
+            if prom.snapshots.len() >= settings.max_snapshots {
+                break;
+            }
+            let omega = cands[worst.1].0;
+            let fac = cell.factor(omega, k_t, phi)?;
+            let before = prom.basis.len();
+            prom.add_snapshot(omega, &fac)?;
+            if prom.basis.len() == before {
+                break; // stagnated: nothing new to add
+            }
+        }
+        Ok(prom)
+    }
+
+    /// Orthonormalize the propagating-excitation solutions of `fac` into
+    /// the basis and extend the projected operators.
+    fn add_snapshot(
+        &mut self,
+        omega: f64,
+        fac: &FactoredFloquetCell<'_>,
+    ) -> Result<(), FloquetError> {
+        self.n_factorizations += 1;
+        self.snapshots.push(omega);
+        let n = fac.n_reduced();
+        for q in (0..fac.channels.len()).filter(|&q| fac.channels[q].propagating) {
+            let mut x = vec![c64::new(0.0, 0.0); n];
+            fac.back_solve(&fac.rhs(q), &mut x)?;
+            let norm0 = dot_h(&x, &x).re.sqrt();
+            if norm0.is_nan() || norm0 <= 0.0 || !norm0.is_finite() {
+                continue;
+            }
+            for _ in 0..2 {
+                for v in &self.basis {
+                    let c = dot_h(v, &x);
+                    for (xi, vi) in x.iter_mut().zip(v) {
+                        *xi -= c * vi;
+                    }
+                }
+            }
+            let nrm = dot_h(&x, &x).re.sqrt();
+            if nrm <= 1e-10 * norm0 {
+                continue;
+            }
+            for xi in &mut x {
+                *xi /= nrm;
+            }
+            self.push_basis(x);
+        }
+        Ok(())
+    }
+
+    fn push_basis(&mut self, v: Vec<c64>) {
+        let n = v.len();
+        let apply = |a: &SparseColMat<usize, c64>| {
+            let mut y = vec![c64::new(0.0, 0.0); n];
+            spmv(a.as_ref(), &v, &mut y);
+            y
+        };
+        let (y0, y1, y2) = (
+            apply(&self.a_ref[0]),
+            apply(&self.a_ref[1]),
+            apply(&self.a_ref[2]),
+        );
+        // A(ω) = K + iωC − ω²M at ω = 0, s, 2s.
+        let s = self.scale;
+        let kw = y0.clone();
+        let mut cw = vec![c64::new(0.0, 0.0); n];
+        let mut mw = vec![c64::new(0.0, 0.0); n];
+        let ic = c64::new(0.0, 1.0 / (2.0 * s));
+        for i in 0..n {
+            let x1 = y1[i] - y0[i];
+            let x2 = y2[i] - y0[i];
+            mw[i] = (x1 * 2.0 - x2) / (2.0 * s * s);
+            cw[i] = (x2 - x1 * 4.0) * ic;
+        }
+        grow_reduced(&mut self.kr, &self.basis, &self.kv, &v, &kw);
+        grow_reduced(&mut self.cr, &self.basis, &self.cv, &v, &cw);
+        grow_reduced(&mut self.mr, &self.basis, &self.mv, &v, &mw);
+        for (q, wq) in self.w.iter_mut().enumerate() {
+            let support = &self.port_support[self.keys[q].0];
+            wq.push(
+                support
+                    .iter()
+                    .zip(&self.h[q])
+                    .map(|(&r, &hv)| hv * v[r])
+                    .fold(c64::new(0.0, 0.0), |a, b| a + b),
+            );
+        }
+        self.kv.push(kw);
+        self.cv.push(cw);
+        self.mv.push(mw);
+        self.basis.push(v);
+    }
+
+    /// Dimension of the reduced model.
+    pub fn reduced_order(&self) -> usize {
+        self.basis.len()
+    }
+
+    /// Whether the greedy loop reached the tolerance over the whole grid.
+    pub fn converged(&self) -> bool {
+        self.converged
+    }
+
+    /// Worst residual indicator over the candidate grid when the greedy
+    /// loop stopped.
+    pub fn worst_residual(&self) -> f64 {
+        self.worst_residual
+    }
+
+    /// Greedy snapshot frequencies, in selection order.
+    pub fn snapshot_omegas(&self) -> &[f64] {
+        &self.snapshots
+    }
+
+    /// Full-order factorizations spent building the model.
+    pub fn n_factorizations(&self) -> usize {
+        self.n_factorizations
+    }
+
+    /// Evaluate the S-matrix at `omega` through the reduced model.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`FloquetCell::channels_at`];
+    /// [`FloquetError::PromUnsupported`] if the channel set at `omega`
+    /// differs from the one the model was built for;
+    /// [`FloquetError::Solve`] for a singular reduced system.
+    pub fn evaluate(&self, omega: f64) -> Result<FloquetSolution, FloquetError> {
+        let (channels, warnings) = self.cell.channels_at(omega, self.k_t, self.phi)?;
+        self.evaluate_with(omega, &channels, &warnings)
+    }
+
+    fn evaluate_with(
+        &self,
+        omega: f64,
+        channels: &[FloquetChannel],
+        warnings: &[String],
+    ) -> Result<FloquetSolution, FloquetError> {
+        if channel_keys(channels) != self.keys {
+            return Err(FloquetError::PromUnsupported(format!(
+                "the channel set at ω = {omega} differs from the one the model was built for"
+            )));
+        }
+        let k = self.basis.len();
+        let iw = c64::new(0.0, omega);
+        let w2 = omega * omega;
+        let c: Vec<c64> = channels.iter().map(|ch| iw * ch.admittance).collect();
+        let mut a = vec![c64::new(0.0, 0.0); k * k];
+        for i in 0..k {
+            for j in 0..k {
+                a[i * k + j] = self.kr[i][j] + iw * self.cr[i][j] - self.mr[i][j] * w2;
+            }
+        }
+        for (q, wq) in self.w.iter().enumerate() {
+            for i in 0..k {
+                let ci = c[q] * wq[i].conj();
+                for j in 0..k {
+                    a[i * k + j] += ci * wq[j];
+                }
+            }
+        }
+        let propagating: Vec<usize> = (0..channels.len())
+            .filter(|&q| channels[q].propagating)
+            .collect();
+        let np = propagating.len();
+        let mut b = vec![c64::new(0.0, 0.0); k * np];
+        for (jc, &q) in propagating.iter().enumerate() {
+            for i in 0..k {
+                b[i * np + jc] = c[q] * self.w[q][i].conj() * 2.0;
+            }
+        }
+        let x = dense_solve_multi(&a, &b, k, np).ok_or_else(|| {
+            FloquetError::Solve(format!("singular reduced Floquet system at ω = {omega}"))
+        })?;
+        let cols: Vec<Vec<c64>> = (0..np)
+            .map(|jc| (0..k).map(|i| x[i * np + jc]).collect())
+            .collect();
+        let mut s = vec![vec![c64::new(0.0, 0.0); np]; np];
+        let mut residual_rel: f64 = 0.0;
+        for (jc, &q) in propagating.iter().enumerate() {
+            let yq = channels[q].admittance.re;
+            for (ic, &p) in propagating.iter().enumerate() {
+                let mut bp = self.w[p]
+                    .iter()
+                    .zip(&cols[jc])
+                    .map(|(&wv, &xv)| wv * xv)
+                    .fold(c64::new(0.0, 0.0), |a, b| a + b);
+                if p == q {
+                    bp -= c64::new(1.0, 0.0);
+                }
+                s[ic][jc] = bp * (channels[p].admittance.re / yq).sqrt();
+            }
+            residual_rel = residual_rel.max(self.residual(omega, &c, q, &cols[jc]));
+        }
+        Ok(FloquetSolution {
+            omega,
+            k_t: self.k_t,
+            channels: channels.to_vec(),
+            propagating,
+            s,
+            fields: Vec::new(),
+            residual_rel,
+            warnings: warnings.to_vec(),
+        })
+    }
+
+    /// `‖A_r(ω) V x − b_q‖ / ‖b_q‖` in the full reduced space.
+    fn residual(&self, omega: f64, c: &[c64], q: usize, x: &[c64]) -> f64 {
+        let n = self.basis[0].len();
+        let (iw, w2) = (c64::new(0.0, omega), omega * omega);
+        let mut r = vec![c64::new(0.0, 0.0); n];
+        for (j, &xj) in x.iter().enumerate() {
+            for (i, ri) in r.iter_mut().enumerate() {
+                *ri += xj * (self.kv[j][i] + iw * self.cv[j][i] - self.mv[j][i] * w2);
+            }
+        }
+        let mut b2 = 0.0_f64;
+        for (p, hp) in self.h.iter().enumerate() {
+            let support = &self.port_support[self.keys[p].0];
+            let proj = self.w[p]
+                .iter()
+                .zip(x)
+                .map(|(&wv, &xv)| wv * xv)
+                .fold(c64::new(0.0, 0.0), |a, b| a + b);
+            let mut t = c[p] * proj;
+            let mut tb = c64::new(0.0, 0.0);
+            if p == q {
+                tb = c[q] * 2.0;
+                t -= tb;
+            }
+            for (&row, &hv) in support.iter().zip(hp) {
+                r[row] += hv.conj() * t;
+                if p == q {
+                    b2 += (hv.conj() * tb).norm_sqr();
+                }
+            }
+        }
+        let r2: f64 = r.iter().map(|z| z.norm_sqr()).sum();
+        (r2 / b2.max(f64::MIN_POSITIVE)).sqrt()
+    }
+
+    /// Evaluate every frequency of `omegas` (the grid the model was built
+    /// on): snapshots and any frequency still above `tolerance` after the
+    /// greedy loop are solved full-order (the latter is the fallback, so a
+    /// non-converged model never returns an uncertified point); the rest go
+    /// through the reduced model.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::evaluate`] and [`FloquetCell::factor`].
+    pub fn sweep(
+        &mut self,
+        omegas: &[f64],
+        tolerance: f64,
+    ) -> Result<FloquetPromSweep, FloquetError> {
+        let mut points = Vec::with_capacity(omegas.len());
+        let mut fallback = Vec::new();
+        for &omega in omegas {
+            let sol = self.evaluate(omega)?;
+            let snap = self.snapshots.contains(&omega);
+            if !snap && sol.residual_rel > tolerance {
+                let sol = self.cell.factor(omega, self.k_t, self.phi)?.s_matrix()?;
+                self.n_factorizations += 1;
+                fallback.push(omega);
+                points.push(FloquetPromPoint {
+                    omega,
+                    solution: sol,
+                    solved: true,
+                });
+            } else {
+                points.push(FloquetPromPoint {
+                    omega,
+                    solution: sol,
+                    solved: snap,
+                });
+            }
+        }
+        fallback.sort_by(f64::total_cmp);
+        fallback.dedup();
+        Ok(FloquetPromSweep {
+            points,
+            reduced_order: self.reduced_order(),
+            converged: self.converged,
+            worst_residual: self.worst_residual,
+            snapshot_omegas: self.snapshots.clone(),
+            fallback_omegas: fallback,
+            n_factorizations: self.n_factorizations,
         })
     }
 }

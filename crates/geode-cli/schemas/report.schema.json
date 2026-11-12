@@ -3072,13 +3072,55 @@
       ],
       "type": "object"
     },
-    "FloquetAngleResult": {
-      "description": "All frequencies at one incidence angle.",
+    "FixedKtSpec": {
+      "additionalProperties": false,
+      "description": "A fixed transverse wave vector for a Floquet-port frequency sweep.\n\nUnlike an `incidence` / `scan` (a fixed *angle*, where `k_t = k₀ √ε_r\nsin θ (…)` moves with frequency), the Bloch phase is the same at every\nfrequency. This is the case in which `sweep.adaptive` applies: it builds\na reduced-order model over the band (a band over which the set of\ndiffraction orders in the channel list changes falls back to the dense\nsweep, with a `floquet` warning).",
       "properties": {
+        "k_t": {
+          "description": "The transverse wave vector `(k_x, k_y, k_z)` in rad per mesh length\nunit, in the lattice plane (its component along the lattice normal\nmust be zero).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "polarization": {
+          "$ref": "#/$defs/IncidencePolarization",
+          "default": "both",
+          "description": "Incident polarization (default `\"both\"`)."
+        }
+      },
+      "required": [
+        "k_t",
+        "polarization"
+      ],
+      "type": "object"
+    },
+    "FloquetAngleResult": {
+      "description": "All frequencies at one incidence angle (or at the fixed `k_t`).",
+      "properties": {
+        "k_t": {
+          "description": "The fixed transverse wave vector (rad per mesh length unit) of a\n`fixed_k_t` sweep; absent for an `incidence` / `scan` angle.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "phi_deg": {
-          "description": "Azimuth (degrees).",
+          "description": "Azimuth (degrees). Absent for a `fixed_k_t` sweep.",
           "format": "double",
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "points": {
           "description": "Per-frequency points, in spec order.",
@@ -3088,9 +3130,12 @@
           "type": "array"
         },
         "theta_deg": {
-          "description": "Polar angle (degrees).",
+          "description": "Polar angle (degrees). Absent for a `fixed_k_t` sweep (the angle\nthen moves with frequency; see `k_t`).",
           "format": "double",
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "touchstone_file": {
           "anyOf": [
@@ -3105,8 +3150,6 @@
         }
       },
       "required": [
-        "theta_deg",
-        "phi_deg",
         "points"
       ],
       "type": "object"
@@ -6414,8 +6457,19 @@
           "default": null,
           "description": "Inductance-extraction settings. Its presence makes this an\n**extract spec** (for `geode extract`). Without `eigen` or\n`extract` the spec is a driven spec."
         },
+        "fixed_k_t": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FixedKtSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A sweep at a fixed transverse wave vector `k_t` (Floquet-port specs,\nissue #1521): the Bloch phase does not move with frequency, so\n`sweep.adaptive` uses a reduced-order model here. Excludes\n`incidence` / `scan`."
+        },
         "floquet_ports": {
-          "description": "The two Floquet ports (the open faces) of a periodic driven unit\ncell (additive in v1, Epic #837 Phase 4b). Needs\n`boundary_conditions.periodic` (the two lattice vectors) and exactly\none of `incidence` / `scan`; cannot be combined with lumped or wave\nports.",
+          "description": "The two Floquet ports (the open faces) of a periodic driven unit\ncell (additive in v1, Epic #837 Phase 4b). Needs\n`boundary_conditions.periodic` (the two lattice vectors) and exactly\none of `incidence` / `scan` / `fixed_k_t`; cannot be combined with lumped or wave\nports.",
           "items": {
             "$ref": "#/$defs/FloquetPortSpec"
           },

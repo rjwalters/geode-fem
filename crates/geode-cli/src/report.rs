@@ -1676,13 +1676,20 @@ pub struct FloquetPortSummary {
     pub n_triangles: usize,
 }
 
-/// All frequencies at one incidence angle.
+/// All frequencies at one incidence angle (or at the fixed `k_t`).
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct FloquetAngleResult {
-    /// Polar angle (degrees).
-    pub theta_deg: f64,
-    /// Azimuth (degrees).
-    pub phi_deg: f64,
+    /// Polar angle (degrees). Absent for a `fixed_k_t` sweep (the angle
+    /// then moves with frequency; see `k_t`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theta_deg: Option<f64>,
+    /// Azimuth (degrees). Absent for a `fixed_k_t` sweep.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phi_deg: Option<f64>,
+    /// The fixed transverse wave vector (rad per mesh length unit) of a
+    /// `fixed_k_t` sweep; absent for an `incidence` / `scan` angle.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub k_t: Option<[f64; 3]>,
     /// Per-frequency points, in spec order.
     pub points: Vec<FloquetPoint>,
     /// The Touchstone file of this angle (`--touchstone`; channels named
