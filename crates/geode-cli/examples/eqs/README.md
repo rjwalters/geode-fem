@@ -17,8 +17,8 @@ geode eqs   crates/geode-cli/examples/eqs/eqs_two_layer.json -o eqs.json
 The spec has a `transient` block, so the report holds `transient.steps`
 (`t_s`, terminal voltages `v`, `floating_phi_v`, `i_cond_a` / `i_disp_a`
 per terminal, region-mean `region_e_v_m` per `materials[]` group,
-`charge_residual`) and the trapezoid-integrated `delivered_energy_cond_j` /
-`delivered_energy_disp_j` per terminal. The plate starts on the capacitive
+`charge_residual`) and the integrated `delivered_energy_cond_j` (trapezoid) /
+`delivered_energy_disp_j` (midpoint) per terminal. The plate starts on the capacitive
 divider `V₀ C₁/(C₁+C₂) = 6.667 V` and relaxes with
 `τ = (C₁+C₂)/(G₁+G₂) = 0.133 s` to the resistive divider
 `V₀ G₁/(G₁+G₂) = 2.5 V`; the run (6 τ, backward Euler) ends at 2.510 V.

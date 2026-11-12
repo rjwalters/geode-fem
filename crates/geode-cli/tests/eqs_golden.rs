@@ -183,7 +183,10 @@ fn floating_plate_follows_maxwell_wagner_curve() {
         }
     }
     assert!(err < 2e-3, "floating plate max error {err}");
-    assert_eq!(rep["transient"]["energy_quadrature"], "trapezoid");
+    assert_eq!(
+        rep["transient"]["energy_quadrature"],
+        "cond:trapezoid,disp:midpoint"
+    );
 }
 
 #[test]
@@ -499,4 +502,66 @@ fn cookbook_example_uses_the_golden_bar_mesh() {
         built,
         "examples/eqs/two_layer.msh is stale"
     );
+}
+
+/// Lossless two-layer capacitor driven by a delayed unit pulse on `a`
+/// (`b` grounded), no floating conductor (issue #1528).
+fn lossless_pulse_spec(mesh: &Path, edge: f64, dt: f64, t_end: f64) -> Value {
+    spec(
+        mesh,
+        0.0,
+        0.0,
+        "eqs",
+        json!({
+            "terminals": [
+                {"name": "a", "waveform": {"kind": "pulse", "delay": 1.0, "rise": edge,
+                                           "width": 2.0 - edge, "fall": edge, "v": 1.0}},
+                {"name": "b", "waveform": {"kind": "step", "t0": 0.0, "v": 0.0}},
+            ],
+            "transient": {"dt": dt, "t_end": t_end},
+        }),
+    )
+}
+
+#[test]
+fn closed_lossless_pulse_has_zero_net_displacement_work() {
+    let dir = Scratch::new("geode-", "eqs-closed-pulse");
+    let mesh = write_bar(&dir);
+    let r = rc(0.0, 0.0);
+    let c_series = r.c[0] * r.c[1] / (r.c[0] + r.c[1]);
+    // (edge time, step sizes, end time): discontinuous edges, then 0.5 s ramps.
+    let cases: [(f64, &[f64], f64); 2] = [
+        (0.0, &[1.0, 0.5, 0.25, 0.125], 4.0),
+        (0.5, &[0.25, 0.125, 0.0625, 0.03125, 0.015625], 5.0),
+    ];
+    for (edge, dts, t_end) in cases {
+        for &dt in dts {
+            let s = lossless_pulse_spec(&mesh, edge, dt, t_end);
+            let rep = run(&dir, "eqs", "closed", &s).expect("solve");
+            let w = f64s(&rep["transient"]["delivered_energy_disp_j"])[0];
+            assert!(
+                w.abs() < 1e-9 * c_series,
+                "edge {edge} dt {dt}: net displacement work {w} vs C V^2 {c_series}"
+            );
+        }
+    }
+}
+
+#[test]
+fn t_end_must_be_a_multiple_of_dt() {
+    let dir = Scratch::new("geode-", "eqs-t-end");
+    let mesh = write_bar(&dir);
+    for t_end in [1.49, 1.51] {
+        let s = lossless_pulse_spec(&mesh, 0.0, 1.0, t_end);
+        let err = run(&dir, "eqs", "bad_end", &s).expect_err("must be rejected");
+        assert!(err.contains("integer multiple of dt"), "{err}");
+        let path = dir.join("bad_end.json");
+        let out = geode(&["check", path.to_str().unwrap()]);
+        assert!(!out.status.success(), "check accepted t_end {t_end}");
+    }
+    // Exact multiples are accepted, including a floating-point one.
+    for (dt, t_end) in [(0.5, 1.5), (0.1, 0.3)] {
+        let s = lossless_pulse_spec(&mesh, 0.0, dt, t_end);
+        run(&dir, "eqs", "ok_end", &s).expect("accepted");
+    }
 }

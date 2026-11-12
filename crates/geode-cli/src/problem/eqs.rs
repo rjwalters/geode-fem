@@ -5,6 +5,8 @@ use crate::spec::{EqsSpec, WaveformSpec};
 
 /// Upper bound on `transient` steps (the history is held in memory).
 const MAX_EQS_STEPS: usize = 1_000_000;
+/// Relative tolerance for `t_end` being an integer multiple of `dt`.
+const END_TIME_REL_TOL: f64 = 1e-9;
 
 fn finite_nonneg(what: &str, x: f64) -> Result<(), CliError> {
     if x.is_finite() && x >= 0.0 {
@@ -136,7 +138,18 @@ pub(super) fn validate_eqs(spec: &ProblemSpec) -> Result<(), CliError> {
                             "eqs.transient.dt must be finite and > 0 (got {dt})"
                         )));
                     }
-                    let n = (t.t_end / dt).round();
+                    let ratio = t.t_end / dt;
+                    let n = ratio.round();
+                    if (ratio - n).abs() > END_TIME_REL_TOL * ratio.max(1.0) {
+                        return Err(invalid(format!(
+                            "eqs.transient: t_end = {} is not an integer multiple of dt = {dt} \
+                             (t_end / dt = {ratio}; nearest end times {} and {}) — adjust t_end \
+                             or dt so the run reaches the requested end time",
+                            t.t_end,
+                            ratio.floor() * dt,
+                            ratio.ceil() * dt
+                        )));
+                    }
                     if !(1.0..=MAX_EQS_STEPS as f64).contains(&n) {
                         return Err(invalid(format!(
                             "eqs.transient: t_end / dt = {} steps is outside [1, {MAX_EQS_STEPS}]",
