@@ -141,6 +141,7 @@ jobs:
               --test fiber_dispersion_benchmark \
               --test floquet_active_reflection \
               --test floquet_ports \
+              --test floquet_prom \
               --test floquet_sensitivity \
               --test formulation_audit_graddiv \
               --test hcurl_error_estimator \
@@ -239,6 +240,7 @@ jobs:
               --test fiber_dispersion_benchmark \
               --test floquet_active_reflection \
               --test floquet_ports \
+              --test floquet_prom \
               --test floquet_sensitivity \
               --test formulation_audit_graddiv \
               --test hcurl_error_estimator \
