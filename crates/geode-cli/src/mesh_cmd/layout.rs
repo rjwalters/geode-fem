@@ -1692,7 +1692,15 @@ impl Layout {
             .copied()
             .chain(ports.iter().map(|p| p.rect))
             .reduce(|a, b| a.union(&b))
-            .expect("≥ 1 port or conductor group (checked per analysis)");
+            // A conductor-free, port-free layout (a periodic driven Floquet
+            // cell) has no footprint: the cell is the square of half-width
+            // `margin` centred on the origin.
+            .unwrap_or(Rect {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 0.0,
+                y1: 0.0,
+            });
         let domain = Rect {
             x0: footprint.x0 - self.margin,
             y0: footprint.y0 - self.margin,
@@ -2289,6 +2297,27 @@ mod tests {
             "mesh": {"size_max": 5, "size_conductor": 1}
         }))
         .unwrap()
+    }
+
+    /// A conductor-free, port-free periodic driven cell (Floquet z ports)
+    /// resolves to a `2·margin` square centred on the origin: no panic.
+    #[test]
+    fn empty_footprint_periodic_driven_cell_resolves_without_panic() {
+        let l: Layout = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [{"name": "air", "z_bottom": 0, "thickness": 10}],
+            "conductors": [],
+            "margin": 5,
+            "periodic": ["x", "y"],
+            "mesh": {"size_max": 3, "size_conductor": 1}
+        }))
+        .unwrap();
+        let r = l.resolve_for(MeshAnalysis::Driven).expect("resolves");
+        assert_eq!(
+            (r.domain.x0, r.domain.y0, r.domain.x1, r.domain.y1),
+            (-5.0, -5.0, 5.0, 5.0)
+        );
     }
 
     /// Regular-ish octagon of "radius" `r` (edges at 0°, 45°, 90°, …)
