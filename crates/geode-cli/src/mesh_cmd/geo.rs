@@ -929,14 +929,21 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
         let _ = writeln!(w, "Field[{field}].DistMax = {};", num(far.max(near)));
         thresholds.push(field.to_string());
     }
-    field += 1;
-    let _ = writeln!(w, "Field[{field}] = Min;");
-    let _ = writeln!(
-        w,
-        "Field[{field}].FieldsList = {{{}}};",
-        thresholds.join(", ")
-    );
-    let _ = writeln!(w, "Background Field = {field};");
+    if thresholds.is_empty() {
+        // No conductors or ports to refine around (e.g. a bare periodic
+        // driven cell): gmsh rejects an empty `FieldsList = {}`, so emit no
+        // background field and let `Mesh.MeshSizeMax` size the mesh.
+        let _ = writeln!(w, "// (nothing to refine: uniform Mesh.MeshSizeMax)");
+    } else {
+        field += 1;
+        let _ = writeln!(w, "Field[{field}] = Min;");
+        let _ = writeln!(
+            w,
+            "Field[{field}].FieldsList = {{{}}};",
+            thresholds.join(", ")
+        );
+        let _ = writeln!(w, "Background Field = {field};");
+    }
     let _ = writeln!(w);
     let _ = writeln!(
         w,
@@ -1309,6 +1316,31 @@ mod tests {
         assert!(s.text.contains("Physical Surface(\"z_lo\""));
         assert!(s.text.contains("Physical Surface(\"z_hi\""));
         assert!(!s.text.contains("outer_boundary"));
+    }
+
+    /// A bare periodic driven cell has nothing to refine around: gmsh rejects
+    /// `FieldsList = {}` (a syntax error), so no empty field may be emitted.
+    #[test]
+    fn conductor_free_cell_emits_no_empty_size_field() {
+        let l: Layout = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [
+                {"name": "slab", "z_bottom": 0, "thickness": 4, "eps_r": [4.0, 0.0]},
+                {"name": "air", "z_bottom": 4, "thickness": 6}
+            ],
+            "conductors": [],
+            "margin": 5,
+            "periodic": ["x", "y"],
+            "mesh": {"size_max": 3, "size_conductor": 1}
+        }))
+        .unwrap();
+        let r = l.resolve_for(super::super::MeshAnalysis::Driven).unwrap();
+        let s = generate(&r, "test");
+        assert!(!s.text.contains("FieldsList = {}"), "{}", s.text);
+        assert!(!s.text.contains("Background Field"), "{}", s.text);
+        let (open, close) = (s.text.matches('{').count(), s.text.matches('}').count());
+        assert_eq!(open, close, "unbalanced braces:\n{}", s.text);
     }
 
     #[test]
