@@ -816,6 +816,8 @@ pub struct DrivenBcs<'a> {
     /// [`crate::assembly::hcurl_space::HcurlSpace::pec_interior_mask`].
     pub pec_interior_mask: &'a [bool],
 }
+
+/// Volumetric current source, piecewise constant per tet.
 #[derive(Debug, Clone)]
 pub struct CurrentSource {
     /// `[n_tets][3]` complex current density `J` per tet, in `mesh.tets`
