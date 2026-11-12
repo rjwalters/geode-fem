@@ -456,6 +456,10 @@ jobs:
           # default tier of a --release build (no `-- --ignored`, which would
           # match zero tests here).
           cargo test -p geode-cli --release --test floquet_slab_golden
+          # Issue #1521: fixed-k_t Floquet PROM adaptive-sweep acceptance tests;
+          # same debug_assertions-only ignore as above, so the default tier of a
+          # --release build runs them.
+          cargo test -p geode-cli --release --test floquet_prom
 
       # Issue #793: the remaining geode-cli benchmark tiers (every one
       # #[ignore]d as heavy in debug). Measured release times on

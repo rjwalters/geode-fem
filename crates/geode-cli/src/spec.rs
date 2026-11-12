@@ -191,7 +191,7 @@ pub struct ProblemSpec {
     /// The two Floquet ports (the open faces) of a periodic driven unit
     /// cell (additive in v1, Epic #837 Phase 4b). Needs
     /// `boundary_conditions.periodic` (the two lattice vectors) and exactly
-    /// one of `incidence` / `scan`; cannot be combined with lumped or wave
+    /// one of `incidence` / `scan` / `fixed_k_t`; cannot be combined with lumped or wave
     /// ports.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub floquet_ports: Vec<FloquetPortSpec>,
@@ -201,6 +201,32 @@ pub struct ProblemSpec {
     /// A scan over incidence angles (Floquet-port specs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scan: Option<ScanSpec>,
+    /// A sweep at a fixed transverse wave vector `k_t` (Floquet-port specs,
+    /// issue #1521): the Bloch phase does not move with frequency, so
+    /// `sweep.adaptive` uses a reduced-order model here. Excludes
+    /// `incidence` / `scan`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_k_t: Option<FixedKtSpec>,
+}
+
+/// A fixed transverse wave vector for a Floquet-port frequency sweep.
+///
+/// Unlike an `incidence` / `scan` (a fixed *angle*, where `k_t = k₀ √ε_r
+/// sin θ (…)` moves with frequency), the Bloch phase is the same at every
+/// frequency. This is the case in which `sweep.adaptive` applies: it builds
+/// a reduced-order model over the band (a band over which the set of
+/// diffraction orders in the channel list changes falls back to the dense
+/// sweep, with a `floquet` warning).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FixedKtSpec {
+    /// The transverse wave vector `(k_x, k_y, k_z)` in rad per mesh length
+    /// unit, in the lattice plane (its component along the lattice normal
+    /// must be zero).
+    pub k_t: [f64; 3],
+    /// Incident polarization (default `"both"`).
+    #[serde(default = "default_polarization")]
+    pub polarization: IncidencePolarization,
 }
 
 /// One Floquet port: the open cell face and the medium beyond it.

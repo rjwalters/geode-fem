@@ -2206,6 +2206,22 @@ available with `absorbing_regions` (the UPML is re-assembled per
 frequency) or dispersive materials — remove `sweep.adaptive` to run the
 dense sweep.
 
+**Floquet ports** (issue #1521, Epic #837 Phase 4b). On a `floquet_ports`
+spec the drive is exactly one of `incidence`, `scan` or `fixed_k_t`
+(`{"k_t": [kx, ky, kz], "polarization": "both"}`, rad per mesh length unit,
+in the lattice plane). `sweep.adaptive` applies to `fixed_k_t` only: the
+Bloch phase is the same at every frequency, so the port vectors `h_q` are
+ω-independent, the channel admittances `c_q(ω)` are closed-form scalars, and
+the cell projects once (`geode_core::driven::floquet::FloquetProm`). The
+report then has one `floquet.angles[]` entry carrying `k_t` (no
+`theta_deg` / `phi_deg`), and `solver.adaptive` holds the usual diagnostics.
+`incidence` / `scan` keep the dense sweep (a fixed angle moves `k_t` with
+frequency) and a `floquet` warning. A band over which the channel *set*
+changes (a new diffraction order enters outside the `n_evanescent` rings)
+also falls back to the dense sweep with a warning. The residual indicator
+has a round-off floor near `2e-9` on the slab fixture (true `|ΔS|` against
+the dense sweep is `~1e-12`), so keep `tolerance` above it.
+
 **Wave and mixed ports** (issue #774). With `wave_ports` (alone or mixed
 with lumped `ports`) the model has one excitation per channel. Each
 wave channel's modal term `j·y(ω)·f fᵀ` (`y = β/μ_t`) is a rank-1 matrix

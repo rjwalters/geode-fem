@@ -175,6 +175,9 @@ pub struct FloquetSetup {
     pub pols: Vec<geode_core::driven::floquet::FloquetPolarization>,
     /// Whether the spec is an `incidence` (single angle) or a `scan`.
     pub is_scan: bool,
+    /// The fixed transverse wave vector of a `fixed_k_t` spec (then
+    /// `angles` is empty).
+    pub fixed_k_t: Option<[f64; 3]>,
 }
 
 /// A resolved `eigen.bloch` request.
@@ -2882,9 +2885,9 @@ fn bloch_label_k(label: &str, [a, b, c]: [f64; 3]) -> Option<[f64; 3]> {
 /// model are rejected rather than silently ignored.
 fn validate_floquet(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliError> {
     if spec.floquet_ports.is_empty() {
-        if spec.incidence.is_some() || spec.scan.is_some() {
+        if spec.incidence.is_some() || spec.scan.is_some() || spec.fixed_k_t.is_some() {
             return Err(invalid(
-                "`incidence` / `scan` need `floquet_ports` (the two open faces of the unit cell)",
+                "`incidence` / `scan` / `fixed_k_t` need `floquet_ports` (the two open faces of the unit cell)",
             ));
         }
         return Ok(());
@@ -2967,17 +2970,28 @@ fn validate_floquet(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliErr
             }
         }
     }
+    let n_drive = usize::from(spec.incidence.is_some())
+        + usize::from(spec.scan.is_some())
+        + usize::from(spec.fixed_k_t.is_some());
+    if n_drive > 1 {
+        return Err(invalid(
+            "`incidence`, `scan` and `fixed_k_t` are mutually exclusive: give one",
+        ));
+    }
     let (angles_ok, what) = match (&spec.incidence, &spec.scan) {
-        (Some(_), Some(_)) => {
+        (Some(_), Some(_)) => unreachable!("n_drive <= 1"),
+        (None, None) if spec.fixed_k_t.is_none() => {
             return Err(invalid(
-                "`incidence` and `scan` are mutually exclusive: give one",
+                "`floquet_ports` need an `incidence`, a `scan` or a `fixed_k_t` (the plane-wave \
+                 drive)",
             ));
         }
-        (None, None) => {
-            return Err(invalid(
-                "`floquet_ports` need an `incidence` or a `scan` (the plane-wave drive)",
-            ));
-        }
+        (None, None) => (
+            spec.fixed_k_t
+                .as_ref()
+                .is_some_and(|f| f.k_t.iter().all(|x| x.is_finite())),
+            "fixed_k_t.k_t must be three finite components",
+        ),
         (Some(i), None) => (
             i.theta_deg.is_finite() && (0.0..90.0).contains(&i.theta_deg) && i.phi_deg.is_finite(),
             "incidence.theta_deg must be in [0, 90) and phi_deg finite",
@@ -3036,6 +3050,10 @@ fn resolve_floquet(
     let [a, b]: [FloquetPortDef; 2] = defs.try_into().expect("two ports checked");
     let (angles, pol, is_scan) = match (&spec.incidence, &spec.scan) {
         (Some(i), _) => (vec![[i.theta_deg, i.phi_deg]], i.polarization, false),
+        (None, None) => {
+            let f = spec.fixed_k_t.as_ref().expect("validate_floquet");
+            (Vec::new(), f.polarization, false)
+        }
         (_, Some(sc)) => {
             let r = &sc.theta_deg;
             let thetas: Vec<f64> = (0..r.count)
@@ -3053,7 +3071,6 @@ fn resolve_floquet(
                 .collect();
             (angles, sc.polarization, true)
         }
-        _ => unreachable!("validate_floquet requires incidence or scan"),
     };
     let pols = match pol {
         crate::spec::IncidencePolarization::Te => vec![Te],
@@ -3065,6 +3082,7 @@ fn resolve_floquet(
         angles,
         pols,
         is_scan,
+        fixed_k_t: spec.fixed_k_t.as_ref().map(|f| f.k_t),
     }))
 }
 

@@ -16,8 +16,9 @@ use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::driven::floquet::{
     FloquetCell, FloquetCellSpec, FloquetError, FloquetIncidence, FloquetLabel,
-    FloquetPolarization, FloquetPortSpec, FloquetSettings, FloquetSolution,
+    FloquetPolarization, FloquetPortSpec, FloquetProm, FloquetSettings, FloquetSolution,
 };
+use geode_core::driven::rom::RomSettings;
 
 use crate::backend::CompiledBackend;
 use crate::check::mesh_summary;
@@ -26,8 +27,8 @@ use crate::export::file_ref_at;
 use crate::problem::{FloquetSetup, Problem};
 use crate::progress::SweepOptions;
 use crate::report::{
-    DrivenReport, FileRef, FloquetAngleResult, FloquetPoint, FloquetPortSummary, FloquetReport,
-    FloquetRow, Provenance, SolverStats, WarningResult,
+    AdaptiveSweepStats, DrivenReport, FileRef, FloquetAngleResult, FloquetPoint,
+    FloquetPortSummary, FloquetReport, FloquetRow, Provenance, SolverStats, WarningResult,
 };
 
 fn pol_name(p: FloquetPolarization) -> &'static str {
@@ -85,6 +86,35 @@ fn warning(message: String) -> WarningResult {
     }
 }
 
+/// One solved case: an incidence angle (the Bloch phase follows the
+/// frequency) or a fixed transverse wave vector.
+#[derive(Debug, Clone, Copy)]
+enum Case {
+    Angle(f64, f64),
+    FixedKt([f64; 3]),
+}
+
+fn case_path(base: &Path, case: &Case, n_ports: usize) -> PathBuf {
+    match *case {
+        Case::Angle(theta, phi) => angle_path(base, theta, phi, n_ports),
+        Case::FixedKt(kt) => {
+            let num = |x: f64| {
+                let s = format!("{x:.6}");
+                s.trim_end_matches('0').trim_end_matches('.').to_string()
+            };
+            let stem = base
+                .file_stem()
+                .map_or_else(|| "floquet".into(), |s| s.to_string_lossy().into_owned());
+            base.with_file_name(format!(
+                "{stem}_kt{}_{}_{}.s{n_ports}p",
+                num(kt[0]),
+                num(kt[1]),
+                num(kt[2])
+            ))
+        }
+    }
+}
+
 /// The per-angle Touchstone path: `<stem>_theta<θ>_phi<φ>.s<N>p` next to
 /// the `--touchstone` argument (whose own extension is replaced: the port
 /// count `N` is only known after the solve and may differ per angle).
@@ -106,8 +136,7 @@ fn angle_path(base: &Path, theta: f64, phi: f64, n_ports: usize) -> PathBuf {
 fn write_angle_touchstone(
     base: &Path,
     provenance: &Provenance,
-    theta: f64,
-    phi: f64,
+    case: &Case,
     sols: &[(f64, FloquetSolution)],
 ) -> Result<FileRef, CliError> {
     // Fixed shape: the union of the labels that propagate anywhere in the
@@ -135,7 +164,12 @@ fn write_angle_touchstone(
             provenance.geode_version, provenance.git_sha
         ),
         format!("spec: {}", provenance.spec_path),
-        format!("Floquet-port unit cell at theta = {theta} deg, phi = {phi} deg"),
+        match case {
+            Case::Angle(theta, phi) => {
+                format!("Floquet-port unit cell at theta = {theta} deg, phi = {phi} deg")
+            }
+            Case::FixedKt(kt) => format!("Floquet-port unit cell at fixed k_t = {kt:?}"),
+        },
         "modal power-normalized S over the propagating Floquet channels; [Reference] is nominal"
             .to_string(),
     ];
@@ -144,7 +178,7 @@ fn write_angle_touchstone(
     }
     let refs = vec![50.0; labels.len()];
     let text = crate::touchstone::render_rows(&comments, &refs, rows)?;
-    let path = angle_path(base, theta, phi, labels.len());
+    let path = case_path(base, case, labels.len());
     std::fs::write(&path, text).map_err(|err| CliError::Io {
         path: path.clone(),
         err,
@@ -161,11 +195,12 @@ pub fn run(
 ) -> Result<DrivenReport, CliError> {
     let setup = p.floquet.as_ref().expect("floquet problem");
     let mut warnings: Vec<WarningResult> = p.preconditioner_warnings();
-    if p.spec.sweep.as_ref().is_some_and(|s| s.adaptive.is_some()) {
+    let adaptive_spec = p.spec.sweep.as_ref().and_then(|s| s.adaptive.as_ref());
+    if adaptive_spec.is_some() && setup.fixed_k_t.is_none() {
         warnings.push(warning(
             "sweep.adaptive: a fixed-angle sweep changes the Bloch phase k_t with frequency, so \
              the reduced-order model does not apply; running the dense sweep (every frequency \
-             solved at full order)"
+             solved at full order). Use `fixed_k_t` for an adaptive sweep"
                 .to_string(),
         ));
     }
@@ -174,15 +209,79 @@ pub fn run(
     }
     let t0 = Instant::now();
     let cell = assemble(p, setup)?;
-    let mut angles = Vec::with_capacity(setup.angles.len());
+    let cases: Vec<Case> = match setup.fixed_k_t {
+        Some(kt) => vec![Case::FixedKt(kt)],
+        None => setup
+            .angles
+            .iter()
+            .map(|&[t, ph]| Case::Angle(t, ph))
+            .collect(),
+    };
+    let mut angles = Vec::with_capacity(cases.len());
     let mut residual_max = 0.0_f64;
+    let mut adaptive_stats: Option<AdaptiveSweepStats> = None;
     let mut done = 0_usize;
-    for &[theta, phi] in &setup.angles {
-        let inc = FloquetIncidence::degrees(theta, phi, 0);
+    for case in cases {
+        let (theta, phi, label) = match case {
+            Case::Angle(t, ph) => (Some(t), Some(ph), format!("theta = {t}, phi = {ph}")),
+            Case::FixedKt(kt) => (None, None, format!("k_t = {kt:?}")),
+        };
+        // The solutions at every frequency: dense, or through the PROM of a
+        // fixed-k_t adaptive sweep.
+        let mut solved: Vec<FloquetSolution> = Vec::with_capacity(p.frequencies.len());
+        let mut prom_sweep = None;
+        if let (Case::FixedKt(kt), Some(ad)) = (case, adaptive_spec) {
+            let omegas: Vec<f64> = p.frequencies.iter().map(|f| f.k0).collect();
+            let settings = RomSettings {
+                tolerance: ad.tolerance,
+                max_snapshots: ad.max_snapshots,
+            };
+            match FloquetProm::build(&cell, kt, 0.0, &omegas, settings) {
+                Ok(mut prom) => {
+                    prom_sweep = Some(prom.sweep(&omegas, ad.tolerance).map_err(map_err)?);
+                }
+                Err(FloquetError::PromUnsupported(why)) => warnings.push(warning(format!(
+                    "sweep.adaptive: the reduced-order model does not apply ({why}); running the \
+                     dense sweep (every frequency solved at full order)"
+                ))),
+                Err(e) => return Err(map_err(e)),
+            }
+        }
+        if let Some(sw) = &prom_sweep {
+            let hz_of = |omega: f64| {
+                p.frequencies
+                    .iter()
+                    .find(|f| f.k0 == omega)
+                    .map_or(f64::NAN, |f| f.hz)
+            };
+            let ad = adaptive_spec.expect("adaptive");
+            let n_solved = sw.points.iter().filter(|pt| pt.solved).count();
+            adaptive_stats = Some(AdaptiveSweepStats {
+                tolerance: ad.tolerance,
+                max_snapshots: ad.max_snapshots,
+                converged: sw.converged,
+                worst_residual: sw.worst_residual,
+                reduced_order: sw.reduced_order,
+                snapshot_frequencies_hz: sw.snapshot_omegas.iter().map(|&w| hz_of(w)).collect(),
+                fallback_frequencies_hz: sw.fallback_omegas.iter().map(|&w| hz_of(w)).collect(),
+                n_solved,
+                n_interpolated: sw.points.len() - n_solved,
+                n_factorizations: sw.n_factorizations,
+            });
+            solved.extend(sw.points.iter().map(|pt| pt.solution.clone()));
+        } else {
+            for f in &p.frequencies {
+                solved.push(match case {
+                    Case::Angle(t, ph) => cell
+                        .solve_incidence(f.k0, &FloquetIncidence::degrees(t, ph, 0))
+                        .map_err(map_err)?,
+                    Case::FixedKt(kt) => cell.solve_k_t(f.k0, kt).map_err(map_err)?,
+                });
+            }
+        }
         let mut sols: Vec<(f64, FloquetSolution)> = Vec::with_capacity(p.frequencies.len());
         let mut points = Vec::with_capacity(p.frequencies.len());
-        for f in &p.frequencies {
-            let sol = cell.solve_incidence(f.k0, &inc).map_err(map_err)?;
+        for (f, sol) in p.frequencies.iter().zip(solved) {
             if !sol.residual_rel.is_finite()
                 || sol
                     .s
@@ -192,23 +291,20 @@ pub fn run(
             {
                 return Err(CliError::NonFinite {
                     index: done,
-                    what: format!("Floquet S at theta = {theta}, phi = {phi}, f = {} Hz", f.hz),
+                    what: format!("Floquet S at {label}, f = {} Hz", f.hz),
                 });
             }
             residual_max = residual_max.max(sol.residual_rel);
             for w in &sol.warnings {
-                warnings.push(warning(format!(
-                    "theta = {theta} deg, phi = {phi} deg, f = {:e} Hz: {w}",
-                    f.hz
-                )));
+                warnings.push(warning(format!("{label}, f = {:e} Hz: {w}", f.hz)));
             }
             let mut rows = Vec::new();
             for &pol in &setup.pols {
                 let Some(j) = sol.specular_index(0, pol) else {
                     warnings.push(warning(format!(
-                        "theta = {theta} deg, f = {:e} Hz: the specular {} order does not \
-                         propagate at port 0 (total internal reflection of the port medium); no \
-                         rows for this incident polarization",
+                        "{label}, f = {:e} Hz: the specular {} order does not propagate at port \
+                         0 (total internal reflection of the port medium); no rows for this \
+                         incident polarization",
                         f.hz,
                         pol_name(pol)
                     )));
@@ -241,11 +337,15 @@ pub fn run(
             done += 1;
         }
         let touchstone_file = touchstone
-            .map(|base| write_angle_touchstone(base, &provenance, theta, phi, &sols))
+            .map(|base| write_angle_touchstone(base, &provenance, &case, &sols))
             .transpose()?;
         angles.push(FloquetAngleResult {
             theta_deg: theta,
             phi_deg: phi,
+            k_t: match case {
+                Case::FixedKt(kt) => Some(kt),
+                Case::Angle(..) => None,
+            },
             points,
             touchstone_file,
         });
@@ -270,7 +370,7 @@ pub fn run(
             residual_rel_max: residual_max,
             wall_time_s,
             jobs: opts.jobs_explicit.then_some(opts.jobs),
-            adaptive: None,
+            adaptive: adaptive_stats,
         },
         results: Vec::new(),
         touchstone_file: None,
