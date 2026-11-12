@@ -401,13 +401,10 @@ fn parameter_to_s_gradient_matches_central_fd() {
     let fmax = fd.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
     assert!(fmax > 1e-4, "vanishing gradient proves nothing: {fd:?}");
     let mut checked = 0;
-    for j in 0..p.n_params() {
-        let rel = (vjp.grad[j] - fd[j]).abs() / fd[j].abs().max(1e-12);
-        eprintln!(
-            "θ[{j}]: adjoint {:.6e} FD {:.6e} rel {rel:.2e}",
-            vjp.grad[j], fd[j]
-        );
-        if fd[j].abs() > 1e-2 * fmax {
+    for (j, (&ad, &fdj)) in vjp.grad.iter().zip(&fd).enumerate() {
+        let rel = (ad - fdj).abs() / fdj.abs().max(1e-12);
+        eprintln!("θ[{j}]: adjoint {:.6e} FD {:.6e} rel {rel:.2e}", ad, fdj);
+        if fdj.abs() > 1e-2 * fmax {
             checked += 1;
             assert!(rel <= 5e-3, "θ[{j}] rel_err {rel}");
         }
