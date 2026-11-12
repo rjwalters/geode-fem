@@ -902,6 +902,37 @@ impl FloquetCell {
         )
     }
 
+    /// Assemble a **radiator cell** with a single open face (issue #1513
+    /// AC2): the aperture is the only Floquet port and everything else is
+    /// closed by the PEC mask (a ground plane and the radiating metal). Feed
+    /// it with a delta-gap edge current, [`Self::edge_scan_impedance`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::assemble`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn assemble_radiator<B: Backend>(
+        mesh: &TetMesh,
+        map: &PeriodicMap,
+        eps_r: &[c64],
+        sigma: Option<&[f64]>,
+        pec_interior_mask: Option<&[bool]>,
+        aperture: FloquetPortSpec<'_>,
+        settings: FloquetSettings,
+        device: &B::Device,
+    ) -> Result<Self, FloquetError> {
+        Self::assemble_ports::<B>(
+            mesh,
+            map,
+            eps_r,
+            sigma,
+            pec_interior_mask,
+            settings,
+            &[(aperture, None)],
+            device,
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn assemble_ports<B: Backend>(
         mesh: &TetMesh,
@@ -1507,6 +1538,44 @@ impl FloquetCell {
         })
     }
 
+    /// The **scan impedance** `Z = −V/I` of an array element driven by a
+    /// unit delta-gap current on the full edge DOF `edge` (issue #1513 AC2):
+    /// the lumped-feed counterpart of [`Self::active_reflection`]. The cell
+    /// needs only the aperture Floquet port (the radiator is PEC in the
+    /// mask); the Bloch phase is that of the beam scanned to `(theta, phi)`.
+    /// One LU and one back-solve.
+    ///
+    /// # Errors
+    ///
+    /// [`FloquetError::InvalidSpec`] if `edge` is out of range or
+    /// PEC-eliminated, and the errors of [`Self::k_t_of`] / [`Self::factor`].
+    pub fn edge_scan_impedance(
+        &self,
+        omega: f64,
+        theta: f64,
+        phi: f64,
+        edge: usize,
+    ) -> Result<c64, FloquetError> {
+        if edge >= self.op.n_dofs() {
+            return Err(FloquetError::InvalidSpec(format!(
+                "feed edge {edge} out of range"
+            )));
+        }
+        let inc = FloquetIncidence {
+            theta,
+            phi,
+            from_port: 0,
+        };
+        let k_t = self.k_t_of(omega, &inc)?;
+        let f = self.factor(omega, k_t, phi)?;
+        let b = f.edge_current_rhs(edge).ok_or_else(|| {
+            FloquetError::InvalidSpec(format!("feed edge {edge} is PEC-eliminated"))
+        })?;
+        let mut x = vec![c64::new(0.0, 0.0); f.n_reduced()];
+        f.back_solve(&b, &mut x)?;
+        Ok(-f.edge_voltage(&x, edge))
+    }
+
     /// [`Self::active_reflection`] over a list of polar angles at one
     /// `(omega, phi)`: a scan cut. One factorization per angle.
     ///
@@ -1694,6 +1763,33 @@ impl FactoredFloquetCell<'_> {
     pub fn rhs(&self, q: usize) -> Vec<c64> {
         let c = c64::new(0.0, 2.0 * self.omega) * self.channels[q].admittance;
         self.port_vector(q).iter().map(|v| v.conj() * c).collect()
+    }
+
+    /// The reduced right-hand side of a unit **delta-gap current** `I = 1`
+    /// impressed along the single edge `edge` (a full edge DOF, issue
+    /// #1513 AC2): `b = −iω Pᴴ e_edge` (the sign of the curl–curl
+    /// equation `∇×∇×E − k²εE = −iωJ`, which makes `Re(−V/I) > 0` a passive
+    /// load), since the line integral of the edge's own Nédélec function
+    /// along it is `1`. `None` if the edge is
+    /// PEC-eliminated (it carries no field).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `edge` is out of range.
+    pub fn edge_current_rhs(&self, edge: usize) -> Option<Vec<c64>> {
+        let i = self.cell.op.interior_index(edge)?;
+        let mut b = vec![c64::new(0.0, 0.0); self.n_reduced()];
+        let w = c64::new(0.0, -self.omega);
+        for (r, c) in self.interior.row(i) {
+            b[r] += c.conj() * w;
+        }
+        Some(b)
+    }
+
+    /// The gap voltage `V = ∫E·dl` along `edge` of a reduced solution `x_r`
+    /// (the edge DOF itself).
+    pub fn edge_voltage(&self, x_r: &[c64], edge: usize) -> c64 {
+        self.expand(x_r)[edge]
     }
 
     /// Solve `A_r x = b`.
