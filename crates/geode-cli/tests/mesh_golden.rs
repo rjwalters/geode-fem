@@ -44,19 +44,12 @@ use std::process::{Command, Output};
 
 use geode_core::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
 
-fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::{geode, manifest_dir};
 
 fn fixtures() -> PathBuf {
     manifest_dir().join("tests/fixtures")
-}
-
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
 }
 
 /// Fresh scratch dir for one test.

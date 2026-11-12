@@ -200,19 +200,12 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
     ),
 ];
 
-fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::{geode, manifest_dir};
 
 fn examples() -> PathBuf {
     manifest_dir().join("examples")
-}
-
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
 }
 
 /// Require success; return the report.
