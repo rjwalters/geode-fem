@@ -2916,6 +2916,7 @@ dependencies = [
  "criterion",
  "faier",
  "geode-core",
+ "geode-optimize",
  "geode-util",
  "mshio",
  "nix",

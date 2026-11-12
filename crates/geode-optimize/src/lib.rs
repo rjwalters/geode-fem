@@ -81,6 +81,7 @@ pub mod driver;
 pub mod exact;
 pub mod lbfgsb;
 pub mod line_search;
+pub mod minmax;
 pub mod mma;
 pub mod objective;
 
@@ -90,6 +91,7 @@ pub use driver::{
 };
 pub use lbfgsb::{Lbfgsb, LbfgsbOptions, LbfgsbState};
 pub use line_search::{LineSearchFailure, LineSearchOptions, LineSearchOutcome, strong_wolfe};
+pub use minmax::{Epigraph, MinMaxPoints};
 pub use mma::{Mma, MmaOptions, MmaState};
 pub use objective::{
     EvalError, Evaluation, FnConstrained, FnObjective, GradientCheck, Objective, Scaled,
