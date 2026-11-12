@@ -1162,7 +1162,8 @@ impl Layout {
             if analysis != MeshAnalysis::Eigen {
                 return Err(format!(
                     "`periodic` builds a unit cell for a Bloch band solve: use `--analysis eigen` \
-                     (got `{}`; periodic driven / Floquet ports land with Epic #837 Phase 4b)",
+                     (got `{}`; `geode mesh` does not yet generate a periodic driven cell with \
+                     Floquet-port groups: mesh it externally and use `floquet_ports` in the spec)",
                     analysis.name()
                 ));
             }
