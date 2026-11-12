@@ -1,0 +1,53 @@
+# Recorded by hand from a release run of the baseline on the Phase-4 grid
+# (issue #1536). Re-run: see README.md. Sub-grid points are asserted by
+# `cargo test --release -p geode-core --test tcda_baseline -- --include-ignored`.
+
+[meta]
+description = "Epic #1252 Phase 4 child B (#1536): worst-case |Gamma_active| of the hand-designed capacitively coupled dipole baseline, +-60 deg in E (phi=0) and H (phi=90) planes over a 20 % band."
+backend = "ndarray"
+generated_at_commit = "a77f61fe"
+
+[cell]
+pitch = 0.9              # d = 0.45 lambda0 (lambda0 = 2, omega0 = pi)
+dipole_half_len = 0.39   # arm-end coupling gap to the neighbour cell = 0.12
+strip_width_cells = 2
+mesh = "15 x 14 x 8 hexes x 6 tets (nx = n+1 odd, ny = n = 14, dz = 0.125)"
+stack_z = "ground 0; dipole plane 0.5 (lambda0/4); eps_r = 2 superstrate 0.5-0.75; air 0.75-1.0; aperture 1.0"
+z_ref = 0.15             # feed-line reference impedance, units of eta0
+feed = "lumped delta-gap on the centre edge, Gamma = (Z_scan - z_ref)/(Z_scan + z_ref)"
+
+[grid]
+omega_over_pi = [0.9, 0.95, 1.0, 1.05, 1.1]   # 20 % fractional band about omega0
+theta_deg = [0, 15, 30, 45, 60]
+phi_deg = [0, 90]
+n_points = 50
+grating_lobes = "none: d/lambda at the band top = 0.495 < 1/(1+sin 60) = 0.536"
+
+[baseline]
+worst_db = -3.50
+worst_point = { omega_over_pi = 1.1, theta_deg = 60, phi_deg = 90 }
+worst_e_plane_db = -5.68      # phi = 0, theta = 60, omega/pi = 1.1
+worst_h_plane_db = -3.50
+broadside_band_worst_db = -8.45  # theta = 0, omega/pi = 0.9
+passive = true
+# Per-point |Gamma| (dB), rows omega/pi = 0.9 .. 1.1; columns theta = 0,15,30,45,60.
+table_e_plane_db = [
+  [-8.45, -8.57, -9.39, -12.90, -9.13],
+  [-9.43, -9.49, -10.06, -12.44, -8.37],
+  [-10.48, -10.48, -10.83, -12.19, -7.42],
+  [-11.36, -11.39, -11.64, -12.10, -6.53],
+  [-11.68, -11.89, -12.33, -12.11, -5.68],
+]
+table_h_plane_db = [
+  [-8.45, -8.28, -7.64, -6.33, -4.49],
+  [-9.43, -9.21, -8.38, -6.87, -4.93],
+  [-10.48, -10.15, -9.04, -7.29, -5.36],
+  [-11.36, -10.83, -9.28, -7.18, -5.27],
+  [-11.68, -10.87, -8.74, -6.09, -3.50],
+]
+
+[target_for_1537]
+floor_db = -4.50          # baseline worst - 1 dB: the kill criterion
+epic_db = -10.0           # the epic's starting-point target
+recommended_db = -4.50    # acceptance gate; -10 dB kept as the stretch goal
+rationale = "The 3D-dipole baseline sits at -3.5 dB; -10 dB would be 6.5 dB better, far past the kill criterion's 1 dB, and is set by the 60 deg H-plane band-top point. Gate child C at -4.5 dB and report the distance to -10 dB."
