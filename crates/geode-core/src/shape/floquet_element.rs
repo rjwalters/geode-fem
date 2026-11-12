@@ -4,7 +4,7 @@
 //! Maps a design vector `θ` to node motion of the copper outline of one flat
 //! Floquet unit cell plus the permittivity of its superstrate layers, in the
 //! form the P1 adjoint consumes
-//! ([`FloquetDesign`](crate::driven::floquet_sensitivity::FloquetDesign)),
+//! ([`FloquetDesign`]),
 //! and exposes differentiable min-trace / min-gap / stack constraints
 //! `g(θ) ≤ 0` with their Jacobian for MMA
 //! (`geode_optimize::Evaluation::constrained`).
