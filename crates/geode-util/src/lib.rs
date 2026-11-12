@@ -30,6 +30,7 @@ pub mod fixture;
 pub mod interop;
 pub mod math;
 pub mod repo;
+pub mod rng;
 pub mod units;
 pub mod viz;
 

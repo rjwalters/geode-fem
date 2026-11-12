@@ -452,9 +452,7 @@ fn push_rows(t: &mut String, name: &str, rows: &[Row]) {
     }
 }
 
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
+use geode_util::repo::repo_root;
 
 #[allow(clippy::too_many_lines)]
 fn main() {

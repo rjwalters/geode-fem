@@ -133,24 +133,19 @@ pub fn orient_positive(mesh: &mut TetMesh) {
     }
 }
 
-/// Deterministic xorshift64* generator.
-pub struct Rng(u64);
+/// Deterministic xorshift64* generator (seeded with `seed.max(1)`).
+pub struct Rng(geode_util::rng::Xorshift64Star);
 
 impl Rng {
     pub fn new(seed: u64) -> Self {
-        Self(seed.max(1))
+        Self(geode_util::rng::Xorshift64Star::new_nonzero(seed))
     }
     pub fn next_u64(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x >> 12;
-        x ^= x << 25;
-        x ^= x >> 27;
-        self.0 = x;
-        x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        self.0.next_u64()
     }
     /// Uniform in `[0, 1)`.
     pub fn uniform(&mut self) -> f64 {
-        (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64
+        self.0.next_unit()
     }
 }
 
