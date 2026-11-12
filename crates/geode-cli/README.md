@@ -1224,13 +1224,15 @@ non-monotone table before any solve.
 The initial state is the electrostatic solution for the waveform at
 `t = 0` (a step at `t = 0` starts on the capacitive divider); with a
 constant drive the solution tends to the `geode conduction` one. The
-report (`kind = "eqs"`) holds `transient` (per step: `t_s`, `v`,
+report (`kind = "eqs"`) holds `transient` (`t_end` must be an integer multiple of `dt`, else the spec is rejected; per step: `t_s`, `v`,
 `floating_phi_v`, `i_cond_a`, `i_disp_a` — amperes into the network, the
 displacement current being impulsive and reported as 0 at `t = 0` —
 `floating_current_a`, `region_e_v_m` per `materials[]` group,
 `charge_residual`; plus `delivered_energy_cond_j` /
-`delivered_energy_disp_j` per terminal, the **trapezoid** of `V·I` over the
-reported steps) or `admittance` (per frequency `g_siemens = Re Y`,
+`delivered_energy_disp_j` per terminal: the **trapezoid** of `V·I_cond`, and
+for displacement the **midpoint** form (mean step-end voltage × the step's
+charge increment, so a closed lossless pulse nets to round-off); named in
+`energy_quadrature`) or `admittance` (per frequency `g_siemens = Re Y`,
 `y_im_siemens`, `c_farad = Im Y / ω`, `null` at 0 Hz). Currents, `Y`, `G`
 and `C` carry the mesh length unit; `E` is in V/m. Not supported:
 `sensitivity`, order 2, dispersive / anisotropic materials, field-dependent

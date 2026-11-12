@@ -68,6 +68,20 @@ fn trapezoid(t: &[f64], v: &[Vec<f64>], i: &[Vec<f64>], terminal: usize) -> f64 
         .sum()
 }
 
+/// Midpoint `∫ V I dt` for the displacement channel: the mean of the two
+/// step-end voltages times the step's displacement charge increment
+/// `I_disp[k] · Δt` (the solver defines `I_disp[k] = ΔQ_k / Δt` for any θ).
+/// Unlike an end-of-step `V I` product, a closed lossless pulse nets to
+/// round-off, including for discontinuous edges.
+fn midpoint_disp(t: &[f64], v: &[Vec<f64>], i: &[Vec<f64>], terminal: usize) -> f64 {
+    (1..t.len())
+        .map(|k| {
+            let vm = 0.5 * (v[k - 1][terminal] + v[k][terminal]);
+            vm * i[k][terminal] * (t[k] - t[k - 1])
+        })
+        .sum()
+}
+
 /// Load, solve and report.
 pub fn run(spec_path: &Path, provenance: Provenance) -> Result<EqsReport, CliError> {
     let p = problem::load(spec_path, Some(Analysis::Eqs))?;
@@ -163,8 +177,8 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<EqsReport, CliErr
                 theta: *theta,
                 regions: hist.region_names.clone(),
                 delivered_energy_cond_j: (0..nt).map(|i| trapezoid(&t, &v, &ic, i)).collect(),
-                delivered_energy_disp_j: (0..nt).map(|i| trapezoid(&t, &v, &id, i)).collect(),
-                energy_quadrature: "trapezoid",
+                delivered_energy_disp_j: (0..nt).map(|i| midpoint_disp(&t, &v, &id, i)).collect(),
+                energy_quadrature: "cond:trapezoid,disp:midpoint",
                 steps,
             };
             (Some(report), None, "theta_method")
