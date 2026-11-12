@@ -141,6 +141,7 @@ jobs:
               --test fiber_dispersion_benchmark \
               --test floquet_active_reflection \
               --test floquet_dipole_array \
+              --test floquet_minmax \
               --test floquet_ports \
               --test floquet_prom \
               --test floquet_sensitivity \
@@ -241,6 +242,7 @@ jobs:
               --test fiber_dispersion_benchmark \
               --test floquet_active_reflection \
               --test floquet_dipole_array \
+              --test floquet_minmax \
               --test floquet_ports \
               --test floquet_prom \
               --test floquet_sensitivity \
