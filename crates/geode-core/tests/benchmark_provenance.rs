@@ -718,6 +718,12 @@ const MANIFEST: &[Entry] = &[
          benchmarks/patch_antenna_conformal/nested_dof/L2_combined_64_warm.toml \
          (issue #1103 gate G2 verification)",
     ),
+    a(
+        "benchmarks/tcda_baseline/results.toml",
+        "hand-recorded from a release run of the TestBackend (f64) baseline: cargo test --release \
+         -p geode-core --test tcda_baseline -- --include-ignored (issue #1536; the test asserts \
+         the recorded sub-grid points, see benchmarks/tcda_baseline/README.md)",
+    ),
     // ---- Bucket B: exempt, no Burn backend in the numeric path ----------
     b(
         "benchmarks/soi_waveguide/results.toml",
