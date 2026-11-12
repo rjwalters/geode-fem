@@ -1746,15 +1746,11 @@ mod tests {
         seed: u64,
         n_null: usize,
     ) -> (Vec<c64>, SparseColMat<usize, c64>, SparseColMat<usize, c64>) {
-        let lcg = |s: u64| {
-            s.wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407)
-        };
-        let mut st = lcg(seed + 1000);
-        let mut rnd = || {
-            st = lcg(st);
-            ((st >> 11) as f64) / ((1u64 << 53) as f64)
-        };
+        // Seed with one LCG step (discarded draw), as the pre-consolidation
+        // copy did via `lcg(seed + 1000)`.
+        let mut rng = geode_util::rng::Lcg(seed + 1000);
+        rng.next_unit();
+        let mut rnd = || rng.next_unit();
         let tan_d = 0.125;
         let phys = [
             25.3, 37.3, 42.8, 52.0, 52.05, 54.2, 66.1, 70.5, 81.4, 81.5, 88.1, 98.0,

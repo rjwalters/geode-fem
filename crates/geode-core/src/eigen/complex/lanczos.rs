@@ -2182,15 +2182,11 @@ pub(crate) mod tests {
     /// platform.
     pub(crate) fn spurious_ritz_pencil()
     -> (Vec<c64>, SparseColMat<usize, c64>, SparseColMat<usize, c64>) {
-        let lcg = |s: u64| {
-            s.wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407)
-        };
-        let mut st = lcg(349);
-        let mut rnd = || {
-            st = lcg(st);
-            ((st >> 11) as f64) / ((1u64 << 53) as f64)
-        };
+        // Seed with one LCG step (discarded draw), as the pre-consolidation
+        // copy did via `lcg(349)`.
+        let mut rng = geode_util::rng::Lcg(349);
+        rng.next_unit();
+        let mut rnd = || rng.next_unit();
         let n = 40;
         let mut lam = vec![
             c64::new(1.15, -0.01),
