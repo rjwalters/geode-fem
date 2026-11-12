@@ -46,6 +46,7 @@ one worked example per analysis, with the output to expect.
 | `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
 | `capacitance` | live (#705) — static **Maxwell capacitance matrix** (farads) between named conductor surfaces, from one electrostatic solve per terminal (P1 scalar, direct LU); non-driven conductors are **grounded**, never floating (see [Capacitance](#static-capacitance-geode-capacitance-issue-705)); optional SPICE `.subckt` (#715) |
 | `inductance` | live (#714) — static **Maxwell inductance matrix** (henries) between named open current paths (conductor volume + source / sink faces returning through one connected PEC conductor), from a P1 conduction solve per path for the current density and one tree-cotree-gauged magnetostatic solve per path (Nédélec edges, direct LU); **not** `extract`'s RF `l0_h` (see [Inductance](#static-inductance-geode-inductance-issue-714)); optional SPICE `.subckt` (#719) |
+| `eqs` | live (#1494) — **electro-quasi-static** solve `∇·(σ∇φ + ∂ₜ(ε∇φ)) = 0` between named terminals with optional floating conductors: a θ-method transient under per-terminal step / pulse / piecewise-linear waveforms (conduction and displacement currents, floating potentials, region-mean `E`, delivered energy) or the small-signal admittance `Y = G + jωC` per frequency (see [EQS](#electro-quasi-static-geode-eqs-issue-1494)) |
 | `mesh`    | live (#704) — layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged Gmsh MSH 4.1 mesh with automatically named physical groups + a starter problem spec (`--analysis driven`, `capacitance`, `inductance` (#720) or `eigen` (periodic Bloch cells, #837)), via the external `gmsh` binary (see [Layout → mesh](#layout--mesh-geode-mesh-issue-704)) |
 | `schema`  | live (#709) — print the JSON Schema (draft 2020-12) of the problem spec, the report or the layout (`geode schema spec\|report\|layout [-o PATH]`), derived from the same serde types the binary parses and emits; committed under [`schemas/`](schemas/) (see [JSON Schema](#json-schema-geode-schema-issue-709)) |
 
@@ -1190,6 +1191,51 @@ export. Lossy / open-cavity eigenmodes (complex `ε_r` and
 (see [lossy / open eigen](#lossy--open-cavity-eigenmodes-issue-706));
 Leontovich / Silver-Müller walls stay driven-only (nonlinear in the
 eigenfrequency).
+
+## Electro-quasi-static (`geode eqs`, issue #1494)
+
+```sh
+geode eqs <spec.json|spec.toml> [-o report.json] [--threads N]
+```
+
+For structures with both a permittivity and a small conductivity
+(leaky capacitors, layered insulation), solves
+`∇·(σ∇φ + ∂ₜ(ε∇φ)) = 0` on P1 tets
+([`geode_core::assembly::eqs_transient`]). `eps_r` and `conductivity_s_m`
+come from `materials[]` (every material must give `conductivity_s_m`; `0`
+for a pure dielectric; unlisted regions are vacuum, `σ = 0`). The `eqs`
+section:
+
+| key | meaning |
+|---|---|
+| `terminals` | `[{name, waveform?}]`: dimension-2 physical groups pinned to `V(t)` (report order) |
+| `floating` | dimension-2 groups merged into one equipotential with zero net current, initially uncharged |
+| `transient` | `{dt \| n_steps, t_end, theta}`: θ-method (`theta` in `[0.5, 1]`, default `1` backward Euler; `0.5` Crank-Nicolson); `dt` and `n_steps` are exclusive |
+| `frequencies` | list of Hz (`≥ 0`); small-signal admittance |
+
+Give exactly one of `transient` and `frequencies`. Every terminal of a
+transient needs a `waveform`: `{"kind": "step", t0, v}`,
+`{"kind": "pulse", delay, rise, width, fall, v}` (SPICE-style trapezoid
+from 0) or `{"kind": "pl", points: [[t, v], ..]}` (times strictly
+increasing; first / last value held outside the table). `check` rejects
+`theta` outside `[0.5, 1]`, `dt ≤ 0`, both / neither mode, and a
+non-monotone table before any solve.
+
+The initial state is the electrostatic solution for the waveform at
+`t = 0` (a step at `t = 0` starts on the capacitive divider); with a
+constant drive the solution tends to the `geode conduction` one. The
+report (`kind = "eqs"`) holds `transient` (per step: `t_s`, `v`,
+`floating_phi_v`, `i_cond_a`, `i_disp_a` — amperes into the network, the
+displacement current being impulsive and reported as 0 at `t = 0` —
+`floating_current_a`, `region_e_v_m` per `materials[]` group,
+`charge_residual`; plus `delivered_energy_cond_j` /
+`delivered_energy_disp_j` per terminal, the **trapezoid** of `V·I` over the
+reported steps) or `admittance` (per frequency `g_siemens = Re Y`,
+`y_im_siemens`, `c_farad = Im Y / ω`, `null` at 0 Hz). Currents, `Y`, `G`
+and `C` carry the mesh length unit; `E` is in V/m. Not supported:
+`sensitivity`, order 2, dispersive / anisotropic materials, field-dependent
+conductivity. Worked example:
+[`examples/eqs/`](examples/eqs/README.md).
 
 ## Static inductance (`geode inductance`, issue #714)
 

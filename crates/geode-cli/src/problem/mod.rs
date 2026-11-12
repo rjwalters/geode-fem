@@ -535,6 +535,51 @@ pub struct ConductionTarget {
     pub sigma_s_m: Vec<f64>,
 }
 
+/// A named volume region (`materials[]` group) of an `eqs` spec, over which
+/// the mean field is reported (issue #1494).
+#[derive(Debug, Clone)]
+pub struct EqsRegionTarget {
+    /// Material physical-group name.
+    pub name: String,
+    /// Tet indices.
+    pub tets: Vec<usize>,
+}
+
+/// Time-domain or frequency-domain mode of a resolved `eqs` section.
+#[derive(Debug, Clone)]
+pub enum EqsMode {
+    /// θ-method transient with `n_steps` steps of `dt` seconds.
+    Transient {
+        /// Time step (s).
+        dt: f64,
+        /// Number of steps.
+        n_steps: usize,
+        /// θ-method weight.
+        theta: f64,
+    },
+    /// Small-signal admittance at these frequencies (Hz).
+    Frequencies(Vec<f64>),
+}
+
+/// A resolved `eqs` section (issue #1494).
+#[derive(Debug, Clone)]
+pub struct EqsTarget {
+    /// Driven terminals, in spec (= report) order.
+    pub terminals: Vec<Conductor>,
+    /// Floating conductors, in spec order.
+    pub floating: Vec<Conductor>,
+    /// Drive waveform per terminal (`Some` in transient mode).
+    pub waveforms: Vec<Option<crate::spec::WaveformSpec>>,
+    /// Per-tet absolute permittivity (F/m; vacuum in unlisted regions).
+    pub eps_f_m: Vec<f64>,
+    /// Per-tet conductivity (S/m); `0` in unlisted regions.
+    pub sigma_s_m: Vec<f64>,
+    /// `materials[]` volume groups, for the per-region field report.
+    pub regions: Vec<EqsRegionTarget>,
+    /// Transient or admittance.
+    pub mode: EqsMode,
+}
+
 /// One resolved open current path of an inductance spec.
 #[derive(Debug, Clone)]
 pub struct CurrentPath {
@@ -771,6 +816,8 @@ pub struct Problem {
     pub inductance: Option<InductanceTarget>,
     /// The resolved `conduction` section (conduction specs only).
     pub conduction: Option<ConductionTarget>,
+    /// The resolved `eqs` section (eqs specs only).
+    pub eqs: Option<EqsTarget>,
     /// The resolved `sensitivity` section, if present (issue #707).
     pub sensitivity: Option<SensitivityTarget>,
     /// The resolved periodic boundary pairs (`boundary_conditions.periodic`;
@@ -1242,6 +1289,9 @@ pub fn p2_support(analysis: Analysis) -> P2Support {
         Analysis::Conduction => P2Support::Unsupported(
             "`conduction` specs have no CLI order-2 path: the DC conduction solve is scalar P1",
         ),
+        Analysis::Eqs => P2Support::Unsupported(
+            "`eqs` specs have no CLI order-2 path: the EQS solve is scalar P1",
+        ),
         Analysis::Inductance => P2Support::Unsupported(
             "`inductance` specs have no CLI order-2 path: the magnetostatic P2 kernels are not \
              wired to the CLI",
@@ -1342,6 +1392,7 @@ pub fn load_parsed(
         ("capacitance", spec.capacitance.is_some()),
         ("inductance", spec.inductance.is_some()),
         ("conduction", spec.conduction.is_some()),
+        ("eqs", spec.eqs.is_some()),
     ]
     .into_iter()
     .filter_map(|(name, present)| present.then_some(name))
@@ -1349,7 +1400,7 @@ pub fn load_parsed(
     if sections.len() > 1 {
         return Err(invalid(format!(
             "a spec describes one analysis: it cannot have more than one of the `eigen` / \
-             `extract` / `capacitance` / `inductance` / `conduction` sections (found `{}`)",
+             `extract` / `capacitance` / `inductance` / `conduction` / `eqs` sections (found `{}`)",
             sections.join("` and `")
         )));
     }
@@ -1398,7 +1449,7 @@ pub fn load_parsed(
             if sigma != 0.0
                 && !matches!(
                     analysis,
-                    Analysis::Driven | Analysis::Extract | Analysis::Conduction
+                    Analysis::Driven | Analysis::Extract | Analysis::Conduction | Analysis::Eqs
                 )
             {
                 return Err(invalid(format!(
@@ -1471,6 +1522,7 @@ pub fn load_parsed(
         Analysis::Capacitance => validate_capacitance(&spec)?,
         Analysis::Inductance => validate_inductance(&spec)?,
         Analysis::Conduction => validate_conduction(&spec)?,
+        Analysis::Eqs => validate_eqs(&spec)?,
     }
     validate_sensitivity(&spec, analysis)?;
     validate_sweep(&spec, analysis)?;
@@ -1639,6 +1691,20 @@ pub fn load_parsed(
             .collect(),
         None => Vec::new(),
     };
+    let (eqs_terminal_tags, eqs_floating_tags): (Vec<Option<i32>>, Vec<Option<i32>>) =
+        match &spec.eqs {
+            Some(e) => (
+                e.terminals
+                    .iter()
+                    .map(|t| resolve(2, &t.name, "eqs terminal"))
+                    .collect(),
+                e.floating
+                    .iter()
+                    .map(|n| resolve(2, n, "eqs floating conductor"))
+                    .collect(),
+            ),
+            None => (Vec::new(), Vec::new()),
+        };
     let path_tags: Vec<[Option<i32>; 3]> = match &spec.inductance {
         Some(ind) => ind
             .paths
@@ -1994,6 +2060,48 @@ pub fn load_parsed(
         None => None,
     };
 
+    // ---- eqs terminals / floating conductors ---------------------------
+    let eqs = match &spec.eqs {
+        Some(e) => {
+            let eps_f_m: Vec<f64> = eps
+                .iter()
+                .map(|x| x.re * geode_core::assembly::electrostatic::EPS_0)
+                .collect();
+            let sigma: Vec<f64> = tagged
+                .tet_physical_tags
+                .iter()
+                .map(|t| sigma_by_tag.get(t).copied().unwrap_or(0.0))
+                .collect();
+            let regions: Vec<EqsRegionTarget> = spec
+                .materials
+                .iter()
+                .zip(&material_tags)
+                .map(|(m, tag)| {
+                    let tag = tag.expect("resolved above");
+                    EqsRegionTarget {
+                        name: m.physical_group.clone(),
+                        tets: tagged
+                            .tet_physical_tags
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(i, t)| (*t == tag).then_some(i))
+                            .collect(),
+                    }
+                })
+                .collect();
+            Some(resolve_eqs(
+                e,
+                &eqs_terminal_tags,
+                &eqs_floating_tags,
+                eps_f_m,
+                sigma,
+                regions,
+                &surface,
+            )?)
+        }
+        None => None,
+    };
+
     // ---- inductance current paths ------------------------------------
     let inductance = match &spec.inductance {
         Some(ind) => Some(resolve_inductance(
@@ -2126,6 +2234,7 @@ pub fn load_parsed(
         capacitance,
         inductance,
         conduction,
+        eqs,
         sensitivity,
         periodic,
         bloch,
@@ -2265,6 +2374,7 @@ fn wrong_subcommand(want: Analysis, got: Analysis) -> String {
         Analysis::Capacitance => "a capacitance spec (it has a `capacitance` section)",
         Analysis::Inductance => "an inductance spec (it has an `inductance` section)",
         Analysis::Conduction => "a conduction spec (it has a `conduction` section)",
+        Analysis::Eqs => "an eqs spec (it has an `eqs` section)",
     };
     let fix = match want {
         Analysis::Driven => "drop the analysis section for a plain driven sweep",
@@ -2275,6 +2385,10 @@ fn wrong_subcommand(want: Analysis, got: Analysis) -> String {
         Analysis::Capacitance => {
             "`geode capacitance` needs a `capacitance` section (`terminals` + `ground`) and no \
              ports / frequencies"
+        }
+        Analysis::Eqs => {
+            "`geode eqs` needs an `eqs` section (`terminals` + exactly one of `transient` / \
+             `frequencies`), materials with `eps_r` and `conductivity_s_m` and no ports"
         }
         Analysis::Conduction => {
             "`geode conduction` needs a `conduction` section (`terminals`), materials with \
@@ -2484,6 +2598,10 @@ fn validate_dispersion(
         Analysis::Conduction => {
             Some("the DC conduction solve has no permittivity term and would silently ignore it")
         }
+        Analysis::Eqs => Some(
+            "the EQS solve takes a constant real `eps_r` (a dispersive eps would need a \
+             frequency-domain model not defined for the transient)",
+        ),
     };
     if let Some(why) = why {
         return Err(invalid(format!(
@@ -3528,7 +3646,15 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
         Some(c) => c.terminals.iter().map(String::as_str).collect(),
         None => Vec::new(),
     };
-    let lists: [(&'static str, Vec<&str>); 12] = [
+    let eqs_terminals: Vec<&str> = match &spec.eqs {
+        Some(e) => e.terminals.iter().map(|t| t.name.as_str()).collect(),
+        None => Vec::new(),
+    };
+    let eqs_floating: Vec<&str> = match &spec.eqs {
+        Some(e) => e.floating.iter().map(String::as_str).collect(),
+        None => Vec::new(),
+    };
+    let lists: [(&'static str, Vec<&str>); 14] = [
         (
             "port",
             spec.ports
@@ -3574,6 +3700,8 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
         ("inductance source terminal", sources),
         ("inductance sink terminal", sinks),
         ("conduction terminal", conduction_terminals),
+        ("eqs terminal", eqs_terminals),
+        ("eqs floating conductor", eqs_floating),
     ];
     for (role, names) in &lists {
         for &name in names {
@@ -3784,11 +3912,13 @@ fn sorted_tet_faces(tets: &[[u32; 4]]) -> std::collections::HashSet<[u32; 3]> {
 
 mod capacitance;
 mod conduction;
+mod eqs;
 mod ports;
 mod sensitivity;
 
 use capacitance::*;
 use conduction::*;
+use eqs::*;
 use ports::*;
 use sensitivity::*;
 #[allow(unused_imports)] // external paths kept valid (issue #1398)

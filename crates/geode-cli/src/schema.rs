@@ -40,8 +40,8 @@ use serde_json::{Map, Value};
 use crate::mesh_cmd::MeshReport;
 use crate::mesh_cmd::layout::Layout;
 use crate::report::{
-    CapacitanceReport, CheckReport, ConductionReport, DrivenReport, EigenReport, ErrorReport,
-    ExtractReport, InductanceReport, OptimizeReport,
+    CapacitanceReport, CheckReport, ConductionReport, DrivenReport, EigenReport, EqsReport,
+    ErrorReport, ExtractReport, InductanceReport, OptimizeReport,
 };
 use crate::spec::ProblemSpec;
 
@@ -131,6 +131,7 @@ fn report() -> Value {
         generator.subschema_for::<CapacitanceReport>().to_value(),
         generator.subschema_for::<InductanceReport>().to_value(),
         generator.subschema_for::<ConductionReport>().to_value(),
+        generator.subschema_for::<EqsReport>().to_value(),
         generator.subschema_for::<OptimizeReport>().to_value(),
         generator.subschema_for::<MeshReport>().to_value(),
         generator.subschema_for::<ErrorReport>().to_value(),
@@ -141,8 +142,8 @@ fn report() -> Value {
     obj.insert(
         "description".into(),
         "Output of every `geode` subcommand except `schema`: exactly one JSON document, one of \
-         ten kinds discriminated by the top-level `kind` (`check`, `driven`, `eigen`, \
-         `extract`, `capacitance`, `inductance`, `conduction`, `optimize`, `mesh`, `error`). Each branch pins `kind` and \
+         eleven kinds discriminated by the top-level `kind` (`check`, `driven`, `eigen`, \
+         `extract`, `capacitance`, `inductance`, `conduction`, `eqs`, `optimize`, `mesh`, `error`). Each branch pins `kind` and \
          `status` with `const`, so exactly one branch matches. Report objects are open \
          (no `additionalProperties: false`): fields added within report schema v1 are additive, \
          and consumers should ignore fields they do not know."

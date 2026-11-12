@@ -10,6 +10,7 @@
 //!                   [--touchstone PATH] [--jobs N] [--progress]
 //! geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice PATH [--spice-ret-pin]]
 //! geode conduction <spec.json|spec.toml> [-o report.json] [--threads N] [--outdir DIR]
+//! geode eqs <spec.json|spec.toml> [-o report.json] [--threads N]
 //! geode inductance <spec.json|spec.toml> [-o report.json] [--threads N]
 //!                   [--spice PATH [--spice-ret-pin] [--spice-positive-k]]
 //! geode optimize <spec.json|spec.toml> [-o report.json] [--outdir DIR] [--resume CHECKPOINT]
@@ -40,6 +41,7 @@ mod dataset;
 mod dispersion;
 mod driven;
 mod eigen;
+mod eqs;
 mod error;
 mod export;
 mod extract;
@@ -127,6 +129,16 @@ enum Command {
     /// the rest at 0 V. Needs a spec with a `conduction` section and no
     /// ports or frequencies.
     Conduction(ConductionArgs),
+    /// Electro-quasi-static solve (`div(sigma grad phi + d/dt(eps grad phi))
+    /// = 0`) between named terminals with optional floating conductors:
+    /// either a transient under per-terminal waveforms (step / pulse /
+    /// piecewise-linear; terminal currents split into conduction and
+    /// displacement, floating potentials, region-mean E, delivered energy)
+    /// or the small-signal admittance `Y = G + jwC` per frequency. Needs a
+    /// spec with an `eqs` section (exactly one of `transient` /
+    /// `frequencies`), materials with `eps_r` and `conductivity_s_m`, and
+    /// no ports.
+    Eqs(StaticArgs),
     /// Gradient-based design loop (L-BFGS-B, or MMA with constraints) over
     /// the spec's `optimize` section: design variables, a weighted objective
     /// and constraints on the `sensitivity` section's parameters and
@@ -513,6 +525,13 @@ impl App for Cli {
                 let _par = threads.map(apply_thread_cap);
                 let result = conduction::run(&a.spec, prov.clone(), outdir.as_deref());
                 finish("conduction", prov, a.output.as_deref(), result)
+            }
+            Command::Eqs(a) => {
+                let threads = a.threads.map(NonZeroUsize::get);
+                let prov = Self::provenance(&a.spec, threads);
+                let _par = threads.map(apply_thread_cap);
+                let result = eqs::run(&a.spec, prov.clone());
+                finish("eqs", prov, a.output.as_deref(), result)
             }
             Command::Inductance(InductanceArgs {
                 base: a,

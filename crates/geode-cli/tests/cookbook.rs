@@ -136,6 +136,9 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
         Some("capacitance_triax_smoke.toml"),
         Input::Spec("capacitance"),
     ),
+    // The Maxwell-Wagner two-layer bar of `tests/eqs_golden.rs` (issue
+    // #1494); its mesh is checked byte-identical there.
+    ("eqs/eqs_two_layer.json", None, Input::Spec("eqs")),
     (
         "inductance/coax.json",
         Some("inductance_coax_smoke.json"),
