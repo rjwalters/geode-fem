@@ -43,6 +43,7 @@ mod eigen;
 mod error;
 mod export;
 mod extract;
+mod floquet;
 mod hybrid;
 mod inductance;
 mod mesh_cmd;

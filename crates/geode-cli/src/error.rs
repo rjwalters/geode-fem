@@ -105,6 +105,10 @@ pub enum CliError {
     /// factorization, or the Krylov basis cap (Epic #837 Phase 4a).
     #[error("Bloch eigen solve failed: {0}")]
     BlochSolve(String),
+    /// The Floquet-port solve failed (Epic #837 Phase 4b): assembly,
+    /// factorization, or a Rayleigh / Wood singularity at an order.
+    #[error("Floquet-port solve failed: {0}")]
+    FloquetSolve(String),
     /// The electrostatic (capacitance) solve failed: assembly, or the
     /// sparse LU of the reduced system.
     #[error("electrostatic solve failed: {0}")]
@@ -334,6 +338,7 @@ impl CliError {
             | CliError::EigenSolve(_)
             | CliError::LossyEigenSolve(_)
             | CliError::BlochSolve(_)
+            | CliError::FloquetSolve(_)
             | CliError::Electrostatic(_)
             | CliError::CurrentPath(_)
             | CliError::Magnetostatic(_)

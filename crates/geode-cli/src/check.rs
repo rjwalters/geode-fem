@@ -32,6 +32,12 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
     if p.periodic.is_some() {
         warnings.extend(periodic_warnings(&p)?);
     }
+    // Floquet-port validity (Epic #837 Phase 4b): assembling the cell checks
+    // the lattice, the two open faces, the homogeneous real port media and
+    // the periodic pairing without any solve; a failure is `invalid_spec`.
+    if let Some(setup) = &p.floquet {
+        crate::floquet::assemble(&p, setup)?;
+    }
     let (wave_ports, hybrid_warnings) = wave_port_previews(&p)?;
     warnings.extend(hybrid_warnings);
     Ok(CheckReport {

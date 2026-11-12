@@ -126,6 +126,34 @@
       },
       "type": "object"
     },
+    "AngleRangeSpec": {
+      "additionalProperties": false,
+      "description": "A linear angle range `start..=stop` with `count` samples.",
+      "properties": {
+        "count": {
+          "description": "Number of samples (`>= 1`; `1` uses `start`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "start": {
+          "description": "First angle (degrees).",
+          "format": "double",
+          "type": "number"
+        },
+        "stop": {
+          "description": "Last angle (degrees).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start",
+        "stop",
+        "count"
+      ],
+      "type": "object"
+    },
     "BlochPathSpec": {
       "additionalProperties": false,
       "description": "`eigen.bloch` along a k-path.",
@@ -676,6 +704,34 @@
       },
       "type": "object"
     },
+    "FloquetPortSpec": {
+      "additionalProperties": false,
+      "description": "One Floquet port: the open cell face and the medium beyond it.",
+      "properties": {
+        "medium": {
+          "description": "Physical-group name of the volume `materials` entry that fills the\nhalf-space beyond this port (homogeneous, isotropic, real `eps_r`).\nDefault: vacuum.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "n_evanescent": {
+          "default": 4,
+          "description": "Evanescent termination rings: every order with\n`max(|m|, |n|) <= n_evanescent` is a channel (default `4`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "physical_group": {
+          "description": "Dimension-2 physical-group name of the open face.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "physical_group"
+      ],
+      "type": "object"
+    },
     "FrequencySpec": {
       "additionalProperties": false,
       "description": "Frequency list: **either** an explicit `values` list **or** a\n`start`/`stop`/`count` sweep, in the given `unit`.",
@@ -813,6 +869,52 @@
           "type": "string"
         }
       ]
+    },
+    "IncidencePolarization": {
+      "description": "Incident polarization of a Floquet-port analysis.",
+      "oneOf": [
+        {
+          "const": "te",
+          "description": "Transverse electric.",
+          "type": "string"
+        },
+        {
+          "const": "tm",
+          "description": "Transverse magnetic.",
+          "type": "string"
+        },
+        {
+          "const": "both",
+          "description": "Both (two incident columns per point).",
+          "type": "string"
+        }
+      ]
+    },
+    "IncidenceSpec": {
+      "additionalProperties": false,
+      "description": "One plane-wave incidence, from the first Floquet port.",
+      "properties": {
+        "phi_deg": {
+          "default": 0.0,
+          "description": "Azimuth from the first lattice vector, degrees.",
+          "format": "double",
+          "type": "number"
+        },
+        "polarization": {
+          "$ref": "#/$defs/IncidencePolarization",
+          "default": "both",
+          "description": "Incident polarization (default `\"both\"`)."
+        },
+        "theta_deg": {
+          "description": "Polar angle from the lattice normal, degrees, in `[0, 90)`.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "theta_deg"
+      ],
+      "type": "object"
     },
     "InductanceSpec": {
       "additionalProperties": false,
@@ -1521,6 +1623,36 @@
         }
       ]
     },
+    "ScanSpec": {
+      "additionalProperties": false,
+      "description": "A scan over incidence angles: every `theta_deg` at every `phi_deg`.",
+      "properties": {
+        "phi_deg": {
+          "default": [
+            0.0
+          ],
+          "description": "Azimuths (degrees; default `[0]`).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "polarization": {
+          "$ref": "#/$defs/IncidencePolarization",
+          "default": "both",
+          "description": "Incident polarization (default `\"both\"`)."
+        },
+        "theta_deg": {
+          "$ref": "#/$defs/AngleRangeSpec",
+          "description": "Polar angles."
+        }
+      },
+      "required": [
+        "theta_deg"
+      ],
+      "type": "object"
+    },
     "SensitivityObservableSpec": {
       "additionalProperties": false,
       "description": "One differentiated observable of a driven [`SensitivitySpec`] (issue\n#883). Channel indices follow the report's flat S-matrix order: lumped\nports first (spec order), then the wave channels (port-major,\nmode-minor) — the `channel` numbers of `results[].wave_channels`.",
@@ -2115,6 +2247,13 @@
       "default": null,
       "description": "Inductance-extraction settings. Its presence makes this an\n**extract spec** (for `geode extract`). Without `eigen` or\n`extract` the spec is a driven spec."
     },
+    "floquet_ports": {
+      "description": "The two Floquet ports (the open faces) of a periodic driven unit\ncell (additive in v1, Epic #837 Phase 4b). Needs\n`boundary_conditions.periodic` (the two lattice vectors) and exactly\none of `incidence` / `scan`; cannot be combined with lumped or wave\nports.",
+      "items": {
+        "$ref": "#/$defs/FloquetPortSpec"
+      },
+      "type": "array"
+    },
     "frequencies": {
       "anyOf": [
         {
@@ -2126,6 +2265,17 @@
       ],
       "default": null,
       "description": "Frequencies to solve at. Required for a `driven` / `extract` spec;\nnot allowed in an `eigen` spec (its target is [`EigenSpec::shift`])."
+    },
+    "incidence": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/IncidenceSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "A single plane-wave incidence (Floquet-port specs)."
     },
     "inductance": {
       "anyOf": [
@@ -2168,6 +2318,17 @@
         "$ref": "#/$defs/LumpedPortSpec"
       },
       "type": "array"
+    },
+    "scan": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ScanSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "A scan over incidence angles (Floquet-port specs)."
     },
     "schema_version": {
       "const": 1,

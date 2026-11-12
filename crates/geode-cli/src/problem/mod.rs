@@ -151,6 +151,32 @@ fn norm3(v: [f64; 3]) -> f64 {
     (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
 }
 
+/// One resolved Floquet port (Epic #837 Phase 4b).
+#[derive(Debug, Clone)]
+pub struct FloquetPortDef {
+    /// The open face.
+    pub surface: Surface,
+    /// Real relative permittivity of the half-space beyond it.
+    pub eps_r: f64,
+    /// Evanescent termination rings.
+    pub n_evanescent: usize,
+}
+
+/// The resolved Floquet-port analysis: the two ports and the incidence
+/// angles to solve.
+#[derive(Debug, Clone)]
+pub struct FloquetSetup {
+    /// The two open faces, in spec order.
+    pub ports: [FloquetPortDef; 2],
+    /// `(theta_deg, phi_deg)` per solved angle, in spec order (a scan is
+    /// theta-major).
+    pub angles: Vec<[f64; 2]>,
+    /// Incident polarizations solved at every point.
+    pub pols: Vec<geode_core::driven::floquet::FloquetPolarization>,
+    /// Whether the spec is an `incidence` (single angle) or a `scan`.
+    pub is_scan: bool,
+}
+
 /// A resolved `eigen.bloch` request.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlochTarget {
@@ -753,6 +779,9 @@ pub struct Problem {
     /// The resolved `eigen.bloch` request (`None` for a cavity eigen
     /// spec).
     pub bloch: Option<BlochTarget>,
+    /// The resolved Floquet-port analysis (`None` without
+    /// `floquet_ports`).
+    pub floquet: Option<FloquetSetup>,
 }
 
 impl Problem {
@@ -1422,7 +1451,8 @@ pub fn load_parsed(
                      `driven`-only) — use lumped `ports` only",
                 ));
             }
-            if spec.ports.is_empty() && spec.wave_ports.is_empty() {
+            if spec.ports.is_empty() && spec.wave_ports.is_empty() && spec.floquet_ports.is_empty()
+            {
                 return Err(invalid(if analysis == Analysis::Driven {
                     format!(
                         "at least one lumped port (or wave port) is required for a `{kind}` spec"
@@ -1445,6 +1475,7 @@ pub fn load_parsed(
     validate_sensitivity(&spec, analysis)?;
     validate_sweep(&spec, analysis)?;
     validate_open_boundaries(&spec)?;
+    validate_floquet(&spec, analysis)?;
     let bloch = validate_periodic(&spec, analysis)?;
     validate_surface_roles(&spec)?;
     // Duplicate / conflicting surface roles were rejected above
@@ -1575,6 +1606,11 @@ pub fn load_parsed(
         .absorbing_regions
         .iter()
         .map(|u| resolve(3, &u.physical_group, "absorbing_region"))
+        .collect();
+    let floquet_tags: Vec<Option<i32>> = spec
+        .floquet_ports
+        .iter()
+        .map(|f| resolve(2, &f.physical_group, "floquet_port"))
         .collect();
     let wave_tags: Vec<Option<i32>> = spec
         .wave_ports
@@ -1886,6 +1922,8 @@ pub fn load_parsed(
         });
     }
 
+    let floquet = resolve_floquet(&spec, &floquet_tags, &surface)?;
+
     let mut wave_ports = Vec::with_capacity(spec.wave_ports.len());
     let port_materials = PortMaterials {
         tagged: &tagged,
@@ -2091,6 +2129,7 @@ pub fn load_parsed(
         sensitivity,
         periodic,
         bloch,
+        floquet,
     })
 }
 
@@ -2720,6 +2759,197 @@ fn bloch_label_k(label: &str, [a, b, c]: [f64; 3]) -> Option<[f64; 3]> {
     })
 }
 
+/// Scalar rules of a Floquet-port driven spec (Epic #837 Phase 4b): the
+/// pieces core's [`geode_core::driven::floquet::FloquetCell`] does not
+/// model are rejected rather than silently ignored.
+fn validate_floquet(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliError> {
+    if spec.floquet_ports.is_empty() {
+        if spec.incidence.is_some() || spec.scan.is_some() {
+            return Err(invalid(
+                "`incidence` / `scan` need `floquet_ports` (the two open faces of the unit cell)",
+            ));
+        }
+        return Ok(());
+    }
+    if analysis != Analysis::Driven {
+        return Err(invalid(format!(
+            "`floquet_ports` apply to `driven` specs only (this is a `{}` spec)",
+            analysis.name()
+        )));
+    }
+    if spec.floquet_ports.len() != 2 {
+        return Err(invalid(format!(
+            "`floquet_ports` needs exactly two open faces (got {})",
+            spec.floquet_ports.len()
+        )));
+    }
+    if !spec.ports.is_empty() || !spec.wave_ports.is_empty() {
+        return Err(invalid(
+            "`floquet_ports` cannot be combined with lumped `ports` or `wave_ports`",
+        ));
+    }
+    if spec.boundary_conditions.periodic.len() != 2 {
+        return Err(invalid(
+            "`floquet_ports` needs exactly two `boundary_conditions.periodic` pairs (the two \
+             lattice vectors)",
+        ));
+    }
+    let unsupported = |what: &str| {
+        Err(invalid(format!(
+            "`floquet_ports` do not support {what} (only PEC, real `eps_r`, optional \
+             `conductivity_s_m` and the periodic lattice)"
+        )))
+    };
+    if !spec.absorbing_regions.is_empty() {
+        return unsupported("`absorbing_regions`");
+    }
+    if !spec.boundary_conditions.leontovich.is_empty() {
+        return unsupported("Leontovich walls");
+    }
+    if !spec.boundary_conditions.silver_muller.is_empty() {
+        return unsupported("Silver-Müller walls");
+    }
+    if spec.sensitivity.is_some() {
+        return unsupported("a `sensitivity` section");
+    }
+    if spec.adaptive_mesh.is_some() {
+        return unsupported("`adaptive_mesh`");
+    }
+    if spec.optimize.is_some() {
+        return unsupported("an `optimize` section");
+    }
+    if spec.element_order == crate::spec::ElementOrderSpec::P2 {
+        return unsupported("`element_order` other than 1");
+    }
+    for m in &spec.materials {
+        if m.dispersion.is_some()
+            || m.eps_r_diag.is_some()
+            || m.mu_r_diag.is_some()
+            || m.mu_r != 1.0
+        {
+            return Err(invalid(format!(
+                "materials[{}]: `floquet_ports` need a plain `eps_r` (no dispersion, no \
+                 anisotropic `eps_r_diag` / `mu_r_diag`, `mu_r = 1`)",
+                m.physical_group
+            )));
+        }
+    }
+    for (i, f) in spec.floquet_ports.iter().enumerate() {
+        if let Some(name) = &f.medium {
+            let Some(m) = spec.materials.iter().find(|m| &m.physical_group == name) else {
+                return Err(invalid(format!(
+                    "floquet_ports[{i}].medium `{name}` is not a `materials` entry"
+                )));
+            };
+            if !(m.eps_r[0].is_finite() && m.eps_r[0] > 0.0 && m.eps_r[1] == 0.0) {
+                return Err(invalid(format!(
+                    "floquet_ports[{i}].medium `{name}` must have a real positive `eps_r` (a \
+                     lossless isotropic port medium)"
+                )));
+            }
+        }
+    }
+    let (angles_ok, what) = match (&spec.incidence, &spec.scan) {
+        (Some(_), Some(_)) => {
+            return Err(invalid(
+                "`incidence` and `scan` are mutually exclusive: give one",
+            ));
+        }
+        (None, None) => {
+            return Err(invalid(
+                "`floquet_ports` need an `incidence` or a `scan` (the plane-wave drive)",
+            ));
+        }
+        (Some(i), None) => (
+            i.theta_deg.is_finite() && (0.0..90.0).contains(&i.theta_deg) && i.phi_deg.is_finite(),
+            "incidence.theta_deg must be in [0, 90) and phi_deg finite",
+        ),
+        (None, Some(sc)) => (
+            sc.theta_deg.count >= 1
+                && sc.theta_deg.start.is_finite()
+                && sc.theta_deg.stop.is_finite()
+                && (0.0..90.0).contains(&sc.theta_deg.start)
+                && (0.0..90.0).contains(&sc.theta_deg.stop)
+                && !sc.phi_deg.is_empty()
+                && sc.phi_deg.iter().all(|x| x.is_finite()),
+            "scan.theta_deg needs count >= 1 with start / stop in [0, 90), and phi_deg a \
+             non-empty list of finite angles",
+        ),
+    };
+    if !angles_ok {
+        return Err(invalid(what));
+    }
+    Ok(())
+}
+
+/// Resolve the Floquet ports and the incidence angle list.
+fn resolve_floquet(
+    spec: &ProblemSpec,
+    tags: &[Option<i32>],
+    surface: &dyn Fn(&str, i32, &str) -> Result<Surface, CliError>,
+) -> Result<Option<FloquetSetup>, CliError> {
+    use geode_core::driven::floquet::FloquetPolarization::{Te, Tm};
+    if spec.floquet_ports.is_empty() {
+        return Ok(None);
+    }
+    let mut defs = Vec::with_capacity(2);
+    for (f, t) in spec.floquet_ports.iter().zip(tags) {
+        let surf = surface(
+            &f.physical_group,
+            t.expect("resolved above"),
+            "floquet_port",
+        )?;
+        let eps_r = match &f.medium {
+            Some(n) => {
+                spec.materials
+                    .iter()
+                    .find(|m| &m.physical_group == n)
+                    .expect("checked by validate_floquet")
+                    .eps_r[0]
+            }
+            None => 1.0,
+        };
+        defs.push(FloquetPortDef {
+            surface: surf,
+            eps_r,
+            n_evanescent: f.n_evanescent,
+        });
+    }
+    let [a, b]: [FloquetPortDef; 2] = defs.try_into().expect("two ports checked");
+    let (angles, pol, is_scan) = match (&spec.incidence, &spec.scan) {
+        (Some(i), _) => (vec![[i.theta_deg, i.phi_deg]], i.polarization, false),
+        (_, Some(sc)) => {
+            let r = &sc.theta_deg;
+            let thetas: Vec<f64> = (0..r.count)
+                .map(|k| {
+                    if r.count == 1 {
+                        r.start
+                    } else {
+                        r.start + (r.stop - r.start) * k as f64 / (r.count - 1) as f64
+                    }
+                })
+                .collect();
+            let angles = thetas
+                .iter()
+                .flat_map(|&t| sc.phi_deg.iter().map(move |&ph| [t, ph]))
+                .collect();
+            (angles, sc.polarization, true)
+        }
+        _ => unreachable!("validate_floquet requires incidence or scan"),
+    };
+    let pols = match pol {
+        crate::spec::IncidencePolarization::Te => vec![Te],
+        crate::spec::IncidencePolarization::Tm => vec![Tm],
+        crate::spec::IncidencePolarization::Both => vec![Te, Tm],
+    };
+    Ok(Some(FloquetSetup {
+        ports: [a, b],
+        angles,
+        pols,
+        is_scan,
+    }))
+}
+
 /// Rules of the periodic boundary conditions and `eigen.bloch`
 /// (Epic #837 Phase 4a); returns the resolved Bloch target. Everything
 /// that needs the mesh (pair coverage, translation consistency) is the
@@ -2747,7 +2977,8 @@ fn validate_periodic(
         }
     }
     if bloch.is_none() {
-        if periodic.is_empty() {
+        if periodic.is_empty() || (analysis == Analysis::Driven && !spec.floquet_ports.is_empty()) {
+            // A Floquet-port spec is checked by `validate_floquet`.
             return Ok(None);
         }
         return Err(invalid(if analysis == Analysis::Eigen {
@@ -2755,7 +2986,7 @@ fn validate_periodic(
              periodic eigen spec is a unit-cell band solve"
         } else {
             "`boundary_conditions.periodic` is supported by `eigen.bloch` specs only (periodic \
-             driven / Floquet-port analyses land with Epic #837 Phase 4b)"
+             driven specs need `floquet_ports` and an `incidence` / `scan`)"
         }));
     }
     let bloch = bloch.expect("checked above");
@@ -3297,12 +3528,19 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
         Some(c) => c.terminals.iter().map(String::as_str).collect(),
         None => Vec::new(),
     };
-    let lists: [(&'static str, Vec<&str>); 11] = [
+    let lists: [(&'static str, Vec<&str>); 12] = [
         (
             "port",
             spec.ports
                 .iter()
                 .map(|p| p.physical_group.as_str())
+                .collect(),
+        ),
+        (
+            "Floquet port",
+            spec.floquet_ports
+                .iter()
+                .map(|f| f.physical_group.as_str())
                 .collect(),
         ),
         (

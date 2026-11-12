@@ -183,6 +183,100 @@ pub struct ProblemSpec {
     /// `sweep.adaptive`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adaptive_mesh: Option<AdaptiveMeshSpec>,
+    /// The two Floquet ports (the open faces) of a periodic driven unit
+    /// cell (additive in v1, Epic #837 Phase 4b). Needs
+    /// `boundary_conditions.periodic` (the two lattice vectors) and exactly
+    /// one of `incidence` / `scan`; cannot be combined with lumped or wave
+    /// ports.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub floquet_ports: Vec<FloquetPortSpec>,
+    /// A single plane-wave incidence (Floquet-port specs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub incidence: Option<IncidenceSpec>,
+    /// A scan over incidence angles (Floquet-port specs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scan: Option<ScanSpec>,
+}
+
+/// One Floquet port: the open cell face and the medium beyond it.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FloquetPortSpec {
+    /// Dimension-2 physical-group name of the open face.
+    pub physical_group: String,
+    /// Evanescent termination rings: every order with
+    /// `max(|m|, |n|) <= n_evanescent` is a channel (default `4`).
+    #[serde(default = "default_n_evanescent")]
+    pub n_evanescent: usize,
+    /// Physical-group name of the volume `materials` entry that fills the
+    /// half-space beyond this port (homogeneous, isotropic, real `eps_r`).
+    /// Default: vacuum.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub medium: Option<String>,
+}
+
+pub(crate) fn default_n_evanescent() -> usize {
+    4
+}
+
+/// Incident polarization of a Floquet-port analysis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum IncidencePolarization {
+    /// Transverse electric.
+    Te,
+    /// Transverse magnetic.
+    Tm,
+    /// Both (two incident columns per point).
+    Both,
+}
+
+fn default_polarization() -> IncidencePolarization {
+    IncidencePolarization::Both
+}
+
+/// One plane-wave incidence, from the first Floquet port.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct IncidenceSpec {
+    /// Polar angle from the lattice normal, degrees, in `[0, 90)`.
+    pub theta_deg: f64,
+    /// Azimuth from the first lattice vector, degrees.
+    #[serde(default)]
+    pub phi_deg: f64,
+    /// Incident polarization (default `"both"`).
+    #[serde(default = "default_polarization")]
+    pub polarization: IncidencePolarization,
+}
+
+/// A linear angle range `start..=stop` with `count` samples.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AngleRangeSpec {
+    /// First angle (degrees).
+    pub start: f64,
+    /// Last angle (degrees).
+    pub stop: f64,
+    /// Number of samples (`>= 1`; `1` uses `start`).
+    pub count: usize,
+}
+
+/// A scan over incidence angles: every `theta_deg` at every `phi_deg`.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ScanSpec {
+    /// Polar angles.
+    pub theta_deg: AngleRangeSpec,
+    /// Azimuths (degrees; default `[0]`).
+    #[serde(default = "default_scan_phi")]
+    pub phi_deg: Vec<f64>,
+    /// Incident polarization (default `"both"`).
+    #[serde(default = "default_polarization")]
+    pub polarization: IncidencePolarization,
+}
+
+fn default_scan_phi() -> Vec<f64> {
+    vec![0.0]
 }
 
 /// The `optimize` section (Epic #841 Phase 6b): design variables, a

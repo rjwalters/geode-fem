@@ -451,6 +451,11 @@ jobs:
               --test roughness_golden --test dispersive_golden \
               --test anisotropic_golden -- --ignored
           cargo test -p geode-cli --release --test spiral_golden -- --ignored
+          # Issue #1514: Floquet-port slab scan golden (Fresnel + per-angle
+          # Touchstone); ignored only under debug_assertions, so it runs in the
+          # default tier of a --release build (no `-- --ignored`, which would
+          # match zero tests here).
+          cargo test -p geode-cli --release --test floquet_slab_golden
 
       # Issue #793: the remaining geode-cli benchmark tiers (every one
       # #[ignore]d as heavy in debug). Measured release times on
