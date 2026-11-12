@@ -1102,15 +1102,8 @@ mod tests {
     }
 
     fn drift_rhs(n: usize) -> Vec<c64> {
-        let mut s = 12345_u64;
-        (0..n)
-            .map(|_| {
-                s = s
-                    .wrapping_mul(6364136223846793005)
-                    .wrapping_add(1442695040888963407);
-                c64::new(((s >> 11) as f64 / (1_u64 << 53) as f64) - 0.5, 0.0)
-            })
-            .collect()
+        let mut rng = geode_util::rng::Lcg(12345);
+        (0..n).map(|_| c64::new(rng.next_centered(), 0.0)).collect()
     }
 
     /// **Issue #943, matrix-free twin**: `BurnCocg` repairs a

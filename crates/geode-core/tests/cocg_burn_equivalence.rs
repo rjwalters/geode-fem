@@ -60,14 +60,8 @@ fn dense_to_host(t: burn::tensor::Tensor<B, 2>) -> Vec<f64> {
 
 /// Deterministic pseudo-random complex `b` from a 64-bit LCG (no `rand` dep).
 fn pseudo_random_c64(n: usize, seed: u64) -> Vec<c64> {
-    let mut state = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-    let mut next = || {
-        state = state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        let u = (state >> 11) as f64 / (1u64 << 53) as f64;
-        2.0 * u - 1.0
-    };
+    let mut rng = geode_util::rng::Lcg(seed.wrapping_mul(6364136223846793005).wrapping_add(1));
+    let mut next = || rng.next();
     (0..n).map(|_| c64::new(next(), 0.3 * next())).collect()
 }
 
