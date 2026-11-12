@@ -19,7 +19,7 @@ mod msh;
 mod scratch_support;
 
 use std::path::Path;
-use std::process::Output;
+use std::process::{Command, Output};
 
 use faer::c64;
 use scratch_support::Scratch;
