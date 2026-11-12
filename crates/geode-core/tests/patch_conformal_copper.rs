@@ -112,16 +112,8 @@ fn copper_morph_with(fixture: &PatchFixture, air: AirMotion) -> (ChartMorph, Con
 
 /// xorshift64* in [-1, 1).
 fn rand_vec(seed: u64, n: usize, amp: f64) -> Vec<f64> {
-    let mut st = seed;
-    (0..n)
-        .map(|_| {
-            st ^= st >> 12;
-            st ^= st << 25;
-            st ^= st >> 27;
-            let v = st.wrapping_mul(0x2545_F491_4F6C_DD1D);
-            amp * (2.0 * ((v >> 11) as f64 / (1u64 << 53) as f64) - 1.0)
-        })
-        .collect()
+    let mut rng = geode_util::rng::Xorshift64Star(seed);
+    (0..n).map(|_| amp * rng.next_signed()).collect()
 }
 
 fn port_nodes(fixture: &PatchFixture) -> Vec<u32> {

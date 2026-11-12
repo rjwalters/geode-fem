@@ -658,14 +658,10 @@ fn with_peak_rss<T>(f: impl FnOnce() -> T) -> (T, f64) {
 }
 
 /// xorshift64* for the random FD directions (reproducible, no dependency).
-struct Rng(u64);
+struct Rng(geode_util::rng::Xorshift64Star);
 impl Rng {
     fn next_f64(&mut self) -> f64 {
-        self.0 ^= self.0 >> 12;
-        self.0 ^= self.0 << 25;
-        self.0 ^= self.0 >> 27;
-        let v = self.0.wrapping_mul(0x2545_F491_4F6C_DD1D);
-        (v >> 11) as f64 / (1u64 << 53) as f64
+        self.0.next_unit()
     }
     /// Standard normal (Box-Muller).
     fn normal(&mut self) -> f64 {
@@ -1454,7 +1450,7 @@ fn sep_cma_es(model: &Model, budget: usize, sigma0: f64, seed: u64) -> (Vec<f64>
     let c_mu =
         (sep * 2.0 * (mu_eff - 2.0 + 1.0 / mu_eff) / ((nf + 2.0).powi(2) + mu_eff)).min(1.0 - c_1);
     let chi_n = nf.sqrt() * (1.0 - 1.0 / (4.0 * nf) + 1.0 / (21.0 * nf * nf));
-    let mut rng = Rng(seed);
+    let mut rng = Rng(geode_util::rng::Xorshift64Star(seed));
     let mut m = vec![0.0_f64; n];
     let mut sigma = sigma0;
     let mut cdiag = vec![1.0_f64; n];
@@ -3692,7 +3688,7 @@ fn main() {
         );
     }
     assert!(gnorm0 > 1e-12, "zero gradient at x = 0");
-    let mut rng = Rng(0x1087_2026_u64);
+    let mut rng = Rng(geode_util::rng::Xorshift64Star(0x1087_2026_u64));
     let mut fd_checks = Vec::new();
     {
         let grad0 = &grad0_adjoint;

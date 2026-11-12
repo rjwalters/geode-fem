@@ -5,8 +5,6 @@
 //! become test binaries. Consumers pull it in with `mod common;` at
 //! the top of each test file.
 
-use std::path::{Path, PathBuf};
-
 use burn::tensor::backend::Backend;
 use burn::tensor::{ElementConversion, Tensor};
 use geode_core::mesh::TetMesh;
@@ -92,44 +90,10 @@ pub fn pec_mask_for_planes(
         .collect()
 }
 
-/// Absolute path of the repository root (two levels above this crate).
-#[allow(dead_code)] // some test binaries only use a subset of helpers
-pub fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("repo root resolves")
-}
-
-/// Deterministic 64-bit LCG so tests need no `rand` dependency.
-///
-/// All three output mappings share one state update and the same
-/// `>> 11` / `2^53` unit mapping, so a given seed yields the same underlying
-/// stream regardless of which range a test draws from.
-#[allow(dead_code)] // some test binaries only use a subset of helpers
-pub struct Lcg(pub u64);
-
-#[allow(dead_code)] // some test binaries only use a subset of helpers
-impl Lcg {
-    /// Next sample in `[0, 1)`.
-    pub fn next_unit(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        (self.0 >> 11) as f64 / (1u64 << 53) as f64
-    }
-
-    /// Next sample in `[-1, 1)`.
-    pub fn next(&mut self) -> f64 {
-        self.next_unit() * 2.0 - 1.0
-    }
-
-    /// Next sample in `[-0.5, 0.5)`.
-    pub fn next_centered(&mut self) -> f64 {
-        self.next_unit() - 0.5
-    }
-}
+#[allow(unused_imports)] // some test binaries only use a subset of helpers
+pub use geode_util::repo::repo_root;
+#[allow(unused_imports)] // some test binaries only use a subset of helpers
+pub use geode_util::rng::Lcg;
 
 /// Sparse CSC matrix–vector product `K x` (real).
 #[allow(dead_code)] // some test binaries only use a subset of helpers

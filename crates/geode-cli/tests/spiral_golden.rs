@@ -53,9 +53,7 @@ fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-fn repo_root() -> PathBuf {
-    manifest_dir().join("..").join("..")
-}
+use geode_util::repo::repo_root;
 
 #[path = "support/touchstone.rs"]
 mod touchstone_support;
