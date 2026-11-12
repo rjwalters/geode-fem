@@ -799,11 +799,26 @@ fn starter_spec_driven(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBu
             ..Default::default()
         },
         floquet_ports: if floquet {
+            // The port medium is the dielectric touching that wall (lowest
+            // slab bottom for z_lo, highest slab top for z_hi); vacuum
+            // (`None`) when that slab is plain air.
+            let wall_medium = |hi: bool| -> Option<String> {
+                let key = |d: &layout::DielectricLayer| {
+                    if hi {
+                        d.z_bottom + d.thickness
+                    } else {
+                        -d.z_bottom
+                    }
+                };
+                let i = (0..l.dielectrics.len())
+                    .max_by(|&a, &b| key(&l.dielectrics[a]).total_cmp(&key(&l.dielectrics[b])))?;
+                (l.dielectrics[i].eps_r != [1.0, 0.0]).then(|| slabs[i].clone())
+            };
             [false, true]
                 .map(|hi| spec::FloquetPortSpec {
                     physical_group: name(GroupRole::FloquetPort { hi }),
                     n_evanescent: spec::default_n_evanescent(),
-                    medium: None,
+                    medium: wall_medium(hi),
                 })
                 .into()
         } else {
@@ -1072,6 +1087,48 @@ mod tests {
         let spec = go(&layout);
         assert!(spec.boundary_conditions.leontovich.is_empty());
         assert_eq!(spec.boundary_conditions.pec.len(), 3);
+    }
+
+    /// A periodic driven starter spec derives each Floquet port's medium
+    /// from the dielectric at that wall: vacuum (`None`) for air, the slab's
+    /// group otherwise.
+    #[test]
+    fn floquet_port_medium_follows_the_wall_dielectric() {
+        let spec = |slabs: serde_json::Value| -> ProblemSpec {
+            let layout: Layout = serde_json::from_value(serde_json::json!({
+                "schema_version": 1,
+                "length_unit_m": 1e-6,
+                "dielectrics": slabs,
+                "periodic": ["x", "y"],
+                "margin": 5,
+                "mesh": {"size_max": 3, "size_conductor": 1}
+            }))
+            .unwrap();
+            let r = layout.resolve_for(MeshAnalysis::Driven).unwrap();
+            let script = geo::generate(&r, "test");
+            starter_spec_driven(&r, &script, PathBuf::from("m.msh"))
+        };
+        let slab = serde_json::json!({"name": "slab", "thickness": 4, "eps_r": [4.0, 0.0]});
+        let air = serde_json::json!({"name": "air", "thickness": 6});
+        let stack = |layers: [(&serde_json::Value, f64); 2]| {
+            serde_json::Value::Array(
+                layers
+                    .map(|(l, z)| {
+                        let mut l = l.clone();
+                        l["z_bottom"] = z.into();
+                        l
+                    })
+                    .into(),
+            )
+        };
+        // Slab at the bottom wall, air on top.
+        let s = spec(stack([(&slab, 0.0), (&air, 4.0)]));
+        assert_eq!(s.floquet_ports[0].medium.as_deref(), Some("slab"));
+        assert_eq!(s.floquet_ports[1].medium, None);
+        // Air at the bottom, slab on top.
+        let s = spec(stack([(&air, 0.0), (&slab, 6.0)]));
+        assert_eq!(s.floquet_ports[0].medium, None);
+        assert_eq!(s.floquet_ports[1].medium.as_deref(), Some("slab"));
     }
 
     /// The periodic eigen starter spec asks for a `k0` shift scaled to the
