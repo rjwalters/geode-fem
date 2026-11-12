@@ -30,7 +30,7 @@ mod scratch_support;
 
 use scratch_support::Scratch;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use geode_core::driven::ports::extruded_rect_waveguide_mesh;
 use serde_json::{Value, json};
@@ -58,12 +58,9 @@ fn k0_hz(k0: f64) -> f64 {
     k0 * 299_792_458.0 / (2.0 * std::f64::consts::PI * LENGTH_UNIT_M)
 }
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::geode;
 
 fn ok(out: &Output, what: &str) -> Value {
     assert!(

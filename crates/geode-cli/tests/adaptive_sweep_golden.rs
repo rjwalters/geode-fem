@@ -55,9 +55,9 @@ use std::process::Command;
 use scratch_support::Scratch;
 use serde_json::Value;
 
-fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::manifest_dir;
 
 /// `fixture` with its mesh path made absolute and `edit` applied,
 /// written to `dir/name`.

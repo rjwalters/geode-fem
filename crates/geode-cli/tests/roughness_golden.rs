@@ -44,9 +44,9 @@ const RMS_M: f64 = 1.0e-6;
 /// Huray clone: a = 0.5 µm, 14 spheres per 100 µm² tile.
 const HURAY: (f64, f64, f64) = (0.5e-6, 14.0, 1.0e-10);
 
-fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::manifest_dir;
 
 /// `fixture` with its mesh path made absolute and `edit` applied, written
 /// to `dir/name`.

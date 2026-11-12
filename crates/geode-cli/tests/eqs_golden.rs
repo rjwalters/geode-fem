@@ -13,7 +13,6 @@ mod scratch_support;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
 
 use geode_core::mesh::cube_tet_mesh;
 use scratch_support::Scratch;
@@ -27,12 +26,9 @@ const AREA: f64 = L * L;
 const V0: f64 = 10.0;
 const EPS_R: [f64; 2] = [4.0, 2.0];
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::geode;
 
 fn write_bar(dir: &Path) -> PathBuf {
     let mut mesh = cube_tet_mesh(4, 1.0);

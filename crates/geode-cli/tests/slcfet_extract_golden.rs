@@ -45,15 +45,14 @@
 //!    cargo test -p geode-cli --release --test slcfet_extract_golden -- --ignored
 //!    ```
 
-use std::path::PathBuf;
 use std::process::Command;
 
 use geode_core::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
 use geode_core::driven::extraction::extrapolate_l0;
 
-fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::{f64_at, manifest_dir};
 
 use geode_util::repo::repo_root;
 
@@ -83,10 +82,6 @@ fn run_extract(spec: &str) -> serde_json::Value {
         String::from_utf8_lossy(&out.stdout)
     );
     serde_json::from_slice(&out.stdout).expect("report is JSON")
-}
-
-fn f64_at(v: &serde_json::Value) -> f64 {
-    v.as_f64().unwrap_or_else(|| panic!("not a number: {v}"))
 }
 
 /// Port-0 `(f_hz, L_h, Z_ohm, residual_rel)` per report row.

@@ -29,7 +29,7 @@ mod scratch_support;
 use msh::write_msh_volumes as write_msh;
 use scratch_support::{Scratch, ScratchFile};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use geode_core::driven::ports::extruded_rect_waveguide_mesh;
 use serde_json::{Value, json};
@@ -45,12 +45,9 @@ const FD_REL_TOL: f64 = 1e-4;
 /// points of a central difference).
 const SLAB_EPS: [f64; 2] = [2.5, -0.05];
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::geode;
 
 fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
