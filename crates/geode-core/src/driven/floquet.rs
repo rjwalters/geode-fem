@@ -1538,6 +1538,49 @@ impl FloquetCell {
         })
     }
 
+    /// The position of the feed channel in the propagating set at
+    /// `(omega, k_t)`: the row/column of `Γ_active = S_ff` in the S matrix of
+    /// [`Self::factor`] and of the Floquet adjoint
+    /// ([`crate::driven::floquet_sensitivity::floquet_s_vjp`]).
+    ///
+    /// # Errors
+    ///
+    /// [`FloquetError::InvalidSpec`] for a cell without a modal feed or a
+    /// feed mode below cutoff, and the errors of [`Self::channels_at`].
+    pub fn feed_propagating_index(
+        &self,
+        omega: f64,
+        k_t: [f64; 3],
+        phi: f64,
+    ) -> Result<usize, FloquetError> {
+        let feed_port = self
+            .ports
+            .iter()
+            .position(|p| p.modal.is_some())
+            .ok_or_else(|| {
+                FloquetError::InvalidSpec("the cell has no modal feed (assemble_array)".into())
+            })?;
+        let (channels, _) = self.channels_at(omega, k_t, phi)?;
+        let mut pos = 0;
+        for c in &channels {
+            if c.port == feed_port {
+                return if c.propagating {
+                    Ok(pos)
+                } else {
+                    Err(FloquetError::InvalidSpec(
+                        "the feed mode is below cutoff".into(),
+                    ))
+                };
+            }
+            if c.propagating {
+                pos += 1;
+            }
+        }
+        Err(FloquetError::InvalidSpec(
+            "the feed channel is missing".into(),
+        ))
+    }
+
     /// The **scan impedance** `Z = −V/I` of an array element driven by a
     /// unit delta-gap current on the full edge DOF `edge` (issue #1513 AC2):
     /// the lumped-feed counterpart of [`Self::active_reflection`]. The cell
