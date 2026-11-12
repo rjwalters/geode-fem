@@ -657,6 +657,7 @@ fn summarize_groups(
             GroupRole::Contact(_) => "contact",
             GroupRole::OuterBoundary => "outer_boundary",
             GroupRole::PeriodicWall { .. } => "periodic_wall",
+            GroupRole::FloquetPort { .. } => "floquet_port",
         };
         out.push(GroupSummary {
             dim: g.dim,
@@ -754,7 +755,13 @@ fn starter_spec_driven(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBu
     let slabs: Vec<String> = (0..l.dielectrics.len())
         .map(|i| name(GroupRole::Dielectric(i)))
         .collect();
-    let mut pec = vec![name(GroupRole::OuterBoundary)];
+    let floquet = r.meshes_floquet_ports();
+    // A periodic driven cell has no outer walls: its z walls are the ports.
+    let mut pec = if floquet {
+        Vec::new()
+    } else {
+        vec![name(GroupRole::OuterBoundary)]
+    };
     let mut leontovich = Vec::new();
     for (i, g) in r.groups.iter().enumerate() {
         match g.conductivity_s_m {
@@ -784,8 +791,29 @@ fn starter_spec_driven(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBu
         boundary_conditions: BoundaryConditionsSpec {
             pec,
             leontovich,
+            periodic: if floquet {
+                periodic_pairs(r, script)
+            } else {
+                Vec::new()
+            },
             ..Default::default()
         },
+        floquet_ports: if floquet {
+            [false, true]
+                .map(|hi| spec::FloquetPortSpec {
+                    physical_group: name(GroupRole::FloquetPort { hi }),
+                    n_evanescent: spec::default_n_evanescent(),
+                    medium: None,
+                })
+                .into()
+        } else {
+            Vec::new()
+        },
+        incidence: floquet.then_some(spec::IncidenceSpec {
+            theta_deg: 0.0,
+            phi_deg: 0.0,
+            polarization: spec::IncidencePolarization::Both,
+        }),
         absorbing_regions: match l.boundary {
             BoundaryDef::Pec {} => Vec::new(),
             BoundaryDef::Upml { thickness, sigma_0 } => slabs
@@ -890,6 +918,28 @@ fn periodic_eigen_shift_k0(layout: &layout::Layout) -> f64 {
     }
 }
 
+/// The `boundary_conditions.periodic` pairs of the layout's periodic axes:
+/// `<axis>_lo` master, `<axis>_hi` slave, the cell period as translation.
+fn periodic_pairs(r: &ResolvedLayout, script: &GeoScript) -> Vec<PeriodicSpec> {
+    r.layout
+        .periodic
+        .iter()
+        .map(|&axis| {
+            let period = match axis {
+                layout::Axis::X => r.domain.x1 - r.domain.x0,
+                layout::Axis::Y => r.domain.y1 - r.domain.y0,
+            };
+            let mut translation = [0.0; 3];
+            translation[axis as usize] = period;
+            PeriodicSpec {
+                master: group_name(script, GroupRole::PeriodicWall { axis, hi: false }),
+                slave: group_name(script, GroupRole::PeriodicWall { axis, hi: true }),
+                translation: Some(translation),
+            }
+        })
+        .collect()
+}
+
 /// The eigen starter spec: every slab's `eps_r` (real part: the Bloch
 /// pencil is lossless), PEC `outer_boundary` and conductors, and a
 /// shift to edit: a placeholder 1 GHz for the PEC cavity, a cell-scaled
@@ -917,23 +967,7 @@ fn starter_spec_eigen(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf
         .collect();
     let mut pec = vec![name(GroupRole::OuterBoundary)];
     pec.extend((0..r.groups.len()).map(|i| name(GroupRole::Conductor(i))));
-    let periodic: Vec<PeriodicSpec> = l
-        .periodic
-        .iter()
-        .map(|&axis| {
-            let period = match axis {
-                layout::Axis::X => r.domain.x1 - r.domain.x0,
-                layout::Axis::Y => r.domain.y1 - r.domain.y0,
-            };
-            let mut translation = [0.0; 3];
-            translation[axis as usize] = period;
-            PeriodicSpec {
-                master: name(GroupRole::PeriodicWall { axis, hi: false }),
-                slave: name(GroupRole::PeriodicWall { axis, hi: true }),
-                translation: Some(translation),
-            }
-        })
-        .collect();
+    let periodic = periodic_pairs(r, script);
     let bloch = (!periodic.is_empty()).then_some(BlochSpec::Point(BlochPointSpec { k: [0.0; 3] }));
     let (unit, shift) = if periodic.is_empty() {
         (FrequencyUnit::Ghz, 1.0)
