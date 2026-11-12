@@ -1163,10 +1163,13 @@ pub struct EqsTransientReport {
     /// current, `integral V I_disp dt` (stored field energy plus recovered
     /// charge, so it can be negative on discharge).
     pub delivered_energy_disp_j: Vec<f64>,
-    /// Quadrature of both energies: `"trapezoid"` over the reported steps
-    /// (`V I` sampled at the step times; the impulsive displacement current
-    /// at `t = 0` is zero, so a step at `t = 0` excludes its initial
-    /// charging pulse).
+    /// Quadrature of the two energies. The conduction energy is the
+    /// trapezoid of `V I_cond` over the reported steps; the displacement
+    /// energy is the midpoint form, the mean of the step-end voltages times
+    /// each step's displacement charge increment, so a closed lossless
+    /// pulse nets to round-off even with discontinuous edges. The impulsive
+    /// displacement current at `t = 0` is zero, so a step at `t = 0`
+    /// excludes its initial charging pulse.
     pub energy_quadrature: &'static str,
 }
 

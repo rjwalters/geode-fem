@@ -3032,7 +3032,7 @@
           "type": "number"
         },
         "energy_quadrature": {
-          "description": "Quadrature of both energies: `\"trapezoid\"` over the reported steps\n(`V I` sampled at the step times; the impulsive displacement current\nat `t = 0` is zero, so a step at `t = 0` excludes its initial\ncharging pulse).",
+          "description": "Quadrature of the two energies. The conduction energy is the\ntrapezoid of `V I_cond` over the reported steps; the displacement\nenergy is the midpoint form, the mean of the step-end voltages times\neach step's displacement charge increment, so a closed lossless\npulse nets to round-off even with discontinuous edges. The impulsive\ndisplacement current at `t = 0` is zero, so a step at `t = 0`\nexcludes its initial charging pulse.",
           "type": "string"
         },
         "n_steps": {
