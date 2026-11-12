@@ -71,6 +71,28 @@ impl Lcg {
     }
 }
 
+/// Deterministic 32-bit Numerical-Recipes LCG (`x ← 1664525·x + 1013904223`).
+///
+/// Used by the element-matrix and de Rham tests to build reproducible
+/// "random" tets and nodal fields.
+#[derive(Clone, Debug)]
+pub struct Lcg32(pub u32);
+
+impl Lcg32 {
+    /// Seed as the test fixtures do: Knuth multiplicative hash of `seed`
+    /// (`seed · 2654435761`), so nearby seeds give decorrelated streams.
+    pub fn from_seed(seed: u32) -> Self {
+        Self(seed.wrapping_mul(2_654_435_761))
+    }
+
+    /// Next sample in `[0, 1]` (the state is divided by `u32::MAX`, so both
+    /// endpoints are reachable).
+    pub fn next_unit(&mut self) -> f64 {
+        self.0 = self.0.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        self.0 as f64 / u32::MAX as f64
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,6 +123,16 @@ mod tests {
     }
 
     #[test]
+    fn lcg32_matches_reference_step() {
+        let mut r = Lcg32::from_seed(5);
+        let s0 = 5u32.wrapping_mul(2_654_435_761);
+        assert_eq!(r.0, s0);
+        let s1 = s0.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        assert_eq!(r.next_unit(), s1 as f64 / u32::MAX as f64);
+        assert_eq!(r.0, s1);
+    }
+
+    #[test]
     fn samples_stay_in_range() {
         let mut x = Xorshift64Star(42);
         let mut l = Lcg(42);
@@ -109,6 +141,10 @@ mod tests {
             assert!((-1.0..1.0).contains(&x.next_signed()));
             assert!((-1.0..1.0).contains(&l.next()));
             assert!((-0.5..0.5).contains(&l.next_centered()));
+        }
+        let mut l32 = Lcg32::from_seed(42);
+        for _ in 0..1000 {
+            assert!((0.0..=1.0).contains(&l32.next_unit()));
         }
     }
 }

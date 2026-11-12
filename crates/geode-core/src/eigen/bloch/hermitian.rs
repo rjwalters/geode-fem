@@ -311,17 +311,12 @@ pub(crate) struct HermitianSolve {
     pub basis_dim: usize,
 }
 
-struct Rng(u64);
+struct Rng(crate::rng::Xorshift64Star);
 
 impl Rng {
+    /// Sample uniform in `[-0.5, 0.5)`.
     fn next(&mut self) -> f64 {
-        let mut x = self.0;
-        x ^= x >> 12;
-        x ^= x << 25;
-        x ^= x >> 27;
-        self.0 = x;
-        let u = x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 11;
-        u as f64 / (1u64 << 53) as f64 - 0.5
+        self.0.next_unit() - 0.5
     }
     fn vector(&mut self, n: usize) -> Vec<c64> {
         (0..n).map(|_| c64::new(self.next(), self.next())).collect()
@@ -457,7 +452,7 @@ pub(crate) fn solve_hermitian(
         BlochError::Solve(format!("shifted pencil LU (is σ an eigenvalue?): {e:?}"))
     })?;
 
-    let mut rng = Rng(s.seed.max(1));
+    let mut rng = Rng(crate::rng::Xorshift64Star::new_nonzero(s.seed));
     let mut basis = Basis {
         q: Vec::new(),
         mq: Vec::new(),

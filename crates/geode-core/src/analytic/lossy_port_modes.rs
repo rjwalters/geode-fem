@@ -1107,14 +1107,8 @@ fn biorthogonalize_degenerate(
 
 /// Deterministic pseudo-random complex start (xorshift64*).
 fn random_start(n: usize, seed: u64) -> Vec<c64> {
-    let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
-    let mut next = || {
-        state ^= state >> 12;
-        state ^= state << 25;
-        state ^= state >> 27;
-        let r = state.wrapping_mul(0x2545_F491_4F6C_DD1D);
-        ((r >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
-    };
+    let mut rng = crate::rng::Xorshift64Star::hashed(seed);
+    let mut next = || rng.next_signed();
     (0..n).map(|_| c64::new(next(), next())).collect()
 }
 
