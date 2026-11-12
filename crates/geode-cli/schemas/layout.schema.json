@@ -429,7 +429,7 @@
       "description": "Mesh-size controls."
     },
     "periodic": {
-      "description": "Lateral axes along which the unit cell is periodic (`\"x\"`, `\"y\"`;\nadditive in v1, Epic #837 Phase 4a). Each listed axis replaces its\ntwo PEC walls by the groups `<axis>_lo` / `<axis>_hi`, emitted\nwith a Gmsh `Periodic Surface` constraint so the two faces mesh\nidentically, and the starter spec wires them as\n`boundary_conditions.periodic` pairs of an `eigen.bloch` spec at Γ.\nNeeds `--analysis eigen` (ports are not meshed) and a PEC\n`boundary`.",
+      "description": "Lateral axes along which the unit cell is periodic (`\"x\"`, `\"y\"`;\nadditive in v1, Epic #837 Phase 4a). Each listed axis replaces its\ntwo PEC walls by the groups `<axis>_lo` / `<axis>_hi`, emitted\nwith a Gmsh `Periodic Surface` constraint so the two faces mesh\nidentically, and the starter spec wires them as\n`boundary_conditions.periodic` pairs of an `eigen.bloch` spec at Γ.\nNeeds `--analysis eigen` (ports are not meshed) or, with both axes\nperiodic and no lumped `ports`, `--analysis driven` (the z walls\nbecome the Floquet-port groups `z_lo` / `z_hi`); and a PEC\n`boundary`.",
       "items": {
         "$ref": "#/$defs/Axis"
       },

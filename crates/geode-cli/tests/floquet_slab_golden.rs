@@ -416,3 +416,110 @@ fn check_rejects_anisotropic_port_medium_and_bad_drives() {
         json!([{"physical_group": "x_lo", "resistance_ohm": 50.0, "e_hat": [0.0, 1.0, 0.0]}]);
     run(&v);
 }
+
+// --- generated periodic driven mesh (issue #1530) ---------------------------
+
+/// `true` if a Gmsh binary is runnable; otherwise skip loudly, or fail when
+/// `GEODE_REQUIRE_GMSH=1` (CI), as `mesh_golden.rs` does.
+fn gmsh_or_skip(test: &str) -> bool {
+    let bin = std::env::var_os("GEODE_GMSH")
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "gmsh".into());
+    if Command::new(&bin)
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success())
+    {
+        return true;
+    }
+    let msg = format!("gmsh ({}) is not runnable", bin.to_string_lossy());
+    if std::env::var("GEODE_REQUIRE_GMSH").is_ok_and(|v| v == "1") {
+        panic!("GEODE_REQUIRE_GMSH=1 but {msg}");
+    }
+    eprintln!("\n## SKIPPING {test}: {msg}\n");
+    false
+}
+
+/// `geode mesh --periodic --analysis driven` emits `z_lo` / `z_hi` Floquet
+/// port groups and a starter spec with `floquet_ports`; `geode check`
+/// accepts both.
+#[test]
+fn generated_periodic_driven_mesh_passes_check() {
+    if !gmsh_or_skip("generated_periodic_driven_mesh_passes_check") {
+        return;
+    }
+    let dir = Scratch::new("geode-floquet-", "generated");
+    let layout = dir.join("cell.layout.json");
+    std::fs::write(
+        &layout,
+        serde_json::to_vec_pretty(&json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [
+                {"name": "slab", "z_bottom": 0, "thickness": 4, "eps_r": [4.0, 0.0]},
+                {"name": "air", "z_bottom": 4, "thickness": 6}
+            ],
+            "conductors": [],
+            "margin": 5,
+            "periodic": ["x", "y"],
+            "mesh": {"size_max": 3, "size_conductor": 1}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let (mesh, spec_path) = (dir.join("cell.msh"), dir.join("cell.json"));
+    let out = geode(&[
+        "mesh",
+        layout.to_str().unwrap(),
+        "--analysis",
+        "driven",
+        "--mesh-out",
+        mesh.to_str().unwrap(),
+        "--spec-out",
+        spec_path.to_str().unwrap(),
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let spec: Value = serde_json::from_slice(&std::fs::read(&spec_path).unwrap()).unwrap();
+    assert_eq!(spec["floquet_ports"][0]["physical_group"], "z_lo");
+    assert_eq!(spec["floquet_ports"][1]["physical_group"], "z_hi");
+    let out = geode(&["check", spec_path.to_str().unwrap()]);
+    let v = json_of(&out);
+    assert!(out.status.success(), "check failed: {v:#}");
+}
+
+/// Mismatched periodic axes (or lumped ports) on a driven layout stay
+/// rejected; no Gmsh needed.
+#[test]
+fn periodic_driven_layout_rejects_a_single_axis() {
+    let dir = Scratch::new("geode-floquet-", "reject");
+    let layout = dir.join("cell.layout.json");
+    std::fs::write(
+        &layout,
+        serde_json::to_vec(&json!({
+            "schema_version": 1, "length_unit_m": 1e-6,
+            "dielectrics": [{"name": "air", "z_bottom": 0, "thickness": 4}],
+            "margin": 2, "periodic": ["x"],
+            "mesh": {"size_max": 3, "size_conductor": 1}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let out = geode(&[
+        "mesh",
+        layout.to_str().unwrap(),
+        "--analysis",
+        "driven",
+        "--mesh-out",
+        dir.join("c.msh").to_str().unwrap(),
+    ]);
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("missing `y`"),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}

@@ -78,6 +78,12 @@ pub enum GroupRole {
         /// Slave (`true`) or master (`false`).
         hi: bool,
     },
+    /// A Floquet port (dimension 2) of a periodic driven cell: the bottom
+    /// (`hi = false`, `z_lo`) or top (`hi = true`, `z_hi`) z wall.
+    FloquetPort {
+        /// Top (`true`) or bottom (`false`) wall.
+        hi: bool,
+    },
 }
 
 /// One generated physical group.
@@ -426,12 +432,26 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
             });
         }
     }
-    groups.push(GroupDef {
-        dim: 2,
-        tag: next(),
-        name: OUTER_BOUNDARY.into(),
-        role: GroupRole::OuterBoundary,
-    });
+    // A periodic driven cell opens its z walls as Floquet ports; with both
+    // lateral axes periodic nothing is left for `outer_boundary`.
+    let floquet = r.meshes_floquet_ports();
+    if floquet {
+        for hi in [false, true] {
+            groups.push(GroupDef {
+                dim: 2,
+                tag: next(),
+                name: if hi { "z_hi" } else { "z_lo" }.into(),
+                role: GroupRole::FloquetPort { hi },
+            });
+        }
+    } else {
+        groups.push(GroupDef {
+            dim: 2,
+            tag: next(),
+            name: OUTER_BOUNDARY.into(),
+            role: GroupRole::OuterBoundary,
+        });
+    }
     let _ = writeln!(w, "//   | dim | tag | name | role |");
     for gd in &groups {
         let role = match gd.role {
@@ -447,6 +467,7 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
             GroupRole::OuterBoundary => "outer walls (PEC)",
             GroupRole::PeriodicWall { hi: false, .. } => "periodic master wall",
             GroupRole::PeriodicWall { hi: true, .. } => "periodic slave wall",
+            GroupRole::FloquetPort { .. } => "Floquet port (z wall)",
         };
         let _ = writeln!(w, "//   | {} | {} | {} | {role} |", gd.dim, gd.tag, gd.name);
     }
@@ -771,24 +792,40 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
         );
         let _ = writeln!(w, "Physical Surface(\"{}\", {t}) = {{g_{t}()}};", gd.name);
     }
-    let outer = groups.last().expect("outer boundary");
-    let t = outer.tag;
-    let mut walls = vec![(Rect { ..d }, z_min, z_min), (Rect { ..d }, z_max, z_max)];
-    for axis in [Axis::X, Axis::Y] {
-        if !l.periodic.contains(&axis) {
-            walls.push((wall(axis, false), z_min, z_max));
-            walls.push((wall(axis, true), z_min, z_max));
+    if floquet {
+        for gd in groups.iter().filter(|g| g.dim == 2) {
+            let GroupRole::FloquetPort { hi } = gd.role else {
+                continue;
+            };
+            let t = gd.tag;
+            let z = if hi { z_max } else { z_min };
+            let _ = writeln!(
+                w,
+                "g_{t}() = {};",
+                bbox_sel("Surface", &Rect { ..d }, z, z, eps)
+            );
+            let _ = writeln!(w, "Physical Surface(\"{}\", {t}) = {{g_{t}()}};", gd.name);
         }
+    } else {
+        let outer = groups.last().expect("outer boundary");
+        let t = outer.tag;
+        let mut walls = vec![(Rect { ..d }, z_min, z_min), (Rect { ..d }, z_max, z_max)];
+        for axis in [Axis::X, Axis::Y] {
+            if !l.periodic.contains(&axis) {
+                walls.push((wall(axis, false), z_min, z_max));
+                walls.push((wall(axis, true), z_min, z_max));
+            }
+        }
+        let _ = writeln!(w, "g_{t}() = {{}};");
+        for (q, z0, z1) in walls {
+            let _ = writeln!(w, "g_{t}() += {};", bbox_sel("Surface", &q, z0, z1, eps));
+        }
+        let _ = writeln!(w, "g_{t}() = Unique(g_{t}());");
+        let _ = writeln!(
+            w,
+            "Physical Surface(\"{OUTER_BOUNDARY}\", {t}) = {{g_{t}()}};"
+        );
     }
-    let _ = writeln!(w, "g_{t}() = {{}};");
-    for (q, z0, z1) in walls {
-        let _ = writeln!(w, "g_{t}() += {};", bbox_sel("Surface", &q, z0, z1, eps));
-    }
-    let _ = writeln!(w, "g_{t}() = Unique(g_{t}());");
-    let _ = writeln!(
-        w,
-        "Physical Surface(\"{OUTER_BOUNDARY}\", {t}) = {{g_{t}()}};"
-    );
     let _ = writeln!(w);
 
     // --- Periodic surfaces ----------------------------------------------
@@ -892,14 +929,21 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
         let _ = writeln!(w, "Field[{field}].DistMax = {};", num(far.max(near)));
         thresholds.push(field.to_string());
     }
-    field += 1;
-    let _ = writeln!(w, "Field[{field}] = Min;");
-    let _ = writeln!(
-        w,
-        "Field[{field}].FieldsList = {{{}}};",
-        thresholds.join(", ")
-    );
-    let _ = writeln!(w, "Background Field = {field};");
+    if thresholds.is_empty() {
+        // No conductors or ports to refine around (e.g. a bare periodic
+        // driven cell): gmsh rejects an empty `FieldsList = {}`, so emit no
+        // background field and let `Mesh.MeshSizeMax` size the mesh.
+        let _ = writeln!(w, "// (nothing to refine: uniform Mesh.MeshSizeMax)");
+    } else {
+        field += 1;
+        let _ = writeln!(w, "Field[{field}] = Min;");
+        let _ = writeln!(
+            w,
+            "Field[{field}].FieldsList = {{{}}};",
+            thresholds.join(", ")
+        );
+        let _ = writeln!(w, "Background Field = {field};");
+    }
     let _ = writeln!(w);
     let _ = writeln!(
         w,
@@ -1257,6 +1301,46 @@ mod tests {
             .filter(|l| l.starts_with("g_106() +="))
             .count();
         assert_eq!(outer, 2, "{}", s.text);
+    }
+
+    /// A periodic driven cell (issue #1530): `z_lo` / `z_hi` Floquet-port
+    /// groups replace `outer_boundary`.
+    #[test]
+    fn periodic_driven_emits_floquet_port_groups() {
+        let l = periodic_layout(serde_json::json!(["x", "y"]));
+        let r = l.resolve_for(super::super::MeshAnalysis::Driven).unwrap();
+        let s = generate(&r, "test");
+        let names: Vec<_> = s.groups.iter().map(|g| g.name.as_str()).collect();
+        assert!(names.ends_with(&["z_lo", "z_hi"]), "{names:?}");
+        assert!(!names.contains(&"outer_boundary"));
+        assert!(s.text.contains("Physical Surface(\"z_lo\""));
+        assert!(s.text.contains("Physical Surface(\"z_hi\""));
+        assert!(!s.text.contains("outer_boundary"));
+    }
+
+    /// A bare periodic driven cell has nothing to refine around: gmsh rejects
+    /// `FieldsList = {}` (a syntax error), so no empty field may be emitted.
+    #[test]
+    fn conductor_free_cell_emits_no_empty_size_field() {
+        let l: Layout = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [
+                {"name": "slab", "z_bottom": 0, "thickness": 4, "eps_r": [4.0, 0.0]},
+                {"name": "air", "z_bottom": 4, "thickness": 6}
+            ],
+            "conductors": [],
+            "margin": 5,
+            "periodic": ["x", "y"],
+            "mesh": {"size_max": 3, "size_conductor": 1}
+        }))
+        .unwrap();
+        let r = l.resolve_for(super::super::MeshAnalysis::Driven).unwrap();
+        let s = generate(&r, "test");
+        assert!(!s.text.contains("FieldsList = {}"), "{}", s.text);
+        assert!(!s.text.contains("Background Field"), "{}", s.text);
+        let (open, close) = (s.text.matches('{').count(), s.text.matches('}').count());
+        assert_eq!(open, close, "unbalanced braces:\n{}", s.text);
     }
 
     #[test]

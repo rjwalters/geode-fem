@@ -657,6 +657,7 @@ fn summarize_groups(
             GroupRole::Contact(_) => "contact",
             GroupRole::OuterBoundary => "outer_boundary",
             GroupRole::PeriodicWall { .. } => "periodic_wall",
+            GroupRole::FloquetPort { .. } => "floquet_port",
         };
         out.push(GroupSummary {
             dim: g.dim,
@@ -754,7 +755,13 @@ fn starter_spec_driven(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBu
     let slabs: Vec<String> = (0..l.dielectrics.len())
         .map(|i| name(GroupRole::Dielectric(i)))
         .collect();
-    let mut pec = vec![name(GroupRole::OuterBoundary)];
+    let floquet = r.meshes_floquet_ports();
+    // A periodic driven cell has no outer walls: its z walls are the ports.
+    let mut pec = if floquet {
+        Vec::new()
+    } else {
+        vec![name(GroupRole::OuterBoundary)]
+    };
     let mut leontovich = Vec::new();
     for (i, g) in r.groups.iter().enumerate() {
         match g.conductivity_s_m {
@@ -784,8 +791,44 @@ fn starter_spec_driven(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBu
         boundary_conditions: BoundaryConditionsSpec {
             pec,
             leontovich,
+            periodic: if floquet {
+                periodic_pairs(r, script)
+            } else {
+                Vec::new()
+            },
             ..Default::default()
         },
+        floquet_ports: if floquet {
+            // The port medium is the dielectric touching that wall (lowest
+            // slab bottom for z_lo, highest slab top for z_hi); vacuum
+            // (`None`) when that slab is plain air.
+            let wall_medium = |hi: bool| -> Option<String> {
+                let key = |d: &layout::DielectricLayer| {
+                    if hi {
+                        d.z_bottom + d.thickness
+                    } else {
+                        -d.z_bottom
+                    }
+                };
+                let i = (0..l.dielectrics.len())
+                    .max_by(|&a, &b| key(&l.dielectrics[a]).total_cmp(&key(&l.dielectrics[b])))?;
+                (l.dielectrics[i].eps_r != [1.0, 0.0]).then(|| slabs[i].clone())
+            };
+            [false, true]
+                .map(|hi| spec::FloquetPortSpec {
+                    physical_group: name(GroupRole::FloquetPort { hi }),
+                    n_evanescent: spec::default_n_evanescent(),
+                    medium: wall_medium(hi),
+                })
+                .into()
+        } else {
+            Vec::new()
+        },
+        incidence: floquet.then_some(spec::IncidenceSpec {
+            theta_deg: 0.0,
+            phi_deg: 0.0,
+            polarization: spec::IncidencePolarization::Both,
+        }),
         absorbing_regions: match l.boundary {
             BoundaryDef::Pec {} => Vec::new(),
             BoundaryDef::Upml { thickness, sigma_0 } => slabs
@@ -890,6 +933,28 @@ fn periodic_eigen_shift_k0(layout: &layout::Layout) -> f64 {
     }
 }
 
+/// The `boundary_conditions.periodic` pairs of the layout's periodic axes:
+/// `<axis>_lo` master, `<axis>_hi` slave, the cell period as translation.
+fn periodic_pairs(r: &ResolvedLayout, script: &GeoScript) -> Vec<PeriodicSpec> {
+    r.layout
+        .periodic
+        .iter()
+        .map(|&axis| {
+            let period = match axis {
+                layout::Axis::X => r.domain.x1 - r.domain.x0,
+                layout::Axis::Y => r.domain.y1 - r.domain.y0,
+            };
+            let mut translation = [0.0; 3];
+            translation[axis as usize] = period;
+            PeriodicSpec {
+                master: group_name(script, GroupRole::PeriodicWall { axis, hi: false }),
+                slave: group_name(script, GroupRole::PeriodicWall { axis, hi: true }),
+                translation: Some(translation),
+            }
+        })
+        .collect()
+}
+
 /// The eigen starter spec: every slab's `eps_r` (real part: the Bloch
 /// pencil is lossless), PEC `outer_boundary` and conductors, and a
 /// shift to edit: a placeholder 1 GHz for the PEC cavity, a cell-scaled
@@ -917,23 +982,7 @@ fn starter_spec_eigen(r: &ResolvedLayout, script: &GeoScript, mesh_path: PathBuf
         .collect();
     let mut pec = vec![name(GroupRole::OuterBoundary)];
     pec.extend((0..r.groups.len()).map(|i| name(GroupRole::Conductor(i))));
-    let periodic: Vec<PeriodicSpec> = l
-        .periodic
-        .iter()
-        .map(|&axis| {
-            let period = match axis {
-                layout::Axis::X => r.domain.x1 - r.domain.x0,
-                layout::Axis::Y => r.domain.y1 - r.domain.y0,
-            };
-            let mut translation = [0.0; 3];
-            translation[axis as usize] = period;
-            PeriodicSpec {
-                master: name(GroupRole::PeriodicWall { axis, hi: false }),
-                slave: name(GroupRole::PeriodicWall { axis, hi: true }),
-                translation: Some(translation),
-            }
-        })
-        .collect();
+    let periodic = periodic_pairs(r, script);
     let bloch = (!periodic.is_empty()).then_some(BlochSpec::Point(BlochPointSpec { k: [0.0; 3] }));
     let (unit, shift) = if periodic.is_empty() {
         (FrequencyUnit::Ghz, 1.0)
@@ -1038,6 +1087,48 @@ mod tests {
         let spec = go(&layout);
         assert!(spec.boundary_conditions.leontovich.is_empty());
         assert_eq!(spec.boundary_conditions.pec.len(), 3);
+    }
+
+    /// A periodic driven starter spec derives each Floquet port's medium
+    /// from the dielectric at that wall: vacuum (`None`) for air, the slab's
+    /// group otherwise.
+    #[test]
+    fn floquet_port_medium_follows_the_wall_dielectric() {
+        let spec = |slabs: serde_json::Value| -> ProblemSpec {
+            let layout: Layout = serde_json::from_value(serde_json::json!({
+                "schema_version": 1,
+                "length_unit_m": 1e-6,
+                "dielectrics": slabs,
+                "periodic": ["x", "y"],
+                "margin": 5,
+                "mesh": {"size_max": 3, "size_conductor": 1}
+            }))
+            .unwrap();
+            let r = layout.resolve_for(MeshAnalysis::Driven).unwrap();
+            let script = geo::generate(&r, "test");
+            starter_spec_driven(&r, &script, PathBuf::from("m.msh"))
+        };
+        let slab = serde_json::json!({"name": "slab", "thickness": 4, "eps_r": [4.0, 0.0]});
+        let air = serde_json::json!({"name": "air", "thickness": 6});
+        let stack = |layers: [(&serde_json::Value, f64); 2]| {
+            serde_json::Value::Array(
+                layers
+                    .map(|(l, z)| {
+                        let mut l = l.clone();
+                        l["z_bottom"] = z.into();
+                        l
+                    })
+                    .into(),
+            )
+        };
+        // Slab at the bottom wall, air on top.
+        let s = spec(stack([(&slab, 0.0), (&air, 4.0)]));
+        assert_eq!(s.floquet_ports[0].medium.as_deref(), Some("slab"));
+        assert_eq!(s.floquet_ports[1].medium, None);
+        // Air at the bottom, slab on top.
+        let s = spec(stack([(&air, 0.0), (&slab, 6.0)]));
+        assert_eq!(s.floquet_ports[0].medium, None);
+        assert_eq!(s.floquet_ports[1].medium.as_deref(), Some("slab"));
     }
 
     /// The periodic eigen starter spec asks for a `k0` shift scaled to the

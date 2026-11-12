@@ -102,7 +102,9 @@ pub struct Layout {
     /// with a Gmsh `Periodic Surface` constraint so the two faces mesh
     /// identically, and the starter spec wires them as
     /// `boundary_conditions.periodic` pairs of an `eigen.bloch` spec at Γ.
-    /// Needs `--analysis eigen` (ports are not meshed) and a PEC
+    /// Needs `--analysis eigen` (ports are not meshed) or, with both axes
+    /// periodic and no lumped `ports`, `--analysis driven` (the z walls
+    /// become the Floquet-port groups `z_lo` / `z_hi`); and a PEC
     /// `boundary`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub periodic: Vec<Axis>,
@@ -536,7 +538,12 @@ impl ResolvedLayout {
 
     /// Whether ports are meshed (and wired into the starter spec).
     pub fn meshes_ports(&self) -> bool {
-        self.analysis == MeshAnalysis::Driven
+        self.analysis == MeshAnalysis::Driven && self.layout.periodic.is_empty()
+    }
+
+    /// Whether the z walls are Floquet ports (a periodic driven cell).
+    pub fn meshes_floquet_ports(&self) -> bool {
+        self.analysis == MeshAnalysis::Driven && !self.layout.periodic.is_empty()
     }
 
     /// Whether contacts are meshed (and wired into the starter spec).
@@ -1159,13 +1166,30 @@ impl Layout {
         }
 
         if !self.periodic.is_empty() {
-            if analysis != MeshAnalysis::Eigen {
+            if !matches!(analysis, MeshAnalysis::Eigen | MeshAnalysis::Driven) {
                 return Err(format!(
-                    "`periodic` builds a unit cell for a Bloch band solve: use `--analysis eigen` \
-                     (got `{}`; `geode mesh` does not yet generate a periodic driven cell with \
-                     Floquet-port groups: mesh it externally and use `floquet_ports` in the spec)",
+                    "`periodic` builds a unit cell for a Bloch band solve or a Floquet-port \
+                     driven solve: use `--analysis eigen` or `--analysis driven` (got `{}`)",
                     analysis.name()
                 ));
+            }
+            if analysis == MeshAnalysis::Driven {
+                for a in [Axis::X, Axis::Y] {
+                    if !self.periodic.contains(&a) {
+                        return Err(format!(
+                            "a periodic driven cell (Floquet ports on the z walls) needs both \
+                             lateral axes periodic: `periodic` is missing `{}`",
+                            a.name()
+                        ));
+                    }
+                }
+                if !self.ports.is_empty() {
+                    return Err(
+                        "a periodic driven cell is driven through its Floquet z-wall \
+                         ports (`z_lo` / `z_hi`): remove the lumped `ports`"
+                            .into(),
+                    );
+                }
             }
             if !matches!(self.boundary, BoundaryDef::Pec {}) {
                 return Err(
@@ -1194,6 +1218,9 @@ impl Layout {
 
         // Names: unique across every physical group.
         let mut names: Vec<&str> = vec![OUTER_BOUNDARY];
+        if analysis == MeshAnalysis::Driven && !self.periodic.is_empty() {
+            names.extend(["z_lo", "z_hi"]);
+        }
         let groups = self
             .dielectrics
             .iter()
@@ -1515,7 +1542,7 @@ impl Layout {
             // cavity (or, with `periodic`, a Bloch unit cell).
             MeshAnalysis::Eigen => {}
             MeshAnalysis::Driven => {
-                if self.ports.is_empty() {
+                if self.ports.is_empty() && self.periodic.is_empty() {
                     return Err("`ports` needs ≥ 1 port (driven analysis)".into());
                 }
             }
@@ -1665,7 +1692,15 @@ impl Layout {
             .copied()
             .chain(ports.iter().map(|p| p.rect))
             .reduce(|a, b| a.union(&b))
-            .expect("≥ 1 port or conductor group (checked per analysis)");
+            // A conductor-free, port-free layout (a periodic driven Floquet
+            // cell) has no footprint: the cell is the square of half-width
+            // `margin` centred on the origin.
+            .unwrap_or(Rect {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 0.0,
+                y1: 0.0,
+            });
         let domain = Rect {
             x0: footprint.x0 - self.margin,
             y0: footprint.y0 - self.margin,
@@ -2264,6 +2299,27 @@ mod tests {
         .unwrap()
     }
 
+    /// A conductor-free, port-free periodic driven cell (Floquet z ports)
+    /// resolves to a `2·margin` square centred on the origin: no panic.
+    #[test]
+    fn empty_footprint_periodic_driven_cell_resolves_without_panic() {
+        let l: Layout = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [{"name": "air", "z_bottom": 0, "thickness": 10}],
+            "conductors": [],
+            "margin": 5,
+            "periodic": ["x", "y"],
+            "mesh": {"size_max": 3, "size_conductor": 1}
+        }))
+        .unwrap();
+        let r = l.resolve_for(MeshAnalysis::Driven).expect("resolves");
+        assert_eq!(
+            (r.domain.x0, r.domain.y0, r.domain.x1, r.domain.y1),
+            (-5.0, -5.0, 5.0, 5.0)
+        );
+    }
+
     /// Regular-ish octagon of "radius" `r` (edges at 0°, 45°, 90°, …)
     /// centred on `(cx, cy)`; `s` is the diagonal cut.
     fn octagon(cx: f64, cy: f64, r: f64, s: f64) -> Vec<[f64; 2]> {
@@ -2302,8 +2358,12 @@ mod tests {
             .resolve_for(MeshAnalysis::Capacitance)
             .unwrap_err();
         assert!(e.contains("--analysis eigen"), "{e}");
-        let e = ok.resolve().unwrap_err();
-        assert!(e.contains("--analysis eigen"), "{e}");
+        // Driven needs both axes and no lumped ports; none needed otherwise.
+        assert!(ok.clone().resolve_for(MeshAnalysis::Driven).is_ok());
+        let e = periodic_base(serde_json::json!(["x"]))
+            .resolve_for(MeshAnalysis::Driven)
+            .unwrap_err();
+        assert!(e.contains("missing `y`"), "{e}");
         let dup = periodic_base(serde_json::json!(["x", "x"]));
         let e = dup.resolve_for(MeshAnalysis::Eigen).unwrap_err();
         assert!(e.contains("twice"), "{e}");

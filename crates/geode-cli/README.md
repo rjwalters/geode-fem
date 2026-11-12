@@ -3118,6 +3118,15 @@ micron-scale cell and not converge. It is a starting point; edit `shift`
 to look at other bands. Without `periodic`, `--analysis eigen` gives a
 plain PEC-cavity eigen starter spec (1 GHz placeholder shift).
 
+With `--analysis driven` and **both** axes periodic (no lumped `ports`),
+the z walls become the Floquet-port groups `z_lo` / `z_hi` instead of
+`outer_boundary`, and the starter spec carries the periodic pairs,
+`floquet_ports` on `z_lo` / `z_hi`, a normal-incidence `incidence` and a
+1 GHz placeholder sweep (edit it). Each port's `medium` is taken from
+the dielectric slab at that wall (omitted, i.e. vacuum, when it is air),
+so a slab touching a z wall is not a vacuum-port mismatch. Periodic with `capacitance` /
+`inductance` stays rejected.
+
 ```sh
 geode mesh cell.layout.json --analysis eigen --spec-out cell.json && geode check cell.json
 ```
