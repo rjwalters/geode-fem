@@ -15,7 +15,7 @@ mod scratch_support;
 use scratch_support::Scratch;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use geode_core::driven::ports::extruded_rect_waveguide_mesh;
 use serde_json::{Value, json};
@@ -28,12 +28,9 @@ const LENGTH_UNIT_M: f64 = 1e-2;
 /// Slab permittivity.
 const SLAB_EPS: [f64; 2] = [2.5, -0.05];
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::geode;
 
 fn ok(out: &Output, what: &str) -> Value {
     assert!(

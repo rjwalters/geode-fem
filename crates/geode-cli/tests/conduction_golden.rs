@@ -11,7 +11,6 @@ mod msh;
 mod scratch_support;
 
 use std::path::Path;
-use std::process::{Command, Output};
 
 use geode_core::mesh::cube_tet_mesh;
 use scratch_support::Scratch;
@@ -24,12 +23,9 @@ const UNIT_M: f64 = 1e-3;
 const SIGMA: f64 = 5.8e7;
 const TOL: f64 = 1e-9;
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::geode;
 
 /// Write the bar mesh; returns its path.
 fn write_bar(dir: &Path) -> std::path::PathBuf {

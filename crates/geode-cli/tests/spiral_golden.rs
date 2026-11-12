@@ -44,14 +44,13 @@
 mod scratch_support;
 
 use scratch_support::Scratch;
-use std::path::PathBuf;
 use std::process::Command;
 
 use geode_core::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
 
-fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::manifest_dir;
 
 use geode_util::repo::repo_root;
 

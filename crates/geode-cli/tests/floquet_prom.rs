@@ -12,7 +12,7 @@ mod msh;
 mod scratch_support;
 
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 
 use scratch_support::Scratch;
 use serde_json::{Value, json};
@@ -120,12 +120,9 @@ fn box_msh(n: [usize; 3], slab: bool, x_hi_shift: f64) -> String {
     msh::write_msh_volumes(&nodes, &volumes, &surfaces)
 }
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::geode;
 
 fn json_of(out: &Output) -> Value {
     serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {

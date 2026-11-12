@@ -51,9 +51,9 @@ const F_REF: f64 = 1e9;
 const F_LO: f64 = 1e3;
 const F_HI: f64 = 1e12;
 
-fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::manifest_dir;
 
 /// `fixture` with its mesh path made absolute and `edit` applied, written
 /// to `dir/name`.

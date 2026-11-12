@@ -18,7 +18,7 @@
 //!   without solving.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use geode_core::driven::ports::extruded_rect_waveguide_mesh;
 
@@ -36,12 +36,9 @@ const LEN: f64 = 1.2;
 /// Metres per mesh unit (a 2 cm × 1 cm box).
 const LENGTH_UNIT_M: f64 = 1e-2;
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::geode;
 
 fn json_of(out: &Output) -> Value {
     serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
