@@ -404,6 +404,20 @@ where
     })
 }
 
+/// The [`floquet_s_vjp`] objective `g = |S_ff|² = |Γ_active|²` for the feed
+/// channel at position `feed` of the propagating set (see
+/// [`FloquetCell::feed_propagating_index`]), with the Wirtinger cotangent
+/// `∂g/∂S_ff = conj(S_ff)` and zero elsewhere (Epic #1252 Phase 3, #1515).
+pub fn gamma_sq_objective(feed: usize) -> impl Fn(&[Vec<c64>]) -> (f64, Vec<Vec<c64>>) {
+    move |s: &[Vec<c64>]| {
+        let np = s.len();
+        let mut cot = vec![vec![c64::new(0.0, 0.0); np]; np];
+        let g = s[feed][feed];
+        cot[feed][feed] = g.conj();
+        (g.norm_sqr(), cot)
+    }
+}
+
 /// Shape design data: per-node "moves" flags.
 struct ShapeData<'a> {
     design: &'a ShapeDesign,
