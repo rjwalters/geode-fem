@@ -22,6 +22,7 @@ pub mod mesh;
 pub mod postproc;
 pub mod prelude;
 pub mod quantum;
+pub(crate) mod rng;
 pub mod shape;
 pub mod solver;
 pub(crate) mod sparse_ops;

@@ -1412,17 +1412,8 @@ fn norm1(a: SparseColMatRef<'_, usize, f64>) -> f64 {
 /// A deterministic pseudo-random start vector (xorshift64*), independent of
 /// the default `sin` start of [`shift_invert_arnoldi_projected`].
 fn pseudo_random_start(n: usize, seed: u64) -> Vec<f64> {
-    let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
-    (0..n)
-        .map(|_| {
-            state ^= state >> 12;
-            state ^= state << 25;
-            state ^= state >> 27;
-            let r = state.wrapping_mul(0x2545_F491_4F6C_DD1D);
-            // Top 53 bits → [0, 1) → [−1, 1).
-            ((r >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
-        })
-        .collect()
+    let mut rng = crate::rng::Xorshift64Star::hashed(seed);
+    (0..n).map(|_| rng.next_signed()).collect()
 }
 
 /// Gather a mode's full-ordering `(ẽ_t, ẽ_z)` into the reduced ordering.
