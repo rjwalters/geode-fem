@@ -736,6 +736,9 @@ fn bare_spec(mesh_path: PathBuf, length_unit_m: f64, materials: Vec<MaterialSpec
         optimize: None,
         element_order: Default::default(),
         adaptive_mesh: None,
+        floquet_ports: Vec::new(),
+        incidence: None,
+        scan: None,
     }
 }
 

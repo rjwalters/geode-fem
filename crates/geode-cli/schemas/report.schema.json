@@ -387,6 +387,34 @@
       ],
       "type": "object"
     },
+    "AngleRangeSpec": {
+      "additionalProperties": false,
+      "description": "A linear angle range `start..=stop` with `count` samples.",
+      "properties": {
+        "count": {
+          "description": "Number of samples (`>= 1`; `1` uses `start`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "start": {
+          "description": "First angle (degrees).",
+          "format": "double",
+          "type": "number"
+        },
+        "stop": {
+          "description": "Last angle (degrees).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start",
+        "stop",
+        "count"
+      ],
+      "type": "object"
+    },
     "BandRow": {
       "description": "One row of a Bloch band table: all bands at one wave vector.",
       "properties": {
@@ -2039,6 +2067,17 @@
           "description": "Compiled-in Burn backend: `ndarray`, `wgpu`, `cuda` or `metal`.",
           "type": "string"
         },
+        "floquet": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FloquetReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Floquet-port results (additive in v1, Epic #837 Phase 4b); present\nonly for a spec with `floquet_ports`, whose `results` is empty."
+        },
         "geode_version": {
           "description": "`geode-cli` crate version.",
           "type": "string"
@@ -3033,6 +3072,255 @@
       ],
       "type": "object"
     },
+    "FloquetAngleResult": {
+      "description": "All frequencies at one incidence angle.",
+      "properties": {
+        "phi_deg": {
+          "description": "Azimuth (degrees).",
+          "format": "double",
+          "type": "number"
+        },
+        "points": {
+          "description": "Per-frequency points, in spec order.",
+          "items": {
+            "$ref": "#/$defs/FloquetPoint"
+          },
+          "type": "array"
+        },
+        "theta_deg": {
+          "description": "Polar angle (degrees).",
+          "format": "double",
+          "type": "number"
+        },
+        "touchstone_file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The Touchstone file of this angle (`--touchstone`; channels named\n`P<port>_<m>_<n>_<TE|TM>`, port 1-based)."
+        }
+      },
+      "required": [
+        "theta_deg",
+        "phi_deg",
+        "points"
+      ],
+      "type": "object"
+    },
+    "FloquetPoint": {
+      "description": "One `(angle, frequency)` solve.",
+      "properties": {
+        "frequency_hz": {
+          "description": "Frequency (Hz).",
+          "format": "double",
+          "type": "number"
+        },
+        "k0": {
+          "description": "`k₀ = ω/c` (rad / mesh length unit).",
+          "format": "double",
+          "type": "number"
+        },
+        "n_propagating": {
+          "description": "Propagating channels at this point.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "residual_rel": {
+          "description": "Worst post-solve relative residual.",
+          "format": "double",
+          "type": "number"
+        },
+        "rows": {
+          "description": "One row per (incident polarization, propagating output channel).",
+          "items": {
+            "$ref": "#/$defs/FloquetRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "frequency_hz",
+        "k0",
+        "residual_rel",
+        "n_propagating",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "FloquetPortSpec": {
+      "additionalProperties": false,
+      "description": "One Floquet port: the open cell face and the medium beyond it.",
+      "properties": {
+        "medium": {
+          "description": "Physical-group name of the volume `materials` entry that fills the\nhalf-space beyond this port (homogeneous, isotropic, real `eps_r`).\nDefault: vacuum.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "n_evanescent": {
+          "default": 4,
+          "description": "Evanescent termination rings: every order with\n`max(|m|, |n|) <= n_evanescent` is a channel (default `4`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "physical_group": {
+          "description": "Dimension-2 physical-group name of the open face.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "physical_group",
+        "n_evanescent"
+      ],
+      "type": "object"
+    },
+    "FloquetPortSummary": {
+      "description": "One Floquet port.",
+      "properties": {
+        "eps_r": {
+          "description": "Relative permittivity of the half-space beyond it.",
+          "format": "double",
+          "type": "number"
+        },
+        "n_evanescent": {
+          "description": "Evanescent termination rings.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_triangles": {
+          "description": "Triangles of the face.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "physical_group": {
+          "description": "Physical group of the open face.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "physical_group",
+        "eps_r",
+        "n_evanescent",
+        "n_triangles"
+      ],
+      "type": "object"
+    },
+    "FloquetReport": {
+      "description": "The Floquet-port analysis of a periodic driven unit cell (Epic #837\nPhase 4b).",
+      "properties": {
+        "angles": {
+          "description": "One entry per incidence angle, in spec order.",
+          "items": {
+            "$ref": "#/$defs/FloquetAngleResult"
+          },
+          "type": "array"
+        },
+        "incident_polarizations": {
+          "description": "Incident polarizations solved at every point (`\"TE\"` / `\"TM\"`).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ports": {
+          "description": "The two open faces, in spec order (port index 0 and 1).",
+          "items": {
+            "$ref": "#/$defs/FloquetPortSummary"
+          },
+          "type": "array"
+        },
+        "scan": {
+          "description": "Whether the angles come from a `scan` (else a single `incidence`).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ports",
+        "incident_polarizations",
+        "scan",
+        "angles"
+      ],
+      "type": "object"
+    },
+    "FloquetRow": {
+      "description": "The response of one output channel to a unit incident wave: the\nspecular order of port 0 in polarization `incident_pol`.",
+      "properties": {
+        "efficiency": {
+          "description": "Diffraction efficiency `|S|²`.",
+          "format": "double",
+          "type": "number"
+        },
+        "incident_pol": {
+          "description": "Incident polarization (`\"TE\"` / `\"TM\"`).",
+          "type": "string"
+        },
+        "k_z": {
+          "description": "Normal wavenumber `k_z` of the order in the port medium (`Im ≤ 0`\nis the outgoing branch).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "m": {
+          "description": "Output order along `b₁`.",
+          "format": "int32",
+          "type": "integer"
+        },
+        "n": {
+          "description": "Output order along `b₂`.",
+          "format": "int32",
+          "type": "integer"
+        },
+        "pol": {
+          "description": "Output polarization (`\"TE\"` / `\"TM\"`).",
+          "type": "string"
+        },
+        "port": {
+          "description": "Output port index (`0` = the incidence port: reflection).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "propagating": {
+          "description": "Whether the order propagates (rows are written for propagating\nchannels; evanescent orders carry no power).",
+          "type": "boolean"
+        },
+        "s": {
+          "description": "Power-normalized modal amplitude `S`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "incident_pol",
+        "port",
+        "m",
+        "n",
+        "pol",
+        "propagating",
+        "k_z",
+        "s",
+        "efficiency"
+      ],
+      "type": "object"
+    },
     "FrequencyResult": {
       "description": "One frequency point of a driven sweep.\n\nFor a **wave-port** spec there is no port impedance: `z_ohm` and\n`ports` are empty, `y_s` is `null`, `s` is the power-normalized\nchannel S-matrix (port-major, mode-minor) and `wave_channels` carries\nthe per-channel `β` / `S_kk`.\n\nA **mixed** lumped + wave-port spec (issue #759) has no impedance\nmatrix either (`z_ohm` / `ports` empty, `y_s` `null`): `s` is the\npower-wave S-matrix over the lumped ports first (spec order, reference\n= each port's `resistance_ohm`), then the wave channels (port-major,\nmode-minor, power-normalized), and `wave_channels[].channel` is offset\nby the lumped-port count.",
       "properties": {
@@ -3853,6 +4141,54 @@
           "type": "string"
         }
       ]
+    },
+    "IncidencePolarization": {
+      "description": "Incident polarization of a Floquet-port analysis.",
+      "oneOf": [
+        {
+          "const": "te",
+          "description": "Transverse electric.",
+          "type": "string"
+        },
+        {
+          "const": "tm",
+          "description": "Transverse magnetic.",
+          "type": "string"
+        },
+        {
+          "const": "both",
+          "description": "Both (two incident columns per point).",
+          "type": "string"
+        }
+      ]
+    },
+    "IncidenceSpec": {
+      "additionalProperties": false,
+      "description": "One plane-wave incidence, from the first Floquet port.",
+      "properties": {
+        "phi_deg": {
+          "default": 0.0,
+          "description": "Azimuth from the first lattice vector, degrees.",
+          "format": "double",
+          "type": "number"
+        },
+        "polarization": {
+          "$ref": "#/$defs/IncidencePolarization",
+          "default": "both",
+          "description": "Incident polarization (default `\"both\"`)."
+        },
+        "theta_deg": {
+          "description": "Polar angle from the lattice normal, degrees, in `[0, 90)`.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "theta_deg",
+        "phi_deg",
+        "polarization"
+      ],
+      "type": "object"
     },
     "InductanceReport": {
       "description": "`geode inductance` report (`kind = \"inductance\"`, additive in v1,\nissue #714).\n\nThe **static** Maxwell inductance matrix of open current paths\nreturning through a PEC wall, in henries (SI: the mesh length unit is\nfolded in), row-major `l_henry[row][col]` in path order. This is not\n`geode extract`'s `l0_h` (an RF port's quasi-static `Im Z / ω`\nextrapolated to `f → 0`).",
@@ -6078,6 +6414,13 @@
           "default": null,
           "description": "Inductance-extraction settings. Its presence makes this an\n**extract spec** (for `geode extract`). Without `eigen` or\n`extract` the spec is a driven spec."
         },
+        "floquet_ports": {
+          "description": "The two Floquet ports (the open faces) of a periodic driven unit\ncell (additive in v1, Epic #837 Phase 4b). Needs\n`boundary_conditions.periodic` (the two lattice vectors) and exactly\none of `incidence` / `scan`; cannot be combined with lumped or wave\nports.",
+          "items": {
+            "$ref": "#/$defs/FloquetPortSpec"
+          },
+          "type": "array"
+        },
         "frequencies": {
           "anyOf": [
             {
@@ -6089,6 +6432,17 @@
           ],
           "default": null,
           "description": "Frequencies to solve at. Required for a `driven` / `extract` spec;\nnot allowed in an `eigen` spec (its target is [`EigenSpec::shift`])."
+        },
+        "incidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IncidenceSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A single plane-wave incidence (Floquet-port specs)."
         },
         "inductance": {
           "anyOf": [
@@ -6131,6 +6485,17 @@
             "$ref": "#/$defs/LumpedPortSpec"
           },
           "type": "array"
+        },
+        "scan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScanSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A scan over incidence angles (Floquet-port specs)."
         },
         "schema_version": {
           "const": 1,
@@ -6530,6 +6895,38 @@
       "required": [
         "model",
         "k"
+      ],
+      "type": "object"
+    },
+    "ScanSpec": {
+      "additionalProperties": false,
+      "description": "A scan over incidence angles: every `theta_deg` at every `phi_deg`.",
+      "properties": {
+        "phi_deg": {
+          "default": [
+            0.0
+          ],
+          "description": "Azimuths (degrees; default `[0]`).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "polarization": {
+          "$ref": "#/$defs/IncidencePolarization",
+          "default": "both",
+          "description": "Incident polarization (default `\"both\"`)."
+        },
+        "theta_deg": {
+          "$ref": "#/$defs/AngleRangeSpec",
+          "description": "Polar angles."
+        }
+      },
+      "required": [
+        "theta_deg",
+        "phi_deg",
+        "polarization"
       ],
       "type": "object"
     },
