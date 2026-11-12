@@ -2,15 +2,25 @@
 //! lumped (delta-gap edge) feed of the FEM cell is compared with the
 //! semi-analytic Floquet-sum scan resistance of `common/dipole_array.rs`.
 //!
-//! **AC2's 3 % match is NOT achieved** and is not asserted. Measured
+//! **AC2's 3 % match is NOT achievable with this model** and is not
+//! asserted; this is a measured refutation, not a tuning gap. Measured
 //! `R_FEM / R_oracle` (oracle `L` taken from the actual strip extent, no
-//! tuning): n=14 gives 0.995 at θ=0°, 1.05 at 15°, 1.20–1.25 at 30°,
-//! 1.41–1.82 at 45°; n=20 gives 1.11 / 1.15 / 1.26–1.35 at θ=0/15/30°. The
-//! error grows with scan angle and does not shrink with the mesh, so it is a
-//! model difference (finite-width strip, transverse current, one-cell gap vs
-//! the thin-wire sinusoidal current), not a discretization one. This test
-//! asserts what holds: the feed is passive (`Re Z > 0`) and the broadside
-//! resistance is within 15 % of the oracle.
+//! tuning), n=14, strip 2 cells wide: 0.995 at θ=0°, 1.05 at 15°, 1.20–1.25
+//! at 30°, 1.41–1.82 at 45°; n=20 gives 1.11 / 1.15 / 1.26–1.35 at θ=0/15/30°.
+//!
+//! Sensitivity runs (`DIPOLE_STRIP`, `DIPOLE_L`, n=14, broadside):
+//! strip width 1 / 2 / 4 cells gives 1.30 / 0.995 / 0.72 (the oracle's `R`
+//! has no width dependence, so the agreement at width 2 is partly
+//! coincidental); L≈0.23 gives 1.09 broadside → 1.13–1.16 at 30°, versus
+//! 0.995 → 1.20–1.25 for L≈0.43. So the mismatch comes from (i) the
+//! finite-width strip with a single-edge delta-gap source, whose resistance
+//! depends on the strip width and gap cell, and (ii) strong inter-element
+//! coupling (dipoles span 87 % of the cell), where the true current departs
+//! from the oracle's fixed sinusoid and the error grows with scan angle.
+//! A thin-wire oracle cannot represent either, so 3 % is not reachable
+//! without changing the model (e.g. a wire/strip equivalent-radius feed).
+//! The test pins the measured envelope: passive feed (`Re Z > 0`), broadside
+//! within 5 %, ratio in [0.95, 1.9] to 45°.
 
 #[path = "common/dipole_array.rs"]
 mod dipole_array;
@@ -141,7 +151,16 @@ fn dipole_array_scan_resistance_vs_floquet_sum() {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(14);
-    let d = dipole_cell(n, 2, 0.4);
+    let sc: usize = std::env::var("DIPOLE_STRIP")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2);
+    let lm: f64 = std::env::var("DIPOLE_L")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.4);
+    let d = dipole_cell(n, sc, lm);
+    let default_cfg = n == 14 && sc == 2 && lm == 0.4;
     for deg in [0.0_f64, 15.0, 30.0, 45.0] {
         for phi_deg in [0.0_f64, 90.0] {
             let th = deg.to_radians();
@@ -159,12 +178,22 @@ fn dipole_array_scan_resistance_vs_floquet_sum() {
                 z.re > 0.0,
                 "a delta-gap feed into a passive cell must have Re Z > 0"
             );
-            if deg == 0.0 {
+            // Pinned to the measured model-mismatch envelope of the default
+            // configuration (see the header): broadside within 5 %, and the
+            // ratio never outside [0.95, 1.9] up to 45° scan.
+            if default_cfg {
+                let ratio = z.re / want;
                 assert!(
-                    (z.re / want - 1.0).abs() < 0.15,
-                    "broadside R {} vs oracle {want}",
-                    z.re
+                    (0.95..=1.9).contains(&ratio),
+                    "R_FEM/R_oracle {ratio} outside the measured envelope at θ={deg}°"
                 );
+                if deg == 0.0 {
+                    assert!(
+                        (ratio - 1.0).abs() < 0.05,
+                        "broadside R {} vs oracle {want}",
+                        z.re
+                    );
+                }
             }
         }
     }
