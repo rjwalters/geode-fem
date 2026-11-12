@@ -41,7 +41,6 @@
 //! features, shorted conductors, …) is covered at the bottom.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
 
 use geode_core::assembly::electrostatic::{
     EPS_0, Electrode, assemble_electrostatic, extract_capacitance,
@@ -72,12 +71,9 @@ fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::geode;
 
 fn run_ok(sub: &str, spec: &Path) -> serde_json::Value {
     let out = geode(&[sub, spec.to_str().unwrap()]);
