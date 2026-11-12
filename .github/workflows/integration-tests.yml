@@ -139,6 +139,7 @@ jobs:
               --test faer_qz_debug_overflow_guard \
               --test fe_assemble \
               --test fiber_dispersion_benchmark \
+              --test floquet_active_reflection \
               --test floquet_ports \
               --test floquet_sensitivity \
               --test formulation_audit_graddiv \
@@ -236,6 +237,7 @@ jobs:
               --test faer_qz_debug_overflow_guard \
               --test fe_assemble \
               --test fiber_dispersion_benchmark \
+              --test floquet_active_reflection \
               --test floquet_ports \
               --test floquet_sensitivity \
               --test formulation_audit_graddiv \

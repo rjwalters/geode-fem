@@ -55,9 +55,7 @@ fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-fn repo_root() -> PathBuf {
-    manifest_dir().join("..").join("..")
-}
+use geode_util::repo::repo_root;
 
 /// mom PEEC quasi-static inductance L₀ (nH) —
 /// `reference/fixtures/slcfet_mom/baseline.json`, the same constant as

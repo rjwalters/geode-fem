@@ -49,14 +49,13 @@
 
 #[path = "../tests/common/transmon_util.rs"]
 mod transmon_util;
-use transmon_util::git_head;
+use transmon_util::{arr, git_head, vals_to_host};
 
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use burn::tensor::Tensor;
 use faer::c64;
 
 use geode_core::assembly::nedelec::{
@@ -94,10 +93,6 @@ const TOP_BLEND_ABOVE_CAP_UM: f64 = 1700.0;
 /// edges inside the stretched band.
 const ISLAND_HALF_WIDTH_UM: f64 = 12.0;
 const CUTOUT_HALF_WIDTH_UM: f64 = 42.0;
-
-fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
-    t.into_data().iter::<f64>().collect()
-}
 
 fn peak_rss_gb() -> Option<f64> {
     let s = fs::read_to_string("/proc/self/status").ok()?;
@@ -335,16 +330,6 @@ fn moved(fx: &TransmonFixture, vel: &[[f64; 3]], h: f64) -> TransmonFixture {
         }
     }
     m
-}
-
-fn arr(v: &[f64], prec: usize) -> String {
-    format!(
-        "[{}]",
-        v.iter()
-            .map(|x| format!("{x:.prec$}"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    )
 }
 
 fn solve_mode(

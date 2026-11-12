@@ -1771,6 +1771,93 @@ pub struct DrivenReport {
     /// an `element_order = 2` lumped-port sweep.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub accuracy: Option<DrivenAccuracy>,
+    /// Floquet-port results (additive in v1, Epic #837 Phase 4b); present
+    /// only for a spec with `floquet_ports`, whose `results` is empty.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub floquet: Option<FloquetReport>,
+}
+
+/// The Floquet-port analysis of a periodic driven unit cell (Epic #837
+/// Phase 4b).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct FloquetReport {
+    /// The two open faces, in spec order (port index 0 and 1).
+    pub ports: Vec<FloquetPortSummary>,
+    /// Incident polarizations solved at every point (`"TE"` / `"TM"`).
+    pub incident_polarizations: Vec<&'static str>,
+    /// Whether the angles come from a `scan` (else a single `incidence`).
+    pub scan: bool,
+    /// One entry per incidence angle, in spec order.
+    pub angles: Vec<FloquetAngleResult>,
+}
+
+/// One Floquet port.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct FloquetPortSummary {
+    /// Physical group of the open face.
+    pub physical_group: String,
+    /// Relative permittivity of the half-space beyond it.
+    pub eps_r: f64,
+    /// Evanescent termination rings.
+    pub n_evanescent: usize,
+    /// Triangles of the face.
+    pub n_triangles: usize,
+}
+
+/// All frequencies at one incidence angle.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct FloquetAngleResult {
+    /// Polar angle (degrees).
+    pub theta_deg: f64,
+    /// Azimuth (degrees).
+    pub phi_deg: f64,
+    /// Per-frequency points, in spec order.
+    pub points: Vec<FloquetPoint>,
+    /// The Touchstone file of this angle (`--touchstone`; channels named
+    /// `P<port>_<m>_<n>_<TE|TM>`, port 1-based).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub touchstone_file: Option<FileRef>,
+}
+
+/// One `(angle, frequency)` solve.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct FloquetPoint {
+    /// Frequency (Hz).
+    pub frequency_hz: f64,
+    /// `k₀ = ω/c` (rad / mesh length unit).
+    pub k0: f64,
+    /// Worst post-solve relative residual.
+    pub residual_rel: f64,
+    /// Propagating channels at this point.
+    pub n_propagating: usize,
+    /// One row per (incident polarization, propagating output channel).
+    pub rows: Vec<FloquetRow>,
+}
+
+/// The response of one output channel to a unit incident wave: the
+/// specular order of port 0 in polarization `incident_pol`.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct FloquetRow {
+    /// Incident polarization (`"TE"` / `"TM"`).
+    pub incident_pol: &'static str,
+    /// Output port index (`0` = the incidence port: reflection).
+    pub port: usize,
+    /// Output order along `b₁`.
+    pub m: i32,
+    /// Output order along `b₂`.
+    pub n: i32,
+    /// Output polarization (`"TE"` / `"TM"`).
+    pub pol: &'static str,
+    /// Whether the order propagates (rows are written for propagating
+    /// channels; evanescent orders carry no power).
+    pub propagating: bool,
+    /// Normal wavenumber `k_z` of the order in the port medium (`Im ≤ 0`
+    /// is the outgoing branch).
+    pub k_z: Complex,
+    /// Power-normalized modal amplitude `S`.
+    pub s: Complex,
+    /// Diffraction efficiency `|S|²`.
+    pub efficiency: f64,
 }
 
 /// Accuracy diagnostics of a driven report (issue #1265).

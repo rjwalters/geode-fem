@@ -233,6 +233,18 @@ pub fn run(
         ));
     }
     let p = p;
+    if p.floquet.is_some() {
+        if dataset.is_some() || check_gradient {
+            return Err(CliError::InvalidSpec(
+                "`--dataset` / `--check-gradient` are not supported with `floquet_ports`".into(),
+            ));
+        }
+        if outdir.is_some() {
+            eprintln!("note: --outdir: field export is not supported for Floquet-port specs");
+        }
+        p.print_load_warnings();
+        return crate::floquet::run(&p, provenance, touchstone, opts);
+    }
     if dataset.is_some() {
         validate_dataset(&p)?;
     }
@@ -345,6 +357,7 @@ pub fn run(
         warnings,
         adaptive_mesh,
         accuracy,
+        floquet: None,
     })
 }
 

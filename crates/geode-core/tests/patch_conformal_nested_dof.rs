@@ -142,16 +142,8 @@ fn build_morph(
 
 /// Deterministic coefficient vector in `[-amp, amp]` (xorshift64*).
 fn coefficients(n: usize, amp: f64, seed: u64) -> Vec<f64> {
-    let mut st = seed;
-    (0..n)
-        .map(|_| {
-            st ^= st >> 12;
-            st ^= st << 25;
-            st ^= st >> 27;
-            let v = st.wrapping_mul(0x2545_F491_4F6C_DD1D);
-            amp * (2.0 * ((v >> 11) as f64 / (1u64 << 53) as f64) - 1.0)
-        })
-        .collect()
+    let mut rng = geode_util::rng::Xorshift64Star(seed);
+    (0..n).map(|_| amp * rng.next_signed()).collect()
 }
 
 fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {

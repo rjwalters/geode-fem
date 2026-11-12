@@ -72,7 +72,7 @@
 
 #[path = "../tests/common/transmon_util.rs"]
 mod transmon_util;
-use transmon_util::scaled_mesh;
+use transmon_util::{floor_fmt, scaled_mesh};
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -138,12 +138,6 @@ const CURATOR_UNIT_GAIN_INFERENCE: f64 = 1.8;
 const PHASE_A_BOX_C_SIGMA_FF: f64 = 97.027749;
 /// Outer tensor-retarget iterations.
 const MAX_RETARGETS: usize = 3;
-
-/// Format `x` floored to `dp` decimals (never rounded up).
-fn floor_fmt(x: f64, dp: usize) -> String {
-    let p = 10f64.powi(dp as i32);
-    format!("{:.dp$}", (x * p).floor() / p)
-}
 
 fn um(v: f64) -> f64 {
     v / M_PER_UNIT
