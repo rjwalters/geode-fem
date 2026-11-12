@@ -140,6 +140,7 @@ jobs:
               --test fe_assemble \
               --test fiber_dispersion_benchmark \
               --test floquet_active_reflection \
+              --test floquet_dipole_array \
               --test floquet_ports \
               --test floquet_sensitivity \
               --test formulation_audit_graddiv \
@@ -238,6 +239,7 @@ jobs:
               --test fe_assemble \
               --test fiber_dispersion_benchmark \
               --test floquet_active_reflection \
+              --test floquet_dipole_array \
               --test floquet_ports \
               --test floquet_sensitivity \
               --test formulation_audit_graddiv \
