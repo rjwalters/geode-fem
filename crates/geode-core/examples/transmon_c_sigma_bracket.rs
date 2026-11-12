@@ -75,6 +75,10 @@
 //! `anchor_93p95`, `c_sigma_bracket_grounded_box.toml` for `grounded_box`). The TOML carries no timings and is bit-reproducible;
 //! timings go to standard output.
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::floor_fmt;
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -152,11 +156,6 @@ fn env_list(name: &str, default: &str) -> Vec<usize> {
         .filter(|s| !s.trim().is_empty())
         .map(|s| s.trim().parse().unwrap())
         .collect()
-}
-
-fn floor_fmt(x: f64, dp: usize) -> String {
-    let p = 10f64.powi(dp as i32);
-    format!("{:.dp$}", (x * p).floor() / p)
 }
 
 fn ceil_fmt(x: f64, dp: usize) -> String {

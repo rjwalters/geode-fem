@@ -30,7 +30,7 @@
 
 #[path = "../tests/common/transmon_util.rs"]
 mod transmon_util;
-use transmon_util::{git_head, scaled_mesh};
+use transmon_util::{arr, git_head, scaled_mesh};
 
 use std::fmt::Write as _;
 use std::fs;
@@ -76,16 +76,6 @@ const SCALING_ABC: [f64; 3] = [0.040959, 0.553015, 0.784636];
 const E_C_TOL_HZ: f64 = 10_000.0;
 /// `β` tolerance, relative to `β(X⁰)` (declared before any optimizer runs).
 const BETA_TOL_REL: f64 = 1e-4;
-
-fn arr(v: &[f64], prec: usize) -> String {
-    format!(
-        "[{}]",
-        v.iter()
-            .map(|x| format!("{x:.prec$}"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    )
-}
 
 fn arr_e(v: &[f64]) -> String {
     format!(

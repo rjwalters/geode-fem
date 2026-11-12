@@ -75,7 +75,7 @@
 
 #[path = "../tests/common/transmon_util.rs"]
 mod transmon_util;
-use transmon_util::git_head;
+use transmon_util::{arr, edge_tables, git_head, vals_to_host};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -83,7 +83,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use burn::tensor::Tensor;
 use faer::c64;
 
 use geode_core::assembly::electrostatic::{
@@ -102,7 +101,7 @@ use geode_core::eigen::transmon::{
 use geode_core::mesh::red_refine::red_refine;
 use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
 use geode_core::mesh::transmon::{JUNCTION_CAPACITANCE_F, JUNCTION_INDUCTANCE_H, sapphire_eps_lab};
-use geode_core::mesh::{MetalRole, TetMesh, TransmonFixture, read_transmon_smoke_fixture};
+use geode_core::mesh::{MetalRole, TransmonFixture, read_transmon_smoke_fixture};
 use geode_core::quantum::transmon::{
     DEVICELAYOUT_COUPLING_K, DEVICELAYOUT_COUPLING_K_BAND, DEVICELAYOUT_QUBIT_FREQUENCY_HZ,
     DEVICELAYOUT_RESONATOR_FREQUENCY_HZ, TransmonAnchor, coupled_lc_bare_pair_hz,
@@ -172,22 +171,6 @@ const CLAW_Y_UM: f64 = 720.0;
 /// upper).
 const BRACKET_1066_DESIGN_FF: (f64, f64) = (92.758828, 92.998561);
 const BRACKET_CORRECTED_FF: (f64, f64) = (93.891607, 94.136104);
-
-fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
-    t.into_data().iter::<f64>().collect()
-}
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
-}
 
 // ---------------------------------------------------------------------------
 // Small dense linear algebra.
@@ -973,16 +956,6 @@ fn floor_dp(x: f64, dp: i32) -> f64 {
 fn ceil_dp(x: f64, dp: i32) -> f64 {
     let s = 10f64.powi(dp);
     (x * s).ceil() / s
-}
-
-fn arr(v: &[f64], prec: usize) -> String {
-    format!(
-        "[{}]",
-        v.iter()
-            .map(|x| format!("{x:.prec$}"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    )
 }
 
 fn arr_e(v: &[f64]) -> String {

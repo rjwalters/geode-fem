@@ -78,6 +78,10 @@
 //! passivity bound). Both are complete deliverables; the numbers are reported
 //! as measured, never fabricated or forced.
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::signed_det6;
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
@@ -180,15 +184,6 @@ fn smoke_parameters() -> std::collections::BTreeMap<String, String> {
         }
     }
     out
-}
-
-/// Six-times the signed tet volume `det[v1−v0, v2−v0, v3−v0]`.
-fn signed_det6(v: &[[f64; 3]; 4]) -> f64 {
-    let e1 = [v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]];
-    let e2 = [v[2][0] - v[0][0], v[2][1] - v[0][1], v[2][2] - v[0][2]];
-    let e3 = [v[3][0] - v[0][0], v[3][1] - v[0][1], v[3][2] - v[0][2]];
-    e1[0] * (e2[1] * e3[2] - e2[2] * e3[1]) - e1[1] * (e2[0] * e3[2] - e2[2] * e3[0])
-        + e1[2] * (e2[0] * e3[1] - e2[1] * e3[0])
 }
 
 /// Per-frequency evaluation record at one design point.

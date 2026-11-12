@@ -36,7 +36,7 @@
 
 #[path = "../tests/common/transmon_util.rs"]
 mod transmon_util;
-use transmon_util::scaled_mesh;
+use transmon_util::{floor_fmt, scaled_mesh};
 
 use std::fmt::Write as _;
 use std::fs;
@@ -78,13 +78,6 @@ const HARMONIC_594_SLOPE_SAFE: f64 = 114.5;
 /// (slope_at_safe * |theta_safe|)` from `harmonic_results.toml` with the
 /// unrounded slope at the safe bound: 6.256959 ("at least about 6.26x").
 const HARMONIC_594_SHORTFALL_LOWER_BOUND: f64 = 6.256959;
-
-/// Format `x` floored to `dp` decimals, so a stated lower bound is never
-/// rounded up.
-fn floor_fmt(x: f64, dp: usize) -> String {
-    let p = 10f64.powi(dp as i32);
-    format!("{:.dp$}", (x * p).floor() / p)
-}
 
 /// Independent multi-conductor extraction at `X⁰ + θ·vel`: move, re-assemble,
 /// [`extract_capacitance`] (its own per-excitation solves). Returns

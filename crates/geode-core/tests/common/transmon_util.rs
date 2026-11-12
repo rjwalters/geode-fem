@@ -6,6 +6,8 @@
 
 use std::path::PathBuf;
 
+use burn::tensor::Tensor;
+use burn::tensor::backend::Backend;
 use geode_core::mesh::TetMesh;
 
 /// A copy of `mesh` with every node coordinate multiplied by `s`
@@ -31,4 +33,50 @@ pub fn git_head() -> String {
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Read a `[nnz]` Burn value tensor to a host `Vec<f64>`.
+pub fn vals_to_host<B: Backend>(t: Tensor<B, 1>) -> Vec<f64> {
+    t.into_data().iter::<f64>().collect()
+}
+
+/// Split `mesh.tet_edges()` into the per-tet `(idx, sign)` tables the
+/// assemblers take.
+pub fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
+    let te = mesh.tet_edges();
+    (
+        te.iter()
+            .map(|row| std::array::from_fn(|i| row[i].0))
+            .collect(),
+        te.iter()
+            .map(|row| std::array::from_fn(|i| row[i].1))
+            .collect(),
+    )
+}
+
+/// Format a slice as `[a, b, c]` with `prec` decimal places.
+pub fn arr(v: &[f64], prec: usize) -> String {
+    format!(
+        "[{}]",
+        v.iter()
+            .map(|x| format!("{x:.prec$}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+/// Format `x` rounded *down* to `dp` decimal places (conservative bracket
+/// endpoints).
+pub fn floor_fmt(x: f64, dp: usize) -> String {
+    let p = 10f64.powi(dp as i32);
+    format!("{:.dp$}", (x * p).floor() / p)
+}
+
+/// Six times the signed volume of the tetrahedron with vertices `v`.
+pub fn signed_det6(v: &[[f64; 3]; 4]) -> f64 {
+    let e1 = [v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]];
+    let e2 = [v[2][0] - v[0][0], v[2][1] - v[0][1], v[2][2] - v[0][2]];
+    let e3 = [v[3][0] - v[0][0], v[3][1] - v[0][1], v[3][2] - v[0][2]];
+    e1[0] * (e2[1] * e3[2] - e2[2] * e3[1]) - e1[1] * (e2[0] * e3[2] - e2[2] * e3[0])
+        + e1[2] * (e2[0] * e3[1] - e2[1] * e3[0])
 }
