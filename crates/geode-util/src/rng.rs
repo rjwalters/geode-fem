@@ -58,6 +58,9 @@ impl Lcg {
     }
 
     /// Next sample in `[-1, 1)`.
+    // Name kept so the many existing test call sites stay unchanged; this is
+    // not an `Iterator` (it never terminates and yields `f64` by design).
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> f64 {
         self.next_unit() * 2.0 - 1.0
     }
