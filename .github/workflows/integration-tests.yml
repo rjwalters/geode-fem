@@ -378,6 +378,7 @@ jobs:
               --test step_index_fiber_benchmark \
               --test surface_p2_trace \
               --test tcda_baseline \
+              --test thermal_conduction \
               --test thermoelastic_validation \
               --test torque_loop_oracle \
               --test transient_sparams \
@@ -479,6 +480,7 @@ jobs:
               --test step_index_fiber_benchmark \
               --test surface_p2_trace \
               --test tcda_baseline \
+              --test thermal_conduction \
               --test thermoelastic_validation \
               --test torque_loop_oracle \
               --test transient_sparams \
