@@ -19,6 +19,12 @@
 //! 4. **MMA moves the worst case down.** A few iterations on a reduced grid
 //!    lower the worst-case `|Γ|` and keep the trace and gap constraints
 //!    feasible.
+//! 5. **The recorded Design A run reproduces** (#1579). The committed
+//!    `benchmarks/tcda_design/results.toml` — written by
+//!    `examples/tcda_design_run.rs`, the hours-long full run — is re-solved
+//!    at three of its fifty points, including the recorded worst one,
+//!    within the same 0.05 dB. The record is read, never restated here, so
+//!    the pin cannot drift from the number the README quotes.
 //!
 //! The direct solves are release-only, like `tcda_baseline.rs`.
 
@@ -42,7 +48,7 @@ use geode_core::shape::floquet_element::{ElementGeometry, FloquetElementParam, S
 use geode_optimize::{Bounds, MinMaxPoints, Mma, MmaOptions, Objective, Optimizer, StopCriteria};
 
 use tcda_baseline::{BaselineParams, ScanGrid, build_cell_scaled};
-use tcda_design::{ConstrainedEpigraph, MM_PER_UNIT, ParamSpec, TcdaDesign};
+use tcda_design::{ConstrainedEpigraph, MM_PER_UNIT, ParamSpec, ScanPoint, TcdaDesign};
 
 /// The recorded baseline element (identical to `tcda_baseline.rs`'s `P`).
 const P: BaselineParams = BaselineParams {
@@ -609,5 +615,182 @@ fn a_few_mma_iterations_lower_the_worst_case_and_stay_feasible() {
         !cons.is_violated(),
         "a sampled trace/gap constraint is violated: max {:.4} mm",
         cons.max_violation()
+    );
+}
+
+// ------------------------------------------------- 5. #1579 run pin
+
+/// The committed Design A run record (`benchmarks/tcda_design/results.toml`,
+/// written by `examples/tcda_design_run.rs`).
+fn design_record() -> toml::Value {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../benchmarks/tcda_design/results.toml");
+    let raw = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("reading the #1579 run record at {}: {e}", path.display()));
+    toml::from_str(&raw).expect("the #1579 run record is valid TOML")
+}
+
+fn num(v: &toml::Value, key: &str) -> f64 {
+    v.get(key)
+        .and_then(|x| x.as_float().or_else(|| x.as_integer().map(|i| i as f64)))
+        .unwrap_or_else(|| panic!("{key} is not a number in the #1579 run record"))
+}
+
+fn rec_f64(doc: &toml::Value, table: &str, key: &str) -> f64 {
+    num(&doc[table], key)
+}
+
+/// The recorded per-point dB at `(ω/π, θ°, φ°)`, read out of the record's
+/// own tables (rows `ω/π = 0.9..1.1`, columns `θ = 0,15,30,45,60`).
+fn recorded_db(doc: &toml::Value, w: f64, theta_deg: f64, phi_deg: f64) -> f64 {
+    let plane = if phi_deg == 0.0 {
+        "table_e_plane_db"
+    } else {
+        "table_h_plane_db"
+    };
+    let row = ((w - 0.9) / 0.05).round() as usize;
+    let col = (theta_deg / 15.0).round() as usize;
+    doc["run"][plane][row][col]
+        .as_float()
+        .unwrap_or_else(|| panic!("[run].{plane}[{row}][{col}] is not a float"))
+}
+
+/// **The #1579 pin.** Rebuilds the driver with the recorded `n_edge`,
+/// loads the committed final design vector, and re-solves three grid
+/// points — including the recorded worst one — against the recorded
+/// table, within the same `TOL_DB = 0.05` the baseline pin uses.
+///
+/// It also re-checks, without any solve, the two properties AC 2 of #1579
+/// records: no tet inverts at the final design, and every #1535
+/// manufacturability constraint is feasible there.
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "direct solves are slow in debug; runs in release CI"
+)]
+fn the_recorded_design_run_reproduces_its_worst_case() {
+    let doc = design_record();
+
+    let n_edge = doc["design"]["n_edge"]
+        .as_integer()
+        .expect("[design].n_edge") as usize;
+    let theta: Vec<f64> = doc["run"]["final_theta_mm"]
+        .as_array()
+        .expect("[run].final_theta_mm")
+        .iter()
+        .map(|v| v.as_float().expect("a float"))
+        .collect();
+    assert_eq!(
+        theta.len(),
+        4 * n_edge,
+        "the record's design vector must be outline-only: 4*n_edge entries"
+    );
+
+    // A one-point grid is enough to build the driver; `gamma_at` takes an
+    // arbitrary `ScanPoint`, so the pin re-solves exactly the points it
+    // names rather than a whole Cartesian product.
+    let grid = ScanGrid {
+        omegas: vec![PI],
+        thetas: vec![0.0],
+        phis: vec![0.0],
+    };
+    let mut d = TcdaDesign::new(
+        &P,
+        MM_PER_UNIT,
+        ParamSpec {
+            layers: Vec::new(),
+            n_edge,
+            n_samples: 4,
+            beta: 20.0,
+        },
+        Z_REF,
+        &grid,
+    )
+    .expect("the recorded parameterization rebuilds");
+    assert_eq!(d.dim(), theta.len(), "the record matches the driver's θ");
+
+    // No solve: the mesh is valid and the design is manufacturable.
+    let (nodes, _) = d
+        .morph(&theta)
+        .expect("the recorded design must morph without inverting a tet");
+    let mut moved = d.parts().mesh.clone();
+    moved.nodes.copy_from_slice(&nodes);
+    let ratio = geode_core::shape::min_tet_volume_ratio(&d.parts().mesh, &moved);
+    let recorded_ratio = rec_f64(&doc, "run", "min_tet_volume_ratio");
+    assert!(
+        (ratio - recorded_ratio).abs() < 1e-3,
+        "min_tet_volume_ratio {ratio:.6} vs recorded {recorded_ratio:.6}"
+    );
+    let cons = d
+        .param()
+        .constraints_sampled(&theta)
+        .expect("the sampled constraints");
+    assert!(
+        !cons.is_violated(),
+        "the recorded design violates a #1535 trace/gap limit by {:.4} mm",
+        cons.max_violation()
+    );
+
+    // Three points: the recorded worst case, broadside at band centre, and
+    // the E-plane band-top scan — one from each regime the record tabulates.
+    let wp = &doc["run"]["final_worst_point"];
+    let worst = (
+        num(wp, "omega_over_pi"),
+        num(wp, "theta_deg"),
+        num(wp, "phi_deg"),
+    );
+    let points = [worst, (1.0, 0.0, 0.0), (1.1, 60.0, 0.0)];
+
+    let (cell, _, _) = d.assemble(&theta).expect("the recorded design assembles");
+    let mut re_solved = Vec::new();
+    for (w, th, ph) in points {
+        let g = d
+            .gamma_at(
+                &cell,
+                ScanPoint {
+                    omega: w * PI,
+                    theta: th.to_radians(),
+                    phi: ph.to_radians(),
+                },
+            )
+            .expect("the Floquet solve");
+        let db = 20.0 * g.norm().log10();
+        let want = recorded_db(&doc, w, th, ph);
+        eprintln!("ω/π={w} θ={th}° φ={ph}°: {db:.2} dB (recorded {want:.2})");
+        assert!(
+            g.norm() <= 1.0 + 1e-6,
+            "passivity: |Γ| = {} > 1 at ω/π={w} θ={th}° φ={ph}°",
+            g.norm()
+        );
+        assert!(
+            (db - want).abs() < TOL_DB,
+            "ω/π={w} θ={th}° φ={ph}°: {db:.3} dB vs recorded {want:.3} dB"
+        );
+        re_solved.push(db);
+    }
+
+    // The recorded worst case is the worst of the three (it is the worst of
+    // all fifty), so the headline number is pinned too.
+    let worst_db = rec_f64(&doc, "run", "final_worst_db");
+    let got = re_solved.iter().fold(f64::NEG_INFINITY, |m, &v| m.max(v));
+    assert!(
+        (got - worst_db).abs() < TOL_DB,
+        "recorded worst case {worst_db:.3} dB, re-solved {got:.3} dB"
+    );
+
+    // And the verdict the record states follows from that number.
+    let baseline = rec_f64(&doc, "verdict", "baseline_worst_db");
+    let improvement = rec_f64(&doc, "verdict", "improvement_db");
+    assert!(
+        (baseline - worst_db - improvement).abs() < 1e-9,
+        "[verdict].improvement_db must be baseline_worst_db - final_worst_db"
+    );
+    let stated = doc["verdict"]["kill_criterion"]
+        .as_str()
+        .expect("[verdict].kill_criterion");
+    let expect = if improvement < 1.0 { "kill" } else { "pass" };
+    assert_eq!(
+        stated, expect,
+        "the recorded verdict must follow from the recorded improvement of {improvement:.2} dB"
     );
 }
