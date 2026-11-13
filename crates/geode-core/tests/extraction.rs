@@ -40,7 +40,7 @@
 
 mod common;
 use common::vacuum_eps as vacuum;
-use common::{all_plane_faces, pec_mask_for_planes};
+use common::{all_plane_faces, pec_mask_for_planes, zero_source};
 
 use std::collections::BTreeMap;
 
@@ -57,12 +57,6 @@ use geode_core::mesh::TetMesh;
 use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn zero_source(mesh: &TetMesh) -> CurrentSource {
-    CurrentSource {
-        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Wire-loop oracle geometry: annular wedge mesh

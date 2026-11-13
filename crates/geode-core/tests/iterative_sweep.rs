@@ -25,7 +25,7 @@
 
 mod common;
 use common::vacuum_eps as vacuum;
-use common::{all_plane_faces, pec_mask_for_planes};
+use common::{all_plane_faces, pec_mask_for_planes, zero_source};
 
 use faer::c64;
 use geode_core::analytic::waveguide::{rect_tri_mesh, solve_rect_waveguide_modes};
@@ -37,19 +37,11 @@ use geode_core::driven::ports::{
     LumpedPort, WavePort, extruded_rect_waveguide_mesh, map_mode_profile_to_full_mesh,
     solve_wave_port_sweep, solve_wave_port_sweep_with_mode,
 };
-use geode_core::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenMaterials, IterativeSettings, SolverMode,
-};
+use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, IterativeSettings, SolverMode};
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
 use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn zero_source(mesh: &TetMesh) -> CurrentSource {
-    CurrentSource {
-        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
-    }
-}
 
 // ===========================================================================
 // 1. driven_frequency_sweep: iterative vs direct

@@ -7,6 +7,8 @@
 
 use burn::tensor::backend::Backend;
 use burn::tensor::{ElementConversion, Tensor};
+use faer::c64;
+use geode_core::driven::solve::CurrentSource;
 use geode_core::mesh::TetMesh;
 
 /// Read a `D`-dimensional float Burn tensor back to host as `Vec<f64>`,
@@ -126,4 +128,12 @@ pub fn toml_num(v: &toml::Value) -> f64 {
     v.as_float()
         .or_else(|| v.as_integer().map(|i| i as f64))
         .unwrap_or_else(|| panic!("expected a number, got {v:?}"))
+}
+
+/// An all-zero (no-source) current distribution on `mesh`.
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+pub fn zero_source(mesh: &TetMesh) -> CurrentSource {
+    CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+    }
 }

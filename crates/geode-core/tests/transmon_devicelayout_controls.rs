@@ -39,6 +39,10 @@
 mod common;
 use common::repo_root as repo;
 
+#[path = "common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::{tarr, tget};
+
 const CELLS: &str = "reference/fixtures/transmon_palace/results_controls_1123";
 const X1092: &str = "reference/fixtures/transmon_palace/results_crosscheck_1092";
 const L1079: &str = "reference/fixtures/transmon_palace/results_loop_1079";
@@ -57,34 +61,11 @@ fn results() -> toml::Value {
     doc("benchmarks/transmon_devicelayout_controls/results.toml")
 }
 
-fn tget<'a>(v: &'a toml::Value, path: &str) -> &'a toml::Value {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur
-}
-
 fn tf(v: &toml::Value, path: &str) -> f64 {
     let x = tget(v, path);
     x.as_float()
         .or_else(|| x.as_integer().map(|i| i as f64))
         .unwrap_or_else(|| panic!("{path} is not a number"))
-}
-
-fn tarr(v: &toml::Value, path: &str) -> Vec<f64> {
-    tget(v, path)
-        .as_array()
-        .unwrap_or_else(|| panic!("{path} is not an array"))
-        .iter()
-        .map(|x| {
-            x.as_float()
-                .or_else(|| x.as_integer().map(|i| i as f64))
-                .unwrap()
-        })
-        .collect()
 }
 
 fn tbool(v: &toml::Value, path: &str) -> bool {

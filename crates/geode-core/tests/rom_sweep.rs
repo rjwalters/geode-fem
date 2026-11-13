@@ -24,7 +24,7 @@
 
 mod common;
 use common::vacuum_eps as vacuum;
-use common::{all_plane_faces, pec_mask_for_planes};
+use common::{all_plane_faces, pec_mask_for_planes, zero_source};
 
 use std::time::Instant;
 
@@ -33,19 +33,13 @@ use geode_core::driven::extraction::{driven_frequency_sweep, s_parameter_frequen
 use geode_core::driven::ports::LumpedPort;
 use geode_core::driven::rom::{DrivenRom, RomDrive, RomSettings, rom_frequency_sweep};
 use geode_core::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator, SurfaceImpedanceBc,
-    SurfaceImpedanceModel, SurfaceRoughness,
+    DrivenBcs, DrivenMaterials, DrivenOperator, SurfaceImpedanceBc, SurfaceImpedanceModel,
+    SurfaceRoughness,
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
 use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn zero_source(mesh: &TetMesh) -> CurrentSource {
-    CurrentSource {
-        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
-    }
-}
 
 /// The parallel-plate transmission-line fixture (unit cube, PEC plates at
 /// y = 0/1, PEC short at z = 1, PMC side walls, one lumped port across the
