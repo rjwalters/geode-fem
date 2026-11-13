@@ -1366,6 +1366,123 @@ pub fn validate_element_order(spec: &ProblemSpec) -> Result<(), CliError> {
     Ok(())
 }
 
+/// Scalar checks on `materials[]`, before the mesh is read: finite
+/// `eps_r` under the exp(+jwt) sign convention, the per-analysis
+/// `conductivity_s_m` / `mu_r` support rules, and the diagonal-tensor
+/// and dispersion sub-specs.
+fn validate_materials(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliError> {
+    for m in &spec.materials {
+        let [re, im] = m.eps_r;
+        if !(re.is_finite() && im.is_finite()) {
+            return Err(invalid(format!(
+                "materials[{}].eps_r must be finite",
+                m.physical_group
+            )));
+        }
+        if im > 0.0 {
+            return Err(invalid(format!(
+                "materials[{}].eps_r has Im > 0 (gain); lossy media need Im(eps_r) <= 0 \
+                 under the exp(+jwt) convention",
+                m.physical_group
+            )));
+        }
+        validate_diagonal_material(m, analysis)?;
+        if let Some(sigma) = m.conductivity_s_m {
+            if !(sigma.is_finite() && sigma >= 0.0) {
+                return Err(invalid(format!(
+                    "materials[{}].conductivity_s_m must be finite and >= 0 (got {sigma})",
+                    m.physical_group
+                )));
+            }
+            if sigma != 0.0
+                && !matches!(
+                    analysis,
+                    Analysis::Driven | Analysis::Extract | Analysis::Conduction | Analysis::Eqs
+                )
+            {
+                return Err(invalid(format!(
+                    "materials[{}].conductivity_s_m is only supported by `geode driven` and \
+                     `geode extract` in schema v1; the {} solver has no conduction term and \
+                     would silently ignore it",
+                    m.physical_group,
+                    analysis.name()
+                )));
+            }
+        }
+        if let Some(d) = &m.dispersion {
+            validate_dispersion(&m.physical_group, m.eps_r, d, spec, analysis)?;
+        }
+        if !(m.mu_r.is_finite() && m.mu_r > 0.0) {
+            return Err(invalid(format!(
+                "materials[{}].mu_r must be finite and > 0 (got {})",
+                m.physical_group, m.mu_r
+            )));
+        }
+        if m.mu_r != 1.0 && analysis != Analysis::Inductance {
+            return Err(invalid(format!(
+                "materials[{}].mu_r = {} is only supported by `geode inductance` in schema v1; \
+                 the {} solver has no permeability term and would silently ignore it",
+                m.physical_group,
+                m.mu_r,
+                analysis.name()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Scalar checks on the Leontovich walls: a finite positive surface
+/// conductivity and, where given, a well-formed roughness model.
+fn validate_leontovich(spec: &ProblemSpec) -> Result<(), CliError> {
+    for l in &spec.boundary_conditions.leontovich {
+        if !(l.conductivity_s_m.is_finite() && l.conductivity_s_m > 0.0) {
+            return Err(invalid(format!(
+                "leontovich[{}].conductivity_s_m must be finite and > 0",
+                l.physical_group
+            )));
+        }
+        if let Some(r) = &l.roughness {
+            validate_roughness(&l.physical_group, r)?;
+        }
+    }
+    Ok(())
+}
+
+/// Scalar checks on `ports[]` (lumped): a finite positive reference
+/// resistance, a non-zero `e_hat` and `v_inc`, and finite positive
+/// `width` / `length` overrides where they are given.
+fn validate_lumped_ports(spec: &ProblemSpec) -> Result<(), CliError> {
+    for p in &spec.ports {
+        let name = &p.physical_group;
+        if !(p.resistance_ohm.is_finite() && p.resistance_ohm > 0.0) {
+            return Err(invalid(format!(
+                "ports[{name}].resistance_ohm must be finite and > 0"
+            )));
+        }
+        let n2: f64 = p.e_hat.iter().map(|x| x * x).sum();
+        if !(n2.is_finite() && n2 > 0.0) {
+            return Err(invalid(format!(
+                "ports[{name}].e_hat must be a finite non-zero vector"
+            )));
+        }
+        if p.v_inc == [0.0, 0.0] || !p.v_inc.iter().all(|x| x.is_finite()) {
+            return Err(invalid(format!(
+                "ports[{name}].v_inc must be finite and non-zero"
+            )));
+        }
+        for (field, v) in [("width", p.width), ("length", p.length)] {
+            if let Some(v) = v
+                && !(v.is_finite() && v > 0.0)
+            {
+                return Err(invalid(format!(
+                    "ports[{name}].{field} must be finite and > 0"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Parse, validate and resolve the spec at `spec_path` (no solve).
 ///
 /// The spec is validated for the analysis it describes
@@ -1426,74 +1543,8 @@ pub fn load_parsed(
             "mesh.length_unit_m must be finite and > 0 (got {lu})"
         )));
     }
-    for m in &spec.materials {
-        let [re, im] = m.eps_r;
-        if !(re.is_finite() && im.is_finite()) {
-            return Err(invalid(format!(
-                "materials[{}].eps_r must be finite",
-                m.physical_group
-            )));
-        }
-        if im > 0.0 {
-            return Err(invalid(format!(
-                "materials[{}].eps_r has Im > 0 (gain); lossy media need Im(eps_r) <= 0 \
-                 under the exp(+jwt) convention",
-                m.physical_group
-            )));
-        }
-        validate_diagonal_material(m, analysis)?;
-        if let Some(sigma) = m.conductivity_s_m {
-            if !(sigma.is_finite() && sigma >= 0.0) {
-                return Err(invalid(format!(
-                    "materials[{}].conductivity_s_m must be finite and >= 0 (got {sigma})",
-                    m.physical_group
-                )));
-            }
-            if sigma != 0.0
-                && !matches!(
-                    analysis,
-                    Analysis::Driven | Analysis::Extract | Analysis::Conduction | Analysis::Eqs
-                )
-            {
-                return Err(invalid(format!(
-                    "materials[{}].conductivity_s_m is only supported by `geode driven` and \
-                     `geode extract` in schema v1; the {} solver has no conduction term and \
-                     would silently ignore it",
-                    m.physical_group,
-                    analysis.name()
-                )));
-            }
-        }
-        if let Some(d) = &m.dispersion {
-            validate_dispersion(&m.physical_group, m.eps_r, d, &spec, analysis)?;
-        }
-        if !(m.mu_r.is_finite() && m.mu_r > 0.0) {
-            return Err(invalid(format!(
-                "materials[{}].mu_r must be finite and > 0 (got {})",
-                m.physical_group, m.mu_r
-            )));
-        }
-        if m.mu_r != 1.0 && analysis != Analysis::Inductance {
-            return Err(invalid(format!(
-                "materials[{}].mu_r = {} is only supported by `geode inductance` in schema v1; \
-                 the {} solver has no permeability term and would silently ignore it",
-                m.physical_group,
-                m.mu_r,
-                analysis.name()
-            )));
-        }
-    }
-    for l in &spec.boundary_conditions.leontovich {
-        if !(l.conductivity_s_m.is_finite() && l.conductivity_s_m > 0.0) {
-            return Err(invalid(format!(
-                "leontovich[{}].conductivity_s_m must be finite and > 0",
-                l.physical_group
-            )));
-        }
-        if let Some(r) = &l.roughness {
-            validate_roughness(&l.physical_group, r)?;
-        }
-    }
+    validate_materials(&spec, analysis)?;
+    validate_leontovich(&spec)?;
     match analysis {
         Analysis::Driven | Analysis::Extract => {
             let kind = analysis.name();
@@ -1535,34 +1586,7 @@ pub fn load_parsed(
     validate_surface_roles(&spec)?;
     // Duplicate / conflicting surface roles were rejected above
     // (`validate_surface_roles`).
-    for p in &spec.ports {
-        let name = &p.physical_group;
-        if !(p.resistance_ohm.is_finite() && p.resistance_ohm > 0.0) {
-            return Err(invalid(format!(
-                "ports[{name}].resistance_ohm must be finite and > 0"
-            )));
-        }
-        let n2: f64 = p.e_hat.iter().map(|x| x * x).sum();
-        if !(n2.is_finite() && n2 > 0.0) {
-            return Err(invalid(format!(
-                "ports[{name}].e_hat must be a finite non-zero vector"
-            )));
-        }
-        if p.v_inc == [0.0, 0.0] || !p.v_inc.iter().all(|x| x.is_finite()) {
-            return Err(invalid(format!(
-                "ports[{name}].v_inc must be finite and non-zero"
-            )));
-        }
-        for (field, v) in [("width", p.width), ("length", p.length)] {
-            if let Some(v) = v
-                && !(v.is_finite() && v > 0.0)
-            {
-                return Err(invalid(format!(
-                    "ports[{name}].{field} must be finite and > 0"
-                )));
-            }
-        }
-    }
+    validate_lumped_ports(&spec)?;
     let raw_freqs = match &spec.frequencies {
         Some(f) => f.expand().map_err(invalid)?,
         None => Vec::new(),
