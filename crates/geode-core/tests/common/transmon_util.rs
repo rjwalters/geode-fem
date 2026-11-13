@@ -80,3 +80,29 @@ pub fn signed_det6(v: &[[f64; 3]; 4]) -> f64 {
     e1[0] * (e2[1] * e3[2] - e2[2] * e3[1]) - e1[1] * (e2[0] * e3[2] - e2[2] * e3[0])
         + e1[2] * (e2[0] * e3[1] - e2[1] * e3[0])
 }
+
+/// Look up a dotted key path (`"a.b.c"`) in a TOML document, panicking with
+/// the missing segment when absent.
+pub fn tget<'a>(v: &'a toml::Value, path: &str) -> &'a toml::Value {
+    let mut cur = v;
+    for k in path.split('.') {
+        cur = cur
+            .get(k)
+            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
+    }
+    cur
+}
+
+/// Read a TOML array of numbers (floats or integers) at a dotted key path.
+pub fn tarr(v: &toml::Value, path: &str) -> Vec<f64> {
+    tget(v, path)
+        .as_array()
+        .unwrap_or_else(|| panic!("{path} is not an array"))
+        .iter()
+        .map(|x| {
+            x.as_float()
+                .or_else(|| x.as_integer().map(|i| i as f64))
+                .unwrap()
+        })
+        .collect()
+}

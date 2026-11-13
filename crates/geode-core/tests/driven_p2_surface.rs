@@ -37,6 +37,7 @@
 
 mod common;
 use common::boundary_plane_faces;
+use common::zero_source;
 
 use common::Lcg;
 use faer::c64;
@@ -72,12 +73,6 @@ fn jittered(n: usize, seed: u64) -> TetMesh {
         }
     }
     mesh
-}
-
-fn zero_source(mesh: &TetMesh) -> CurrentSource {
-    CurrentSource {
-        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
-    }
 }
 
 fn fit_slope(hs: &[f64], errs: &[f64]) -> f64 {
