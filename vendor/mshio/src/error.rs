@@ -212,7 +212,12 @@ impl<I: Debug> Debug for MshParserError<I> {
     }
 }
 
-impl<I: Debug + HexDisplay + ?Sized> Display for MshParserError<&I> {
+/// Maximum number of bytes of the remaining input included in the hex dump of an error's `Display`
+///
+/// Keeps the error message bounded (16 rows of 16 bytes) regardless of the size of the unparsed input.
+pub const MAX_HEX_DUMP_BYTES: usize = 256;
+
+impl<I: Debug + HexDisplay + AsRef<[u8]> + ?Sized> Display for MshParserError<&I> {
     // TODO: Move this to a "report" method of the error.
     // TODO: Instead, make Display implementation more simple.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -229,12 +234,16 @@ impl<I: Debug + HexDisplay + ?Sized> Display for MshParserError<&I> {
             }
             write!(f, "an error occurred: ")?;
             write!(f, "{}\n", backtrace[0].1)?;
+            let rest: &[u8] = backtrace[0].0.as_ref();
+            let shown = &rest[..rest.len().min(MAX_HEX_DUMP_BYTES)];
             write!(
                 f,
                 "Hex dump of the file at the error location:\n{}",
-                // TODO: Limit to a reasonable number of bytes
-                backtrace[0].0.to_hex(16)
+                shown.to_hex(16)
             )?;
+            if rest.len() > shown.len() {
+                write!(f, "... ({} more bytes omitted)\n", rest.len() - shown.len())?;
+            }
             Ok(())
         } else if backtrace.len() == 1 {
             write!(f, "An error occurred during: ")?;
@@ -268,7 +277,7 @@ impl<I> ParseError<I> for MshParserError<I> {
     }
 }
 
-impl<I: Debug + HexDisplay + ?Sized> Error for MshParserError<&I> {}
+impl<I: Debug + HexDisplay + AsRef<[u8]> + ?Sized> Error for MshParserError<&I> {}
 
 /// Convert a nom::Err to MshParserError
 impl<I: Debug, E: Into<MshParserError<I>>> From<nom::Err<E>> for MshParserError<I> {
@@ -328,5 +337,48 @@ impl<I, O> MapMshError<I> for IResult<I, O, MshParserError<I>> {
         F: FnOnce(MshParserError<I>) -> MshParserError<I>,
     {
         self.map_err(|err| err.map(f))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn display_for(tail_len: usize) -> String {
+        let input = vec![b'x'; tail_len];
+        let err = MshParserError {
+            backtrace: vec![
+                (&input[..], MshParserErrorKind::UnsupportedMshVersion),
+                (&input[..], MshParserErrorKind::UnsupportedMshVersion),
+            ],
+        };
+        format!("{}", err)
+    }
+
+    #[test]
+    fn short_tail_is_not_truncated() {
+        let out = display_for(MAX_HEX_DUMP_BYTES);
+        assert!(!out.contains("omitted"));
+        assert!(out.contains("Hex dump of the file at the error location"));
+    }
+
+    #[test]
+    fn long_tail_is_bounded() {
+        let one_over = display_for(MAX_HEX_DUMP_BYTES + 1);
+        assert!(one_over.contains("(1 more bytes omitted)"));
+        let lens: Vec<usize> = [1_000, 10_000, 100_000]
+            .iter()
+            .map(|&n| {
+                let out = display_for(n);
+                assert!(out.contains(&format!("({} more bytes omitted)", n - MAX_HEX_DUMP_BYTES)));
+                out.len()
+            })
+            .collect();
+        assert!(lens.iter().all(|&l| l < 4_000), "{:?}", lens);
+    }
+
+    #[test]
+    fn empty_tail() {
+        assert!(!display_for(0).contains("omitted"));
     }
 }
