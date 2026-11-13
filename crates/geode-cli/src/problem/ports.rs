@@ -991,3 +991,92 @@ impl TmAxialMesh<'_> {
         ))
     }
 }
+
+/// Build the lumped ports: normalise `e_hat`, then derive `width` and
+/// `length` from the port face's geometry wherever the spec omits them.
+pub(super) fn resolve_lumped_ports(
+    specs: &[LumpedPortSpec],
+    tags: &[i32],
+    tagged: &TaggedTetMesh,
+    surface: &dyn Fn(&str, i32, &str) -> Result<Surface, CliError>,
+) -> Result<Vec<Port>, CliError> {
+    let mut ports = Vec::with_capacity(specs.len());
+    for (p, t) in specs.iter().zip(tags) {
+        let surf = surface(&p.physical_group, *t, "port")?;
+        let norm = p.e_hat.iter().map(|x| x * x).sum::<f64>().sqrt();
+        let e_hat = [p.e_hat[0] / norm, p.e_hat[1] / norm, p.e_hat[2] / norm];
+        let (area, extent) = port_area_and_extent(tagged, &surf.triangles, e_hat);
+        let length = p.length.unwrap_or(extent);
+        if !(length.is_finite() && length > 0.0) {
+            return Err(invalid(format!(
+                "port `{}` has zero extent along e_hat — check e_hat or give `length`",
+                p.physical_group
+            )));
+        }
+        let width = p.width.unwrap_or(area / length);
+        ports.push(Port {
+            surface: surf,
+            e_hat,
+            width,
+            length,
+            geometry_derived: p.width.is_none() || p.length.is_none(),
+            resistance_ohm: p.resistance_ohm,
+            v_inc: c64::new(p.v_inc[0], p.v_inc[1]),
+        });
+    }
+    Ok(ports)
+}
+
+/// The conductor walls' edge set (PEC / Leontovich): a wave-port rim edge
+/// on one pins the TM field `E_z = 0` there (issue #808).
+pub(super) fn conductor_edge_set(
+    pec: &[Surface],
+    leontovich: &[Leontovich],
+) -> std::collections::HashSet<[u32; 2]> {
+    pec.iter()
+        .chain(leontovich.iter().map(|l| &l.surface))
+        .flat_map(|s| s.triangles.iter().flat_map(tri_edge_keys))
+        .collect()
+}
+
+/// Build the wave-port definitions: project each port face to its 2-D
+/// cross-section and resolve the material fill behind it.
+///
+/// `tm` / `tm_warning` and `hybrid` are left unset: both are decided by
+/// `route_wave_ports`, which needs the PEC mask this runs before.
+pub(super) fn resolve_wave_ports(
+    specs: &[WavePortSpec],
+    tags: &[i32],
+    materials: &PortMaterials<'_>,
+    surface: &dyn Fn(&str, i32, &str) -> Result<Surface, CliError>,
+) -> Result<Vec<WavePortDef>, CliError> {
+    let mut wave_ports = Vec::with_capacity(specs.len());
+    for (w, t) in specs.iter().zip(tags) {
+        let surf = surface(&w.physical_group, *t, "wave_port")?;
+        let projection =
+            project_port_face(&materials.tagged.mesh, &surf.triangles).map_err(|e| {
+                invalid(format!(
+                    "wave port `{}` cannot be projected to a 2-D cross-section: {e}",
+                    w.physical_group
+                ))
+            })?;
+        let fill = materials.resolve_fill(&surf, projection.normal)?;
+        let a_inc = match &w.a_inc {
+            Some(a) => a.iter().map(|&[re, im]| c64::new(re, im)).collect(),
+            None => vec![c64::new(1.0, 0.0); w.n_modes],
+        };
+        wave_ports.push(WavePortDef {
+            surface: surf,
+            projection,
+            a_inc,
+            fill,
+            // Set below, once the Silver-Müller rim check has run.
+            tm: None,
+            tm_warning: None,
+            reference_ohm: w.reference_ohm,
+            // Set below, once the PEC mask is built.
+            hybrid: None,
+        });
+    }
+    Ok(wave_ports)
+}

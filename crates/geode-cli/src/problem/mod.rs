@@ -42,9 +42,9 @@ use crate::dispersion::DispersionModel;
 use crate::error::CliError;
 use crate::spec::{
     Analysis, BlochPathSpec, BlochPointSpec, BlochSpec, DEFAULT_N_TERMINATION_EVANESCENT,
-    DEFAULT_SENSITIVITY_MIN_REL_GAP, FrequencyUnit, ImpedanceDefinition, ProblemSpec,
-    RoughnessSpec, SPEC_SCHEMA_VERSION, SensitivityParameterKind, ShapeMotion, SolverSpec,
-    WavePortSpec,
+    DEFAULT_SENSITIVITY_MIN_REL_GAP, FrequencyUnit, ImpedanceDefinition, LumpedPortSpec,
+    ProblemSpec, RoughnessSpec, SPEC_SCHEMA_VERSION, SensitivityParameterKind, ShapeMotion,
+    SolverSpec, WavePortSpec,
 };
 
 /// How a volume region's permittivity was chosen.
@@ -2111,34 +2111,10 @@ pub fn load_parsed(
     let (upml, upml_of_tet) = resolve_upml(&spec, &tags.upml, &tagged)?;
 
     // ---- ports -------------------------------------------------------
-    let mut ports = Vec::with_capacity(spec.ports.len());
-    for (p, t) in spec.ports.iter().zip(&tags.port) {
-        let surf = surface(&p.physical_group, *t, "port")?;
-        let norm = p.e_hat.iter().map(|x| x * x).sum::<f64>().sqrt();
-        let e_hat = [p.e_hat[0] / norm, p.e_hat[1] / norm, p.e_hat[2] / norm];
-        let (area, extent) = port_area_and_extent(&tagged, &surf.triangles, e_hat);
-        let length = p.length.unwrap_or(extent);
-        if !(length.is_finite() && length > 0.0) {
-            return Err(invalid(format!(
-                "port `{}` has zero extent along e_hat — check e_hat or give `length`",
-                p.physical_group
-            )));
-        }
-        let width = p.width.unwrap_or(area / length);
-        ports.push(Port {
-            surface: surf,
-            e_hat,
-            width,
-            length,
-            geometry_derived: p.width.is_none() || p.length.is_none(),
-            resistance_ohm: p.resistance_ohm,
-            v_inc: c64::new(p.v_inc[0], p.v_inc[1]),
-        });
-    }
+    let ports = resolve_lumped_ports(&spec.ports, &tags.port, &tagged, &surface)?;
 
     let floquet = resolve_floquet(&spec, &tags.floquet, &surface)?;
 
-    let mut wave_ports = Vec::with_capacity(spec.wave_ports.len());
     let port_materials = PortMaterials {
         tagged: &tagged,
         eps: &eps,
@@ -2150,39 +2126,9 @@ pub fn load_parsed(
         upml: &upml,
         upml_of_tet: &upml_of_tet,
     };
-    // Conductor walls (PEC / Leontovich): a wave-port rim edge on one pins
-    // the TM field `E_z = 0` there (issue #808).
-    let conductor_edges: std::collections::HashSet<[u32; 2]> = pec
-        .iter()
-        .chain(leontovich.iter().map(|l| &l.surface))
-        .flat_map(|s| s.triangles.iter().flat_map(tri_edge_keys))
-        .collect();
-    for (w, t) in spec.wave_ports.iter().zip(&tags.wave) {
-        let surf = surface(&w.physical_group, *t, "wave_port")?;
-        let projection = project_port_face(&tagged.mesh, &surf.triangles).map_err(|e| {
-            invalid(format!(
-                "wave port `{}` cannot be projected to a 2-D cross-section: {e}",
-                w.physical_group
-            ))
-        })?;
-        let fill = port_materials.resolve_fill(&surf, projection.normal)?;
-        let a_inc = match &w.a_inc {
-            Some(a) => a.iter().map(|&[re, im]| c64::new(re, im)).collect(),
-            None => vec![c64::new(1.0, 0.0); w.n_modes],
-        };
-        wave_ports.push(WavePortDef {
-            surface: surf,
-            projection,
-            a_inc,
-            fill,
-            // Set below, once the Silver-Müller rim check has run.
-            tm: None,
-            tm_warning: None,
-            reference_ohm: w.reference_ohm,
-            // Set below, once the PEC mask is built.
-            hybrid: None,
-        });
-    }
+    let conductor_edges = conductor_edge_set(&pec, &leontovich);
+    let mut wave_ports =
+        resolve_wave_ports(&spec.wave_ports, &tags.wave, &port_materials, &surface)?;
 
     // ---- capacitance conductors --------------------------------------
     let capacitance = match &spec.capacitance {
