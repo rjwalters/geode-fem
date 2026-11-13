@@ -49,6 +49,9 @@ mod icem_remesh;
 #[path = "../tests/common/icem_shape.rs"]
 mod icem_shape;
 
+#[path = "../tests/common/example_io.rs"]
+mod example_io;
+use example_io::write_json;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -119,13 +122,6 @@ fn parse_args() -> Args {
     assert!(!a.out.as_os_str().is_empty(), "--out");
     assert!(!a.mesh.as_os_str().is_empty(), "--mesh");
     a
-}
-
-fn write_json(out: &PathBuf, v: &Value) {
-    if let Some(d) = out.parent() {
-        std::fs::create_dir_all(d).unwrap();
-    }
-    std::fs::write(out, serde_json::to_string_pretty(v).unwrap() + "\n").unwrap();
 }
 
 fn threads() -> Value {

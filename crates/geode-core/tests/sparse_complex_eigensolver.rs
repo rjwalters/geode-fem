@@ -94,6 +94,10 @@
 //! still records `backend` / `float_dtype` / `generated_at_commit` by
 //! convention.
 
+#[path = "common/example_io.rs"]
+mod example_io;
+use example_io::sha256_hex;
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
 use faer::sparse::{SparseColMat, Triplet};
@@ -107,7 +111,6 @@ use geode_core::eigen::complex::{SparseComplexEigenSolver, SparseComplexShiftInv
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
 use geode_core::testing::{TestBackend, test_device as device};
-use sha2::{Digest, Sha256};
 
 type B = TestBackend;
 
@@ -315,13 +318,6 @@ struct PencilFingerprint {
     nnz_m: usize,
     k_fro: f64,
     m_fro: f64,
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
 }
 
 fn fro(a: &SparseColMat<usize, faer::c64>) -> f64 {

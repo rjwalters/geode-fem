@@ -34,10 +34,11 @@
 //!   and the crater / guard-site findings. These designs are an idealized
 //!   non-uniform-thickness ablation; the manufacturable design is #1120.
 
+#[path = "common/example_io.rs"]
+mod example_io;
+use example_io::sha256_hex;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-
-use sha2::{Digest, Sha256};
 
 use geode_core::mesh::patch::{
     CONFORMAL_2G4_BEND_RADIUS_MM, CONFORMAL_2G4_SUBSTRATE_H_MM, ISM_2G4_BAND_GHZ, bend_axis_z,
@@ -597,13 +598,6 @@ fn num(v: &toml::Value) -> f64 {
     v.as_float()
         .or_else(|| v.as_integer().map(|i| i as f64))
         .unwrap_or_else(|| panic!("expected a number, got {v:?}"))
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
 }
 
 const LABELS: [&str; 6] = [
