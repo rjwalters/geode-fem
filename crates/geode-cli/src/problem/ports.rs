@@ -1080,3 +1080,48 @@ pub(super) fn resolve_wave_ports(
     }
     Ok(wave_ports)
 }
+
+/// Route every wave port and run the rim / TM guards, once the PEC mask
+/// the routing reads exists.
+///
+/// Fills in the `hybrid`, `tm` and `tm_warning` that `resolve_wave_ports`
+/// left unset. The guards run in a fixed order, because each reports a
+/// different message for an overlapping condition: the Silver-Müller rim
+/// check first (its message is the specific one for that wall), then the
+/// hybrid routing, then the per-route rim guards.
+pub(super) fn route_wave_ports(
+    spec: &ProblemSpec,
+    wave_ports: &mut [WavePortDef],
+    materials: &PortMaterials<'_>,
+    silver_muller: &[Surface],
+    edges: &[[u32; 2]],
+    pec_mask: &[bool],
+    conductor_edges: &std::collections::HashSet<[u32; 2]>,
+) -> Result<(), CliError> {
+    check_silver_muller_port_rims(wave_ports, silver_muller, edges, pec_mask)?;
+    // Route each wave port (issue #807): an inhomogeneous face, or one with
+    // a floating conductor, goes to the hybrid path; the rest stay
+    // geometric (homogeneous TE), unchanged.
+    for (w, ws) in wave_ports.iter_mut().zip(&spec.wave_ports) {
+        w.hybrid = materials.route_hybrid(w, ws, edges, pec_mask)?;
+    }
+    validate_hybrid_routes(spec, wave_ports, materials)?;
+    // Hybrid ports carry TE, TM and hybrid modes and have core's own
+    // completeness check, so they bypass the TE-only guard below; their rim
+    // must still be all conductor.
+    for w in wave_ports.iter().filter(|w| w.hybrid.is_some()) {
+        check_hybrid_port_rim(w, conductor_edges)?;
+    }
+    // TE-only wave ports (issue #808): the rim must be all conductor and
+    // no sweep frequency may reach the TM limit. Runs after the
+    // Silver-Müller rim check, whose message is more specific for that
+    // wall. Geometric (homogeneous TE) ports only: the hybrid ports routed
+    // above (#807) bypass this guard, and so its mesh-aware margin (#824).
+    for w in wave_ports.iter_mut().filter(|w| w.hybrid.is_none()) {
+        let (tm, warning) =
+            materials.check_te_port_guard(&w.surface, &w.projection, &w.fill, conductor_edges)?;
+        w.tm = Some(tm);
+        w.tm_warning = warning;
+    }
+    Ok(())
+}

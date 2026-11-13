@@ -1366,6 +1366,34 @@ pub fn validate_element_order(spec: &ProblemSpec) -> Result<(), CliError> {
     Ok(())
 }
 
+/// What a `driven` or `extract` spec needs beyond the common checks: at
+/// least one port, a `frequencies` section, and — for `extract`, whose
+/// L / R / Q come from the lumped-port impedance Z_kk — no wave ports.
+fn validate_driven(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliError> {
+    let kind = analysis.name();
+    if analysis == Analysis::Extract && !spec.wave_ports.is_empty() {
+        return Err(invalid(
+            "an extract spec cannot have `wave_ports`: L / R / Q and L0 come from the \
+             lumped-port impedance Z_kk, which a wave port does not define (a mixed \
+             lumped + wave-port network has no Z-matrix either; mixed specs are \
+             `driven`-only) — use lumped `ports` only",
+        ));
+    }
+    if spec.ports.is_empty() && spec.wave_ports.is_empty() && spec.floquet_ports.is_empty() {
+        return Err(invalid(if analysis == Analysis::Driven {
+            format!("at least one lumped port (or wave port) is required for a `{kind}` spec")
+        } else {
+            format!("at least one lumped port is required for a `{kind}` spec")
+        }));
+    }
+    if spec.frequencies.is_none() {
+        return Err(invalid(format!(
+            "a `{kind}` spec needs a `frequencies` section"
+        )));
+    }
+    Ok(())
+}
+
 /// Scalar checks on `materials[]`, before the mesh is read: finite
 /// `eps_r` under the exp(+jwt) sign convention, the per-analysis
 /// `conductivity_s_m` / `mu_r` support rules, and the diagonal-tensor
@@ -1862,6 +1890,66 @@ fn resolve_materials(
     })
 }
 
+/// The PEC mask and, at order 2, the H(curl) space it is taken over.
+///
+/// A current path's source and sink are PEC contacts too — the current
+/// enters and leaves through the return conductor there — so they join the
+/// spec's own PEC surfaces in the mask.
+struct PecMask {
+    edges: Vec<[u32; 2]>,
+    /// The edge mask at order 1; at order 2 the kept-DOF mask over
+    /// [`PecMask::hcurl_space`] (issue #1265).
+    pec_mask: Vec<bool>,
+    /// The edge mask, whatever the order.
+    pec_mask_p1: Vec<bool>,
+    element_order: ElementOrder,
+    hcurl_space: Option<HcurlSpace>,
+}
+
+fn build_pec_mask(
+    spec: &ProblemSpec,
+    tagged: &TaggedTetMesh,
+    pec: &[Surface],
+    inductance: Option<&InductanceTarget>,
+) -> Result<PecMask, CliError> {
+    let edges = tagged.mesh.edges();
+    let mut pec_lists: Vec<&[[u32; 3]]> = pec.iter().map(|s| s.triangles.as_slice()).collect();
+    // Current-path terminals are PEC contacts (the current enters / leaves
+    // through the return conductor there).
+    if let Some(ind) = inductance {
+        for path in &ind.paths {
+            pec_lists.push(&path.source.triangles);
+            pec_lists.push(&path.sink.triangles);
+        }
+    }
+    let pec_mask = pec_interior_mask_from_triangles(&edges, &pec_lists);
+    // Order 2 (issue #1265): the kept-DOF mask over the p=2 space (face-exact
+    // PEC), replacing the edge mask so `n_interior` and the solve see p=2.
+    let element_order = match spec.element_order {
+        crate::spec::ElementOrderSpec::P1 => ElementOrder::P1,
+        crate::spec::ElementOrderSpec::P2 => ElementOrder::P2,
+    };
+    let pec_mask_p1 = pec_mask.clone();
+    let (hcurl_space, pec_mask) = match element_order {
+        ElementOrder::P1 => (None, pec_mask),
+        ElementOrder::P2 => {
+            let space = HcurlSpace::build(&tagged.mesh, ElementOrder::P2);
+            let mask = space
+                .pec_interior_mask(&tagged.mesh, &pec_lists)
+                .map_err(|e| invalid(format!("order-2 PEC mask: {e}")))?;
+            (Some(space), mask)
+        }
+    };
+
+    Ok(PecMask {
+        edges,
+        pec_mask,
+        pec_mask_p1,
+        element_order,
+        hcurl_space,
+    })
+}
+
 /// Parse, validate and resolve the spec at `spec_path` (no solve).
 ///
 /// The spec is validated for the analysis it describes
@@ -1925,32 +2013,7 @@ pub fn load_parsed(
     validate_materials(&spec, analysis)?;
     validate_leontovich(&spec)?;
     match analysis {
-        Analysis::Driven | Analysis::Extract => {
-            let kind = analysis.name();
-            if analysis == Analysis::Extract && !spec.wave_ports.is_empty() {
-                return Err(invalid(
-                    "an extract spec cannot have `wave_ports`: L / R / Q and L0 come from the \
-                     lumped-port impedance Z_kk, which a wave port does not define (a mixed \
-                     lumped + wave-port network has no Z-matrix either; mixed specs are \
-                     `driven`-only) — use lumped `ports` only",
-                ));
-            }
-            if spec.ports.is_empty() && spec.wave_ports.is_empty() && spec.floquet_ports.is_empty()
-            {
-                return Err(invalid(if analysis == Analysis::Driven {
-                    format!(
-                        "at least one lumped port (or wave port) is required for a `{kind}` spec"
-                    )
-                } else {
-                    format!("at least one lumped port is required for a `{kind}` spec")
-                }));
-            }
-            if spec.frequencies.is_none() {
-                return Err(invalid(format!(
-                    "a `{kind}` spec needs a `frequencies` section"
-                )));
-            }
-        }
+        Analysis::Driven | Analysis::Extract => validate_driven(&spec, analysis)?,
         Analysis::Eigen => validate_eigen(&spec)?,
         Analysis::Capacitance => validate_capacitance(&spec)?,
         Analysis::Inductance => validate_inductance(&spec)?,
@@ -2206,63 +2269,22 @@ pub fn load_parsed(
     };
 
     // ---- PEC mask ----------------------------------------------------
-    let edges = tagged.mesh.edges();
-    let mut pec_lists: Vec<&[[u32; 3]]> = pec.iter().map(|s| s.triangles.as_slice()).collect();
-    // Current-path terminals are PEC contacts (the current enters / leaves
-    // through the return conductor there).
-    if let Some(ind) = &inductance {
-        for path in &ind.paths {
-            pec_lists.push(&path.source.triangles);
-            pec_lists.push(&path.sink.triangles);
-        }
-    }
-    let pec_mask = pec_interior_mask_from_triangles(&edges, &pec_lists);
-    // Order 2 (issue #1265): the kept-DOF mask over the p=2 space (face-exact
-    // PEC), replacing the edge mask so `n_interior` and the solve see p=2.
-    let element_order = match spec.element_order {
-        crate::spec::ElementOrderSpec::P1 => ElementOrder::P1,
-        crate::spec::ElementOrderSpec::P2 => ElementOrder::P2,
-    };
-    let pec_mask_p1 = pec_mask.clone();
-    let (hcurl_space, pec_mask) = match element_order {
-        ElementOrder::P1 => (None, pec_mask),
-        ElementOrder::P2 => {
-            let space = HcurlSpace::build(&tagged.mesh, ElementOrder::P2);
-            let mask = space
-                .pec_interior_mask(&tagged.mesh, &pec_lists)
-                .map_err(|e| invalid(format!("order-2 PEC mask: {e}")))?;
-            (Some(space), mask)
-        }
-    };
-    check_silver_muller_port_rims(&wave_ports, &silver_muller, &edges, &pec_mask)?;
-    // Route each wave port (issue #807): an inhomogeneous face, or one with
-    // a floating conductor, goes to the hybrid path; the rest stay
-    // geometric (homogeneous TE), unchanged.
-    for (w, ws) in wave_ports.iter_mut().zip(&spec.wave_ports) {
-        w.hybrid = port_materials.route_hybrid(w, ws, &edges, &pec_mask)?;
-    }
-    validate_hybrid_routes(&spec, &wave_ports, &port_materials)?;
-    // Hybrid ports carry TE, TM and hybrid modes and have core's own
-    // completeness check, so they bypass the TE-only guard below; their rim
-    // must still be all conductor.
-    for w in wave_ports.iter().filter(|w| w.hybrid.is_some()) {
-        check_hybrid_port_rim(w, &conductor_edges)?;
-    }
-    // TE-only wave ports (issue #808): the rim must be all conductor and
-    // no sweep frequency may reach the TM limit. Runs after the
-    // Silver-Müller rim check, whose message is more specific for that
-    // wall. Geometric (homogeneous TE) ports only: the hybrid ports routed
-    // above (#807) bypass this guard, and so its mesh-aware margin (#824).
-    for w in wave_ports.iter_mut().filter(|w| w.hybrid.is_none()) {
-        let (tm, warning) = port_materials.check_te_port_guard(
-            &w.surface,
-            &w.projection,
-            &w.fill,
-            &conductor_edges,
-        )?;
-        w.tm = Some(tm);
-        w.tm_warning = warning;
-    }
+    let PecMask {
+        edges,
+        pec_mask,
+        pec_mask_p1,
+        element_order,
+        hcurl_space,
+    } = build_pec_mask(&spec, &tagged, &pec, inductance.as_ref())?;
+    route_wave_ports(
+        &spec,
+        &mut wave_ports,
+        &port_materials,
+        &silver_muller,
+        &edges,
+        &pec_mask,
+        &conductor_edges,
+    )?;
     if let SolverSpec::Iterative {
         preconditioner: crate::spec::PreconditionerSpec::Ams,
         ..
