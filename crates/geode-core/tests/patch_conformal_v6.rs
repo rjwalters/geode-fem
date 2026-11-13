@@ -22,11 +22,9 @@
 //! * **X4 / X5.** The rectangle baseline, the gradient-free baseline and the
 //!   realizable-feed re-optimizations.
 
+mod common;
+use common::repo_root as repo;
 use std::path::PathBuf;
-
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
 
 fn v6() -> PathBuf {
     repo().join("benchmarks/patch_antenna_conformal/v6")

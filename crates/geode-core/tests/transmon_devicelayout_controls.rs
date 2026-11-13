@@ -36,15 +36,12 @@
 //! No geode solve runs here (the only geode-derived input is #1111's
 //! transmission-line delta, a constant): these pins run in the default tier.
 
-use std::path::PathBuf;
+mod common;
+use common::repo_root as repo;
 
 #[path = "common/transmon_util.rs"]
 mod transmon_util;
 use transmon_util::{tarr, tget};
-
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
 
 const CELLS: &str = "reference/fixtures/transmon_palace/results_controls_1123";
 const X1092: &str = "reference/fixtures/transmon_palace/results_crosscheck_1092";

@@ -21,6 +21,8 @@
 //!   geometry too; the uncapped support of the committed re-based runs drags
 //!   the `+y` edge, and the resulting re-base drift is pinned.
 
+mod common;
+use common::repo_root as repo;
 use std::path::PathBuf;
 
 use geode_core::mesh::patch::{
@@ -417,10 +419,6 @@ fn feed_dofs_move_only_the_probe() {
 // ─────────────────────────────────────────────────────────────────────────
 // Artifact pins (benchmarks/patch_antenna_conformal/copper/).
 // ─────────────────────────────────────────────────────────────────────────
-
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
 
 fn copper_dir() -> PathBuf {
     repo().join("benchmarks/patch_antenna_conformal/copper")

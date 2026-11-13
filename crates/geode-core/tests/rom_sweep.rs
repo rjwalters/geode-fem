@@ -23,6 +23,7 @@
 //!   ROM where both are far from the roundoff floor.
 
 mod common;
+use common::vacuum_eps as vacuum;
 use common::{all_plane_faces, pec_mask_for_planes, zero_source};
 
 use std::time::Instant;
@@ -39,10 +40,6 @@ use geode_core::mesh::{TetMesh, cube_tet_mesh};
 use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn vacuum(mesh: &TetMesh) -> Vec<c64> {
-    vec![c64::new(1.0, 0.0); mesh.n_tets()]
-}
 
 /// The parallel-plate transmission-line fixture (unit cube, PEC plates at
 /// y = 0/1, PEC short at z = 1, PMC side walls, one lumped port across the
