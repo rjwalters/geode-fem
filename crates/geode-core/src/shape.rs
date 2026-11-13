@@ -90,6 +90,7 @@ use crate::assembly::electrostatic::{
 use crate::mesh::TetMesh;
 
 pub mod conformal_basis;
+pub mod floquet_element;
 pub mod refined_capacitance;
 pub mod transmon_morph;
 pub mod transmon_remorph;
