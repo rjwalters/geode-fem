@@ -5743,7 +5743,6 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-util",
- "serde",
 ]
 
 [[package]]
@@ -5840,7 +5839,6 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-util",
- "serde",
 ]
 
 [[package]]

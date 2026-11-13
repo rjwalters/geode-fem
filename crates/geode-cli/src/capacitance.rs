@@ -31,7 +31,7 @@ use geode_core::assembly::electrostatic::{
 use geode_core::mesh::TetMesh;
 
 use crate::check::{capacitance_settings_summary, mesh_summary, region_summaries};
-use crate::error::CliError;
+use crate::error::{CliError, scaled_matrix};
 use crate::problem::{self, CapacitanceTarget};
 use crate::report::{CapacitanceReport, CapacitanceSolverStats, Provenance};
 use crate::spec::Analysis;
@@ -63,19 +63,7 @@ pub fn run(
 
     let scale = p.length_unit_m();
     let n = solved.c.len();
-    for (i, row) in solved.c.iter().enumerate() {
-        if let Some(bad) = row.iter().find(|v| !v.is_finite()) {
-            return Err(CliError::NonFinite {
-                index: i,
-                what: format!("capacitance row {i} has a non-finite entry {bad}"),
-            });
-        }
-    }
-    let c_farad: Vec<Vec<f64>> = solved
-        .c
-        .iter()
-        .map(|row| row.iter().map(|v| v * scale).collect())
-        .collect();
+    let c_farad = scaled_matrix(&solved.c, scale, "capacitance")?;
     let c_sigma_farad = (0..n).map(|i| solved.c_sigma(i) * scale).collect();
     let c_flux_diag_farad = solved
         .c_flux_diag

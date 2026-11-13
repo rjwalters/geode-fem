@@ -55,14 +55,10 @@
 
 mod common;
 use common::vacuum_eps as vacuum;
+use common::wave_port::rect_wave_port;
 use faer::c64;
-use geode_core::analytic::waveguide::{rect_tri_mesh, solve_rect_waveguide_modes};
-use geode_core::driven::ports::{
-    PortMedium, PortMode, WavePort, extruded_height_step_waveguide_mesh,
-    map_mode_profile_to_full_mesh, solve_wave_port_sweep,
-};
+use geode_core::driven::ports::{extruded_height_step_waveguide_mesh, solve_wave_port_sweep};
 use geode_core::driven::solve::{DrivenBcs, DrivenMaterials};
-use geode_core::mesh::TetMesh;
 use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
@@ -312,68 +308,6 @@ fn lu_solve(a_in: &[c64], b_in: &[c64], n: usize) -> Vec<c64> {
     out
 }
 
-/// Build a multi-mode wave port on the `z = z_plane` face of the
-/// height-step mesh. Each port owns its own 2-D modal solve over its
-/// own `(nx, ny_port, a, b_port)` cross-section.
-#[allow(clippy::too_many_arguments)]
-fn build_multimode_step_port(
-    mesh: &TetMesh,
-    faces_3d: &[[u32; 3]],
-    a: f64,
-    b_port: f64,
-    nx: usize,
-    ny_port: usize,
-    z_plane: f64,
-    n_modes: usize,
-    a_inc: c64,
-) -> WavePort {
-    let port_mesh = rect_tri_mesh(nx, ny_port, a, b_port);
-    let tol = 1e-9 * a.max(b_port).max(1.0);
-    let three_d_idx_of = |x: f64, y: f64| -> u32 {
-        mesh.nodes
-            .iter()
-            .position(|p| {
-                (p[0] - x).abs() < tol && (p[1] - y).abs() < tol && (p[2] - z_plane).abs() < tol
-            })
-            .expect("port-face node not found in 3-D mesh") as u32
-    };
-    let n2d_to_n3d: Vec<u32> = port_mesh
-        .nodes
-        .iter()
-        .map(|p| three_d_idx_of(p[0], p[1]))
-        .collect();
-    let edges_2d = port_mesh.edges();
-    let edges_2d_relabeled: Vec<[u32; 2]> = edges_2d
-        .iter()
-        .map(|e| {
-            let (a3, b3) = (n2d_to_n3d[e[0] as usize], n2d_to_n3d[e[1] as usize]);
-            if a3 < b3 { [a3, b3] } else { [b3, a3] }
-        })
-        .collect();
-
-    let modes = solve_rect_waveguide_modes(&port_mesh, a, b_port, n_modes)
-        .expect("multi-mode 2-D modal solve (port)");
-    assert_eq!(modes.len(), n_modes);
-
-    let edges_3d = mesh.edges();
-    let port_modes: Vec<PortMode> = modes
-        .iter()
-        .map(|m| {
-            let mode_3d = map_mode_profile_to_full_mesh(&edges_2d_relabeled, &m.e_edges, &edges_3d);
-            PortMode {
-                mode: mode_3d,
-                k_c: m.k_c,
-                a_inc,
-            }
-        })
-        .collect();
-    WavePort {
-        faces: faces_3d.to_vec(),
-        modes: port_modes,
-        medium: PortMedium::VACUUM,
-    }
-}
-
 /// **Bi-modal step discontinuity + analytic mode-matching cross-check**
 /// (issue #257 / C2 of parent #250).
 ///
@@ -467,27 +401,24 @@ fn bimodal_height_step_matches_analytic_mode_matching() {
     let pec_mask = g.pec_interior_mask();
     let eps = vacuum(&g.mesh);
 
-    let port1 = build_multimode_step_port(
+    let one = c64::new(1.0, 0.0);
+    let port1 = rect_wave_port(
         &g.mesh,
         &g.port1_faces,
-        a,
-        b1,
-        nx,
-        ny1,
         0.0,
+        [nx, ny1],
+        [a, b1],
         n_modes,
-        c64::new(1.0, 0.0),
+        one,
     );
-    let port2 = build_multimode_step_port(
+    let port2 = rect_wave_port(
         &g.mesh,
         &g.port2_faces,
-        a,
-        b2,
-        nx,
-        ny2,
         l1 + l2,
+        [nx, ny2],
+        [a, b2],
         n_modes,
-        c64::new(1.0, 0.0),
+        one,
     );
     assert_eq!(port1.n_modes(), 2);
     assert_eq!(port2.n_modes(), 2);
@@ -1044,27 +975,23 @@ fn bimodal_height_step_matches_analytic_mode_matching() {
     let g2 = extruded_height_step_waveguide_mesh(nx_alt, ny1, ny2, nz1, nz2, a, b1, b2, l1, l2);
     let pec_mask2 = g2.pec_interior_mask();
     let eps2 = vacuum(&g2.mesh);
-    let port1_alt = build_multimode_step_port(
+    let port1_alt = rect_wave_port(
         &g2.mesh,
         &g2.port1_faces,
-        a,
-        b1,
-        nx_alt,
-        ny1,
         0.0,
+        [nx_alt, ny1],
+        [a, b1],
         n_modes,
-        c64::new(1.0, 0.0),
+        one,
     );
-    let port2_alt = build_multimode_step_port(
+    let port2_alt = rect_wave_port(
         &g2.mesh,
         &g2.port2_faces,
-        a,
-        b2,
-        nx_alt,
-        ny2,
         l1 + l2,
+        [nx_alt, ny2],
+        [a, b2],
         n_modes,
-        c64::new(1.0, 0.0),
+        one,
     );
     let bcs2 = DrivenBcs {
         pec_interior_mask: &pec_mask2,

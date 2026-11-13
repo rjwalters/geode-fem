@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 
 #[path = "common/transmon_util.rs"]
 mod transmon_util;
-use transmon_util::{tarr, tget};
+use transmon_util::{tarr, tf, tget};
 
 fn bench() -> PathBuf {
     repo().join("benchmarks/transmon_devicelayout_optimize")
@@ -34,13 +34,6 @@ fn doc(path: &Path) -> toml::Value {
 
 fn results() -> toml::Value {
     doc(&bench().join("results.toml"))
-}
-
-fn tf(v: &toml::Value, path: &str) -> f64 {
-    let x = tget(v, path);
-    x.as_float()
-        .or_else(|| x.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("{path} is not a number"))
 }
 
 fn close(a: f64, b: f64, tol: f64, what: &str) {

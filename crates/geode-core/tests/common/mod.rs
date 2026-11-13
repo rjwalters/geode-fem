@@ -5,6 +5,8 @@
 //! become test binaries. Consumers pull it in with `mod common;` at
 //! the top of each test file.
 
+pub mod wave_port;
+
 use burn::tensor::backend::Backend;
 use burn::tensor::{ElementConversion, Tensor};
 use faer::c64;

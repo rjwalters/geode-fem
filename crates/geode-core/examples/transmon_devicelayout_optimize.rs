@@ -49,7 +49,7 @@
 
 #[path = "../tests/common/transmon_util.rs"]
 mod transmon_util;
-use transmon_util::{arr, git_head, tarr, tget, vals_to_host};
+use transmon_util::{arr, git_head, tarr, tf, tget, vals_to_host};
 
 use std::fmt::Write as _;
 use std::fs;
@@ -523,13 +523,6 @@ const PALACE_XCHECK_DIR: &str = "reference/fixtures/transmon_palace/results_cros
 fn toml_doc(path: &Path) -> toml::Value {
     let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     toml::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
-}
-
-fn tf(v: &toml::Value, path: &str) -> f64 {
-    let x = tget(v, path);
-    x.as_float()
-        .or_else(|| x.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("{path} is not a number"))
 }
 
 fn csv_col(path: &Path, col: usize) -> Vec<f64> {

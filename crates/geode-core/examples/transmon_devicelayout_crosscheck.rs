@@ -37,7 +37,7 @@
 
 #[path = "../tests/common/transmon_util.rs"]
 mod transmon_util;
-use transmon_util::{arr, edge_tables, git_head, tarr, tget, vals_to_host};
+use transmon_util::{arr, edge_tables, git_head, tarr, tf, tget, vals_to_host};
 
 use std::fmt::Write as _;
 use std::fs;
@@ -278,13 +278,6 @@ fn solve_mode(mesh_path: &Path, label: &str, sigma_ghz: f64, n_modes: usize, run
 fn toml_doc(path: &Path) -> toml::Value {
     let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     toml::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
-}
-
-fn tf(v: &toml::Value, path: &str) -> f64 {
-    let x = tget(v, path);
-    x.as_float()
-        .or_else(|| x.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("{path} is not a number"))
 }
 
 fn ti(v: &toml::Value, path: &str) -> i64 {
