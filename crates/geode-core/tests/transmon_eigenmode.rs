@@ -42,6 +42,10 @@
 mod common;
 use common::edge_tables;
 
+#[path = "common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::{tarr, tf, tstr};
+
 use burn::tensor::Tensor;
 use faer::c64;
 
@@ -3944,47 +3948,6 @@ fn coupling_results() -> toml::Value {
     let text =
         std::fs::read_to_string(path).expect("read benchmarks/transmon_coupling/results.toml");
     toml::from_str(&text).expect("parse benchmarks/transmon_coupling/results.toml")
-}
-
-fn tf(v: &toml::Value, path: &str) -> f64 {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur.as_float()
-        .or_else(|| cur.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("{path} is not a number"))
-}
-
-fn tarr(v: &toml::Value, path: &str) -> Vec<f64> {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur.as_array()
-        .unwrap_or_else(|| panic!("{path} is not an array"))
-        .iter()
-        .map(|x| {
-            x.as_float()
-                .or_else(|| x.as_integer().map(|i| i as f64))
-                .unwrap()
-        })
-        .collect()
-}
-
-fn tstr<'a>(v: &'a toml::Value, path: &str) -> &'a str {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur.as_str()
-        .unwrap_or_else(|| panic!("{path} is not a string"))
 }
 
 /// Issue #1078 (default tier): the committed coupling artifact matches the
