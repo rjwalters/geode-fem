@@ -24,6 +24,7 @@
 //! convergence degradation (matching the `iterative_sweep.rs` convention).
 
 mod common;
+use common::vacuum_eps as vacuum;
 use common::{all_plane_faces, pec_mask_for_planes, zero_source};
 
 use faer::c64;
@@ -37,14 +38,10 @@ use geode_core::driven::solve::{
     IterativePreconditioner, IterativeSettings, SolverMode, SurfaceImpedanceBc,
     SurfaceImpedanceModel,
 };
-use geode_core::mesh::{TetMesh, cube_tet_mesh};
+use geode_core::mesh::cube_tet_mesh;
 use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn vacuum(mesh: &TetMesh) -> Vec<c64> {
-    vec![c64::new(1.0, 0.0); mesh.n_tets()]
-}
 
 // ===========================================================================
 // 1. driven_frequency_sweep: matrix-free vs direct (cube lumped port)

@@ -21,8 +21,10 @@
 //! ([`L1_SHA256`]). Set `PATCH_CONFORMAL_L1=/path/to/patch_conformal_L1.msh`
 //! to also check a regenerated copy against the pin.
 
+mod common;
 #[path = "common/example_io.rs"]
 mod example_io;
+use common::{repo_root as repo, toml_num as num};
 use example_io::sha256_hex;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -48,10 +50,6 @@ const L1_FLAT_SHA256: &str = "9ea16cd390e875a8058202d8470dbdc99ede63fed124d7f8e8
 
 /// Free-space speed of light in mm/s.
 const C_MM_PER_S: f64 = 299_792_458.0e3;
-
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
 
 /// The flat two-level YAML subset of `reference/gmsh/*.yaml` →
 /// `section.key → value` (comments stripped).
@@ -84,12 +82,6 @@ fn f(map: &BTreeMap<String, String>, key: &str) -> f64 {
         .unwrap_or_else(|| panic!("missing {key}"))
         .parse()
         .unwrap_or_else(|e| panic!("{key}: {e}"))
-}
-
-fn num(v: &toml::Value) -> f64 {
-    v.as_float()
-        .or_else(|| v.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("expected a number, got {v:?}"))
 }
 
 /// The YAML levels share everything but mesh sizing; their geometry is the

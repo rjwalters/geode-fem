@@ -38,8 +38,10 @@
 //! `PATCH_CONFORMAL_L2=/path/to/patch_conformal_L2.msh` (likewise `_L3`,
 //! `_L1_PML5`, `_L1_PML40`) to also check a regenerated copy against its pin.
 
+mod common;
 #[path = "common/example_io.rs"]
 mod example_io;
+use common::{repo_root as repo, toml_num as num};
 use example_io::sha256_hex;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -83,10 +85,6 @@ const LADDER_SHELLS: [&str; 3] = [
     "patch_conformal_L1_pml40",
 ];
 
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
 fn bench() -> PathBuf {
     repo().join("benchmarks/patch_antenna_conformal")
 }
@@ -122,12 +120,6 @@ fn f(map: &BTreeMap<String, String>, key: &str) -> f64 {
         .unwrap_or_else(|| panic!("missing {key}"))
         .parse()
         .unwrap_or_else(|e| panic!("{key}: {e}"))
-}
-
-fn num(v: &toml::Value) -> f64 {
-    v.as_float()
-        .or_else(|| v.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("expected a number, got {v:?}"))
 }
 
 fn read_toml(rel: &str) -> toml::Value {

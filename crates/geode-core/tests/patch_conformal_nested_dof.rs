@@ -34,8 +34,10 @@
 //!   and the crater / guard-site findings. These designs are an idealized
 //!   non-uniform-thickness ablation; the manufacturable design is #1120.
 
+mod common;
 #[path = "common/example_io.rs"]
 mod example_io;
+use common::{repo_root as repo, toml_num as num};
 use example_io::sha256_hex;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -57,10 +59,6 @@ const PROBE_W: f64 = 1.6;
 const PROBE_INSET: f64 = 7.0;
 const RADIAL_SCALE: f64 = 0.8;
 const OUTLINE_SCALE: f64 = 1.0;
-
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
 
 fn l0() -> PatchFixture {
     read_patch_fixture_path(
@@ -593,12 +591,6 @@ fn same_coefficients_give_the_same_geometry_on_l0_and_l1() {
 }
 
 // ── Artifact pins ───────────────────────────────────────────────────────
-
-fn num(v: &toml::Value) -> f64 {
-    v.as_float()
-        .or_else(|| v.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("expected a number, got {v:?}"))
-}
 
 const LABELS: [&str; 6] = [
     "gap_1",

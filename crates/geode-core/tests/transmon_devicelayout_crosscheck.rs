@@ -14,15 +14,12 @@
 //! Release tier (`--ignored`): one A2 solve of the committed initial
 //! order-1 mesh reproduces the `initial_h` record.
 
-use std::path::PathBuf;
+mod common;
+use common::repo_root as repo;
 
 #[path = "common/transmon_util.rs"]
 mod transmon_util;
 use transmon_util::{tarr, tget};
-
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
 
 fn results() -> toml::Value {
     let path = repo().join("benchmarks/transmon_devicelayout_crosscheck/results.toml");

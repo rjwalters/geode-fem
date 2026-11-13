@@ -15,15 +15,13 @@
 //! Release tier (`--ignored`): one A2 solve of the committed initial mesh
 //! reproduces the `fd_initial` frequencies and Hellmann–Feynman gradient.
 
+mod common;
+use common::repo_root as repo;
 use std::path::{Path, PathBuf};
 
 #[path = "common/transmon_util.rs"]
 mod transmon_util;
 use transmon_util::{tarr, tget};
-
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
 
 fn bench() -> PathBuf {
     repo().join("benchmarks/transmon_devicelayout_optimize")

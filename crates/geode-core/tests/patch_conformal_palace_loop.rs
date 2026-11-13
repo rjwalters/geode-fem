@@ -20,6 +20,8 @@
 //! * **Outcome.** The levels reached, the per-evaluation costs on one host
 //!   type, and the cross-evaluations are pinned.
 
+mod common;
+use common::toml_num as num;
 use std::path::PathBuf;
 
 fn conf() -> PathBuf {
@@ -43,12 +45,6 @@ fn get<'a>(v: &'a toml::Value, dotted: &str) -> &'a toml::Value {
             .unwrap_or_else(|| panic!("missing key {dotted} (at {k})"));
     }
     cur
-}
-
-fn num(v: &toml::Value) -> f64 {
-    v.as_float()
-        .or_else(|| v.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("{v} is not a number"))
 }
 
 fn f(v: &toml::Value, dotted: &str) -> f64 {
