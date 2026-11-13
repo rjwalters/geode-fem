@@ -1915,11 +1915,12 @@ impl RobinSolved {
 
 /// The side a boundary face of `[0, s]³` lies on: `(axis, 0 | 1)`.
 fn face_side(mesh: &TetMesh, f: &[u32; 3], s: f64) -> (usize, usize) {
-    for d in 0..3 {
+    for d in 0..3usize {
         for (k, v) in [(0usize, 0.0), (1, s)] {
-            if f.iter()
-                .all(|&i| (mesh.nodes[i as usize][d] - v).abs() <= 1e-9 * s)
-            {
+            if f.iter().all(|&i| {
+                let [x, y, z] = mesh.nodes[i as usize];
+                ([x, y, z].into_iter().nth(d).unwrap() - v).abs() <= 1e-9 * s
+            }) {
                 return (d, k);
             }
         }

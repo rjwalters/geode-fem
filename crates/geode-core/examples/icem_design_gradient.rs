@@ -42,6 +42,9 @@ mod icem_design;
 #[path = "../tests/common/icem_shape.rs"]
 mod icem_shape;
 
+#[path = "../tests/common/example_io.rs"]
+mod example_io;
+use example_io::write_json_out as write_json;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -175,15 +178,6 @@ fn design_point(reference: &Value, which: &str) -> DesignPoint {
         "perturbed" => d0.lerp(&DesignPoint::from_reference(reference, "optimized"), 0.5),
         o => panic!("unknown design {o}"),
     }
-}
-
-fn write_json(path: &Option<PathBuf>, v: &Value) {
-    let p = path.clone().expect("--out FILE");
-    if let Some(d) = p.parent() {
-        std::fs::create_dir_all(d).unwrap();
-    }
-    std::fs::write(&p, serde_json::to_string_pretty(v).unwrap()).unwrap();
-    eprintln!("wrote {}", p.display());
 }
 
 fn grad_json(g: &DesignGradient) -> Value {

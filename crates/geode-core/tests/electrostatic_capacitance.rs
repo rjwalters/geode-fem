@@ -543,12 +543,12 @@ fn oracle_two_sphere_offdiagonal_symmetry_and_honest_band() {
         "Maxwell sign structure violated"
     );
     // Ground-capacitance row-sum sanity: C_ii ≥ Σ_{j≠i}|C_ij|.
-    for i in 0..2 {
-        let off: f64 = (0..2).filter(|&j| j != i).map(|j| cm.c[i][j].abs()).sum();
+    for (i, row) in cm.c.iter().enumerate().take(2) {
+        let off: f64 = (0..2).filter(|&j| j != i).map(|j| row[j].abs()).sum();
         assert!(
-            cm.c[i][i] >= off - 1e-6 * cm.c[i][i].abs(),
+            row[i] >= off - 1e-6 * row[i].abs(),
             "row {i}: C_ii {} must be >= sum|off-diag| {off}",
-            cm.c[i][i]
+            row[i]
         );
     }
 

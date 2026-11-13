@@ -60,6 +60,9 @@
 //! is the maximum of `ps -o rss=` samples taken every 50 ms during the
 //! solve (the factorization peak), not a kernel high-water mark.
 
+#[path = "../tests/common/example_io.rs"]
+mod example_io;
+use example_io::sha256_hex;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -69,7 +72,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use faer::c64;
-use sha2::{Digest, Sha256};
 
 use geode_core::constants::ETA_0_OHM as ETA_0;
 use geode_core::driven::extraction::{im_z_zero_crossings, s11};
@@ -157,11 +159,6 @@ fn parse_grid(spec: &str) -> Vec<f64> {
     (0..n)
         .map(|i| v[0] + (v[1] - v[0]) * i as f64 / (n - 1) as f64)
         .collect()
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Max of `ps -o rss=` samples (GiB) while `f` runs.

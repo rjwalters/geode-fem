@@ -21,10 +21,11 @@
 //! ([`L1_SHA256`]). Set `PATCH_CONFORMAL_L1=/path/to/patch_conformal_L1.msh`
 //! to also check a regenerated copy against the pin.
 
+#[path = "common/example_io.rs"]
+mod example_io;
+use example_io::sha256_hex;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-
-use sha2::{Digest, Sha256};
 
 use geode_core::constants::ETA_0_OHM;
 use geode_core::mesh::patch::{
@@ -50,13 +51,6 @@ const C_MM_PER_S: f64 = 299_792_458.0e3;
 
 fn repo() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
 }
 
 /// The flat two-level YAML subset of `reference/gmsh/*.yaml` →
