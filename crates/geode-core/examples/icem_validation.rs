@@ -84,17 +84,18 @@
 #[path = "../tests/common/icem_forward.rs"]
 mod icem;
 
+#[path = "../tests/common/example_io.rs"]
+mod example_io;
+use example_io::{curves_json, write_json};
 use std::f64::consts::PI;
 use std::path::PathBuf;
 use std::time::Instant;
 
 use geode_core::assembly::magnetostatic_sector::CouplingMode;
 use geode_core::mesh::icem_controlpoints::{
-    CP_MOTION_DEFAULT, IcemCpDesign, IcemCpShapeMap, N_OFFSETS, OFFSET_NAMES, sector_curves_cp_f64,
+    CP_MOTION_DEFAULT, IcemCpDesign, IcemCpShapeMap, N_OFFSETS, OFFSET_NAMES,
 };
-use geode_core::mesh::icem_parametric::{
-    CurveShape, IcemDesign, N_PARAMS, motion_quality, rewrite_msh_nodes,
-};
+use geode_core::mesh::icem_parametric::{IcemDesign, N_PARAMS, motion_quality, rewrite_msh_nodes};
 use geode_core::mesh::read_tagged_tri_mesh;
 use icem::{AreaMode, I_PEAK_INITIAL, IcemModel, IronLaw};
 use serde_json::{Value, json};
@@ -338,42 +339,6 @@ fn parse_args() -> Args {
     }
     assert!(!a.out.as_os_str().is_empty(), "--out FILE");
     a
-}
-
-fn write_json(out: &PathBuf, v: &Value) {
-    if let Some(dir) = out.parent() {
-        std::fs::create_dir_all(dir).unwrap();
-    }
-    std::fs::write(out, serde_json::to_string_pretty(v).unwrap() + "\n").unwrap();
-}
-
-fn curves_json(d: &IcemCpDesign) -> Value {
-    json!(
-        sector_curves_cp_f64(d)
-            .expect("construction")
-            .iter()
-            .map(|c| match &c.shape {
-                CurveShape::Line { a, b } =>
-                    json!({"name": c.name, "kind": "line", "a": a, "b": b}),
-                CurveShape::Arc {
-                    c: cc,
-                    r,
-                    phi_a,
-                    phi_b,
-                    a,
-                    b,
-                } => json!({"name": c.name, "kind": "arc", "c": cc, "r": r,
-                    "phi_a": phi_a, "phi_b": phi_b, "a": a, "b": b}),
-                CurveShape::Spline {
-                    degree,
-                    knots,
-                    cps,
-                    weights,
-                } => json!({"name": c.name, "kind": "nurbs", "degree": degree, "knots": knots,
-                    "cps": cps, "weights": weights, "a": cps[0], "b": cps[cps.len() - 1]}),
-            })
-            .collect::<Vec<_>>()
-    )
 }
 
 /// `plan`: the fresh-mesh plan of `build_design_mesh.py` for the designs.

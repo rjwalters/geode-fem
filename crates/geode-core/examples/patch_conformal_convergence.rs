@@ -82,6 +82,9 @@
 //! read next to the bent mesh, exactly as the baseline example does, and
 //! both sha256s are checked against the provenance.
 
+#[path = "../tests/common/example_io.rs"]
+mod example_io;
+use example_io::sha256_hex;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
@@ -92,7 +95,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use faer::c64;
-use sha2::{Digest, Sha256};
 
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::constants::ETA_0_OHM as ETA_0;
@@ -149,13 +151,6 @@ const LADDER_REPORT_GHZ: [f64; 4] = [2.28, 2.31, 2.40, 2.4835];
 
 /// The level stems of the h-ladder, finest last.
 const LEVELS: [&str; 4] = ["L0", "L1", "L2", "L3"];
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
 
 use geode_util::repo::repo_root;
 

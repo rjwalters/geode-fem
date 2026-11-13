@@ -38,11 +38,13 @@
 //! `PATCH_CONFORMAL_L2=/path/to/patch_conformal_L2.msh` (likewise `_L3`,
 //! `_L1_PML5`, `_L1_PML40`) to also check a regenerated copy against its pin.
 
+#[path = "common/example_io.rs"]
+mod example_io;
+use example_io::sha256_hex;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use faer::c64;
-use sha2::{Digest, Sha256};
 
 use geode_core::mesh::patch::{
     CONFORMAL_2G4_PML_THICK_MM, CONFORMAL_2G4_SUBSTRATE_H_MM, CONFORMAL_2G4_UPML_SIGMA_0,
@@ -87,13 +89,6 @@ fn repo() -> PathBuf {
 
 fn bench() -> PathBuf {
     repo().join("benchmarks/patch_antenna_conformal")
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
 }
 
 /// The flat two-level YAML subset of `reference/gmsh/*.yaml` →
