@@ -34,9 +34,6 @@ mod common;
 use common::toml_num as num;
 use std::path::PathBuf;
 
-/// Read a TOML number as `f64` whether it serialized as a float or an integer
-/// (whole-valued fields like `target_db = -10` land as TOML integers).
-
 fn committed() -> toml::Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../benchmarks/patch_antenna_conformal/conformal_results.toml");
