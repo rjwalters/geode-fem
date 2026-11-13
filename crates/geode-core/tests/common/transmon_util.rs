@@ -4,11 +4,13 @@
 
 #![allow(dead_code)]
 
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 
 use burn::tensor::Tensor;
 use burn::tensor::backend::Backend;
-use geode_core::mesh::TetMesh;
+use geode_core::assembly::electrostatic::tet_bary_grads;
+use geode_core::mesh::{TaggedTetMesh, TetMesh, TransmonFixture};
 
 /// A copy of `mesh` with every node coordinate multiplied by `s`
 /// (e.g. mesh units -> metres).
@@ -105,6 +107,127 @@ pub fn tarr(v: &toml::Value, path: &str) -> Vec<f64> {
                 .unwrap()
         })
         .collect()
+}
+
+/// A copy of `base` with every node displaced by `sum_k theta[k] * fields[k]`
+/// — the geometry map of the transmon shape-optimization examples.
+pub fn moved(base: &TetMesh, fields: &[Vec<[f64; 3]>], theta: &[f64; 3]) -> TetMesh {
+    let mut mesh = base.clone();
+    for (i, x) in mesh.nodes.iter_mut().enumerate() {
+        for (field, step) in fields.iter().zip(theta) {
+            for (d, xd) in x.iter_mut().enumerate() {
+                *xd += step * field[i][d];
+            }
+        }
+    }
+    mesh
+}
+
+/// Rebuild a `TransmonFixture` around a refined/moved `TaggedTetMesh`,
+/// carrying `original`'s physical tags across.
+pub fn fixture(tagged: &TaggedTetMesh, original: &TransmonFixture) -> TransmonFixture {
+    TransmonFixture {
+        mesh: tagged.mesh.clone(),
+        tags: original.tags,
+        tet_physical_tags: tagged.tet_physical_tags.clone(),
+        boundary_triangles: tagged.boundary_triangles.clone(),
+        triangle_physical_tags: tagged.triangle_physical_tags.clone(),
+    }
+}
+
+/// Flux-jump marking, excluding the actual conductor sheets where a normal
+/// displacement jump is physical. This is a heuristic indicator; the acceptance
+/// test is a separate solve on a more resolved discretization, not its value.
+pub fn indicators(fx: &TransmonFixture, phi: &[f64]) -> Vec<f64> {
+    let mesh = &fx.mesh;
+    let eps = fx.epsilon_r_scalar();
+    let mut pec = BTreeSet::new();
+    for mut tri in fx.metal_triangles() {
+        tri.sort_unstable();
+        pec.insert(tri);
+    }
+    let mut faces: HashMap<[u32; 3], (usize, [f64; 3], f64)> = HashMap::new();
+    let mut eta = vec![0.0; mesh.n_tets()];
+    for (t, tet) in mesh.tets.iter().enumerate() {
+        let coords = tet.map(|v| mesh.nodes[v as usize]);
+        let grads = tet_bary_grads(&coords);
+        let mut flux = [0.0; 3];
+        for a in 0..4 {
+            for (d, f) in flux.iter_mut().enumerate() {
+                *f += eps[t] * phi[tet[a] as usize] * grads[a][d];
+            }
+        }
+        for local in [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]] {
+            let mut key = local.map(|a| tet[a]);
+            key.sort_unstable();
+            if pec.contains(&key) {
+                continue;
+            }
+            let p = key.map(|v| mesh.nodes[v as usize]);
+            let a: [f64; 3] = std::array::from_fn(|d| p[1][d] - p[0][d]);
+            let b: [f64; 3] = std::array::from_fn(|d| p[2][d] - p[0][d]);
+            let n = [
+                a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0],
+            ];
+            if let Some((other, f, e)) = faces.remove(&key) {
+                let jump: f64 = (0..3).map(|d| (flux[d] - f[d]) * n[d]).sum();
+                let area2 = n.iter().map(|x| x * x).sum::<f64>().sqrt();
+                let value = jump * jump / area2.sqrt() / eps[t].max(e);
+                eta[t] += value;
+                eta[other] += value;
+            } else {
+                faces.insert(key, (t, flux, eps[t]));
+            }
+        }
+    }
+    eta
+}
+
+/// Exact nodal prolongation of the geometry-map fields to a refined mesh.
+pub fn prolong(
+    fields: &[Vec<[f64; 3]>],
+    p: faer::sparse::SparseColMatRef<'_, usize, f64>,
+) -> Vec<Vec<[f64; 3]>> {
+    fields
+        .iter()
+        .map(|field| {
+            let mut fine = vec![[0.0; 3]; p.nrows()];
+            for (col, value) in field.iter().enumerate() {
+                for q in p.col_ptr()[col]..p.col_ptr()[col + 1] {
+                    let row = p.row_idx()[q];
+                    for (d, &v) in value.iter().enumerate() {
+                        fine[row][d] += p.val()[q] * v;
+                    }
+                }
+            }
+            fine
+        })
+        .collect()
+}
+
+/// Mark the largest indicators carrying half of the indicator sum.
+///
+/// Deliberately *not* `geode_core::adapt::driver::dorfler_mark`: that rule also
+/// marks every tet tied with the last marked one, skips zero indicators and
+/// applies a relative tolerance on the threshold, so it can mark a different
+/// set and change the refined meshes the transmon examples' published numbers
+/// reproduce (issue #1582).
+pub fn dorfler(eta: &[f64]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..eta.len()).collect();
+    order.sort_by(|&a, &b| eta[b].total_cmp(&eta[a]));
+    let threshold = 0.5 * eta.iter().sum::<f64>();
+    let mut sum = 0.0;
+    let mut marked = Vec::new();
+    for t in order {
+        marked.push(t);
+        sum += eta[t];
+        if sum >= threshold {
+            break;
+        }
+    }
+    marked
 }
 
 /// Read a TOML number (float or integer) at a dotted key path.
