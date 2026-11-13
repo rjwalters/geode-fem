@@ -112,6 +112,9 @@
 //! the feed and the patch corners) and the feed-crater / substrate-thickness
 //! metrics of the design (`[crater]`).
 
+#[path = "../tests/common/example_io.rs"]
+mod example_io;
+use example_io::sha256_hex;
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::Write as _;
 use std::fs;
@@ -122,7 +125,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use faer::c64;
-use sha2::{Digest, Sha256};
 
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::constants::ETA_0_OHM as ETA_0;
@@ -620,13 +622,6 @@ impl Provenance {
             .parse()
             .unwrap_or_else(|e| panic!("provenance parameter {key}: {e}"))
     }
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
 }
 
 /// Max of `ps -o rss=` samples (GiB) while `f` runs.

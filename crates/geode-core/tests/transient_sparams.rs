@@ -30,29 +30,18 @@
 //!   ```
 
 mod common;
-use common::{all_plane_faces, pec_mask_for_planes};
+use common::vacuum_eps as vacuum;
+use common::{all_plane_faces, pec_mask_for_planes, zero_source};
 
 use faer::c64;
 use geode_core::driven::extraction::driven_frequency_sweep;
 use geode_core::driven::ports::LumpedPort;
-use geode_core::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator,
-};
+use geode_core::driven::solve::{DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator};
 use geode_core::driven::transient::{GaussianPulse, TransientScheme, TransientSolver};
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
 use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn vacuum(mesh: &TetMesh) -> Vec<c64> {
-    vec![c64::new(1.0, 0.0); mesh.n_tets()]
-}
-
-fn zero_source(mesh: &TetMesh) -> CurrentSource {
-    CurrentSource {
-        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
-    }
-}
 
 /// The parallel-plate transmission-line fixture (unit cube, PEC plates
 /// at y = 0/1, PEC short at z = 1, PMC side walls at x = 0/1, one lumped

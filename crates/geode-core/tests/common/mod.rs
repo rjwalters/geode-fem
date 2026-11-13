@@ -7,6 +7,8 @@
 
 use burn::tensor::backend::Backend;
 use burn::tensor::{ElementConversion, Tensor};
+use faer::c64;
+use geode_core::driven::solve::CurrentSource;
 use geode_core::mesh::TetMesh;
 
 /// Read a `D`-dimensional float Burn tensor back to host as `Vec<f64>`,
@@ -112,4 +114,26 @@ pub fn spmv(k: &faer::sparse::SparseColMat<usize, f64>, x: &[f64]) -> Vec<f64> {
 #[allow(dead_code)] // some test binaries only use a subset of helpers
 pub fn norm(v: &[f64]) -> f64 {
     v.iter().map(|x| x * x).sum::<f64>().sqrt()
+}
+
+/// Vacuum relative permittivity (`1 + 0i`) on every tet of `mesh`.
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+pub fn vacuum_eps(mesh: &TetMesh) -> Vec<faer::c64> {
+    vec![faer::c64::new(1.0, 0.0); mesh.n_tets()]
+}
+
+/// Read a TOML number (float or integer) as `f64`, panicking otherwise.
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+pub fn toml_num(v: &toml::Value) -> f64 {
+    v.as_float()
+        .or_else(|| v.as_integer().map(|i| i as f64))
+        .unwrap_or_else(|| panic!("expected a number, got {v:?}"))
+}
+
+/// An all-zero (no-source) current distribution on `mesh`.
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+pub fn zero_source(mesh: &TetMesh) -> CurrentSource {
+    CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+    }
 }

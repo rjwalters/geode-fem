@@ -19,7 +19,8 @@
 //!    identically zero; invalid port specs error instead of panicking.
 
 mod common;
-use common::{all_plane_faces, pec_mask_for_planes};
+use common::vacuum_eps as vacuum;
+use common::{all_plane_faces, pec_mask_for_planes, zero_source};
 
 use faer::c64;
 use geode_core::assembly::nedelec::assemble_nedelec_current_rhs;
@@ -29,20 +30,10 @@ use geode_core::driven::ports::{LumpedPort, port_current, port_input_impedance, 
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, driven_solve, driven_solve_with_ports,
 };
-use geode_core::mesh::{TetMesh, cube_tet_mesh};
+use geode_core::mesh::cube_tet_mesh;
 use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn vacuum(mesh: &TetMesh) -> Vec<c64> {
-    vec![c64::new(1.0, 0.0); mesh.n_tets()]
-}
-
-fn zero_source(mesh: &TetMesh) -> CurrentSource {
-    CurrentSource {
-        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
-    }
-}
 
 /// Solve the parallel-plate transmission line (unit cube, PEC plates at
 /// y = 0/1, PEC short at z = 1, natural/PMC side walls at x = 0/1, port

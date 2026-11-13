@@ -3435,10 +3435,9 @@ impl<'n> Prepared<'n> {
     fn mode_notes(&self, at: &NetAt<'_>) -> Vec<HybridModeNote> {
         let mut out = Vec::new();
         let mut local = vec![0usize; self.ports.len()];
-        let chans_of_port = |c: usize| -> Option<usize> { at.hyb[c].as_ref().map(|h| h.port) };
-        for c in 0..at.n_ch {
-            let Some(p) = chans_of_port(c) else { continue };
-            let h = at.hyb[c].as_ref().expect("checked");
+        for hc in at.hyb.iter().take(at.n_ch) {
+            let Some(h) = hc.as_ref() else { continue };
+            let p = h.port;
             for w in h.deriv.warnings() {
                 out.push(HybridModeNote {
                     port: p,

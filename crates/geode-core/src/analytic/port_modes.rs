@@ -32,7 +32,7 @@
 //! | `K`   | `∫ (∇×N_i)(∇×N_j)`            | [`super::waveguide::tri_nedelec_local`] |
 //! | `M_ε` | `∫ ε_r N_i·N_j`               | same (mass × ε) |
 //! | `M₁`  | `∫ N_i·N_j`                   | same (mass) |
-//! | `G`   | `∫ N_i·∇φ_k`                  | closed form `(|T|/3)(∇λ_b − ∇λ_a)·∇λ_k` |
+//! | `G`   | `∫ N_i·∇φ_k`                  | closed form `(\|T\|/3)(∇λ_b − ∇λ_a)·∇λ_k` |
 //! | `L`   | `∫ ∇φ_k·∇φ_l − k₀²ε_r φ_kφ_l` | [`super::waveguide::tri_p1_local`] |
 //!
 //! with `N_i` the 2-D Whitney edge functions and `φ_k` the P1 hats.

@@ -851,17 +851,17 @@ impl CapacitanceMatrix {
     /// non-negative row sums (grounded-system ground capacitance ≥ 0).
     pub fn has_maxwell_sign_structure(&self, tol: f64) -> bool {
         let n = self.n();
-        for i in 0..n {
-            if self.c[i][i] <= 0.0 {
+        for (i, row) in self.c.iter().enumerate().take(n) {
+            if row[i] <= 0.0 {
                 return false;
             }
             let mut row_sum = 0.0;
-            let scale = self.c[i][i].abs().max(f64::MIN_POSITIVE);
-            for j in 0..n {
-                if i != j && self.c[i][j] > tol * scale {
+            let scale = row[i].abs().max(f64::MIN_POSITIVE);
+            for (j, &cij) in row.iter().enumerate().take(n) {
+                if i != j && cij > tol * scale {
                     return false; // off-diagonal must be ≤ 0
                 }
-                row_sum += self.c[i][j];
+                row_sum += cij;
             }
             if row_sum < -tol * scale {
                 return false; // row sum (ground capacitance) must be ≥ 0

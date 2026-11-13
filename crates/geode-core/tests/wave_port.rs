@@ -32,6 +32,8 @@
 //! (Same `--release` recipe as `rect_waveguide_modes`: faer 0.24's
 //! `gevd::qz_real` panics under `debug-assertions`.)
 
+mod common;
+use common::vacuum_eps as vacuum;
 use faer::c64;
 use geode_core::analytic::waveguide::solve_rect_waveguide_modes;
 use geode_core::driven::ports::{
@@ -43,10 +45,6 @@ use geode_core::mesh::TetMesh;
 use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn vacuum(mesh: &TetMesh) -> Vec<c64> {
-    vec![c64::new(1.0, 0.0); mesh.n_tets()]
-}
 
 /// Build a TE₁₀ wave port on the `z = z_plane` face of the extruded
 /// rectangular waveguide section. The port mesh is the 2-D `rect_tri_mesh`
@@ -1136,11 +1134,8 @@ fn bimodal_straight_section_orthogonality() {
         beta_m2_analytic,
         beta_m2_analytic * length,
     );
-    for k in 0..n {
-        eprintln!(
-            "  channel[{}] β = {:.4} + {:.4}i",
-            k, pt.beta[k].re, pt.beta[k].im
-        );
+    for (k, b) in pt.beta.iter().enumerate().take(n) {
+        eprintln!("  channel[{}] β = {:.4} + {:.4}i", k, b.re, b.im);
     }
     eprintln!("  residual_rel = {:.3e}", pt.residual_rel);
     eprintln!("  S-matrix (row k = response, col j = excitation):");
@@ -1155,11 +1150,11 @@ fn bimodal_straight_section_orthogonality() {
 
     // β positive and real for both propagating modes; matched between
     // the two ports (same cross-section).
-    for k in 0..n {
+    for (k, b) in pt.beta.iter().enumerate().take(n) {
         assert!(
-            pt.beta[k].re > 0.0 && pt.beta[k].im.abs() < 1e-9,
+            b.re > 0.0 && b.im.abs() < 1e-9,
             "channel[{k}] β must be real-positive (propagating); got {:?}",
-            pt.beta[k]
+            b
         );
     }
     assert!((pt.beta[c_p1_m1].re - pt.beta[c_p2_m1].re).abs() < 1e-12);

@@ -15,11 +15,13 @@
 //! Release tier (`--ignored`): one A2 solve of the committed initial mesh
 //! reproduces the `fd_initial` frequencies and Hellmann–Feynman gradient.
 
+mod common;
+use common::repo_root as repo;
 use std::path::{Path, PathBuf};
 
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
+#[path = "common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::{tarr, tget};
 
 fn bench() -> PathBuf {
     repo().join("benchmarks/transmon_devicelayout_optimize")
@@ -34,34 +36,11 @@ fn results() -> toml::Value {
     doc(&bench().join("results.toml"))
 }
 
-fn tget<'a>(v: &'a toml::Value, path: &str) -> &'a toml::Value {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur
-}
-
 fn tf(v: &toml::Value, path: &str) -> f64 {
     let x = tget(v, path);
     x.as_float()
         .or_else(|| x.as_integer().map(|i| i as f64))
         .unwrap_or_else(|| panic!("{path} is not a number"))
-}
-
-fn tarr(v: &toml::Value, path: &str) -> Vec<f64> {
-    tget(v, path)
-        .as_array()
-        .unwrap_or_else(|| panic!("{path} is not an array"))
-        .iter()
-        .map(|x| {
-            x.as_float()
-                .or_else(|| x.as_integer().map(|i| i as f64))
-                .unwrap()
-        })
-        .collect()
 }
 
 fn close(a: f64, b: f64, tol: f64, what: &str) {

@@ -132,6 +132,7 @@ jobs:
               --test driven_upml \
               --test dwr_goals \
               --test eigensolver \
+              --test electromigration \
               --test electrostatic_capacitance \
               --test electrostatic_capacitance_2d \
               --test eqs_transient \
@@ -234,6 +235,7 @@ jobs:
               --test dwr_goals \
               --test eigen_p2_tagged \
               --test eigensolver \
+              --test electromigration \
               --test electrostatic_capacitance \
               --test electrostatic_capacitance_2d \
               --test eqs_transient \
@@ -375,6 +377,8 @@ jobs:
               --test spiral_mesh \
               --test step_index_fiber_benchmark \
               --test surface_p2_trace \
+              --test tcda_baseline \
+              --test thermoelastic_validation \
               --test torque_loop_oracle \
               --test transient_sparams \
               --test transmon_devicelayout_controls \
@@ -474,6 +478,8 @@ jobs:
               --test spiral_mesh \
               --test step_index_fiber_benchmark \
               --test surface_p2_trace \
+              --test tcda_baseline \
+              --test thermoelastic_validation \
               --test torque_loop_oracle \
               --test transient_sparams \
               --test transmon_devicelayout_controls \

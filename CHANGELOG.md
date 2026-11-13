@@ -24,6 +24,7 @@ Breaking changes to the `geode-core` public API are recorded as a `**Breaking (`
 
 ### Removed
 
+- **Breaking (`geode-core` library):** `driven::shape::driven_shape_gradient_p2`, `driven_shape_gradient_p2_complex` and the `P2DrivenShapeGradient` result struct are removed. They were cube-only wrappers superseded by the order-generic `driven_shape_gradient_on_space` (#1264); build a port-less, wall-less `DrivenGradientProblem` and call that instead (the result's `e_edges` replaces `x`). No in-tree callers outside `driven/shape.rs` tests (#1549).
 - **Breaking (`geode-core` library):** the deprecated `assembly::nedelec::pec_interior_edge_mask` (deprecated since 0.7.1, #771; it over-eliminated interior chords, use `boundary_pec_interior_edges` or `pec_interior_mask_from_triangles`) and `mesh::PHYS_VACUUM_BUFFER` (deprecated since 0.2.0, use `PHYS_VACUUM_GAP` / `PHYS_PML_SHELL`) are removed. Neither had in-tree callers (#1350).
 
 ### Changed
