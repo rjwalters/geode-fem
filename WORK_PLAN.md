@@ -38,8 +38,6 @@ Human-approved issues ready for implementation (`loom:issue`).
 Issues currently being built (`loom:building`).
 
 - **#1391**: Remove flex_precision_spike example and flex feature: spike #451/#374 closed
-- **#1535**: [#1534 P4a] Wide-scan element parameterization and PCB manufacturability constraints
-- **#1556**: Heat conduction with Joule-heat source and self-heating loop
 
 ## PRs Awaiting Review
 
@@ -52,7 +50,6 @@ PRs waiting on Judge (`loom:review-requested`).
 - **#1392**: chore: remove closed flex_precision_spike example and flex feature
 - **#1395**: test: share onnx/tfjava sphere-PEC harness body in common module
 - **#1489**: docs(papers): add GEODE-vs-Palace measured-performance section (transmon-benchmark.26)
-- **#1560**: feat: add steady heat conduction solve and Picard Joule self-heating loop
 
 ## Approved (Awaiting Merge)
 
@@ -82,18 +79,22 @@ Issues carrying `loom:curated`.
 - **#1365**: geode-core: electrostatics-only build without Burn/Bunsen (3 min cold build, MPL-2.0 colored via burn-tensor) *(curated)*
 - **#1428**: Meep R2.5/R5 Spot runs on the optimized E4 geometry with harness v3 (split from #1427) *(curated)*
 - **#1488**: Honest GEODE-vs-Palace comparison (manuscript section) *(curated)*
-- **#1535**: [#1534 P4a] Wide-scan element parameterization and PCB manufacturability constraints *(curated)*
-- **#1556**: Heat conduction with Joule-heat source and self-heating loop *(curated)*
+- **#1579**: [#1537 P4c-2] Design A adjoint min-max run and kill-criterion verdict *(curated)*
+- **#1593**: Tighten the remaining resolve_* helpers to take &[i32] so GroupTags has no Option columns *(curated)*
 
 ## Proposed (Architect / Hermit)
 
 - **#1416**: Prune superseded papers version snapshots (~440 MB tracked) *(hermit)*
-- **#1452**: Remove unreferenced 37 MB omni.ja fixture from vendored zip test-support *(hermit)*
 - **#1546**: Remove complex_slice_to_vec: trivial to_vec wrapper in geode-util *(hermit)*
-- **#1563**: Finish #1552: share tf/tstr TOML helpers and drop transmon_eigenmode's local copies *(hermit)*
 - **#1565**: Consolidate duplicated forward-mode Dual number: shape.rs copy is a subset of driven/shape.rs *(hermit)*
-- **#1566**: Share the scale-and-finite-check and ConductorSummary helpers across geode-cli static-matrix commands *(hermit)*
 - **#1567**: Remove 19 superseded PyTorch Declarations YAMLs from vendored tch (75 MB tracked, read by nothing) *(hermit)*
+- **#1586**: Remove four uncalled leftovers: p2_region_mass_action, Fixture::load_json, two test helpers *(hermit)*
+- **#1588**: Consolidate eight byte-identical helper functions duplicated across geode-core src modules *(hermit)*
+- **#1591**: Remove ceviche_fdfd_baseline.py: 2D FDFD scaffold with a never-run TODO loop, superseded by the Meep baselines *(hermit)*
+- **#1592**: Regenerate sphere_pec JAX baseline: committed fixture is a stub copied from NumPy, and remove the --stub path *(hermit)*
+- **#1594**: Remove unused onnxscript pin from reference/onnx/requirements.txt *(hermit)*
+- **#1595**: Split eigen/ams.rs (4,218 lines): move inline tests to ams/tests.rs and the scalar AMG to eigen/amg.rs *(hermit)*
+- **#1596**: Consolidate duplicated port shape-adjoint cores in driven/shape.rs: matched_upml_ports_core is a ~330-line copy of driven_shape_gradient_ports_complex_core *(hermit)*
 
 ## Epics
 
@@ -112,10 +113,10 @@ Issues carrying `loom:curated`.
 | Very important | 0 |
 | Important | 1 |
 | Ready (`loom:issue`) | 6 |
-| In Progress (`loom:building`) | 3 |
-| PRs awaiting review | 8 |
+| In Progress (`loom:building`) | 1 |
+| PRs awaiting review | 7 |
 | Approved PRs awaiting merge | 1 |
 | Curated | 20 |
-| Architect / Hermit proposals | 7 |
+| Architect / Hermit proposals | 11 |
 | Active epics | 6 |
 <!-- guide:plan-body:end -->
