@@ -49,7 +49,7 @@
 
 #[path = "../tests/common/transmon_util.rs"]
 mod transmon_util;
-use transmon_util::{arr, git_head, vals_to_host};
+use transmon_util::{arr, git_head, tarr, tget, vals_to_host};
 
 use std::fmt::Write as _;
 use std::fs;
@@ -525,34 +525,11 @@ fn toml_doc(path: &Path) -> toml::Value {
     toml::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
-fn tget<'a>(v: &'a toml::Value, path: &str) -> &'a toml::Value {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur
-}
-
 fn tf(v: &toml::Value, path: &str) -> f64 {
     let x = tget(v, path);
     x.as_float()
         .or_else(|| x.as_integer().map(|i| i as f64))
         .unwrap_or_else(|| panic!("{path} is not a number"))
-}
-
-fn tarr(v: &toml::Value, path: &str) -> Vec<f64> {
-    tget(v, path)
-        .as_array()
-        .unwrap_or_else(|| panic!("{path} is not an array"))
-        .iter()
-        .map(|x| {
-            x.as_float()
-                .or_else(|| x.as_integer().map(|i| i as f64))
-                .unwrap()
-        })
-        .collect()
 }
 
 fn csv_col(path: &Path, col: usize) -> Vec<f64> {
