@@ -1696,6 +1696,172 @@ fn resolve_group_tags(spec: &ProblemSpec, tagged: &TaggedTetMesh) -> Result<Grou
     })
 }
 
+/// The resolved material tables: the per-tet vectors the assembler reads,
+/// the dispersive regions, the per-region summary the report prints, and
+/// the per-tag conductivity the conduction / EQS phases index.
+struct MaterialTables {
+    eps: Vec<c64>,
+    mu_r: Vec<f64>,
+    sigma_tet: Vec<f64>,
+    eps_diag: Vec<Option<[c64; 3]>>,
+    mu_diag: Vec<Option<[f64; 3]>>,
+    dispersion: Vec<DispersiveRegion>,
+    regions: Vec<Region>,
+    sigma_by_tag: BTreeMap<i32, f64>,
+}
+
+/// Per-tet SI conductivity (S/m), zero outside every conducting region.
+///
+/// Both the conduction and the EQS phase assemble from this; a spec
+/// describes one analysis, so only ever one of them calls it.
+fn sigma_si_per_tet(tet_physical_tags: &[i32], sigma_by_tag: &BTreeMap<i32, f64>) -> Vec<f64> {
+    tet_physical_tags
+        .iter()
+        .map(|t| sigma_by_tag.get(t).copied().unwrap_or(0.0))
+        .collect()
+}
+
+/// Build the material tables from the spec's `materials[]` and their
+/// resolved tags: the scalar and diagonal-tensor permittivity and
+/// permeability per tag, the dispersive regions evaluated at their
+/// reference frequency, and the per-tet vectors derived from them.
+///
+/// Any region the spec does not name is vacuum.
+fn resolve_materials(
+    spec: &ProblemSpec,
+    material_tags: &[i32],
+    tagged: &TaggedTetMesh,
+    frequencies: &[Frequency],
+    lu: f64,
+) -> Result<MaterialTables, CliError> {
+    let mut eps_by_tag: BTreeMap<i32, c64> = BTreeMap::new();
+    let mut mu_by_tag: BTreeMap<i32, f64> = BTreeMap::new();
+    let mut eps_diag_by_tag: BTreeMap<i32, [c64; 3]> = BTreeMap::new();
+    let mut mu_diag_by_tag: BTreeMap<i32, [f64; 3]> = BTreeMap::new();
+    let mut sigma_by_tag: BTreeMap<i32, f64> = BTreeMap::new();
+    let mut dispersion: Vec<DispersiveRegion> = Vec::new();
+    for (m, tag) in spec.materials.iter().zip(material_tags) {
+        let tag = *tag;
+        if let Some(s) = m.conductivity_s_m.filter(|&s| s > 0.0) {
+            sigma_by_tag.insert(tag, s);
+        }
+        if let Some(d) = &m.eps_r_diag {
+            eps_diag_by_tag.insert(tag, d.components().map(|[re, im]| c64::new(re, im)));
+        }
+        if let Some(d) = &m.mu_r_diag {
+            mu_diag_by_tag.insert(tag, d.components());
+        }
+        let eps = match &m.dispersion {
+            None if m.eps_r_diag.is_some() => {
+                let d = eps_diag_by_tag[&tag];
+                (d[0] + d[1] + d[2]) / 3.0
+            }
+            None => c64::new(m.eps_r[0], m.eps_r[1]),
+            Some(d) => {
+                let model = DispersionModel::from_spec(d).expect("validated above");
+                // The DS fit point, else (Debye / Drude) the first solved
+                // frequency — a dispersive spec is a driven / extract one,
+                // which always has frequencies (validated above).
+                let f_ref = d.f_ref_hz().unwrap_or_else(|| {
+                    frequencies
+                        .first()
+                        .expect("a dispersive spec has frequencies")
+                        .hz
+                });
+                let eps = model.eps(f_ref);
+                dispersion.push(DispersiveRegion {
+                    name: m.physical_group.clone(),
+                    tag,
+                    model,
+                    spec: d.clone(),
+                });
+                eps
+            }
+        };
+        if eps_by_tag.insert(tag, eps).is_some() {
+            return Err(invalid(format!(
+                "material for `{}` listed more than once",
+                m.physical_group
+            )));
+        }
+        mu_by_tag.insert(
+            tag,
+            m.mu_r_diag.map_or(m.mu_r, |d| (d.xx + d.yy + d.zz) / 3.0),
+        );
+    }
+    let vacuum = c64::new(1.0, 0.0);
+    let eps: Vec<c64> = tagged
+        .tet_physical_tags
+        .iter()
+        .map(|t| eps_by_tag.get(t).copied().unwrap_or(vacuum))
+        .collect();
+    let mu_r = build_mu_r(&tagged.tet_physical_tags, &mu_by_tag);
+    // Natural-unit σ per tet (σ_SI·η₀·L_unit, like the Leontovich walls);
+    // empty when no region conducts, so σ-free specs are untouched.
+    let sigma_tet: Vec<f64> = if sigma_by_tag.is_empty() {
+        Vec::new()
+    } else {
+        tagged
+            .tet_physical_tags
+            .iter()
+            .map(|t| sigma_by_tag.get(t).map_or(0.0, |s| s * ETA_0_OHM * lu))
+            .collect()
+    };
+    // Per-tet diagonal tensors, empty when no material is anisotropic.
+    fn per_tet<T: Copy>(tags: &[i32], by_tag: &BTreeMap<i32, T>) -> Vec<Option<T>> {
+        if by_tag.is_empty() {
+            return Vec::new();
+        }
+        tags.iter().map(|t| by_tag.get(t).copied()).collect()
+    }
+    let eps_diag = per_tet(&tagged.tet_physical_tags, &eps_diag_by_tag);
+    let mu_diag = per_tet(&tagged.tet_physical_tags, &mu_diag_by_tag);
+    let mut counts: BTreeMap<i32, usize> = BTreeMap::new();
+    for &t in &tagged.tet_physical_tags {
+        *counts.entry(t).or_default() += 1;
+    }
+    let regions: Vec<Region> = counts
+        .into_iter()
+        .map(|(tag, n_tets)| {
+            let name = tagged
+                .mesh
+                .physical_groups
+                .get(&(3, tag))
+                .cloned()
+                .unwrap_or_else(|| "<untagged>".to_string());
+            let (eps_r, source) = match eps_by_tag.get(&tag) {
+                Some(&e) if dispersion.iter().any(|d| d.tag == tag) => {
+                    (e, MaterialSource::Dispersion)
+                }
+                Some(&e) => (e, MaterialSource::Spec),
+                None => (vacuum, MaterialSource::DefaultVacuum),
+            };
+            Region {
+                name,
+                tag,
+                n_tets,
+                eps_r,
+                mu_r: mu_by_tag.get(&tag).copied().unwrap_or(1.0),
+                source,
+                eps_r_diag: eps_diag_by_tag.get(&tag).copied(),
+                mu_r_diag: mu_diag_by_tag.get(&tag).copied(),
+                sigma_s_m: sigma_by_tag.get(&tag).copied().unwrap_or(0.0),
+            }
+        })
+        .collect();
+
+    Ok(MaterialTables {
+        eps,
+        mu_r,
+        sigma_tet,
+        eps_diag,
+        mu_diag,
+        dispersion,
+        regions,
+        sigma_by_tag,
+    })
+}
+
 /// Parse, validate and resolve the spec at `spec_path` (no solve).
 ///
 /// The spec is validated for the analysis it describes
@@ -1899,121 +2065,16 @@ pub fn load_parsed(
     };
 
     // ---- materials ---------------------------------------------------
-    let mut eps_by_tag: BTreeMap<i32, c64> = BTreeMap::new();
-    let mut mu_by_tag: BTreeMap<i32, f64> = BTreeMap::new();
-    let mut eps_diag_by_tag: BTreeMap<i32, [c64; 3]> = BTreeMap::new();
-    let mut mu_diag_by_tag: BTreeMap<i32, [f64; 3]> = BTreeMap::new();
-    let mut sigma_by_tag: BTreeMap<i32, f64> = BTreeMap::new();
-    let mut dispersion: Vec<DispersiveRegion> = Vec::new();
-    for (m, tag) in spec.materials.iter().zip(&tags.material) {
-        let tag = *tag;
-        if let Some(s) = m.conductivity_s_m.filter(|&s| s > 0.0) {
-            sigma_by_tag.insert(tag, s);
-        }
-        if let Some(d) = &m.eps_r_diag {
-            eps_diag_by_tag.insert(tag, d.components().map(|[re, im]| c64::new(re, im)));
-        }
-        if let Some(d) = &m.mu_r_diag {
-            mu_diag_by_tag.insert(tag, d.components());
-        }
-        let eps = match &m.dispersion {
-            None if m.eps_r_diag.is_some() => {
-                let d = eps_diag_by_tag[&tag];
-                (d[0] + d[1] + d[2]) / 3.0
-            }
-            None => c64::new(m.eps_r[0], m.eps_r[1]),
-            Some(d) => {
-                let model = DispersionModel::from_spec(d).expect("validated above");
-                // The DS fit point, else (Debye / Drude) the first solved
-                // frequency — a dispersive spec is a driven / extract one,
-                // which always has frequencies (validated above).
-                let f_ref = d.f_ref_hz().unwrap_or_else(|| {
-                    frequencies
-                        .first()
-                        .expect("a dispersive spec has frequencies")
-                        .hz
-                });
-                let eps = model.eps(f_ref);
-                dispersion.push(DispersiveRegion {
-                    name: m.physical_group.clone(),
-                    tag,
-                    model,
-                    spec: d.clone(),
-                });
-                eps
-            }
-        };
-        if eps_by_tag.insert(tag, eps).is_some() {
-            return Err(invalid(format!(
-                "material for `{}` listed more than once",
-                m.physical_group
-            )));
-        }
-        mu_by_tag.insert(
-            tag,
-            m.mu_r_diag.map_or(m.mu_r, |d| (d.xx + d.yy + d.zz) / 3.0),
-        );
-    }
-    let vacuum = c64::new(1.0, 0.0);
-    let eps: Vec<c64> = tagged
-        .tet_physical_tags
-        .iter()
-        .map(|t| eps_by_tag.get(t).copied().unwrap_or(vacuum))
-        .collect();
-    let mu_r = build_mu_r(&tagged.tet_physical_tags, &mu_by_tag);
-    // Natural-unit σ per tet (σ_SI·η₀·L_unit, like the Leontovich walls);
-    // empty when no region conducts, so σ-free specs are untouched.
-    let sigma_tet: Vec<f64> = if sigma_by_tag.is_empty() {
-        Vec::new()
-    } else {
-        tagged
-            .tet_physical_tags
-            .iter()
-            .map(|t| sigma_by_tag.get(t).map_or(0.0, |s| s * ETA_0_OHM * lu))
-            .collect()
-    };
-    // Per-tet diagonal tensors, empty when no material is anisotropic.
-    fn per_tet<T: Copy>(tags: &[i32], by_tag: &BTreeMap<i32, T>) -> Vec<Option<T>> {
-        if by_tag.is_empty() {
-            return Vec::new();
-        }
-        tags.iter().map(|t| by_tag.get(t).copied()).collect()
-    }
-    let eps_diag = per_tet(&tagged.tet_physical_tags, &eps_diag_by_tag);
-    let mu_diag = per_tet(&tagged.tet_physical_tags, &mu_diag_by_tag);
-    let mut counts: BTreeMap<i32, usize> = BTreeMap::new();
-    for &t in &tagged.tet_physical_tags {
-        *counts.entry(t).or_default() += 1;
-    }
-    let regions: Vec<Region> = counts
-        .into_iter()
-        .map(|(tag, n_tets)| {
-            let name = tagged
-                .mesh
-                .physical_groups
-                .get(&(3, tag))
-                .cloned()
-                .unwrap_or_else(|| "<untagged>".to_string());
-            let (eps_r, source) = match eps_by_tag.get(&tag) {
-                Some(&e) if dispersion.iter().any(|d| d.tag == tag) => {
-                    (e, MaterialSource::Dispersion)
-                }
-                Some(&e) => (e, MaterialSource::Spec),
-                None => (vacuum, MaterialSource::DefaultVacuum),
-            };
-            Region {
-                name,
-                tag,
-                n_tets,
-                eps_r,
-                mu_r: mu_by_tag.get(&tag).copied().unwrap_or(1.0),
-                source,
-                eps_r_diag: eps_diag_by_tag.get(&tag).copied(),
-                mu_r_diag: mu_diag_by_tag.get(&tag).copied(),
-                sigma_s_m: sigma_by_tag.get(&tag).copied().unwrap_or(0.0),
-            }
-        })
-        .collect();
+    let MaterialTables {
+        eps,
+        mu_r,
+        sigma_tet,
+        eps_diag,
+        mu_diag,
+        dispersion,
+        regions,
+        sigma_by_tag,
+    } = resolve_materials(&spec, &tags.material, &tagged, &frequencies, lu)?;
 
     // ---- boundary conditions -----------------------------------------
     let pec = spec
@@ -2137,11 +2198,7 @@ pub fn load_parsed(
     // ---- conduction terminals ----------------------------------------
     let conduction = match &spec.conduction {
         Some(c) => {
-            let sigma: Vec<f64> = tagged
-                .tet_physical_tags
-                .iter()
-                .map(|t| sigma_by_tag.get(t).copied().unwrap_or(0.0))
-                .collect();
+            let sigma = sigma_si_per_tet(&tagged.tet_physical_tags, &sigma_by_tag);
             Some(resolve_conduction(
                 c,
                 &tags.conduction_terminal,
@@ -2159,11 +2216,7 @@ pub fn load_parsed(
                 .iter()
                 .map(|x| x.re * geode_core::assembly::electrostatic::EPS_0)
                 .collect();
-            let sigma: Vec<f64> = tagged
-                .tet_physical_tags
-                .iter()
-                .map(|t| sigma_by_tag.get(t).copied().unwrap_or(0.0))
-                .collect();
+            let sigma = sigma_si_per_tet(&tagged.tet_physical_tags, &sigma_by_tag);
             let regions: Vec<EqsRegionTarget> = spec
                 .materials
                 .iter()
