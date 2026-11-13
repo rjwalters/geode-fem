@@ -24,13 +24,12 @@ use geode_core::assembly::conduction::{
     ConductionOptions, ConductionTerminal, assemble_conduction,
 };
 
-use crate::check::{mesh_summary, region_summaries};
-use crate::error::CliError;
+use crate::check::{conductor_summaries, mesh_summary, region_summaries};
+use crate::error::{CliError, scaled_matrix};
 use crate::export::OutDir;
 use crate::problem;
 use crate::report::{
-    ConductionReport, ConductionSettingsSummary, ConductionSolverStats, ConductorSummary,
-    Provenance,
+    ConductionReport, ConductionSettingsSummary, ConductionSolverStats, Provenance,
 };
 use crate::spec::Analysis;
 
@@ -77,18 +76,7 @@ pub fn run(
     let sol = sys.solve(mesh, &v)?;
     let wall_time_s = t0.elapsed().as_secs_f64();
 
-    let g_siemens: Vec<Vec<f64>> =
-        gm.g.iter()
-            .map(|row| row.iter().map(|x| x * scale).collect())
-            .collect();
-    for (i, row) in g_siemens.iter().enumerate() {
-        if let Some(bad) = row.iter().find(|x| !x.is_finite()) {
-            return Err(CliError::NonFinite {
-                index: i,
-                what: format!("conductance row {i} has a non-finite entry {bad}"),
-            });
-        }
-    }
+    let g_siemens = scaled_matrix(&gm.g, scale, "conductance")?;
     let terminal_current_a: Vec<f64> = sol.terminal_current.iter().map(|i| i * scale).collect();
     let n_nodes = mesh.n_nodes();
     let n_pinned: usize = target
@@ -99,16 +87,7 @@ pub fn run(
         .map(|(t, _)| t.nodes.len())
         .sum();
     let settings = ConductionSettingsSummary {
-        terminals: target
-            .terminals
-            .iter()
-            .map(|k| ConductorSummary {
-                physical_group: k.surface.name.clone(),
-                tag: k.surface.tag,
-                n_triangles: k.surface.triangles.len(),
-                n_nodes: k.nodes.len(),
-            })
-            .collect(),
+        terminals: conductor_summaries(&target.terminals),
         r_ext_ohm: target.r_ext.clone(),
         operating_point_v: v.clone(),
         element: "p1_tet",

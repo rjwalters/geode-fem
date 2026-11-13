@@ -21,41 +21,14 @@ use geode_core::assembly::eqs_transient::{
     EqsFloating, EqsOptions, EqsRegion, EqsTerminal, assemble_eqs, eqs_admittance,
 };
 
-use crate::check::{mesh_summary, region_summaries};
-use crate::error::CliError;
-use crate::problem::{self, Conductor, EqsMode};
+use crate::check::{conductor_summaries, mesh_summary, region_summaries};
+use crate::error::{CliError, scaled_matrix};
+use crate::problem::{self, EqsMode};
 use crate::report::{
-    ConductorSummary, EqsAdmittanceReport, EqsReport, EqsSettingsSummary, EqsSolverStats,
-    EqsStepReport, EqsTransientReport, Provenance,
+    EqsAdmittanceReport, EqsReport, EqsSettingsSummary, EqsSolverStats, EqsStepReport,
+    EqsTransientReport, Provenance,
 };
 use crate::spec::Analysis;
-
-fn summaries(list: &[Conductor]) -> Vec<ConductorSummary> {
-    list.iter()
-        .map(|k| ConductorSummary {
-            physical_group: k.surface.name.clone(),
-            tag: k.surface.tag,
-            n_triangles: k.surface.triangles.len(),
-            n_nodes: k.nodes.len(),
-        })
-        .collect()
-}
-
-fn scaled(m: &[Vec<f64>], scale: f64) -> Result<Vec<Vec<f64>>, CliError> {
-    let out: Vec<Vec<f64>> = m
-        .iter()
-        .map(|row| row.iter().map(|x| x * scale).collect())
-        .collect();
-    for (i, row) in out.iter().enumerate() {
-        if let Some(bad) = row.iter().find(|x| !x.is_finite()) {
-            return Err(CliError::NonFinite {
-                index: i,
-                what: format!("admittance row {i} has a non-finite entry {bad}"),
-            });
-        }
-    }
-    Ok(out)
-}
 
 /// Trapezoid `∫ V I dt` over the reported steps, per terminal.
 fn trapezoid(t: &[f64], v: &[Vec<f64>], i: &[Vec<f64>], terminal: usize) -> f64 {
@@ -195,8 +168,8 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<EqsReport, CliErr
                     &floating,
                     omega,
                 )?;
-                let g = scaled(&y.y_re, scale)?;
-                let y_im = scaled(&y.y_im, scale)?;
+                let g = scaled_matrix(&y.y_re, scale, "admittance")?;
+                let y_im = scaled_matrix(&y.y_im, scale, "admittance")?;
                 let c_farad = (omega > 0.0).then(|| {
                     y_im.iter()
                         .map(|row| row.iter().map(|x| x / omega).collect())
@@ -222,8 +195,8 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<EqsReport, CliErr
         mesh: mesh_summary(&p),
         regions: region_summaries(&p),
         eqs: EqsSettingsSummary {
-            terminals: summaries(&target.terminals),
-            floating: summaries(&target.floating),
+            terminals: conductor_summaries(&target.terminals),
+            floating: conductor_summaries(&target.floating),
             mode: if transient.is_some() {
                 "transient"
             } else {
