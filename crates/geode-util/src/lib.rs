@@ -31,6 +31,7 @@ pub mod interop;
 pub mod math;
 pub mod repo;
 pub mod rng;
+pub mod spiral_sweep;
 pub mod units;
 pub mod viz;
 
@@ -65,6 +66,14 @@ mod tests {
         // helper must remain reachable from the crate root.
         let _fixture_ty: Option<crate::fixture::Fixture> = None;
         assert_eq!(crate::fixture::sweep_freqs(1.0, 2.0, 3).len(), 3);
+
+        // spiral_sweep: the shared one-port spiral benchmark sweep
+        // (issue #1572). Exercise the pure file-name selector; the
+        // backend-generic driver is covered in spiral_sweep::tests.
+        assert_eq!(
+            crate::spiral_sweep::FixtureChoice::Smoke.results_file_name(),
+            "results_smoke.toml"
+        );
 
         // viz: bind the public entry point as a fn item to prove the path
         // resolves (its numerics are exercised in viz::tests).
