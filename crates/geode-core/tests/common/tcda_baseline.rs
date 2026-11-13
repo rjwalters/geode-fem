@@ -24,6 +24,28 @@
 //! `Z = Z_scan` of `FloquetCell::edge_scan_impedance`, #1513 AC2), so the
 //! number is a property of (cell, `Z_ref`). `Z_ref` is part of the recorded
 //! baseline, not a free knob of the evaluator.
+//!
+//! # Re-assembly for the design driver (#1578)
+//!
+//! A [`BaselineCell`] also carries the [`BaselineParts`] it was assembled
+//! from — the mesh, the periodic map, the PEC interior mask, the aperture
+//! port triangles and the per-tet `ε` — plus the realized element box. That
+//! is what Phase 4c's min-max driver needs to re-assemble a *morphed* copy
+//! of the same cell: [`BaselineParts::assemble`] takes new node coordinates
+//! and a new per-tet `ε` and rebuilds the `FloquetCell` on the unchanged
+//! connectivity, reusing the same `PeriodicMap`. That reuse is sound only
+//! because the node motion is periodic-preserving and pins both Floquet
+//! port planes, which is exactly what `FloquetElementParam`'s tapers
+//! guarantee (and what `floquet_sensitivity`'s fences enforce).
+//!
+//! [`build_cell_scaled`] builds the same element with every length
+//! multiplied by a scale factor, so the normalized baseline can be
+//! expressed in millimetres (where the 0.15 mm trace/gap limits of #1535
+//! apply) without touching the recorded numbers: the mesh is scaled
+//! *before* the periodic map is built, and the solve is evaluated at
+//! `ω/scale`. In this unit system (`c = 1`, `η = 1`) the scan impedance is
+//! exactly scale-invariant — `K ~ 1/L`, `ω²M ~ 1/L` and `b ~ 1/L`, so
+//! `x = A⁻¹b` and `Z = −e_feedᵀ P x` do not change.
 #![allow(dead_code)] // each test binary uses a subset
 
 use std::f64::consts::PI;
@@ -82,27 +104,161 @@ impl BaselineParams {
     }
 }
 
-/// A built cell plus the feed edge and the realized dipole half-length.
+/// The realized element box of a built cell, in the mesh's own length
+/// units (so already scaled by [`build_cell_scaled`]'s factor). This is
+/// what `ElementGeometry` of `shape::floquet_element` is filled from.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ElementBox {
+    /// Square lattice pitch.
+    pub pitch: f64,
+    /// Dipole plane height above the ground plane.
+    pub h_dip: f64,
+    /// Aperture-face height (the upper Floquet port).
+    pub h_top: f64,
+    /// Realized copper rectangle `[xl, xr]` along `x`.
+    pub patch_x: [f64; 2],
+    /// Realized copper rectangle `[yl, yh]` along `y`.
+    pub patch_y: [f64; 2],
+}
+
+/// Everything the cell was assembled from (#1578), kept so a shape or
+/// material design can re-assemble a morphed copy. See the module docs.
+pub struct BaselineParts {
+    /// The base mesh, as assembled (node coordinates included).
+    pub mesh: TetMesh,
+    /// The periodic map; reusable on any periodic-preserving node motion.
+    pub map: PeriodicMap,
+    /// PEC interior mask (ground plane plus the dipole metal).
+    pub mask: Vec<bool>,
+    /// The aperture Floquet port triangles.
+    pub aperture: Vec<[u32; 3]>,
+    /// Per-tet complex `ε` of the baseline stack.
+    pub eps: Vec<c64>,
+    /// `true` for the tets of the dielectric superstrate: the region a
+    /// material design tunes.
+    pub superstrate: Vec<bool>,
+    /// The driven delta-gap edge (a full edge DOF).
+    pub feed_edge: usize,
+    /// Realized half-length (the mesh quantizes `half_len`).
+    pub half_len: f64,
+    /// The realized element box, in the mesh's units.
+    pub geom: ElementBox,
+    /// Length units of the mesh per normalized unit (1.0 for the recorded
+    /// baseline). A normalized `ω` is evaluated at `ω / scale`.
+    pub scale: f64,
+}
+
+impl BaselineParts {
+    /// The angular frequency to solve this mesh at for a normalized `omega`
+    /// (`ω₀ = π` in the normalized units of the recorded baseline).
+    pub fn omega_of(&self, omega_normalized: f64) -> f64 {
+        omega_normalized / self.scale
+    }
+
+    /// Re-assemble on new node coordinates (same connectivity) and a new
+    /// per-tet `ε`, reusing the periodic map and the PEC mask.
+    ///
+    /// # Errors
+    ///
+    /// A length mismatch, or the Floquet assembly error (stringified).
+    pub fn assemble(&self, nodes: &[[f64; 3]], eps: &[c64]) -> Result<FloquetCell, String> {
+        if nodes.len() != self.mesh.n_nodes() {
+            return Err(format!(
+                "{} node coordinates, the mesh has {}",
+                nodes.len(),
+                self.mesh.n_nodes()
+            ));
+        }
+        if eps.len() != self.mesh.n_tets() {
+            return Err(format!(
+                "{} per-tet eps, the mesh has {} tets",
+                eps.len(),
+                self.mesh.n_tets()
+            ));
+        }
+        let mut mesh = self.mesh.clone();
+        mesh.nodes.copy_from_slice(nodes);
+        FloquetCell::assemble_radiator::<B>(
+            &mesh,
+            &self.map,
+            eps,
+            None,
+            Some(&self.mask),
+            FloquetPortSpec {
+                triangles: &self.aperture,
+                eps_r: 1.0,
+            },
+            FloquetSettings::default(),
+            &test_device(),
+        )
+        .map_err(|e| e.to_string())
+    }
+}
+
+/// A built cell plus the feed edge, the realized dipole half-length and
+/// everything it was assembled from.
 pub struct BaselineCell {
     pub cell: FloquetCell,
     pub feed_edge: usize,
     /// Realized half-length (the mesh quantizes `half_len`).
     pub half_len: f64,
+    /// The mesh, periodic map, PEC mask, aperture and per-tet `eps` (#1578).
+    pub parts: BaselineParts,
 }
 
-/// Assemble the cell of `p` (ground plane at `z = 0`, periodic in `x`, `y`).
+/// Assemble the cell of `p` (ground plane at `z = 0`, periodic in `x`, `y`)
+/// in the repo's normalized units: the recorded baseline.
 pub fn build_cell(p: &BaselineParams) -> BaselineCell {
+    build_cell_scaled(p, 1.0)
+}
+
+/// [`build_cell`] with every length multiplied by `scale` (module docs:
+/// the scan impedance is invariant, so the recorded numbers reproduce at
+/// `omega/scale`).
+///
+/// # Panics
+///
+/// Panics if `scale` is not finite and positive, or if the mesh has no
+/// feed-gap edge (a malformed [`BaselineParams`]).
+pub fn build_cell_scaled(p: &BaselineParams, scale: f64) -> BaselineCell {
+    let parts = build_parts(p, scale);
+    let nodes = parts.mesh.nodes.clone();
+    let eps = parts.eps.clone();
+    let cell = parts
+        .assemble(&nodes, &eps)
+        .expect("the baseline cell assembles");
+    BaselineCell {
+        cell,
+        feed_edge: parts.feed_edge,
+        half_len: parts.half_len,
+        parts,
+    }
+}
+
+/// Build the mesh, maps, mask and materials of the cell of `p`, scaled by
+/// `scale`, without assembling it.
+///
+/// # Panics
+///
+/// As [`build_cell_scaled`].
+pub fn build_parts(p: &BaselineParams, scale: f64) -> BaselineParts {
+    assert!(
+        scale.is_finite() && scale > 0.0,
+        "scale must be finite and positive (got {scale})"
+    );
     let nx = p.n + 1;
-    let hx = p.pitch / nx as f64;
-    let hy = p.pitch / p.n as f64;
-    let (h_dip, h_top) = (p.h_dip(), p.h_top());
+    let pitch = p.pitch * scale;
+    let hx = pitch / nx as f64;
+    let hy = pitch / p.n as f64;
+    let (h_dip, h_top) = (p.h_dip() * scale, p.h_top() * scale);
+    let half_len_target = p.half_len * scale;
     let nz = p.l_dip + p.l_sub + p.l_air;
-    let size = [p.pitch, p.pitch, h_top];
+    let size = [pitch, pitch, h_top];
     let mut mesh: TetMesh = renumber(&box_tet_mesh([nx, p.n, nz], size), 5);
     let pairs = box_periodic_pairs(&mesh, &[0, 1]);
     let map = PeriodicMap::build(&mut mesh, &pairs, &PeriodicMatchOptions::default()).unwrap();
-    let tol = 1e-9;
-    let c = p.pitch / 2.0;
+    let tol = 1e-9 * scale;
+    let c = pitch / 2.0;
     let aperture = boundary_triangles_on_plane(&mesh, 2, h_top, tol);
     let mut pec = boundary_triangles_on_plane(&mesh, 2, 0.0, tol);
     let w = p.strip_cells as f64 * hy;
@@ -114,7 +270,8 @@ pub fn build_cell(p: &BaselineParams) -> BaselineCell {
         }
         let cx = q.iter().map(|r| r[0]).sum::<f64>() / 3.0;
         let cy = q.iter().map(|r| r[1]).sum::<f64>() / 3.0;
-        if (cx - c).abs() < p.half_len && (cy - c).abs() < w / 2.0 && (cx - c).abs() > hx / 2.0 {
+        if (cx - c).abs() < half_len_target && (cy - c).abs() < w / 2.0 && (cx - c).abs() > hx / 2.0
+        {
             pec.push(t);
             for r in q {
                 l_max = l_max.max((r[0] - c).abs());
@@ -137,39 +294,37 @@ pub fn build_cell(p: &BaselineParams) -> BaselineCell {
         })
         .expect("feed gap edge");
     assert!(mask[feed_edge], "the gap edge must be free");
-    // Superstrate: tets whose centroid lies in (h_dip, h_dip + l_sub·dz).
-    let z_sub = h_dip + p.dz * p.l_sub as f64;
-    let eps: Vec<c64> = mesh
+    // Superstrate: tets whose centroid lies in (h_dip, h_dip + l_sub*dz).
+    let z_sub = h_dip + p.dz * scale * p.l_sub as f64;
+    let superstrate: Vec<bool> = mesh
         .tets
         .iter()
         .map(|t| {
             let zc = t.iter().map(|&v| mesh.nodes[v as usize][2]).sum::<f64>() / 4.0;
-            let e = if zc > h_dip && zc < z_sub {
-                p.eps_sub
-            } else {
-                1.0
-            };
-            c64::new(e, 0.0)
+            zc > h_dip && zc < z_sub
         })
         .collect();
-    let cell = FloquetCell::assemble_radiator::<B>(
-        &mesh,
-        &map,
-        &eps,
-        None,
-        Some(&mask),
-        FloquetPortSpec {
-            triangles: &aperture,
-            eps_r: 1.0,
-        },
-        FloquetSettings::default(),
-        &test_device(),
-    )
-    .unwrap();
-    BaselineCell {
-        cell,
+    let eps: Vec<c64> = superstrate
+        .iter()
+        .map(|&inside| c64::new(if inside { p.eps_sub } else { 1.0 }, 0.0))
+        .collect();
+    BaselineParts {
+        mesh,
+        map,
+        mask,
+        aperture,
+        eps,
+        superstrate,
         feed_edge,
         half_len: l_max,
+        geom: ElementBox {
+            pitch,
+            h_dip,
+            h_top,
+            patch_x: [c - l_max, c + l_max],
+            patch_y: [c - w / 2.0, c + w / 2.0],
+        },
+        scale,
     }
 }
 
@@ -193,6 +348,23 @@ impl BaselineCell {
             .edge_scan_impedance(omega, theta, phi, self.feed_edge)
             .map_err(|e| e.to_string())?;
         Ok((z - z_ref) / (z + z_ref))
+    }
+
+    /// [`Self::gamma_active`] at a **normalized** angular frequency
+    /// (`ω₀ = π`, `λ₀ = 2`), converted to the mesh's own units with the
+    /// build scale. Identical to `gamma_active` for an unscaled cell.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::gamma_active`].
+    pub fn gamma_active_norm(
+        &self,
+        omega_normalized: f64,
+        theta: f64,
+        phi: f64,
+        z_ref: f64,
+    ) -> Result<c64, String> {
+        self.gamma_active(self.parts.omega_of(omega_normalized), theta, phi, z_ref)
     }
 }
 
