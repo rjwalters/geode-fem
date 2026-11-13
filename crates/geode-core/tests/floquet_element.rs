@@ -104,8 +104,8 @@ fn exactly_the_minimum_gap_is_not_a_spurious_violation() {
     let th = p.initial_theta();
     let exact = p.constraints_sampled(&th).unwrap();
     // The gap-x samples are the third group of 9.
-    for k in 18..27 {
-        assert!(exact.g[k].abs() < 1e-12, "g[{k}] = {}", exact.g[k]);
+    for (k, g) in exact.g.iter().enumerate().take(27).skip(18) {
+        assert!(g.abs() < 1e-12, "g[{k}] = {g}");
     }
     assert!(exact.max_violation() < 1e-12);
     // KS never under-reports and overshoots by at most ln(N)/β.
