@@ -91,7 +91,7 @@ All three models are post-processing of `J`, `T` and, for Korhonen, stress.
 Black (1969), Blech–Herring (1976), Korhonen et al. (1993) and Timoshenko (1925) were
 checked against bibliographic records on 2026-11-13 (title, venue, volume, pages). Their
 full texts were not read here. Each equation used as a validation target must be checked
-against the source by the child-issue builder before the test is written. Note that one
-bibliographic index lists a different third author (Brown) for Korhonen et al.; K. N. Tu
-is used above and should be re-verified against the journal page. The Wiedemann–Franz and
-Duhamel–Neumann references are classical and not re-checked.
+against the source by the child-issue builder before the test is written. The Korhonen et
+al. author list used above, with K. N. Tu as the third author, was confirmed against the
+DOI record `10.1063/1.354073`. The Wiedemann–Franz and Duhamel–Neumann references are
+classical and not re-checked.

@@ -13,9 +13,8 @@
 //!   films on titanium nitride", *J. Appl. Phys.* 47, 1203 (1976); Blech &
 //!   Herring, *Appl. Phys. Lett.* 29, 131 (1976)).
 //! * [`korhonen_evolve`] — the 1-D stress-evolution equation of Korhonen,
-//!   Børgesen, Brown & Li, "Stress evolution due to electromigration in
-//!   confined metal lines", *J. Appl. Phys.* 73, 3790 (1993)
-//!   (author list to be re-verified against the journal page).
+//!   Børgesen, Tu & Li, "Stress evolution due to electromigration in
+//!   confined metal lines", *J. Appl. Phys.* 73, 3790 (1993).
 //!
 //! No material constants are defaulted: every constant is a caller input.
 //! Only the CODATA constants `k_B` and `e` live here.
@@ -66,6 +65,8 @@ pub enum EmError {
     NonPositive(&'static str),
     /// A parameter that must be finite was not.
     NonFinite(&'static str),
+    /// A parameter that must be finite and non-negative was negative.
+    Negative(&'static str),
     /// Discretisation counts must be at least 2 cells and 1 step.
     BadDiscretisation,
 }
@@ -75,6 +76,7 @@ impl fmt::Display for EmError {
         match self {
             Self::NonPositive(n) => write!(f, "electromigration: `{n}` must be finite and > 0"),
             Self::NonFinite(n) => write!(f, "electromigration: `{n}` must be finite"),
+            Self::Negative(n) => write!(f, "electromigration: `{n}` must be finite and >= 0"),
             Self::BadDiscretisation => {
                 write!(f, "electromigration: need n_cells >= 2 and n_steps >= 1")
             }
@@ -306,8 +308,11 @@ pub fn korhonen_evolve(
 ) -> Result<KorhonenProfile, EmError> {
     line.validate()?;
     waveform.validate()?;
-    if !t_end.is_finite() || t_end < 0.0 {
+    if !t_end.is_finite() {
         return Err(EmError::NonFinite("t_end"));
+    }
+    if t_end < 0.0 {
+        return Err(EmError::Negative("t_end"));
     }
     if n_cells < 2 || n_steps < 1 {
         return Err(EmError::BadDiscretisation);
