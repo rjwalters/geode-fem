@@ -31,21 +31,19 @@
 //! cargo test -p geode-core --release --test wave_port_impedance_walls
 //! ```
 
+mod common;
+use common::wave_port::rect_wave_port;
 use faer::c64;
-use geode_core::analytic::waveguide::{
-    rect_tri_mesh, solve_rect_waveguide_modes, te10_conductor_attenuation,
-};
+use geode_core::analytic::waveguide::te10_conductor_attenuation;
 use geode_core::constants::ETA_0_OHM;
 use geode_core::driven::ports::{
-    ExtrudedWaveguideMesh, PortMedium, PortMode, WavePort, WavePortSweepPoint,
-    extruded_rect_waveguide_mesh, map_mode_profile_to_full_mesh, solve_mixed_port_sweep_with_mode,
-    solve_wave_port_sweep, solve_wave_port_sweep_with_mode,
+    ExtrudedWaveguideMesh, PortMedium, WavePort, WavePortSweepPoint, extruded_rect_waveguide_mesh,
+    solve_mixed_port_sweep_with_mode, solve_wave_port_sweep, solve_wave_port_sweep_with_mode,
 };
 use geode_core::driven::solve::{
     DrivenBcs, DrivenMaterials, SolverMode, SurfaceImpedanceBc, SurfaceImpedanceModel,
     SurfaceRoughness,
 };
-use geode_core::mesh::TetMesh;
 use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
@@ -66,8 +64,7 @@ fn guide(n: usize) -> ExtrudedWaveguideMesh {
     extruded_rect_waveguide_mesh(2 * n, n, n, A, B_DIM, LEN)
 }
 
-/// TE₁₀ wave port on the `z = z_plane` face (same construction as
-/// `tests/wave_port.rs` / `tests/mixed_port.rs`).
+/// TE₁₀ wave port on the `z = z_plane` face, filled by `medium`.
 fn wave_port(
     g: &ExtrudedWaveguideMesh,
     n: usize,
@@ -75,43 +72,16 @@ fn wave_port(
     z_plane: f64,
     medium: PortMedium,
 ) -> WavePort {
-    let mesh: &TetMesh = &g.mesh;
-    let port_mesh = rect_tri_mesh(2 * n, n, A, B_DIM);
-    let node_3d = |x: f64, y: f64| -> u32 {
-        mesh.nodes
-            .iter()
-            .position(|p| {
-                (p[0] - x).abs() < 1e-9 && (p[1] - y).abs() < 1e-9 && (p[2] - z_plane).abs() < 1e-9
-            })
-            .expect("port-face node in the 3-D mesh") as u32
-    };
-    let map: Vec<u32> = port_mesh
-        .nodes
-        .iter()
-        .map(|p| node_3d(p[0], p[1]))
-        .collect();
-    let edges_2d: Vec<[u32; 2]> = port_mesh
-        .edges()
-        .iter()
-        .map(|e| {
-            let (a, b) = (map[e[0] as usize], map[e[1] as usize]);
-            if a < b { [a, b] } else { [b, a] }
-        })
-        .collect();
-    let edges_3d = mesh.edges();
-    let modes = solve_rect_waveguide_modes(&port_mesh, A, B_DIM, 1).expect("modal solve");
-    WavePort {
-        faces: faces.to_vec(),
-        modes: modes
-            .iter()
-            .map(|m| PortMode {
-                mode: map_mode_profile_to_full_mesh(&edges_2d, &m.e_edges, &edges_3d),
-                k_c: m.k_c,
-                a_inc: c64::new(1.0, 0.0),
-            })
-            .collect(),
-        medium,
-    }
+    rect_wave_port(
+        &g.mesh,
+        faces,
+        z_plane,
+        [2 * n, n],
+        [A, B_DIM],
+        1,
+        c64::new(1.0, 0.0),
+    )
+    .with_medium(medium)
 }
 
 /// Wall model of a run (`Pec` = PEC sidewalls, else all four sidewalls
