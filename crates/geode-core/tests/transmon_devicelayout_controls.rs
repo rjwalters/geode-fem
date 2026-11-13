@@ -41,7 +41,7 @@ use common::repo_root as repo;
 
 #[path = "common/transmon_util.rs"]
 mod transmon_util;
-use transmon_util::{tarr, tget};
+use transmon_util::{tarr, tf, tget};
 
 const CELLS: &str = "reference/fixtures/transmon_palace/results_controls_1123";
 const X1092: &str = "reference/fixtures/transmon_palace/results_crosscheck_1092";
@@ -59,13 +59,6 @@ fn doc(rel: &str) -> toml::Value {
 
 fn results() -> toml::Value {
     doc("benchmarks/transmon_devicelayout_controls/results.toml")
-}
-
-fn tf(v: &toml::Value, path: &str) -> f64 {
-    let x = tget(v, path);
-    x.as_float()
-        .or_else(|| x.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("{path} is not a number"))
 }
 
 fn tbool(v: &toml::Value, path: &str) -> bool {

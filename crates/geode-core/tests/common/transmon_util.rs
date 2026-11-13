@@ -106,3 +106,18 @@ pub fn tarr(v: &toml::Value, path: &str) -> Vec<f64> {
         })
         .collect()
 }
+
+/// Read a TOML number (float or integer) at a dotted key path.
+pub fn tf(v: &toml::Value, path: &str) -> f64 {
+    let x = tget(v, path);
+    x.as_float()
+        .or_else(|| x.as_integer().map(|i| i as f64))
+        .unwrap_or_else(|| panic!("{path} is not a number"))
+}
+
+/// Read a TOML string at a dotted key path.
+pub fn tstr<'a>(v: &'a toml::Value, path: &str) -> &'a str {
+    tget(v, path)
+        .as_str()
+        .unwrap_or_else(|| panic!("{path} is not a string"))
+}
