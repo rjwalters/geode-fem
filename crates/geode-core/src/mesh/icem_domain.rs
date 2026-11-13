@@ -28,7 +28,7 @@
 //! | `fillet_radius` | `Sr1` | m | `> 0` | `sector_curves`, flank guard |
 //! | `fillet_centre_y` | `y_f` | m | `> 0` | `sector_curves`, flank guard |
 //! | `flank_length` | `f_hi.x − t_hi.x` | m | `> 0` | `sector_curves`, flank guard |
-//! | `cp_coupling.<label>` (55, space B) | `r_c − |P_i|` (rotor), `|P_i| − r_c` (stator) | m | `> 0` | `sector_curves_cp`, coupling-circle guard |
+//! | `cp_coupling.<label>` (55, space B) | `r_c − \|P_i\|` (rotor), `\|P_i\| − r_c` (stator) | m | `> 0` | `sector_curves_cp`, coupling-circle guard |
 //!
 //! The one *discrete* guard is `components_finite`: every component is a
 //! finite number (the construction's `is_nan` test on the discriminant, and
