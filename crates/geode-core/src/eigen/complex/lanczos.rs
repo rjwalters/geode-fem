@@ -102,7 +102,7 @@ use crate::eigen::parallel::{
     ParallelismGuard, SequentialSolveScope, resolve_num_threads, sequential_scope_for_solves,
 };
 use crate::eigen::shift_guard::{check_degenerate_shift, median_diag_ratio};
-use crate::sparse_ops::lu_solve;
+use crate::sparse_ops::{lu_solve, spmv_c_into as spmv};
 
 /// Sparse generalized complex-symmetric eigensolver via shift-and-invert
 /// Lanczos.
@@ -172,34 +172,6 @@ pub trait SparseComplexEigenSolver {
         m: SparseColMatRef<'_, usize, c64>,
         n: usize,
     ) -> Result<Vec<c64>, EigenError>;
-}
-
-/// Compute `y += A · x` for complex `A` in CSC form.
-pub(crate) fn spmv_add(a: SparseColMatRef<'_, usize, c64>, x: &[c64], y: &mut [c64]) {
-    let col_ptr = a.col_ptr();
-    let row_idx = a.row_idx();
-    let val = a.val();
-    let ncols = a.ncols();
-    for j in 0..ncols {
-        let start = col_ptr[j];
-        let end = col_ptr[j + 1];
-        let xj = x[j];
-        if xj.re == 0.0 && xj.im == 0.0 {
-            continue;
-        }
-        for k in start..end {
-            let i = row_idx[k];
-            y[i] += val[k] * xj;
-        }
-    }
-}
-
-/// Compute `y = A · x` (overwrite) for complex sparse `A`.
-pub(crate) fn spmv(a: SparseColMatRef<'_, usize, c64>, x: &[c64], y: &mut [c64]) {
-    for v in y.iter_mut() {
-        *v = c64::new(0.0, 0.0);
-    }
-    spmv_add(a, x, y);
 }
 
 /// Bilinear M-inner product `u^T M v = sum u[i] * (M v)[i]`. Note **no

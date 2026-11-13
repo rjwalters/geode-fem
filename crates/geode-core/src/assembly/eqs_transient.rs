@@ -45,11 +45,11 @@
 //! `2n × 2n` block system) and returns the terminal admittance
 //! `Y = G + jωC`, the complex-permittivity form `ε − jσ/ω`.
 
-use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
 use crate::assembly::electrostatic::{ElectrostaticError, tet_bary_grads, tet_p1_local};
 use crate::mesh::TetMesh;
+use crate::sparse_ops::{lu_solve as sparse_lu_solve, spmv};
 
 type Csc = SparseColMat<usize, f64>;
 type Lu = faer::sparse::linalg::solvers::Lu<usize, f64>;
@@ -167,18 +167,6 @@ fn coords_of(mesh: &TetMesh, tet: &[u32; 4]) -> [[f64; 3]; 4] {
     ]
 }
 
-fn matvec(a: &Csc, x: &[f64]) -> Vec<f64> {
-    let r = a.as_ref();
-    let (cp, ri, v) = (r.col_ptr(), r.row_idx(), r.val());
-    let mut y = vec![0.0; r.nrows()];
-    for (j, &xj) in x.iter().enumerate() {
-        for k in cp[j]..cp[j + 1] {
-            y[ri[k]] += v[k] * xj;
-        }
-    }
-    y
-}
-
 fn combine(a: &Csc, ca: f64, b: &Csc, cb: f64) -> Result<Csc, ElectrostaticError> {
     let n = a.nrows();
     let mut t: Vec<Triplet<usize, usize, f64>> = Vec::new();
@@ -194,11 +182,11 @@ fn combine(a: &Csc, ca: f64, b: &Csc, cb: f64) -> Result<Csc, ElectrostaticError
     Csc::try_new_from_triplets(n, n, &t).map_err(|e| ElectrostaticError::Assembly(format!("{e:?}")))
 }
 
+/// Allocating form of the shared sparse LU solve.
 fn lu_solve(lu: &Lu, b: &[f64]) -> Vec<f64> {
-    use faer::linalg::solvers::Solve;
-    let mut m: Mat<f64> = Mat::from_fn(b.len(), 1, |i, _| b[i]);
-    lu.solve_in_place(m.as_mut());
-    (0..b.len()).map(|i| m[(i, 0)]).collect()
+    let mut out = vec![0.0; b.len()];
+    sparse_lu_solve(lu, b, &mut out);
+    out
 }
 
 fn factor(a: &Csc) -> Result<Lu, ElectrostaticError> {
@@ -458,7 +446,7 @@ impl EqsSystem {
         let w = self.ops.pinned(v);
         let rhs: Vec<f64> = self
             .ops
-            .reduce_vec(&matvec(&self.ops.c, &w))
+            .reduce_vec(&spmv(self.ops.c.as_ref(), &w))
             .iter()
             .map(|x| -x)
             .collect();
@@ -512,7 +500,7 @@ impl EqsSystem {
         let mut phi = self.electrostatic_state(&v0)?;
         let mut steps = Vec::with_capacity(n_steps + 1);
         {
-            let kphi = matvec(&ops.k, &phi);
+            let kphi = spmv(ops.k.as_ref(), &phi);
             let i_cond: Vec<f64> = ops
                 .term_nodes
                 .iter()
@@ -538,17 +526,17 @@ impl EqsSystem {
             let t = s as f64 * dt;
             let v = volt(t)?;
             let w = ops.pinned(&v);
-            let bphi = matvec(&self.b_full, &phi);
-            let aw = matvec(&self.a_full, &w);
+            let bphi = spmv(self.b_full.as_ref(), &phi);
+            let aw = spmv(self.a_full.as_ref(), &w);
             let rhs_full: Vec<f64> = bphi.iter().zip(&aw).map(|(b, a)| b - a).collect();
             let u = lu_solve(&self.lu_a, &ops.reduce_vec(&rhs_full));
             check_finite(&u, "time step")?;
             let new = ops.expand(&u, &w);
 
-            let k_new = matvec(&ops.k, &new);
-            let k_old = matvec(&ops.k, &phi);
+            let k_new = spmv(ops.k.as_ref(), &new);
+            let k_old = spmv(ops.k.as_ref(), &phi);
             let dphi: Vec<f64> = new.iter().zip(&phi).map(|(a, b)| (a - b) / dt).collect();
-            let cd = matvec(&ops.c, &dphi);
+            let cd = spmv(ops.c.as_ref(), &dphi);
             let cond: Vec<f64> = k_new
                 .iter()
                 .zip(&k_old)
@@ -688,9 +676,9 @@ pub fn eqs_admittance(
         v[j] = 1.0;
         let w = ops.pinned(&v);
         let mut rhs = Vec::with_capacity(2 * m);
-        rhs.extend(ops.reduce_vec(&matvec(&ops.k, &w)).iter().map(|x| -x));
+        rhs.extend(ops.reduce_vec(&spmv(ops.k.as_ref(), &w)).iter().map(|x| -x));
         rhs.extend(
-            ops.reduce_vec(&matvec(&ops.c, &w))
+            ops.reduce_vec(&spmv(ops.c.as_ref(), &w))
                 .iter()
                 .map(|x| -omega * x),
         );
@@ -698,8 +686,8 @@ pub fn eqs_admittance(
         check_finite(&u, "admittance solve")?;
         let re = ops.expand(&u[..m], &w);
         let im = ops.expand(&u[m..], &zero);
-        let (k_re, k_im) = (matvec(&ops.k, &re), matvec(&ops.k, &im));
-        let (c_re, c_im) = (matvec(&ops.c, &re), matvec(&ops.c, &im));
+        let (k_re, k_im) = (spmv(ops.k.as_ref(), &re), spmv(ops.k.as_ref(), &im));
+        let (c_re, c_im) = (spmv(ops.c.as_ref(), &re), spmv(ops.c.as_ref(), &im));
         for i in 0..n {
             let nodes = &ops.term_nodes[i];
             y_re[i][j] = Ops::sum_over(nodes, &k_re) - omega * Ops::sum_over(nodes, &c_im);
