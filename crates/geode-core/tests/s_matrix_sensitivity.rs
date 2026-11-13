@@ -23,17 +23,17 @@
 //! cargo test -p geode-core --release --test s_matrix_sensitivity -- --nocapture
 //! ```
 
+mod common;
+use common::wave_port::rect_wave_port;
 use faer::c64;
-use geode_core::analytic::waveguide::{rect_tri_mesh, solve_rect_waveguide_modes};
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::assembly::nedelec::tet_centroid as centroid;
 use geode_core::driven::adjoint::driven_material_adjoint_gradient_ports;
 use geode_core::driven::extraction::{s_parameter_frequency_sweep_with_mode, s11_sq_objective};
 use geode_core::driven::ports::{
     ExtrudedWaveguideMesh, HybridPortFace, HybridWavePort, HybridWavePortOpts, LumpedPort,
-    PortMedium, PortMode, WavePort, WavePortSpec, assemble_port_flux,
-    extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
-    map_mode_profile_to_full_mesh, solve_mixed_port_sweep_with_mode,
+    PortMedium, WavePort, WavePortSpec, assemble_port_flux, extruded_height_step_waveguide_mesh,
+    extruded_rect_waveguide_mesh, solve_mixed_port_sweep_with_mode,
     solve_wave_port_spec_sweep_with_mode, solve_wave_port_sweep_with_mode,
 };
 use geode_core::driven::s_sensitivity::{
@@ -86,8 +86,7 @@ fn region_eps(regions: &[Option<usize>], inside: c64, outside: c64) -> Vec<c64> 
 }
 
 /// The lowest `n_modes` TE port modes of an `a × b` (`nx × ny`) face at
-/// `z = z_plane`, on the 3-D edge table (the `tests/mixed_port.rs`
-/// construction).
+/// `z = z_plane`, on the 3-D edge table.
 #[allow(clippy::too_many_arguments)]
 fn wave_port_ab(
     mesh: &TetMesh,
@@ -99,42 +98,15 @@ fn wave_port_ab(
     b: f64,
     n_modes: usize,
 ) -> WavePort {
-    let port_mesh = rect_tri_mesh(nx, ny, a, b);
-    let node_3d = |x: f64, y: f64| -> u32 {
-        mesh.nodes
-            .iter()
-            .position(|p| {
-                (p[0] - x).abs() < 1e-9 && (p[1] - y).abs() < 1e-9 && (p[2] - z_plane).abs() < 1e-9
-            })
-            .expect("port-face node in the 3-D mesh") as u32
-    };
-    let map: Vec<u32> = port_mesh
-        .nodes
-        .iter()
-        .map(|p| node_3d(p[0], p[1]))
-        .collect();
-    let edges_2d: Vec<[u32; 2]> = port_mesh
-        .edges()
-        .iter()
-        .map(|e| {
-            let (a, b) = (map[e[0] as usize], map[e[1] as usize]);
-            if a < b { [a, b] } else { [b, a] }
-        })
-        .collect();
-    let edges_3d = mesh.edges();
-    let modes = solve_rect_waveguide_modes(&port_mesh, a, b, n_modes).expect("modal solve");
-    WavePort {
-        faces: faces.to_vec(),
-        modes: modes
-            .iter()
-            .map(|m| PortMode {
-                mode: map_mode_profile_to_full_mesh(&edges_2d, &m.e_edges, &edges_3d),
-                k_c: m.k_c,
-                a_inc: c64::new(1.0, 0.0),
-            })
-            .collect(),
-        medium: PortMedium::VACUUM,
-    }
+    rect_wave_port(
+        mesh,
+        faces,
+        z_plane,
+        [nx, ny],
+        [a, b],
+        n_modes,
+        c64::new(1.0, 0.0),
+    )
 }
 
 fn wave_port(mesh: &TetMesh, faces: &[[u32; 3]], z_plane: f64, n_modes: usize) -> WavePort {

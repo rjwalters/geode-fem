@@ -25,20 +25,20 @@
 
 mod common;
 use common::vacuum_eps as vacuum;
+use common::wave_port::rect_wave_port;
 use common::{all_plane_faces, pec_mask_for_planes, zero_source};
 
 use faer::c64;
-use geode_core::analytic::waveguide::{rect_tri_mesh, solve_rect_waveguide_modes};
 use geode_core::driven::extraction::{
     driven_frequency_sweep, driven_frequency_sweep_with_mode, s_parameter_frequency_sweep,
     s_parameter_frequency_sweep_with_mode,
 };
 use geode_core::driven::ports::{
-    LumpedPort, WavePort, extruded_rect_waveguide_mesh, map_mode_profile_to_full_mesh,
-    solve_wave_port_sweep, solve_wave_port_sweep_with_mode,
+    LumpedPort, extruded_rect_waveguide_mesh, solve_wave_port_sweep,
+    solve_wave_port_sweep_with_mode,
 };
 use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, IterativeSettings, SolverMode};
-use geode_core::mesh::{TetMesh, cube_tet_mesh};
+use geode_core::mesh::cube_tet_mesh;
 use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
@@ -242,53 +242,6 @@ fn s_parameter_sweep_iterative_matches_direct() {
 // 2. solve_wave_port_sweep: rank-N SMW + iterative back-solve
 // ===========================================================================
 
-/// Build a TE₁₀ wave port on the `z = z_plane` face of the extruded
-/// rectangular waveguide section. Same construction as the
-/// `build_te10_port` helper in `tests/wave_port.rs`. (issue #264 keeps
-/// the wave-port construction inline so the iterative regression is
-/// self-contained.)
-#[allow(clippy::too_many_arguments)]
-fn build_te10_port(
-    mesh: &TetMesh,
-    faces_3d: &[[u32; 3]],
-    a: f64,
-    b: f64,
-    nx: usize,
-    ny: usize,
-    z_plane: f64,
-    a_inc: c64,
-) -> WavePort {
-    let port_mesh = rect_tri_mesh(nx, ny, a, b);
-    let tol = 1e-9 * a.max(b).max(1.0);
-    let three_d_idx_of = |x: f64, y: f64| -> u32 {
-        mesh.nodes
-            .iter()
-            .position(|p| {
-                (p[0] - x).abs() < tol && (p[1] - y).abs() < tol && (p[2] - z_plane).abs() < tol
-            })
-            .expect("port-face node not found in 3-D mesh") as u32
-    };
-    let n2d_to_n3d: Vec<u32> = port_mesh
-        .nodes
-        .iter()
-        .map(|p| three_d_idx_of(p[0], p[1]))
-        .collect();
-    let edges_2d = port_mesh.edges();
-    let edges_2d_relabeled: Vec<[u32; 2]> = edges_2d
-        .iter()
-        .map(|e| {
-            let (a3, b3) = (n2d_to_n3d[e[0] as usize], n2d_to_n3d[e[1] as usize]);
-            if a3 < b3 { [a3, b3] } else { [b3, a3] }
-        })
-        .collect();
-    let modes = solve_rect_waveguide_modes(&port_mesh, a, b, 1).expect("2-D modal solve");
-    let m = &modes[0];
-    let mode_2d = m.e_edges.clone();
-    let edges_3d = mesh.edges();
-    let mode_3d = map_mode_profile_to_full_mesh(&edges_2d_relabeled, &mode_2d, &edges_3d);
-    WavePort::single_mode(faces_3d.to_vec(), mode_3d, m.k_c, a_inc)
-}
-
 /// **Issue #264 acceptance criterion 2**: `solve_wave_port_sweep` with
 /// `SolverMode::Iterative` produces the same wave-port S-matrix as the
 /// direct LU path within documented tolerance — the rank-N SMW
@@ -312,26 +265,9 @@ fn wave_port_sweep_iterative_matches_direct() {
     // TE₁₀ cutoff k_c = π/a. Pick ω above cutoff so the mode propagates.
     let omega = 2.5_f64;
 
-    let port1 = build_te10_port(
-        &g.mesh,
-        &g.port1_faces,
-        a,
-        b,
-        nx,
-        ny,
-        0.0,
-        c64::new(1.0, 0.0),
-    );
-    let port2 = build_te10_port(
-        &g.mesh,
-        &g.port2_faces,
-        a,
-        b,
-        nx,
-        ny,
-        length,
-        c64::new(1.0, 0.0),
-    );
+    let one = c64::new(1.0, 0.0);
+    let port1 = rect_wave_port(&g.mesh, &g.port1_faces, 0.0, [nx, ny], [a, b], 1, one);
+    let port2 = rect_wave_port(&g.mesh, &g.port2_faces, length, [nx, ny], [a, b], 1, one);
 
     let bcs = DrivenBcs {
         pec_interior_mask: &pec_mask,
