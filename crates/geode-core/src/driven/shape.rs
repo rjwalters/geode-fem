@@ -88,7 +88,7 @@ use faer::linalg::solvers::Solve;
 use faer::sparse::{SparseColMat, Triplet};
 use faer::{Mat, c64};
 
-use crate::assembly::hcurl_space::{HcurlSpace, TetOrientation};
+use crate::assembly::hcurl_space::TetOrientation;
 use crate::assembly::nedelec::{
     NedelecScatterMap, assemble_global_nedelec_with_complex_epsilon_sparse,
     assemble_global_nedelec_with_full_tensors_sparse, assemble_nedelec_current_rhs,
@@ -2359,147 +2359,6 @@ fn tensor_im(t: &[[c64; 3]; 3]) -> [[f64; 3]; 3] {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// SECOND-ORDER (p=2) shape-gradient driver (issue #619).
-// ─────────────────────────────────────────────────────────────────────────
-
-/// Result of a **second-order (`p=2`)** driven-Nédélec **geometry**
-/// discrete-adjoint gradient evaluation. Distinct from
-/// [`DrivenShapeGradient`] because the `p=2` forward field lives over the
-/// `edges×2 + faces×2` DOF numbering (length `n_dofs`), not the `p=1`
-/// per-edge field.
-#[derive(Debug, Clone)]
-pub struct P2DrivenShapeGradient {
-    /// The scalar objective value `g(x)` at the (unperturbed) forward solution.
-    pub objective: f64,
-    /// The full **nodal-coordinate** gradient `∂g/∂X_{n,d}`, one `[x,y,z]`
-    /// triple per node (length `mesh.n_nodes()`). Chain through a node-motion
-    /// map with [`crate::shape::chain_node_motion`] to obtain `∂g/∂θ`.
-    pub grad_node: Vec<[f64; 3]>,
-    /// Full-length `[n_dofs]` complex forward DOF field `x` (PEC-eliminated DOFs
-    /// carry exact zeros), returned for post-processing / cross-checks.
-    pub x: Vec<c64>,
-    /// Relative residual `‖A x − b‖₂ / ‖b‖₂` of the interior forward solve.
-    pub residual_rel: f64,
-    /// Number of sparse LU **factorizations** performed. Always `1`: the
-    /// forward and adjoint solves share a single factorization.
-    pub n_factorizations: usize,
-}
-
-/// Compute the full nodal-coordinate gradient `∂g/∂X_{n,d}` of a **second-order
-/// (`p=2`) driven Nédélec** EM observable via the discrete adjoint — **one
-/// forward + one adjoint solve** sharing a single complex sparse LU — then chain
-/// through any analytic node-motion map with [`crate::shape::chain_node_motion`]
-/// (issue #619, Epic #475/#569; the `p=2` retention of the #577 shape adjoint).
-///
-/// This is the `p=2` sibling of [`driven_shape_gradient`]. The adjoint identity
-/// is identical — with the geometry-dependent-RHS `∂b/∂X` term —
-///
-/// ```text
-///   dg/dX = 2 Re[ λᵀ ∂b/∂X ] − 2 Re[ λᵀ (∂A/∂X) x ],   Aᵀ λ = ∂g/∂x,
-/// ```
-///
-/// but the element factors `∂A/∂X = ∂K/∂X − ω²ε ∂M/∂X` and `∂b/∂X = iω ∂(∫N·J)`
-/// are read from the **20-DOF `p=2` Dual element twin** `nedelec2_local_dual`
-/// (exact forward-mode AD), and the 20 local DOFs gather with **unit sign** from
-/// the ascending-global-vertex sort (no `p=1` `gsign`). Seeding sorted-local
-/// vertex `a` corresponds to global node `tet[perm[a]]`, so the tangent
-/// accumulates into `grad_node[tet[perm[a]]]`.
-///
-/// # Arguments
-///
-/// * `mesh` — tetrahedral mesh (fixed topology; gradient w.r.t. node positions).
-/// * `eps_r` — per-tet **real** relative permittivity (length `mesh.n_tets()`).
-/// * `interior_dof_mask` — length `n_dofs` (`= 2·n_edges + 2·n_faces`) PEC mask;
-///   build it for a cube cavity with
-///   [`crate::assembly::nedelec_p2::cube_pec_interior_p2_dofs`].
-/// * `omega` — drive frequency `ω = k₀` (away from a resonance).
-/// * `source` — per-tet-constant complex volumetric current source, held
-///   **fixed per element** as the mesh morphs (so `∂b/∂X` is purely geometric).
-/// * `objective` — `g(x) → (value, ∂g/∂x)` over the full-length `[n_dofs]`
-///   complex DOF vector; `∂g/∂x` is the un-conjugated Wirtinger cotangent
-///   (e.g. `x̄` for `g = Σ|x_i|²`). Its entries on PEC DOFs are ignored.
-///
-/// # Errors
-///
-/// [`DrivenError`] on shape mismatches, empty interior, factorization failure,
-/// or an objective-cotangent length mismatch.
-pub fn driven_shape_gradient_p2<G>(
-    mesh: &TetMesh,
-    eps_r: &[f64],
-    interior_dof_mask: &[bool],
-    omega: f64,
-    source: &CurrentSource,
-    objective: G,
-) -> Result<P2DrivenShapeGradient, DrivenError>
-where
-    G: Fn(&[c64]) -> (f64, Vec<c64>),
-{
-    let eps_complex: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
-    driven_shape_gradient_p2_complex(
-        mesh,
-        &eps_complex,
-        interior_dof_mask,
-        omega,
-        source,
-        objective,
-    )
-}
-
-/// Complex-ε (lossy) sibling of [`driven_shape_gradient_p2`]: the second-order
-/// (`p=2`) driven-Nédélec **geometry** shape gradient with a per-tet complex
-/// permittivity `ε = ε′ − i·ε″` (nonzero `Im(ε)` models a substrate loss
-/// tangent `tan δ`). This is the `p=2` twin of [`driven_shape_gradient_complex`]
-/// (issue #629, Epic #628 Phase B); the real path above delegates here at zero
-/// loss.
-///
-/// The adjoint identity, the `∂b/∂X` RHS term, and the single-factorization
-/// reuse (`n_factorizations == 1`) are identical to the lossless path — the
-/// only change is that the interior pencil `A = K − ω² M(ε)` and the volume
-/// contraction factor `∂A_ij = ∂K_ij − ω² ε ∂M_ij` carry the complex `ε` (the
-/// field `x`, adjoint `λ`, and `term_a` were already complex). See
-/// [`driven_shape_gradient_p2`] for the argument contract; `eps_r` here is the
-/// per-tet **complex** permittivity (length `mesh.n_tets()`).
-pub fn driven_shape_gradient_p2_complex<G>(
-    mesh: &TetMesh,
-    eps_r: &[c64],
-    interior_dof_mask: &[bool],
-    omega: f64,
-    source: &CurrentSource,
-    objective: G,
-) -> Result<P2DrivenShapeGradient, DrivenError>
-where
-    G: Fn(&[c64]) -> (f64, Vec<c64>),
-{
-    let space = HcurlSpace::build(mesh, ElementOrder::P2);
-    let bcs = DrivenBcs {
-        pec_interior_mask: interior_dof_mask,
-    };
-    let problem = DrivenGradientProblem {
-        space: &space,
-        mesh,
-        materials: DrivenMaterials::Scalar(eps_r),
-        bcs: &bcs,
-        source,
-        ports: &[],
-        surfaces: &[],
-        wave_ports: &[],
-        omega,
-        excited: None,
-    };
-    // Thin wrapper (issue #1264): the port-less, wall-less, scalar-ε case of
-    // the order-generic p=2 core.
-    let op = problem.assemble_p2_operator()?;
-    let g = shape_gradient_p2_core(&problem, &op, None, objective, SurfaceTermMutation::None)?;
-    Ok(P2DrivenShapeGradient {
-        objective: g.objective,
-        grad_node: g.grad_node,
-        x: g.e_edges,
-        residual_rel: g.residual_rel,
-        n_factorizations: g.n_factorizations,
-    })
-}
-
-// ─────────────────────────────────────────────────────────────────────────
 // ORDER-GENERIC shape gradient on a `DrivenOperator` (issue #1264, Epic #836
 // Phase 4).
 // ─────────────────────────────────────────────────────────────────────────
@@ -2593,8 +2452,8 @@ pub(crate) fn diag_tensor_to_full(
 
 /// Nodal-coordinate gradient `∂g/∂X_{n,d}` of the driven solve described by
 /// `problem`, at **either element order** — the order-generic successor of
-/// the cube-only [`driven_shape_gradient_p2`] / [`driven_shape_gradient_p2_complex`]
-/// (issue #1264, Epic #836 Phase 4).
+/// the former cube-only `driven_shape_gradient_p2` / `driven_shape_gradient_p2_complex`
+/// drivers (issue #1264, Epic #836 Phase 4).
 ///
 /// - **p=1:** delegates bit-for-bit to
 ///   [`driven_shape_gradient_ports_complex`] (scalar ε, no walls) or
@@ -2921,6 +2780,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assembly::hcurl_space::HcurlSpace;
     use crate::assembly::nedelec::cube_pec_interior_edges;
     use crate::driven::solve::{DrivenMaterials, driven_solve};
     use crate::elements::nedelec::batched_nedelec_local_matrices;
@@ -4570,6 +4430,39 @@ mod tests {
         );
     }
 
+    /// Port-less, wall-less, scalar-ε `p=2` shape gradient through the
+    /// order-generic [`driven_shape_gradient_on_space`] (the entry point that
+    /// replaced the cube-only `driven_shape_gradient_p2*` wrappers).
+    fn p2_scalar_shape_gradient<G>(
+        mesh: &TetMesh,
+        eps: &[c64],
+        mask: &[bool],
+        omega: f64,
+        source: &CurrentSource,
+        objective: G,
+    ) -> Result<DrivenShapeGradient, DrivenError>
+    where
+        G: Fn(&[c64]) -> (f64, Vec<c64>),
+    {
+        let space = HcurlSpace::build(mesh, ElementOrder::P2);
+        let bcs = DrivenBcs {
+            pec_interior_mask: mask,
+        };
+        let problem = DrivenGradientProblem {
+            space: &space,
+            mesh,
+            materials: DrivenMaterials::Scalar(eps),
+            bcs: &bcs,
+            source,
+            ports: &[],
+            surfaces: &[],
+            wave_ports: &[],
+            omega,
+            excited: None,
+        };
+        driven_shape_gradient_on_space::<TestBackend, _>(&problem, objective, &Default::default())
+    }
+
     /// **The load-bearing p=2 test.** The `p=2` driven-Nédélec discrete-adjoint
     /// **shape** gradient must match a full central finite difference of the
     /// entire `p=2` driven pipeline (move nodes → reassemble the `p=2` `A` and
@@ -4584,7 +4477,8 @@ mod tests {
         let dofs = P2DofMap::build(&mesh);
 
         // ONE forward + ONE adjoint solve → full nodal-coordinate gradient.
-        let sg = driven_shape_gradient_p2(&mesh, &eps_r, &mask, omega, &source, l2_objective)
+        let eps_c0: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
+        let sg = p2_scalar_shape_gradient(&mesh, &eps_c0, &mask, omega, &source, l2_objective)
             .expect("p2 shape gradient");
         assert_eq!(
             sg.n_factorizations, 1,
@@ -4710,8 +4604,10 @@ mod tests {
             let cot = x.iter().map(|z| c64::new(z.re, z.im)).collect();
             (g, cot)
         };
-        let wrong = driven_shape_gradient_p2(&mesh, &eps_r, &mask, omega, &source, wrong_objective)
-            .expect("wrong-conjugation p2 shape gradient");
+        let eps_c0: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
+        let wrong =
+            p2_scalar_shape_gradient(&mesh, &eps_c0, &mask, omega, &source, wrong_objective)
+                .expect("wrong-conjugation p2 shape gradient");
 
         let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
             let mut moved = mesh.clone();
@@ -4768,7 +4664,7 @@ mod tests {
     /// driven-Nédélec shape gradient `∂g/∂θ` (complex `ε = ε′ − i·ε″`,
     /// `Im(ε) ≠ 0`) must match a full central finite difference of the entire
     /// complex p=2 pipeline. The public `driven_solve_p2` is real-ε only, so the
-    /// FD reference reuses [`driven_shape_gradient_p2_complex`]'s **own forward
+    /// FD reference reuses [`p2_scalar_shape_gradient`]'s **own forward
     /// objective** at perturbed nodes (it re-assembles the complex `A` + RHS and
     /// re-solves for each θ) — the gradient under test comes from the adjoint
     /// algebra, the FD reference only reads the forward `g`. A dropped loss term
@@ -4781,9 +4677,8 @@ mod tests {
         let eps_c: Vec<c64> = eps_r.iter().map(|&e| c64::new(e, -0.3)).collect();
 
         // ONE forward + ONE adjoint solve → full nodal-coordinate gradient.
-        let sg =
-            driven_shape_gradient_p2_complex(&mesh, &eps_c, &mask, omega, &source, l2_objective)
-                .expect("complex p2 shape gradient");
+        let sg = p2_scalar_shape_gradient(&mesh, &eps_c, &mask, omega, &source, l2_objective)
+            .expect("complex p2 shape gradient");
         assert_eq!(
             sg.n_factorizations, 1,
             "complex p2 shape adjoint must reuse the forward factorization"
@@ -4803,7 +4698,7 @@ mod tests {
                 node[1] += theta * dn[1];
                 node[2] += theta * dn[2];
             }
-            driven_shape_gradient_p2_complex(&moved, &eps_c, &mask, omega, &source, l2_objective)
+            p2_scalar_shape_gradient(&moved, &eps_c, &mask, omega, &source, l2_objective)
                 .expect("complex p2 forward")
                 .objective
         };
