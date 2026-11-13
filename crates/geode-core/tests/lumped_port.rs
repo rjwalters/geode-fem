@@ -19,7 +19,7 @@
 //!    identically zero; invalid port specs error instead of panicking.
 
 mod common;
-use common::{all_plane_faces, pec_mask_for_planes};
+use common::{all_plane_faces, pec_mask_for_planes, zero_source};
 
 use faer::c64;
 use geode_core::assembly::nedelec::assemble_nedelec_current_rhs;
@@ -36,12 +36,6 @@ type B = TestBackend;
 
 fn vacuum(mesh: &TetMesh) -> Vec<c64> {
     vec![c64::new(1.0, 0.0); mesh.n_tets()]
-}
-
-fn zero_source(mesh: &TetMesh) -> CurrentSource {
-    CurrentSource {
-        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
-    }
 }
 
 /// Solve the parallel-plate transmission line (unit cube, PEC plates at

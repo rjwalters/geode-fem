@@ -7,6 +7,8 @@
 
 use burn::tensor::backend::Backend;
 use burn::tensor::{ElementConversion, Tensor};
+use faer::c64;
+use geode_core::driven::solve::CurrentSource;
 use geode_core::mesh::TetMesh;
 
 /// Read a `D`-dimensional float Burn tensor back to host as `Vec<f64>`,
@@ -112,4 +114,12 @@ pub fn spmv(k: &faer::sparse::SparseColMat<usize, f64>, x: &[f64]) -> Vec<f64> {
 #[allow(dead_code)] // some test binaries only use a subset of helpers
 pub fn norm(v: &[f64]) -> f64 {
     v.iter().map(|x| x * x).sum::<f64>().sqrt()
+}
+
+/// An all-zero (no-source) current distribution on `mesh`.
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+pub fn zero_source(mesh: &TetMesh) -> CurrentSource {
+    CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+    }
 }
