@@ -268,15 +268,15 @@ pub(super) fn validate_eqs(spec: &ProblemSpec) -> Result<(), CliError> {
 /// share a mesh node are electrically shorted and rejected.
 pub(super) fn resolve_eqs(
     e: &EqsSpec,
-    terminal_tags: &[Option<i32>],
-    floating_tags: &[Option<i32>],
+    terminal_tags: &[i32],
+    floating_tags: &[i32],
     eps_f_m: Vec<f64>,
     sigma_s_m: Vec<f64>,
     regions: Vec<EqsRegionTarget>,
     surface: &dyn Fn(&str, i32, &str) -> Result<Surface, CliError>,
 ) -> Result<EqsTarget, CliError> {
-    let conductor = |name: &str, tag: Option<i32>, role: &str| -> Result<Conductor, CliError> {
-        let surface = surface(name, tag.expect("resolved above"), role)?;
+    let conductor = |name: &str, tag: i32, role: &str| -> Result<Conductor, CliError> {
+        let surface = surface(name, tag, role)?;
         let mut nodes: Vec<u32> = surface.triangles.iter().flatten().copied().collect();
         nodes.sort_unstable();
         nodes.dedup();

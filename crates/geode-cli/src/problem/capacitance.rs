@@ -115,12 +115,12 @@ pub(super) fn validate_capacitance(spec: &ProblemSpec) -> Result<(), CliError> {
 /// the two potentials).
 pub(super) fn resolve_capacitance(
     c: &crate::spec::CapacitanceSpec,
-    terminal_tags: &[Option<i32>],
-    ground_tags: &[Option<i32>],
+    terminal_tags: &[i32],
+    ground_tags: &[i32],
     surface: &dyn Fn(&str, i32, &str) -> Result<Surface, CliError>,
 ) -> Result<CapacitanceTarget, CliError> {
-    let conductor = |name: &str, tag: Option<i32>, role: &str| -> Result<Conductor, CliError> {
-        let surface = surface(name, tag.expect("resolved above"), role)?;
+    let conductor = |name: &str, tag: i32, role: &str| -> Result<Conductor, CliError> {
+        let surface = surface(name, tag, role)?;
         let mut nodes: Vec<u32> = surface.triangles.iter().flatten().copied().collect();
         nodes.sort_unstable();
         nodes.dedup();
@@ -312,7 +312,7 @@ pub(super) fn build_mu_r(tet_tags: &[i32], mu_by_tag: &BTreeMap<i32, f64>) -> Ve
 /// ([`check_path_components`]).
 pub(super) fn resolve_inductance(
     ind: &crate::spec::InductanceSpec,
-    path_tags: &[[Option<i32>; 3]],
+    path_tags: &[[i32; 3]],
     tagged: &TaggedTetMesh,
     pec: &[Surface],
     surface: &dyn Fn(&str, i32, &str) -> Result<Surface, CliError>,
@@ -329,8 +329,7 @@ pub(super) fn resolve_inductance(
             .collect::<Vec<_>>(),
     );
     let mut paths = Vec::with_capacity(ind.paths.len());
-    for (p, tags) in ind.paths.iter().zip(path_tags) {
-        let [ctag, stag, ktag] = tags.map(|t| t.expect("resolved above"));
+    for (p, &[ctag, stag, ktag]) in ind.paths.iter().zip(path_tags) {
         let conductor: Vec<bool> = tagged
             .tet_physical_tags
             .iter()
