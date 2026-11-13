@@ -324,9 +324,9 @@ pub fn inductance(
     )?;
     let n = terminals.len();
     let mut components = Vec::with_capacity(n * n);
-    for i in 0..n {
-        for j in 0..n {
-            components.push((vec![i, j], res.l[i][j] * scale));
+    for (i, row) in res.l.iter().enumerate().take(n) {
+        for (j, l_ij) in row.iter().enumerate().take(n) {
+            components.push((vec![i, j], l_ij * scale));
         }
     }
     let grad = sens

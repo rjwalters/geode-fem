@@ -1556,8 +1556,8 @@ pub fn driven(
             .map(|k| row_s(row, k / n, k % n).norm())
             .fold(0.0, f64::max)
             .max(f64::MIN_POSITIVE);
-        for k in 0..n * n {
-            parity = parity.max((pt.s[k] - row_s(row, k / n, k % n)).norm() / scale);
+        for (k, sk) in pt.s.iter().enumerate().take(n * n) {
+            parity = parity.max((sk - row_s(row, k / n, k % n)).norm() / scale);
         }
         for o in sens.observables.iter().filter(|o| o.wave_port.is_some()) {
             let want = row_port_mode(p, o, row);
