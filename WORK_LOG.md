@@ -5,6 +5,12 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-13
 
+- **PR #1600**: chore: drop unused onnxscript pin from ONNX reference requirements
+- **PR #1604**: refactor: delete four uncalled items and the docs that referenced them
+- **PR #1598**: refactor(geode-cli): hand resolve_* helpers resolved i32 tags
+- **Issue #1594** (closed): Remove unused onnxscript pin from reference/onnx/requirements.txt
+- **Issue #1586** (closed): Remove four uncalled leftovers: p2_region_mass_action, Fixture::load_json, two test helpers
+- **Issue #1593** (closed): Tighten the remaining resolve_* helpers to take &[i32] so GroupTags has no Option columns
 - **PR #1589**: feat(floquet): differentiate the lumped delta-gap scan impedance
 - **PR #1590**: refactor(cli): split load_parsed into named phase helpers
 - **PR #1587**: refactor(examples): share the five adaptive-loop transmon helpers

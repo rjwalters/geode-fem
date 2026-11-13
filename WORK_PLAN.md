@@ -38,6 +38,12 @@ Human-approved issues ready for implementation (`loom:issue`).
 Issues currently being built (`loom:building`).
 
 - **#1391**: Remove flex_precision_spike example and flex feature: spike #451/#374 closed
+- **#1579**: [#1537 P4c-2] Design A adjoint min-max run and kill-criterion verdict
+- **#1588**: Consolidate eight byte-identical helper functions duplicated across geode-core src modules
+- **#1592**: Regenerate sphere_pec JAX baseline: committed fixture is a stub copied from NumPy, and remove the --stub path
+- **#1595**: Split eigen/ams.rs (4,218 lines): move inline tests to ams/tests.rs and the scalar AMG to eigen/amg.rs
+- **#1596**: Consolidate duplicated port shape-adjoint cores in driven/shape.rs: matched_upml_ports_core is a ~330-line copy of driven_shape_gradient_ports_complex_core
+- **#1599**: Consolidate six copies of the box_mesh tet mesher (and jitter/box_walls/fit_slope) in geode-core tests into a shared module
 
 ## PRs Awaiting Review
 
@@ -50,6 +56,11 @@ PRs waiting on Judge (`loom:review-requested`).
 - **#1392**: chore: remove closed flex_precision_spike example and flex feature
 - **#1395**: test: share onnx/tfjava sphere-PEC harness body in common module
 - **#1489**: docs(papers): add GEODE-vs-Palace measured-performance section (transmon-benchmark.26)
+- **#1601**: feat: regenerate sphere_pec JAX fixture with real JAX, drop --stub writer
+- **#1603**: refactor(tests): share the box tet mesher and slope fit via common/box_fixtures
+- **#1605**: refactor: merge the two duplicated port shape-adjoint cores in driven/shape.rs
+- **#1606**: refactor: keep one definition of eight helpers duplicated across geode-core
+- **#1608**: refactor: split eigen/ams.rs into ams.rs, ams/tests.rs and eigen/amg.rs
 
 ## Approved (Awaiting Merge)
 
@@ -80,7 +91,6 @@ Issues carrying `loom:curated`.
 - **#1428**: Meep R2.5/R5 Spot runs on the optimized E4 geometry with harness v3 (split from #1427) *(curated)*
 - **#1488**: Honest GEODE-vs-Palace comparison (manuscript section) *(curated)*
 - **#1579**: [#1537 P4c-2] Design A adjoint min-max run and kill-criterion verdict *(curated)*
-- **#1593**: Tighten the remaining resolve_* helpers to take &[i32] so GroupTags has no Option columns *(curated)*
 
 ## Proposed (Architect / Hermit)
 
@@ -88,13 +98,10 @@ Issues carrying `loom:curated`.
 - **#1546**: Remove complex_slice_to_vec: trivial to_vec wrapper in geode-util *(hermit)*
 - **#1565**: Consolidate duplicated forward-mode Dual number: shape.rs copy is a subset of driven/shape.rs *(hermit)*
 - **#1567**: Remove 19 superseded PyTorch Declarations YAMLs from vendored tch (75 MB tracked, read by nothing) *(hermit)*
-- **#1586**: Remove four uncalled leftovers: p2_region_mass_action, Fixture::load_json, two test helpers *(hermit)*
-- **#1588**: Consolidate eight byte-identical helper functions duplicated across geode-core src modules *(hermit)*
 - **#1591**: Remove ceviche_fdfd_baseline.py: 2D FDFD scaffold with a never-run TODO loop, superseded by the Meep baselines *(hermit)*
-- **#1592**: Regenerate sphere_pec JAX baseline: committed fixture is a stub copied from NumPy, and remove the --stub path *(hermit)*
-- **#1594**: Remove unused onnxscript pin from reference/onnx/requirements.txt *(hermit)*
-- **#1595**: Split eigen/ams.rs (4,218 lines): move inline tests to ams/tests.rs and the scalar AMG to eigen/amg.rs *(hermit)*
-- **#1596**: Consolidate duplicated port shape-adjoint cores in driven/shape.rs: matched_upml_ports_core is a ~330-line copy of driven_shape_gradient_ports_complex_core *(hermit)*
+- **#1607**: Consolidate 7 duplicated box_mesh test meshers into one shared helper *(hermit)*
+- **#1609**: Consolidate 4 inlined copies of the transmon reduced-system preamble onto the existing reduced_transmon_system helper *(hermit)*
+- **#1610**: Dedupe byte-identical test helpers in geode-cli integration tests onto the shared support modules (~395 lines) *(hermit)*
 
 ## Epics
 
@@ -113,10 +120,10 @@ Issues carrying `loom:curated`.
 | Very important | 0 |
 | Important | 1 |
 | Ready (`loom:issue`) | 6 |
-| In Progress (`loom:building`) | 1 |
-| PRs awaiting review | 7 |
+| In Progress (`loom:building`) | 7 |
+| PRs awaiting review | 12 |
 | Approved PRs awaiting merge | 1 |
-| Curated | 20 |
-| Architect / Hermit proposals | 11 |
+| Curated | 19 |
+| Architect / Hermit proposals | 8 |
 | Active epics | 6 |
 <!-- guide:plan-body:end -->
