@@ -319,11 +319,6 @@ impl<Sp: Space> Session<Sp> {
         &self.train
     }
 
-    /// SHA-256 of the validator's θ0 mesh.
-    pub fn validation_mesh_sha256(&self) -> &str {
-        &self.validator.base_sha256
-    }
-
     /// Answer one request (module docs). Never panics on a bad request.
     pub fn handle(&mut self, req: &Value) -> Value {
         let t0 = Instant::now();

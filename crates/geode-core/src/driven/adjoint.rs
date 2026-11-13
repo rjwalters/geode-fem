@@ -1051,9 +1051,12 @@ pub struct P2DrivenAdjointGradient {
 ///   dg/dε_k = −2 Re[ λᵀ (∂A/∂ε_k) x ] = 2 ω² Re[ λᵀ M_k x ],   Aᵀ λ = ∂g/∂x,
 /// ```
 ///
-/// with `M_k` the `p=2` mass restricted to region `k`
-/// ([`crate::assembly::nedelec_p2::p2_region_mass_action`]). `A` is
-/// complex-symmetric, so the adjoint reuses the forward factorization.
+/// with `M_k` the `p=2` mass restricted to region `k`. The scalars
+/// `λᵀ M_k x` are accumulated for every region in a single element-local
+/// sweep (no `M_k` is ever assembled, and no `M_k x` vector is formed): each
+/// tet contributes its local mass form to the region named by
+/// `region_of_tet[t]`. `A` is complex-symmetric, so the adjoint reuses the
+/// forward factorization.
 ///
 /// # Arguments
 ///
