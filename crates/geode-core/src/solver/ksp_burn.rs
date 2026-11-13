@@ -933,7 +933,12 @@ fn explicit_residual_rel<B: Backend>(
 
 /// Breakdown guard on a bilinear inner-product scalar — mirrors the CPU
 /// `bd_check` closure.
-fn bd_check(val: c64, iter: usize, kind: &'static str, tol: f64) -> Result<(), KspError> {
+pub(crate) fn bd_check(
+    val: c64,
+    iter: usize,
+    kind: &'static str,
+    tol: f64,
+) -> Result<(), KspError> {
     let mag2 = val.re * val.re + val.im * val.im;
     if !val.re.is_finite() || !val.im.is_finite() || mag2 < tol * tol {
         Err(KspError::Breakdown {

@@ -53,6 +53,8 @@
 
 use std::f64::consts::PI;
 
+use crate::analytic::fiber::bessel_j0;
+
 /// Speed of light in vacuum (m/s) and free-space impedance η₀ (Ω),
 /// re-exported from [`crate::constants`] so existing
 /// `patch::{C_M_PER_S, ETA_0_OHM}` paths keep resolving.
@@ -273,36 +275,6 @@ impl PatchCavity {
     pub fn design_length(&self, f_r: f64) -> f64 {
         let e = self.epsilon_eff();
         C_M_PER_S / (2.0 * f_r * e.sqrt()) - 2.0 * self.delta_l()
-    }
-}
-
-/// Bessel function of the first kind, order 0, via a polynomial
-/// approximation (Abramowitz & Stegun 9.4.1 / 9.4.3). Used only by the
-/// mutual-conductance slot integral, where `< 1e-7` accuracy is far
-/// more than the cavity model itself warrants.
-fn bessel_j0(x: f64) -> f64 {
-    let ax = x.abs();
-    if ax < 8.0 {
-        let y = x * x;
-        let p1 = 57_568_490_574.0
-            + y * (-13_362_590_354.0
-                + y * (651_619_640.7
-                    + y * (-11_214_424.18 + y * (77_392.330_17 + y * -184.905_245_6))));
-        let p2 = 57_568_490_411.0
-            + y * (1_029_532_985.0
-                + y * (9_494_680.718 + y * (59_272.648_53 + y * (267.853_271_2 + y))));
-        p1 / p2
-    } else {
-        let z = 8.0 / ax;
-        let y = z * z;
-        let xx = ax - std::f64::consts::FRAC_PI_4;
-        let p1 = 1.0
-            + y * (-0.109_862_86e-2
-                + y * (0.273_451_04e-4 + y * (-0.207_337_84e-5 + y * 0.209_388_72e-6)));
-        let p2 = -0.156_249_995e-1
-            + y * (0.143_048_8e-3
-                + y * (-0.691_114_6e-5 + y * (0.762_109_5e-6 + y * -0.934_945_2e-7)));
-        (std::f64::consts::FRAC_2_PI / ax).sqrt() * (xx.cos() * p1 - z * xx.sin() * p2)
     }
 }
 

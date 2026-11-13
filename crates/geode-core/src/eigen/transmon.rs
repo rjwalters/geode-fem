@@ -574,7 +574,7 @@ pub struct TransmonMode {
 /// column is Dirichlet are dropped (the standard interior reduction). The
 /// `extra` triplets (K_port/M_port over global edge indices) are reindexed
 /// the same way and summed by faer's `try_new_from_triplets`.
-fn assemble_reduced_real(
+pub(crate) fn assemble_reduced_real(
     pattern_rows: &[u32],
     pattern_cols: &[u32],
     vals: &[f64],
@@ -1261,7 +1261,7 @@ fn matrix_free_inner_iters_impl(
 /// Both quadratic forms are evaluated on the reduced interior-DOF vector.
 /// Clamped to `[0, 1]` against rounding noise. Returns `0` if the
 /// denominator is non-positive (degenerate).
-fn junction_participation(
+pub(crate) fn junction_participation(
     k_total: &SparseColMat<usize, f64>,
     k_port: &SparseColMat<usize, f64>,
     x: &[f64],
