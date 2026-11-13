@@ -5,6 +5,29 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-13
 
+- **PR #1589**: feat(floquet): differentiate the lumped delta-gap scan impedance
+- **PR #1590**: refactor(cli): split load_parsed into named phase helpers
+- **PR #1587**: refactor(examples): share the five adaptive-loop transmon helpers
+- **PR #1584**: refactor: route conduction, eqs_transient and adapt sparse kernels through sparse_ops
+- **PR #1585**: refactor: share the one-port spiral sweep between the two spiral benchmarks
+- **PR #1575**: refactor: share scaled_matrix and conductor_summaries across static-matrix commands
+- **PR #1577**: refactor(tests): share tf/tstr TOML helpers from transmon_util
+- **PR #1576**: test: extract one rect_wave_port helper for the nine inline port builders
+- **PR #1560**: feat: add steady heat conduction solve and Picard Joule self-heating loop
+- **PR #1571**: fix: correct Korhonen citation author and add EmError::Negative for t_end
+- **PR #1539**: feat(shape): Floquet element parameterization and trace/gap constraints
+- **Issue #1578** (closed): [#1537 P4c-1] Lumped-feed Γ_active adjoint and Design A min-max driver
+- **Issue #1583** (closed): Split load_parsed: 863-line function in geode-cli problem/mod.rs into phase helpers
+- **Issue #1582** (closed): Share the adaptive-loop helpers duplicated between transmon_refined_optimize and transmon_c_sigma_bracket examples (~100 LOC)
+- **Issue #1573** (closed): Route sparse kernels re-declared in conduction, eqs_transient and adapt/driver through sparse_ops; drop the second complex spmv
+- **Issue #1572** (closed): Share the spiral sweep (Row, PointRow, run_sweep) between spiral_inductor and slcfet_3hp_spiral examples
+- **Issue #1566** (closed): Share the scale-and-finite-check and ConductorSummary helpers across geode-cli static-matrix commands
+- **Issue #1563** (closed): Finish #1552: share tf/tstr TOML helpers and drop transmon_eigenmode's local copies
+- **Issue #1570** (closed): Consolidate 9 copies of the rectangular wave-port test builder into tests/common
+- **Issue #1556** (closed): Heat conduction with Joule-heat source and self-heating loop
+- **Issue #1564** (closed): electromigration: verify the Korhonen 1993 author list and fix a misleading t_end error
+- **Issue #1535** (closed): [#1534 P4a] Wide-scan element parameterization and PCB manufacturability constraints
+- **Issue #1452** (closed): Remove unreferenced 37 MB omni.ja fixture from vendored zip test-support
 - **PR #1562**: feat: add vector-P1 thermo-elastic solver with stress and hydrostatic recovery
 - **PR #1554**: refactor: share repo_root, vacuum_eps and toml_num helpers across geode-core tests
 - **PR #1561**: feat: add Black, Blech and 1-D Korhonen electromigration models

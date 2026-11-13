@@ -216,11 +216,3 @@ pub fn jitter_in_plane(
     }
     n
 }
-
-/// `(b, c)` box face triangles helper: indices of mesh nodes on the plane
-/// `x[axis] = value`.
-pub fn nodes_on_plane(mesh: &TetMesh, axis: usize, value: f64) -> Vec<usize> {
-    (0..mesh.n_nodes())
-        .filter(|&i| (mesh.nodes[i][axis] - value).abs() < 1e-9)
-        .collect()
-}

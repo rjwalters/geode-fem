@@ -92,13 +92,13 @@ pub(super) fn validate_conduction(spec: &ProblemSpec) -> Result<(), CliError> {
 /// Terminals that share a mesh node are electrically shorted and rejected.
 pub(super) fn resolve_conduction(
     c: &crate::spec::ConductionSpec,
-    terminal_tags: &[Option<i32>],
+    terminal_tags: &[i32],
     sigma_s_m: Vec<f64>,
     surface: &dyn Fn(&str, i32, &str) -> Result<Surface, CliError>,
 ) -> Result<ConductionTarget, CliError> {
     let mut terminals: Vec<Conductor> = Vec::with_capacity(c.terminals.len());
     for (n, &tag) in c.terminals.iter().zip(terminal_tags) {
-        let surface = surface(n, tag.expect("resolved above"), "conduction terminal")?;
+        let surface = surface(n, tag, "conduction terminal")?;
         let mut nodes: Vec<u32> = surface.triangles.iter().flatten().copied().collect();
         nodes.sort_unstable();
         nodes.dedup();
