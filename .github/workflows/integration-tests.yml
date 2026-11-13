@@ -373,6 +373,7 @@ jobs:
               --test spiral_mesh \
               --test step_index_fiber_benchmark \
               --test surface_p2_trace \
+              --test tcda_baseline \
               --test torque_loop_oracle \
               --test transient_sparams \
               --test transmon_devicelayout_controls \
@@ -472,6 +473,7 @@ jobs:
               --test spiral_mesh \
               --test step_index_fiber_benchmark \
               --test surface_p2_trace \
+              --test tcda_baseline \
               --test torque_loop_oracle \
               --test transient_sparams \
               --test transmon_devicelayout_controls \
