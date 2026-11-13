@@ -52,7 +52,7 @@ the Epic #88 reference backends and ONNX inherits them unchanged.
 ```
 reference/onnx/
 ├── README.md                          — this file
-├── requirements.txt                   — pinned onnx + onnxruntime + onnxscript
+├── requirements.txt                   — pinned onnx + onnxruntime
 ├── audit/                             — expressibility audits (Phase F.1 onward)
 │   ├── cube_cavity_operator_audit.md  — the gap-list / operator inventory (F.1)
 │   ├── probe_p1_local.py              — per-element P1 local matrices
