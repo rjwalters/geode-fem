@@ -1216,7 +1216,7 @@ pub(crate) fn amg_pcg_maxwell(
     ground_dofs: &[usize],
     opts: AmgPcgOptions,
 ) -> Result<(CapacitanceMatrix, AmgPcgReport, Vec<Vec<f64>>), ElectrostaticError> {
-    let amg = crate::eigen::ams::ScalarAmg::new(k.as_ref(), opts.cycles)
+    let amg = crate::eigen::amg::ScalarAmg::new(k.as_ref(), opts.cycles)
         .map_err(|e| ElectrostaticError::Factorization(format!("AMG setup: {e:?}")))?;
     let n = cond_dofs.len();
     let nf = k.ncols();
@@ -2755,7 +2755,7 @@ mod tests {
         let n = 40;
         let (k, b, b_norm) = chain_problem(n);
         let opts = AmgPcgOptions::default();
-        let amg = crate::eigen::ams::ScalarAmg::new(k.as_ref(), opts.cycles).unwrap();
+        let amg = crate::eigen::amg::ScalarAmg::new(k.as_ref(), opts.cycles).unwrap();
         let (_, it, true_rel) = pcg_solve(
             &k,
             &b,
