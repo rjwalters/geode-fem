@@ -18,10 +18,10 @@ pub use lanczos::{
     CheckedComplexEigenpairs, ComplexEigenPair, ComplexWithheldEigenpair, SparseComplexEigenSolver,
     SparseComplexShiftInvertLanczos,
 };
-// Cross-module complex sparse-linear-algebra helpers consumed by
-// `driven` / `scattering` / `solver::ksp`. `spmv_add` stays private to
-// the lanczos leaf.
-pub(crate) use lanczos::spmv;
+// Cross-module complex sparse-linear-algebra helper consumed by
+// `driven` / `scattering` / `solver::ksp` under this namespace's
+// historical name; the kernel itself lives in `crate::sparse_ops`.
+pub(crate) use crate::sparse_ops::spmv_c_into as spmv;
 // Fixed-input regression pencils shared with `eigen::lossy_cavity`'s tests.
 #[cfg(test)]
 pub(crate) use lanczos::tests::{slow_mode_hole_pencil, spurious_ritz_pencil};

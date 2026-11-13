@@ -193,6 +193,7 @@ use crate::eigen::periodic_cavity::assemble_periodic_lossless_pencil;
 use crate::elements::ElementOrder;
 use crate::mesh::periodic::{PeriodicMap, PeriodicMatchError, PeriodicMatchOptions, PeriodicPair};
 use crate::mesh::{TaggedTetMesh, TetMesh};
+use crate::sparse_ops::{bilinear_form, norm2_c, spmv, spmv_rc};
 
 /// Relative tolerance under which two indicators count as tied at the
 /// Dörfler threshold (see [`dorfler_mark`]).
@@ -1624,55 +1625,9 @@ fn classify(
     Ok(out)
 }
 
-/// `y = P x` for a real sparse `P` and a complex `x`.
-fn prolong_complex(p: &SparseColMat<usize, f64>, x: &[c64]) -> Vec<c64> {
-    let p = p.as_ref();
-    let mut y = vec![c64::new(0.0, 0.0); p.nrows()];
-    for (j, &xj) in x.iter().enumerate().take(p.ncols()) {
-        for (i, &v) in p.row_idx_of_col(j).zip(p.val_of_col(j)) {
-            y[i] += xj * v;
-        }
-    }
-    y
-}
-
-/// `y = P x` for a real sparse `P` and a real `x`.
-fn prolong_real(p: &SparseColMat<usize, f64>, x: &[f64]) -> Vec<f64> {
-    let p = p.as_ref();
-    let mut y = vec![0.0; p.nrows()];
-    for (j, &xj) in x.iter().enumerate().take(p.ncols()) {
-        for (i, &v) in p.row_idx_of_col(j).zip(p.val_of_col(j)) {
-            y[i] += xj * v;
-        }
-    }
-    y
-}
-
 /// `y = A x` for a complex CSC `A`.
 fn spmv_c(a: &SparseColMat<usize, c64>, x: &[c64]) -> Vec<c64> {
     crate::sparse_ops::spmv_c(a.as_ref(), x)
-}
-
-/// `xᵀ A y` for a real CSC `A`.
-fn bilinear(a: &SparseColMat<usize, f64>, x: &[f64], y: &[f64]) -> f64 {
-    let a = a.as_ref();
-    let mut s = 0.0;
-    for (j, &yj) in y.iter().enumerate() {
-        if yj == 0.0 {
-            continue;
-        }
-        for (i, &v) in a.row_idx_of_col(j).zip(a.val_of_col(j)) {
-            s += x[i] * v * yj;
-        }
-    }
-    s
-}
-
-fn norm_c(v: &[c64]) -> f64 {
-    v.iter()
-        .map(|z| z.re * z.re + z.im * z.im)
-        .sum::<f64>()
-        .sqrt()
 }
 
 // ---------------------------------------------------------------------------
@@ -1932,7 +1887,7 @@ fn solve_iterative<B: Backend>(
     let n = op.n_interior();
     let i2f = op.interior_to_full();
     let b = op.assemble_b_at(omega, None);
-    let bn = norm_c(&b);
+    let bn = norm2_c(&b);
     let zero = c64::new(0.0, 0.0);
     let mut x0 = vec![zero; n];
     let mut rhs = b.clone();
@@ -1948,7 +1903,7 @@ fn solve_iterative<B: Backend>(
         }
         let ax = spmv_c(&op.matrix_at(omega)?, &guess);
         let r0: Vec<c64> = b.iter().zip(&ax).map(|(bb, a)| *bb - *a).collect();
-        let rn = norm_c(&r0);
+        let rn = norm2_c(&r0);
         warm_residual_rel = Some(rn / bn);
         if rn < bn {
             warm = true;
@@ -2239,7 +2194,7 @@ impl<B: Backend> LevelSolver for DrivenLevelSolver<'_, '_, B> {
             self.prolonged = Some(
                 self.last
                     .iter()
-                    .map(|s| prolong_complex(&p, &s.e_edges))
+                    .map(|s| spmv_rc(p.as_ref(), &s.e_edges))
                     .collect(),
             );
         }
@@ -2473,7 +2428,11 @@ impl<B: Backend> LevelSolver for EigenLevelSolver<'_, '_, B> {
             Some(prev) => {
                 let mut cand_norm: Vec<f64> = Vec::with_capacity(modes.modes.len());
                 for md in &modes.modes {
-                    cand_norm.push(bilinear(&m, &md.vector, &md.vector).max(0.0).sqrt());
+                    cand_norm.push(
+                        bilinear_form(m.as_ref(), &md.vector, &md.vector)
+                            .max(0.0)
+                            .sqrt(),
+                    );
                 }
                 let mut pairs: Vec<(f64, usize, usize)> = Vec::new();
                 for (j, y_full) in prev.iter().enumerate() {
@@ -2483,9 +2442,10 @@ impl<B: Backend> LevelSolver for EigenLevelSolver<'_, '_, B> {
                             y[*r] = y_full[i] / coef;
                         }
                     }
-                    let yn = bilinear(&m, &y, &y).max(0.0).sqrt();
+                    let yn = bilinear_form(m.as_ref(), &y, &y).max(0.0).sqrt();
                     for (c, md) in modes.modes.iter().enumerate() {
-                        let o = bilinear(&m, &y, &md.vector).abs() / (yn * cand_norm[c]);
+                        let o =
+                            bilinear_form(m.as_ref(), &y, &md.vector).abs() / (yn * cand_norm[c]);
                         pairs.push((if o.is_finite() { o } else { 0.0 }, j, c));
                     }
                 }
@@ -2584,7 +2544,7 @@ impl<B: Backend> LevelSolver for EigenLevelSolver<'_, '_, B> {
         self.prolonged = Some(
             self.last
                 .iter()
-                .map(|t| prolong_real(&p, &t.vector))
+                .map(|t| spmv(p.as_ref(), &t.vector))
                 .collect(),
         );
         Ok(())

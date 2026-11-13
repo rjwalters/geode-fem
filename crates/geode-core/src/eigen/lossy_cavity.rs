@@ -139,9 +139,7 @@ use crate::assembly::nedelec::{
     assemble_global_nedelec_with_full_tensors_sparse,
 };
 use crate::assembly::p1::upload_mesh;
-use crate::eigen::complex::{
-    CheckedComplexEigenpairs, SparseComplexShiftInvertLanczos, spmv as complex_spmv,
-};
+use crate::eigen::complex::{CheckedComplexEigenpairs, SparseComplexShiftInvertLanczos};
 use crate::eigen::dense::EigenError;
 use crate::eigen::hcurl_null::{
     GRADIENT_FRACTION_CUT, GradientNullCount, GradientNullSpace, LoopHarmonics,
@@ -149,7 +147,7 @@ use crate::eigen::hcurl_null::{
 use crate::eigen::lanczos::ConvergenceCheck;
 use crate::elements::ElementOrder;
 use crate::mesh::{TaggedTetMesh, TetMesh, pec_interior_mask_from_triangles};
-use crate::sparse_ops::norm2_c as norm2;
+use crate::sparse_ops::{norm2_c as norm2, spmv_c};
 
 /// Errors from the lossy / open cavity eigensolve.
 #[derive(Debug, thiserror::Error)]
@@ -505,13 +503,6 @@ pub fn assemble_lossy_pencil<B: Backend>(
     ))
 }
 
-/// `y = A x` (allocating) over the shared complex CSC kernel.
-fn spmv(a: SparseColMatRef<'_, usize, c64>, x: &[c64]) -> Vec<c64> {
-    let mut y = vec![c64::new(0.0, 0.0); a.nrows()];
-    complex_spmv(a, x, &mut y);
-    y
-}
-
 fn validate_settings(s: &LossyCavitySettings) -> Result<(), LossyCavityError> {
     let invalid = |m: String| LossyCavityError::InvalidInput(m);
     if !(s.sigma.is_finite() && s.sigma > 0.0) {
@@ -626,8 +617,8 @@ fn solve_lossy_pencil_modes(
     let candidates: Vec<LossyCavityMode> = std::mem::take(&mut solve.pairs)
         .into_iter()
         .map(|p| {
-            let kx = spmv(k, &p.vector);
-            let mx = spmv(m, &p.vector);
+            let kx = spmv_c(k, &p.vector);
+            let mx = spmv_c(m, &p.vector);
             let r: Vec<c64> = kx
                 .iter()
                 .zip(&mx)
