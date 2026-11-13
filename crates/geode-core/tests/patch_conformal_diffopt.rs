@@ -30,15 +30,12 @@
 //! conformal v5 experiments run on the curved conformal 2.4 GHz fixture
 //! family, pinned in `tests/patch_conformal_2g4_fixture.rs` (issue #1084).
 
+mod common;
+use common::toml_num as num;
 use std::path::PathBuf;
 
 /// Read a TOML number as `f64` whether it serialized as a float or an integer
 /// (whole-valued fields like `target_db = -10` land as TOML integers).
-fn num(v: &toml::Value) -> f64 {
-    v.as_float()
-        .or_else(|| v.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("expected a number, got {v:?}"))
-}
 
 fn committed() -> toml::Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

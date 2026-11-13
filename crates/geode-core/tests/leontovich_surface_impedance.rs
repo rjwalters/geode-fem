@@ -42,6 +42,7 @@
 
 mod common;
 use common::edge_tables;
+use common::vacuum_eps as vacuum;
 
 use burn::tensor::Tensor;
 use faer::c64;
@@ -310,10 +311,6 @@ fn centerline_ez(mesh: &TetMesh, e: &[c64], n: usize, i: usize) -> f64 {
         .position(|edge| *edge == key)
         .expect("centerline z-edge must exist");
     e[idx].re.hypot(e[idx].im)
-}
-
-fn vacuum(mesh: &TetMesh) -> Vec<c64> {
-    vec![c64::new(1.0, 0.0); mesh.n_tets()]
 }
 
 fn max_asymmetry(flat: &[f64], n: usize) -> f64 {

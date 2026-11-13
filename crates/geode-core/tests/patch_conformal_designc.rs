@@ -21,13 +21,10 @@
 //! hashes are checked against the committed files, so a stale summary fails.
 //! See `designc/README.md`.
 
-use std::path::PathBuf;
+mod common;
+use common::{repo_root as repo, toml_num as num};
 
 use sha2::{Digest, Sha256};
-
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
 
 fn read(rel: &str) -> String {
     let p = repo().join(rel);
@@ -59,12 +56,6 @@ fn get<'a>(v: &'a toml::Value, dotted: &str) -> &'a toml::Value {
             .unwrap_or_else(|| panic!("missing key {dotted} (at {k})"));
     }
     cur
-}
-
-fn num(c: &toml::Value) -> f64 {
-    c.as_float()
-        .or_else(|| c.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("{c:?} is not a number"))
 }
 
 fn f(v: &toml::Value, dotted: &str) -> f64 {
