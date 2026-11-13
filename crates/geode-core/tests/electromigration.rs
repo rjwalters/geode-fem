@@ -130,4 +130,26 @@ fn korhonen_errors_and_kappa() {
     let k = korhonen_kappa(1e-20, 1e11, OMEGA, 373.0).unwrap();
     assert!((k - 1e-20 * 1e11 * OMEGA / (1.380649e-23 * 373.0)).abs() < 1e-30);
     assert!(korhonen_kappa(1e-20, 1e11, OMEGA, 0.0).is_err());
+
+    // `t_end` (issue #1564): a finite negative value is not "non-finite", so it
+    // gets its own variant; only NaN and the infinities stay `NonFinite`.
+    let dc = Waveform::Dc(1e9);
+    assert_eq!(
+        korhonen_evolve(&ln, &dc, -1.0, 8, 4).unwrap_err(),
+        EmError::Negative("t_end")
+    );
+    assert!(
+        EmError::Negative("t_end")
+            .to_string()
+            .contains("must be finite and >= 0")
+    );
+    for t in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert_eq!(
+            korhonen_evolve(&ln, &dc, t, 8, 4).unwrap_err(),
+            EmError::NonFinite("t_end")
+        );
+    }
+    // `0.0` is accepted, and so is `-0.0` (it is not `< 0.0`).
+    assert!(korhonen_evolve(&ln, &dc, 0.0, 8, 4).is_ok());
+    assert!(korhonen_evolve(&ln, &dc, -0.0, 8, 4).is_ok());
 }
