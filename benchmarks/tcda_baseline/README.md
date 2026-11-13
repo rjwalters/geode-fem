@@ -59,6 +59,45 @@ let wc = max_gamma_active(&grid, |w, t, p| cell.gamma_active(w, t, p, z_ref))?;
 `max_gamma_active` takes any closure returning `Gamma_active`, so child C can
 pass its optimized cell. `passive == false` invalidates the run.
 
+## Physical scale used by the design driver (issue #1578)
+
+The numbers above are in normalized units and the baseline is unchanged by
+this. But `FloquetElementParam` (#1535) compares copper widths with
+`MIN_TRACE_MM = MIN_GAP_MM = 0.15` **millimetres**, so the design driver of
+Phase 4c has to state what a normalized unit is worth. In normalized units
+the baseline's coupling gap is `0.9 - 2*0.39 = 0.12`, already below a "0.15"
+read as a normalized length, so a scale is required rather than optional.
+
+The scale is pinned by one choice: `STANDARD_STACK`'s permittivities are
+quoted at **10 GHz**, so `lambda0 = 2` units must be `c/10 GHz =
+29.9792458 mm`:
+
+| quantity | value |
+|---|---|
+| `MM_PER_UNIT` (`tcda_design::MM_PER_UNIT`) | 14.9896229 mm per unit |
+| cell pitch | 13.49 mm (0.45 lambda0 at 10 GHz) |
+| dipole length `2L` | 11.69 mm (coupling gap 1.80 mm) |
+| strip width | 1.93 mm |
+| dipole height | 7.49 mm |
+
+Both are well clear of the 0.15 mm limits, so the scaled baseline is
+manufacturable (asserted in `tests/tcda_design.rs`).
+
+The join is by scale alone: the mesh is built with every length multiplied by
+`MM_PER_UNIT` (`build_cell_scaled`) and solved at `omega/MM_PER_UNIT`. In this
+unit system (`c = 1`, `eta = 1`) the scan impedance is exactly
+scale-invariant — `K ~ 1/L`, `omega^2 M ~ 1/L` and `b ~ 1/L`, so
+`x = A^-1 b` and `Z = -e_feed^T P x` do not change — and
+`tcda_design::baseline_reproduces_at_zero_displacement_and_eps_2` asserts
+that the recorded sub-grid still comes out within the same 0.05 dB.
+
+Note that the superstrate slab is `0.25` units = 3.75 mm thick, which is not
+a stock thickness of any `STANDARD_STACK` laminate, and the baseline's
+`eps_r = 2.0` is below the lowest standard range (RO3003, 2.97). So the
+design run keeps the baseline stack fixed (`layers = vec![]`) rather than
+declaring it a tunable laminate; whether Design A tunes the superstrate at
+all is #1579's decision.
+
 ## Reproduce
 
 ```sh
@@ -66,4 +105,5 @@ cargo test --release -j2 -p geode-core --test tcda_baseline -- --include-ignored
 ```
 
 The regression test re-solves three recorded points (about 1 minute) within
-0.05 dB.
+0.05 dB. The Phase-4c adjoint and driver are
+`cargo test --release -j2 -p geode-core --test tcda_design -- --include-ignored --nocapture`.

@@ -64,6 +64,43 @@
 //! `dg/dθ = −2 Re Σ_q Λ_qᵀ (∂A) R_q` with `Λ_q = Σ_p C_pq √(y_p/y_q) L_p`
 //! the folded adjoint, so the cost is `n_p` contractions and not `n_p²`.
 //!
+//! # The lumped delta-gap feed
+//!
+//! [`floquet_edge_gamma_vjp`] (Epic #1252 Phase 4c, issue #1578) is the
+//! same identity for the **lumped delta-gap** figure of merit, the one the
+//! TCDA baseline and the Phase-4 kill criterion are defined on: the scan
+//! impedance `Z` of [`FloquetCell::edge_scan_impedance`] and
+//! `Γ = (Z − z_ref)/(Z + z_ref)` at a real feed-line impedance `z_ref`.
+//! The forward is one solve against the delta-gap drive,
+//!
+//! ```text
+//! A_r x = b,   b = −iω Pᴴ e_feed,   Z = −e_feedᵀ P x,
+//! ```
+//!
+//! and neither `b` nor the read-out depends on θ: `edge_current_rhs` and
+//! `edge_voltage` use only `ω`, the prolongation and the edge DOF itself,
+//! never a node coordinate, so a shape column that moves the feed-edge
+//! nodes adds no extra term (the edge DOF *is* `∫E·dl` along the edge,
+//! whatever the edge's length). Differentiating `A_r x = b` gives
+//!
+//! ```text
+//! ∂Z = μᵀ Pᴴ (∂A) P x,          A_rᵀ μ = Pᵀ e_feed,
+//! ∂|Γ|² = 2 Re( conj(Γ) · 2 z_ref/(Z + z_ref)² · ∂Z ),
+//! ```
+//!
+//! one [`FactoredFloquetCell::back_solve_transpose`] on the forward LU, so
+//! again exactly one factorization per `(ω, θ, φ)`. The adjoint right-hand
+//! side is read back off the forward drive, `Pᵀ e_feed = conj(b)/(iω)`,
+//! and the full-space adjoint field is `conj(P) μ` for the same reason as
+//! above. Unlike the S-matrix identity there is **no leading minus sign**:
+//! `Z` is read from `x` and not from a port scattering ratio, so
+//! `∂Z/∂θ = lᵀ (∂A) r` directly.
+//!
+//! Every fence of the S-matrix path applies unchanged, including
+//! [`FloquetSensitivityError::ShapeMovesPinnedNode`] for a column that
+//! moves a port-face or periodic-face node; the *feed* edge is interior,
+//! so moving it is allowed and differentiated.
+//!
 //! # Scope
 //!
 //! p=1, direct LU, one `(ω, k_t)` per call, scalar per-tet `ε` (complex
@@ -73,7 +110,8 @@
 use faer::c64;
 
 use crate::driven::floquet::{
-    FactoredFloquetCell, FloquetCell, FloquetChannel, FloquetError, FloquetSolution,
+    FactoredFloquetCell, FloquetCell, FloquetChannel, FloquetError, FloquetIncidence,
+    FloquetSolution,
 };
 use crate::driven::s_sensitivity::{MaterialDesign, SParam, ShapeDesign};
 use crate::driven::shape::{Dual, nedelec_local_dual};
@@ -418,6 +456,109 @@ pub fn gamma_sq_objective(feed: usize) -> impl Fn(&[Vec<c64>]) -> (f64, Vec<Vec<
     }
 }
 
+/// Result of [`floquet_edge_gamma_vjp`]: the lumped-feed scan impedance,
+/// its reflection on a real feed line and the gradient of `|Γ|²`.
+#[derive(Debug, Clone)]
+pub struct FloquetEdgeVjp {
+    /// Angular frequency.
+    pub omega: f64,
+    /// Transverse wave vector of the scan (from `(theta, phi)`).
+    pub k_t: [f64; 3],
+    /// The scan impedance `Z` ([`FloquetCell::edge_scan_impedance`]).
+    pub z: c64,
+    /// The feed-line reference impedance the reflection is taken against.
+    pub z_ref: f64,
+    /// `Γ = (Z − z_ref)/(Z + z_ref)`.
+    pub gamma: c64,
+    /// The objective `g = |Γ|²`.
+    pub objective: f64,
+    /// `∂Z/∂θ`, in [`Self::params`] order (the complex derivative the FD
+    /// check is most sensitive on; `grad` is a contraction of it).
+    pub dz: Vec<c64>,
+    /// `dg/dθ = d|Γ|²/dθ`, in [`Self::params`] order.
+    pub grad: Vec<f64>,
+    /// The parameters: every region's `ε′` (if selected), then every
+    /// region's `ε″` (if selected), then the shape columns.
+    pub params: Vec<SParam>,
+    /// Sparse LU factorizations this call performed (1: the adjoint shares
+    /// the forward LU).
+    pub n_factorizations: usize,
+    /// Transpose back-substitutions on that LU (1).
+    pub n_adjoint_solves: usize,
+}
+
+/// `d|Γ|²/dθ` of the **lumped delta-gap feed** of a [`FloquetCell`] at one
+/// scan point, with `Γ = (Z − z_ref)/(Z + z_ref)` and `Z` the scan
+/// impedance of [`FloquetCell::edge_scan_impedance`] on the full edge DOF
+/// `edge` (module docs: the identity, the parameters, the fences).
+///
+/// `theta` / `phi` are the scan angles of the forward, not a `k_t`: the
+/// transverse wave vector is taken from them exactly as
+/// [`FloquetCell::edge_scan_impedance`] does, so the gradient belongs to
+/// the number the baseline and the kill criterion are recorded on.
+///
+/// One factorization and one transpose back-solve per call.
+///
+/// # Errors
+///
+/// [`FloquetSensitivityError::InvalidDesign`] for a non-positive `z_ref`,
+/// an out-of-range or PEC-eliminated `edge`, a non-positive `omega`, a
+/// design inconsistent with the cell, or the removable singularity
+/// `Z + z_ref = 0`; the shape / material fences of
+/// [`floquet_s_sensitivity`]; and [`FloquetSensitivityError::Floquet`] for
+/// a forward failure.
+#[allow(clippy::too_many_arguments)]
+pub fn floquet_edge_gamma_vjp(
+    cell: &FloquetCell,
+    geo: &FloquetGeometry<'_>,
+    omega: f64,
+    theta: f64,
+    phi: f64,
+    edge: usize,
+    z_ref: f64,
+    design: &FloquetDesign,
+    opts: &FloquetSensitivityOptions,
+) -> Result<FloquetEdgeVjp, FloquetSensitivityError> {
+    let invalid = |m: String| FloquetSensitivityError::InvalidDesign(m);
+    if !(z_ref > 0.0 && z_ref.is_finite()) {
+        return Err(invalid(format!(
+            "the feed-line reference impedance must be finite and positive (got {z_ref})"
+        )));
+    }
+    let prep = Prepared::new(cell, geo, design)?;
+    let n0 = cell.factorization_count();
+    let at = prep.solve_edge_at(omega, theta, phi, edge, opts)?;
+    let zr = c64::new(z_ref, 0.0);
+    let den = at.z + zr;
+    if den == c64::new(0.0, 0.0) {
+        return Err(invalid(format!(
+            "Z + z_ref = 0 at this scan point (Z = {}): Γ has a pole here",
+            at.z
+        )));
+    }
+    let gamma = (at.z - zr) / den;
+    // dΓ/dZ = 2 z_ref/(Z + z_ref)²; g = |Γ|² has Wirtinger ∂g/∂Γ = conj(Γ).
+    let dgamma_dz = c64::new(2.0 * z_ref, 0.0) / (den * den);
+    let chain = gamma.conj() * dgamma_dz;
+    // ∂Z/∂θ = lᵀ (∂A) r with l = conj(P) μ and r = P x: one pair.
+    let terms = prep.volume_terms(omega, &[&at.left], &[&at.right]);
+    let dz: Vec<c64> = terms.iter().map(|row| row[0]).collect();
+    let grad: Vec<f64> = dz.iter().map(|&d| 2.0 * (chain * d).re).collect();
+    Ok(FloquetEdgeVjp {
+        omega,
+        k_t: at.k_t,
+        z: at.z,
+        z_ref,
+        gamma,
+        objective: gamma.norm_sqr(),
+        dz,
+        grad,
+        params: prep.params.clone(),
+        n_factorizations: cell.factorization_count() - n0,
+        n_adjoint_solves: 1,
+    })
+}
+
 /// Shape design data: per-node "moves" flags.
 struct ShapeData<'a> {
     design: &'a ShapeDesign,
@@ -432,6 +573,19 @@ struct Prepared<'a> {
     params: Vec<SParam>,
     tet_idx: Vec<[u32; 6]>,
     tet_sign: Vec<[i8; 6]>,
+}
+
+/// The forward and adjoint full-edge fields of the lumped delta-gap feed
+/// at one `(ω, θ, φ)` (issue #1578).
+struct EdgeAt {
+    /// Transverse wave vector the forward was solved at.
+    k_t: [f64; 3],
+    /// The scan impedance `Z = −e_feedᵀ P x`.
+    z: c64,
+    /// The full-space adjoint field `conj(P) μ`.
+    left: Vec<c64>,
+    /// The full-space forward field `P x`.
+    right: Vec<c64>,
 }
 
 /// The forward and adjoint fields at one `(ω, k_t)`.
@@ -498,7 +652,7 @@ impl<'a> Prepared<'a> {
                     m.region_of_tet().len()
                 )));
             }
-            for port in 0..2 {
+            for port in 0..cell.n_ports() {
                 let dofs = cell.port_dofs(port);
                 for (t, r) in m.region_of_tet().iter().enumerate() {
                     let Some(region) = *r else { continue };
@@ -586,6 +740,68 @@ impl<'a> Prepared<'a> {
             sol,
             adjoints,
             weight,
+        })
+    }
+
+    /// Factor once at the scan point, solve the delta-gap forward and the
+    /// one adjoint on that LU, and expand both to full edge vectors
+    /// (module docs: "The lumped delta-gap feed").
+    fn solve_edge_at(
+        &self,
+        omega: f64,
+        theta: f64,
+        phi: f64,
+        edge: usize,
+        opts: &FloquetSensitivityOptions,
+    ) -> Result<EdgeAt, FloquetSensitivityError> {
+        let invalid = |m: String| FloquetSensitivityError::InvalidDesign(m);
+        let n_dofs = self.cell.operator().n_dofs();
+        if edge >= n_dofs {
+            return Err(invalid(format!(
+                "feed edge {edge} is out of range; the cell has {n_dofs} edge DOFs"
+            )));
+        }
+        if !(omega > 0.0 && omega.is_finite()) {
+            return Err(invalid(format!(
+                "the delta-gap drive needs a finite positive omega (got {omega})"
+            )));
+        }
+        let inc = FloquetIncidence {
+            theta,
+            phi,
+            from_port: 0,
+        };
+        let k_t = self.cell.k_t_of(omega, &inc)?;
+        let fac: FactoredFloquetCell<'_> = self.cell.factor(omega, k_t, phi)?;
+        let b = fac
+            .edge_current_rhs(edge)
+            .ok_or_else(|| invalid(format!("feed edge {edge} is PEC-eliminated")))?;
+        let n = fac.n_reduced();
+        let zero = c64::new(0.0, 0.0);
+        let mut x = vec![zero; n];
+        fac.back_solve(&b, &mut x)?;
+        let z = -fac.edge_voltage(&x, edge);
+        // A_rᵀ μ = Pᵀ e_feed, and b = −iω Pᴴ e_feed gives
+        // Pᵀ e_feed = conj(b)/(iω) = conj(b) · (−i/ω) with no new assembly.
+        let w = c64::new(0.0, -1.0 / omega);
+        let rhs: Vec<c64> = b.iter().map(|v| v.conj() * w).collect();
+        let mut mu = vec![zero; n];
+        match opts.fault {
+            FloquetSensitivityFault::ForwardSolveAsAdjoint => fac.back_solve(&rhs, &mut mu)?,
+            _ => fac.back_solve_transpose(&rhs, &mut mu),
+        }
+        let left = if opts.fault == FloquetSensitivityFault::UnconjugatedPhase {
+            fac.expand(&mu)
+        } else {
+            // conj(P) μ = conj(P conj μ).
+            let conj: Vec<c64> = mu.iter().map(|v| v.conj()).collect();
+            fac.expand(&conj).into_iter().map(|v| v.conj()).collect()
+        };
+        Ok(EdgeAt {
+            k_t,
+            z,
+            left,
+            right: fac.expand(&x),
         })
     }
 
@@ -731,7 +947,7 @@ fn check_shape(
         }
     }
     let mut on_port = vec![false; n_nodes];
-    for p in 0..2 {
+    for p in 0..cell.n_ports() {
         for &d in cell.port_dofs(p) {
             for &nd in &edges[d] {
                 on_port[nd as usize] = true;

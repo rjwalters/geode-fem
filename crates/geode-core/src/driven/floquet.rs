@@ -1036,12 +1036,23 @@ impl FloquetCell {
         self.n_factorizations.load(Ordering::Relaxed)
     }
 
+    /// The number of port faces of this cell: 2 for [`Self::assemble`] and
+    /// [`Self::assemble_array`] (the second being the modal feed there), 1
+    /// for [`Self::assemble_radiator`] (the aperture only, the radiator
+    /// being driven by a delta-gap edge instead). [`Self::port_dofs`] is
+    /// valid for `0..n_ports()`; the sensitivities of
+    /// [`super::floquet_sensitivity`] pin every one of them, so they must
+    /// iterate this and not a hard-coded 2 (issue #1578).
+    pub fn n_ports(&self) -> usize {
+        self.ports.len()
+    }
+
     /// The full edge DOFs on the triangles of Floquet port `p` (sorted,
     /// unique). The sensitivities pin the nodes of these edges.
     ///
     /// # Panics
     ///
-    /// Panics if `p > 1`.
+    /// Panics if `p >= self.n_ports()`.
     pub fn port_dofs(&self, p: usize) -> &[usize] {
         &self.ports[p].dofs
     }
