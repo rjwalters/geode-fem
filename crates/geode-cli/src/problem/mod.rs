@@ -1513,11 +1513,14 @@ fn validate_lumped_ports(spec: &ProblemSpec) -> Result<(), CliError> {
 
 /// Every physical group a spec names, resolved to its mesh tag.
 ///
-/// The columns `load_parsed` consumes itself hold plain `i32`:
-/// [`resolve_group_tags`] returns `Err` unless every one of them resolved,
-/// so nothing downstream has to unwrap. The `Option<i32>` columns are the
-/// ones handed straight on to a `resolve_*` helper that still takes
-/// `&[Option<i32>]` and unwraps them itself.
+/// The columns hold plain `i32`: [`resolve_group_tags`] returns `Err`
+/// unless every one of them resolved, so nothing downstream has to unwrap.
+///
+/// `sensitivity` is the sole exception, and its `None` is a value rather
+/// than a failure: a shape or wall parameter binds no volume group, so
+/// there is no name to resolve. `resolve_sensitivity` returns early for
+/// those kinds, and the column stays `Option<i32>` to carry the
+/// distinction.
 struct GroupTags {
     material: Vec<i32>,
     pec: Vec<i32>,
@@ -1525,15 +1528,15 @@ struct GroupTags {
     port: Vec<i32>,
     silver_muller: Vec<i32>,
     wave: Vec<i32>,
-    periodic: Vec<[Option<i32>; 2]>,
-    upml: Vec<Option<i32>>,
-    floquet: Vec<Option<i32>>,
-    capacitance_terminal: Vec<Option<i32>>,
-    capacitance_ground: Vec<Option<i32>>,
-    conduction_terminal: Vec<Option<i32>>,
-    eqs_terminal: Vec<Option<i32>>,
-    eqs_floating: Vec<Option<i32>>,
-    inductance_path: Vec<[Option<i32>; 3]>,
+    periodic: Vec<[i32; 2]>,
+    upml: Vec<i32>,
+    floquet: Vec<i32>,
+    capacitance_terminal: Vec<i32>,
+    capacitance_ground: Vec<i32>,
+    conduction_terminal: Vec<i32>,
+    eqs_terminal: Vec<i32>,
+    eqs_floating: Vec<i32>,
+    inductance_path: Vec<[i32; 3]>,
     sensitivity: Vec<Option<i32>>,
 }
 
@@ -1704,6 +1707,16 @@ fn resolve_group_tags(spec: &ProblemSpec, tagged: &TaggedTetMesh) -> Result<Grou
             .collect()
     }
 
+    /// [`resolved`] for a column whose rows are fixed-size groups of tags
+    /// (a periodic master/slave pair, an inductance conductor/source/sink).
+    fn resolved_n<const N: usize>(tags: Vec<[Option<i32>; N]>) -> Vec<[i32; N]> {
+        tags.into_iter()
+            .map(|row| {
+                row.map(|t| t.expect("every unresolved group was collected into `missing` above"))
+            })
+            .collect()
+    }
+
     Ok(GroupTags {
         material: resolved(material_tags),
         pec: resolved(pec_tags),
@@ -1711,15 +1724,15 @@ fn resolve_group_tags(spec: &ProblemSpec, tagged: &TaggedTetMesh) -> Result<Grou
         port: resolved(port_tags),
         silver_muller: resolved(sm_tags),
         wave: resolved(wave_tags),
-        periodic: periodic_tags,
-        upml: upml_tags,
-        floquet: floquet_tags,
-        capacitance_terminal: terminal_tags,
-        capacitance_ground: ground_tags,
-        conduction_terminal: conduction_tags,
-        eqs_terminal: eqs_terminal_tags,
-        eqs_floating: eqs_floating_tags,
-        inductance_path: path_tags,
+        periodic: resolved_n(periodic_tags),
+        upml: resolved(upml_tags),
+        floquet: resolved(floquet_tags),
+        capacitance_terminal: resolved(terminal_tags),
+        capacitance_ground: resolved(ground_tags),
+        conduction_terminal: resolved(conduction_tags),
+        eqs_terminal: resolved(eqs_terminal_tags),
+        eqs_floating: resolved(eqs_floating_tags),
+        inductance_path: resolved_n(path_tags),
         sensitivity: sensitivity_tags,
     })
 }
@@ -2945,13 +2958,12 @@ fn ams_material_conflict(
 /// slave nodes in place) and keep the map.
 fn build_periodic(
     specs: &[crate::spec::PeriodicSpec],
-    tags: &[[Option<i32>; 2]],
+    tags: &[[i32; 2]],
     tagged: &mut TaggedTetMesh,
 ) -> Result<PeriodicSetup, CliError> {
     let mut setups = Vec::with_capacity(specs.len());
     let mut pairs = Vec::with_capacity(specs.len());
-    for (spec, tag) in specs.iter().zip(tags) {
-        let [mt, st] = tag.map(|t| t.expect("resolved above"));
+    for (spec, &[mt, st]) in specs.iter().zip(tags) {
         let face = |name: &str, tag: i32| -> Result<Surface, CliError> {
             let triangles = tagged.triangles_with_tag(tag);
             if triangles.is_empty() {
@@ -3131,7 +3143,7 @@ fn validate_floquet(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliErr
 /// Resolve the Floquet ports and the incidence angle list.
 fn resolve_floquet(
     spec: &ProblemSpec,
-    tags: &[Option<i32>],
+    tags: &[i32],
     surface: &dyn Fn(&str, i32, &str) -> Result<Surface, CliError>,
 ) -> Result<Option<FloquetSetup>, CliError> {
     use geode_core::driven::floquet::FloquetPolarization::{Te, Tm};
@@ -3139,12 +3151,8 @@ fn resolve_floquet(
         return Ok(None);
     }
     let mut defs = Vec::with_capacity(2);
-    for (f, t) in spec.floquet_ports.iter().zip(tags) {
-        let surf = surface(
-            &f.physical_group,
-            t.expect("resolved above"),
-            "floquet_port",
-        )?;
+    for (f, &t) in spec.floquet_ports.iter().zip(tags) {
+        let surf = surface(&f.physical_group, t, "floquet_port")?;
         let eps_r = match &f.medium {
             Some(n) => {
                 spec.materials
@@ -3903,7 +3911,7 @@ fn tri_edge_keys(t: &[u32; 3]) -> [[u32; 2]; 3] {
 #[allow(clippy::type_complexity)]
 fn resolve_upml(
     spec: &ProblemSpec,
-    tags: &[Option<i32>],
+    tags: &[i32],
     tagged: &TaggedTetMesh,
 ) -> Result<(Vec<UpmlRegion>, Vec<Option<usize>>), CliError> {
     if spec.absorbing_regions.is_empty() {
@@ -3917,11 +3925,8 @@ fn resolve_upml(
             hi[k] = hi[k].max(q[k]);
         }
     }
-    let region_of_tag: BTreeMap<i32, usize> = tags
-        .iter()
-        .enumerate()
-        .map(|(i, t)| (t.expect("resolved above"), i))
-        .collect();
+    let region_of_tag: BTreeMap<i32, usize> =
+        tags.iter().enumerate().map(|(i, &t)| (t, i)).collect();
     let upml_of_tet: Vec<Option<usize>> = tagged
         .tet_physical_tags
         .iter()
@@ -3960,7 +3965,7 @@ fn resolve_upml(
         }
         regions.push(UpmlRegion {
             name: name.clone(),
-            tag: tags[i].expect("resolved above"),
+            tag: tags[i],
             n_tets,
             n_tets_stretched,
             thickness: u.thickness,
