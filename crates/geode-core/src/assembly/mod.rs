@@ -16,6 +16,10 @@
 //!   lumped-resistance terminals, the terminal conductance matrix, `J`,
 //!   Joule density and power balance, Jacobi-scaled LU for 12+ decades of
 //!   contrast (issue #1476).
+//! - [`thermal`]: steady heat conduction `∇·(k∇T) = -q` on a tet mesh with
+//!   fixed-T nodes, per-tet flux and energy balance, plus a relaxed Picard
+//!   Joule self-heating loop `σ(T)` ↔ `k(T)` with runaway detection
+//!   (issue #1556).
 //! - [`eqs_transient`]: electro-quasi-static `∇·(σ∇φ + ∂ₜ(ε∇φ)) = 0` —
 //!   θ-method time stepping with driven terminals and floating conductors
 //!   (conduction / displacement current split, region fields, charge
@@ -104,4 +108,5 @@ pub mod periodic;
 pub mod sparse;
 pub mod surface;
 pub mod surface_p2;
+pub mod thermal;
 pub mod torque;
