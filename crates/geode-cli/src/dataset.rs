@@ -26,6 +26,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use faer::c64;
+use geode_core::assembly::electrostatic::tet_bary_grads;
 use geode_core::mesh::TetMesh;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -273,7 +274,8 @@ pub fn cell_centre_field(mesh: &TetMesh, e_edges: &[c64]) -> Vec<[c64; 3]> {
         .iter()
         .enumerate()
         .map(|(t, tet)| {
-            let grad = barycentric_gradients(mesh, tet);
+            let coords: [[f64; 3]; 4] = std::array::from_fn(|i| mesh.nodes[tet[i] as usize]);
+            let grad = tet_bary_grads(&coords);
             let mut e = [c64::new(0.0, 0.0); 3];
             for (slot, &(la, lb)) in LOCAL_EDGES.iter().enumerate() {
                 let (idx, sign) = tet_edges[t][slot];
@@ -285,31 +287,6 @@ pub fn cell_centre_field(mesh: &TetMesh, e_edges: &[c64]) -> Vec<[c64; 3]> {
             e
         })
         .collect()
-}
-
-/// `∇λ_i` of the four barycentric coordinates of `tet`.
-fn barycentric_gradients(mesh: &TetMesh, tet: &[u32; 4]) -> [[f64; 3]; 4] {
-    let x: [[f64; 3]; 4] = std::array::from_fn(|i| mesh.nodes[tet[i] as usize]);
-    let col = |i: usize| -> [f64; 3] { std::array::from_fn(|k| x[i][k] - x[0][k]) };
-    let (a, b, c) = (col(1), col(2), col(3));
-    let cross = |u: [f64; 3], v: [f64; 3]| -> [f64; 3] {
-        [
-            u[1] * v[2] - u[2] * v[1],
-            u[2] * v[0] - u[0] * v[2],
-            u[0] * v[1] - u[1] * v[0],
-        ]
-    };
-    let det = {
-        let bc = cross(b, c);
-        a[0] * bc[0] + a[1] * bc[1] + a[2] * bc[2]
-    };
-    // Rows of J⁻¹ (J = [a b c] by columns): ∇λ_1 = (b×c)/det, etc.
-    let scale = |v: [f64; 3]| -> [f64; 3] { std::array::from_fn(|k| v[k] / det) };
-    let g1 = scale(cross(b, c));
-    let g2 = scale(cross(c, a));
-    let g3 = scale(cross(a, b));
-    let g0: [f64; 3] = std::array::from_fn(|k| -(g1[k] + g2[k] + g3[k]));
-    [g0, g1, g2, g3]
 }
 
 /// Physical-domain bounds of a parameter kind: `[lower, upper]`, `±∞`

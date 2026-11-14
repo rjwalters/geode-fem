@@ -47,8 +47,9 @@
 //! issue-#602 scoping.
 
 use crate::elements::nedelec::{TET_QUAD4_A, TET_QUAD4_B};
+use crate::elements::nedelec_p2::tet_barycentric_gradients;
 use crate::mesh::TET_LOCAL_EDGES;
-use crate::vec3::{cross3 as cross, dot3 as dot, sub3 as sub};
+use crate::vec3::dot3 as dot;
 
 /// Number of local DOFs of the P2 Lagrange tet (4 vertices + 6 edges).
 pub const TET_P2_DOFS: usize = 10;
@@ -101,7 +102,8 @@ pub fn tet_p2_grads(lam: &[f64; 4], bary: &[[f64; 3]; 4]) -> [[f64; 3]; TET_P2_D
 pub fn tet_p2_local(
     coords: &[[f64; 3]; 4],
 ) -> ([[f64; TET_P2_DOFS]; TET_P2_DOFS], [f64; TET_P2_DOFS], f64) {
-    let (bary, vol) = p2_bary_grads(coords);
+    let (bary, signed_vol) = tet_barycentric_gradients(coords);
+    let vol = signed_vol.abs();
 
     // Degree-2 symmetric 4-point rule: point q has λ_q = A, λ_{p≠q} = B,
     // weight V/4. Exact for the quadratic ∇N_i·∇N_j integrand.
@@ -135,7 +137,8 @@ pub fn tet_p2_local_tensor(
     coords: &[[f64; 3]; 4],
     eps: &[[f64; 3]; 3],
 ) -> ([[f64; TET_P2_DOFS]; TET_P2_DOFS], [f64; TET_P2_DOFS], f64) {
-    let (bary, vol) = p2_bary_grads(coords);
+    let (bary, signed_vol) = tet_barycentric_gradients(coords);
+    let vol = signed_vol.abs();
     let w = vol / 4.0;
     let mut k = [[0.0_f64; TET_P2_DOFS]; TET_P2_DOFS];
     for q in 0..4 {
@@ -153,32 +156,6 @@ pub fn tet_p2_local_tensor(
         }
     }
     (k, p2_load(vol), vol)
-}
-
-/// Barycentric gradients and unsigned volume of an affine tet, from the
-/// cofactor construction of the host-side P1 kernel: `e_i = v_i − v₀`,
-/// `g₁ = e₂×e₃`, `g₂ = e₃×e₁`, `g₃ = e₁×e₂`, `det = e₁·g₁ = 6V`,
-/// `∇λ_i = g_i/det`, `∇λ₀ = −Σ ∇λ_i`.
-fn p2_bary_grads(coords: &[[f64; 3]; 4]) -> ([[f64; 3]; 4], f64) {
-    let v0 = coords[0];
-    let e1 = sub(coords[1], v0);
-    let e2 = sub(coords[2], v0);
-    let e3 = sub(coords[3], v0);
-    let g1 = cross(e2, e3);
-    let g2 = cross(e3, e1);
-    let g3 = cross(e1, e2);
-    let det = dot(e1, g1); // = 6V (signed)
-    let vol = det.abs() / 6.0;
-    let inv = 1.0 / det;
-    let gl1 = [g1[0] * inv, g1[1] * inv, g1[2] * inv];
-    let gl2 = [g2[0] * inv, g2[1] * inv, g2[2] * inv];
-    let gl3 = [g3[0] * inv, g3[1] * inv, g3[2] * inv];
-    let gl0 = [
-        -(gl1[0] + gl2[0] + gl3[0]),
-        -(gl1[1] + gl2[1] + gl3[1]),
-        -(gl1[2] + gl2[2] + gl3[2]),
-    ];
-    ([gl0, gl1, gl2, gl3], vol)
 }
 
 /// Exact load integrals `∫ N_p dV` (barycentric monomial formula):

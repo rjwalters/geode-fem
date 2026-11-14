@@ -251,9 +251,13 @@ pub fn tet_nedelec2_shapes(
 /// Physical barycentric gradients `∇λ_p` (constant on an affine tet) and the
 /// **signed** volume `det(J)/6` for the tet `coords`.
 ///
-/// Mirrors the cofactor construction of [`crate::elements::p2::tet_p2_local`]:
-/// `e_i = v_i − v0`, `g1 = e2×e3`, `g2 = e3×e1`, `g3 = e1×e2`,
-/// `det = e1·g1 = 6V`, `∇λ_i = g_i/det`, `∇λ_0 = −Σ ∇λ_i`.
+/// The single definition of the cofactor construction `e_i = v_i − v0`,
+/// `g1 = e2×e3`, `g2 = e3×e1`, `g3 = e1×e2`, `det = e1·g1 = 6V`,
+/// `∇λ_i = g_i/det`, `∇λ_0 = −Σ ∇λ_i`. The P1 assembly reaches it
+/// through [`crate::assembly::electrostatic::tet_bary_grads`] (gradients
+/// only) and [`crate::elements::p2::tet_p2_local`] through this function
+/// directly; the `Dual` twin in `crate::driven::shape` is deliberately
+/// separate, since it carries derivative arithmetic.
 pub fn tet_barycentric_gradients(coords: &[[f64; 3]; 4]) -> ([[f64; 3]; 4], f64) {
     let v0 = coords[0];
     let e1 = sub(coords[1], v0);
