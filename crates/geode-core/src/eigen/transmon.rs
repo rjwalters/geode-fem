@@ -738,6 +738,72 @@ fn ungauged_interior_reindex(
     Ok((interior_index, dim))
 }
 
+/// The reduced real transmon system shared by the ungauged and projected
+/// entry points.
+///
+/// Built by [`reduced_transmon_system`]; the fields are the plain PEC
+/// interior reindex (`interior_index`, `dim`) and the reduced `K + K_port`,
+/// `M + M_port` and `K_port` operators over those DOFs.
+pub(crate) struct ReducedTransmonSystem {
+    pub(crate) interior_index: Vec<Option<usize>>,
+    pub(crate) dim: usize,
+    pub(crate) k_red: SparseColMat<usize, f64>,
+    pub(crate) m_red: SparseColMat<usize, f64>,
+    pub(crate) k_port_red: SparseColMat<usize, f64>,
+}
+
+/// Plain PEC interior reindex ([`ungauged_interior_reindex`]) plus the reduced
+/// `K + K_port`, `M + M_port` and `K_port` under `port_model` — the single
+/// reduction the ungauged and projected transmon paths share.
+///
+/// Every caller that needs this preamble must go through here: the doc comment
+/// on [`assemble_reduced_real`] requires the projected and ungauged paths to
+/// agree bit-for-bit, and routing them through one body makes that structural
+/// rather than a property of hand-copied blocks happening to match.
+///
+/// # Errors
+///
+/// Propagates [`EigenError`] when the PEC reduction leaves no interior DOFs,
+/// or from either reduced assembly.
+pub(crate) fn reduced_transmon_system(
+    pencil: &TransmonPencil<'_>,
+    port_model: JunctionPortModel,
+) -> Result<ReducedTransmonSystem, EigenError> {
+    let (interior_index, dim) = ungauged_interior_reindex(pencil)?;
+
+    let pattern = pencil.scatter.pattern();
+    assert_eq!(pencil.k_vals.len(), pattern.nnz(), "k_vals length mismatch");
+    assert_eq!(pencil.m_vals.len(), pattern.nnz(), "m_vals length mismatch");
+
+    let (k_port, m_port) = port_model.port_triplets(&pencil.shunt, pencil.mesh, pencil.edges);
+
+    let k_red = assemble_reduced_real(
+        &pattern.rows,
+        &pattern.cols,
+        pencil.k_vals,
+        &k_port,
+        &interior_index,
+        dim,
+    )?;
+    let m_red = assemble_reduced_real(
+        &pattern.rows,
+        &pattern.cols,
+        pencil.m_vals,
+        &m_port,
+        &interior_index,
+        dim,
+    )?;
+    let k_port_red = assemble_reduced_real(&[], &[], &[], &k_port, &interior_index, dim)?;
+
+    Ok(ReducedTransmonSystem {
+        interior_index,
+        dim,
+        k_red,
+        m_red,
+        k_port_red,
+    })
+}
+
 /// [`solve_transmon_eigenmodes_with_inner`] returning the full
 /// [`TransmonMode`]s — the mode reports **and** the reduced M-normalized
 /// eigenvectors — through the ungauged PEC-interior reduction.
@@ -1159,68 +1225,23 @@ fn matrix_free_inner_iters_impl(
     three_space: bool,
     inner: InnerSolver,
 ) -> Result<(Vec<ModeReport>, usize), EigenError> {
-    let n_edges = pencil.edges.len();
-    assert_eq!(
-        pencil.interior_mask.len(),
-        n_edges,
-        "interior mask length must equal edge count"
-    );
-
-    // Plain PEC interior reindex (identical to the ungauged path).
-    let mut interior_index = vec![None; n_edges];
-    let mut dim = 0usize;
-    for (e, &keep) in pencil.interior_mask.iter().enumerate() {
-        if keep {
-            interior_index[e] = Some(dim);
-            dim += 1;
-        }
-    }
-    if dim == 0 {
-        return Err(EigenError::FaerGevd(
-            "no interior DOFs after PEC reduction".into(),
-        ));
-    }
-
-    let pattern = pencil.scatter.pattern();
-    assert_eq!(pencil.k_vals.len(), pattern.nnz(), "k_vals length mismatch");
-    assert_eq!(pencil.m_vals.len(), pattern.nnz(), "m_vals length mismatch");
-
-    let k_port = pencil.shunt.k_port_triplets(pencil.mesh, pencil.edges);
-    let m_port = pencil.shunt.m_port_triplets(pencil.mesh, pencil.edges);
-
-    let k_red = assemble_reduced_real(
-        &pattern.rows,
-        &pattern.cols,
-        pencil.k_vals,
-        &k_port,
-        &interior_index,
-        dim,
-    )?;
-    let m_red = assemble_reduced_real(
-        &pattern.rows,
-        &pattern.cols,
-        pencil.m_vals,
-        &m_port,
-        &interior_index,
-        dim,
-    )?;
-    let k_port_red = assemble_reduced_real(&[], &[], &[], &k_port, &interior_index, dim)?;
+    let sys = reduced_transmon_system(pencil, JunctionPortModel::DistributedSurface)?;
 
     // G = d⁰_interior — the AMS auxiliary-space prolongation. Only consumed by
     // the AMS preconditioner; the Jacobi path ignores it.
     let mut gradient = crate::eigen::projection::InteriorGradient::build(
         pencil.edges,
         pencil.interior_mask,
-        &interior_index,
+        &sys.interior_index,
         pencil.mesh.n_nodes(),
-        dim,
+        sys.dim,
     );
     if three_space {
         // Per-reduced-edge-row edge vectors d_e = p_b − p_a (edges[e] = [a,b],
         // the same −1@a/+1@b orientation G encodes) — the geometry the
         // vector-nodal Π interpolation needs (issue #550).
-        let mut edge_vectors = vec![[0.0_f64; 3]; dim];
-        for (e, &row) in interior_index.iter().enumerate() {
+        let mut edge_vectors = vec![[0.0_f64; 3]; sys.dim];
+        for (e, &row) in sys.interior_index.iter().enumerate() {
             if let Some(row) = row {
                 let [a, b] = pencil.edges[e];
                 let pa = pencil.mesh.nodes[a as usize];
@@ -1239,8 +1260,8 @@ fn matrix_free_inner_iters_impl(
         precond,
     };
     let (pairs, inner_iters) = solver.smallest_eigenpairs_inner_iters(
-        k_red.as_ref(),
-        m_red.as_ref(),
+        sys.k_red.as_ref(),
+        sys.m_red.as_ref(),
         n_modes,
         Some(&gradient),
     )?;
@@ -1250,7 +1271,7 @@ fn matrix_free_inner_iters_impl(
         .map(|pair| ModeReport {
             lambda: pair.lambda,
             frequency_hz: frequency_hz_from_lambda(pair.lambda, m_per_unit),
-            participation: junction_participation(&k_red, &k_port_red, &pair.vector),
+            participation: junction_participation(&sys.k_red, &sys.k_port_red, &pair.vector),
         })
         .collect();
     Ok((modes, inner_iters))
