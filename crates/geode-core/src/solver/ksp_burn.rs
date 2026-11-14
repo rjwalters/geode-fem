@@ -933,7 +933,12 @@ fn explicit_residual_rel<B: Backend>(
 
 /// Breakdown guard on a bilinear inner-product scalar — mirrors the CPU
 /// `bd_check` closure.
-fn bd_check(val: c64, iter: usize, kind: &'static str, tol: f64) -> Result<(), KspError> {
+pub(crate) fn bd_check(
+    val: c64,
+    iter: usize,
+    kind: &'static str,
+    tol: f64,
+) -> Result<(), KspError> {
     let mag2 = val.re * val.re + val.im * val.im;
     if !val.re.is_finite() || !val.im.is_finite() || mag2 < tol * tol {
         Err(KspError::Breakdown {
@@ -1102,15 +1107,8 @@ mod tests {
     }
 
     fn drift_rhs(n: usize) -> Vec<c64> {
-        let mut s = 12345_u64;
-        (0..n)
-            .map(|_| {
-                s = s
-                    .wrapping_mul(6364136223846793005)
-                    .wrapping_add(1442695040888963407);
-                c64::new(((s >> 11) as f64 / (1_u64 << 53) as f64) - 0.5, 0.0)
-            })
-            .collect()
+        let mut rng = geode_util::rng::Lcg(12345);
+        (0..n).map(|_| c64::new(rng.next_centered(), 0.0)).collect()
     }
 
     /// **Issue #943, matrix-free twin**: `BurnCocg` repairs a

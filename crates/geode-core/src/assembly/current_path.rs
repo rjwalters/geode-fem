@@ -99,6 +99,7 @@
 //!   between sub-regions of different conductivity). For a homogeneous path
 //!   the shape of `J` is independent of the conductivity value.
 
+use crate::vec3::sorted3;
 use std::collections::{BTreeSet, HashMap};
 
 use crate::assembly::electrostatic::{
@@ -621,12 +622,6 @@ pub fn check_grounded_balance(
         )));
     }
     Ok(worst)
-}
-
-#[inline]
-fn sorted3(mut t: [u32; 3]) -> [u32; 3] {
-    t.sort_unstable();
-    t
 }
 
 #[cfg(test)]

@@ -112,6 +112,7 @@
 //!
 //! The analytic oracle is [`crate::analytic::mie::mie_efficiencies`].
 
+use crate::vec3::{cross3 as cross, dot3 as dot, sub3 as sub};
 use faer::c64;
 use faer::sparse::{SparseColMat, Triplet};
 
@@ -179,22 +180,6 @@ pub(crate) struct TetGeometry {
     pub(crate) grad: [[f64; 3]; 4],
     /// Unsigned volume.
     pub(crate) volume: f64,
-}
-
-pub(crate) fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
-pub(crate) fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-pub(crate) fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
 
 pub(crate) fn tet_geometry(mesh: &TetMesh, tet: &[u32; 4]) -> TetGeometry {
@@ -989,7 +974,8 @@ pub fn solve_scattered_field_matched_upml(
     omega: f64,
     j_at: impl Fn(usize, [f64; 3]) -> [c64; 3],
 ) -> Result<DrivenSolution, DrivenError> {
-    use crate::eigen::complex::{solve_with_lu, spmv};
+    use crate::eigen::complex::spmv;
+    use crate::sparse_ops::lu_solve;
 
     let n_tets = mesh.n_tets();
     if tet_physical_tags.len() != n_tets {
@@ -1131,7 +1117,7 @@ pub fn solve_scattered_field_matched_upml(
         .sp_lu()
         .map_err(|e| DrivenError::Factorization(format!("{e:?}")))?;
     let mut x_int = vec![c64::new(0.0, 0.0); n_interior];
-    solve_with_lu(&lu, &b_int, &mut x_int).map_err(|e| DrivenError::Solve(format!("{e}")))?;
+    lu_solve(&lu, &b_int, &mut x_int);
 
     // Post-solve residual check (same health metric as driven_solve).
     let mut ax = vec![c64::new(0.0, 0.0); n_interior];

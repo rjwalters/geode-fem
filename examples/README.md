@@ -10,9 +10,9 @@ them with:
 cargo run -p <name> [--release] [-- <example-flags>]
 ```
 
-Every example also accepts the shared `geode-app` flags via
+Examples that need an artifact directory accept the shared `geode-app` flag via
 `#[command(flatten)]`: `--out-dir <dir>` (artifact output directory,
-default `artifacts/`) and `-v` / `-q` (verbosity). Those are omitted
+default `artifacts/`). That flag is omitted
 from the per-example invocations below.
 
 ## Example index (12 crates)
@@ -208,7 +208,7 @@ is selected by `geode-core`'s default features and the workspace
 use std::process::ExitCode;
 
 use clap::Parser;
-use geode_app::{App, OutputDir, Verbosity};
+use geode_app::{App, OutputDir};
 
 /// One-line `--help` description.
 #[derive(Parser)]
@@ -221,10 +221,6 @@ struct Args {
     /// Artifact output directory (`--out-dir`, default `artifacts/`).
     #[command(flatten)]
     out: OutputDir,
-
-    /// Verbosity (`-v` / `-q`), fed to the logging seam.
-    #[command(flatten)]
-    verbose: Verbosity,
 }
 
 impl App for Args {
@@ -234,10 +230,6 @@ impl App for Args {
         let _ = dir;
         Ok(())
     }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
-    }
 }
 
 fn main() -> ExitCode {
@@ -245,8 +237,7 @@ fn main() -> ExitCode {
 }
 ```
 
-`geode_app::main::<Args>()` parses the args, runs the (currently no-op)
-observability seam on the resolved [`Verbosity`], calls `App::run`, and
+`geode_app::main::<Args>()` parses the args, calls `App::run`, and
 maps `Ok → SUCCESS` / `Err → FAILURE` (printing the `error:` + `caused
 by:` source chain to stderr). See `crates/geode-app` for the full harness
 docs.

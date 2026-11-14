@@ -32,6 +32,9 @@
 //! `#[ignore]`d — `burn-cuda 0.21` has no f64, so it runs only on the rented
 //! EC2 box, never in CI.
 
+mod common;
+use common::edge_tables;
+
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Tensor, TensorData};
 use geode_core::assembly::nedelec::{
@@ -39,27 +42,10 @@ use geode_core::assembly::nedelec::{
 };
 use geode_core::assembly::nedelec_matvec::MatrixFreeNedelecOperator;
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::mesh::cube_tet_mesh;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-/// Split `mesh.tet_edges()` into the `(idx, sign)` tables the assemblers take.
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
-}
 
 /// Read a dense `[n, n]` Burn matrix to a host row-major `Vec<f64>`.
 fn dense_to_host(t: Tensor<B, 2>) -> Vec<f64> {
@@ -84,17 +70,8 @@ fn dense_matvec(a: &[f64], x: &[f64], n: usize) -> Vec<f64> {
 /// Deterministic pseudo-random f64 vector in `[-1, 1)` from a 64-bit LCG seed
 /// (reproducible, no `rand` dependency).
 fn pseudo_random_vec(n: usize, seed: u64) -> Vec<f64> {
-    let mut state = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-    (0..n)
-        .map(|_| {
-            state = state
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
-            // Top 53 bits → [0, 1) → shift to [-1, 1).
-            let u = (state >> 11) as f64 / (1u64 << 53) as f64;
-            2.0 * u - 1.0
-        })
-        .collect()
+    let mut rng = geode_util::rng::Lcg(seed.wrapping_mul(6364136223846793005).wrapping_add(1));
+    (0..n).map(|_| rng.next()).collect()
 }
 
 /// Upload a host `Vec<f64>` as a `[n]` Burn tensor.

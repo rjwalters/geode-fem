@@ -15,8 +15,10 @@
 //! - **Release / `#[ignore]`:** the real 133k-tet DeviceLayout mesh, the
 //!   honesty/scale cross-check.
 
+mod common;
+use common::edge_tables;
+
 use burn::tensor::Tensor;
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::nedelec::{
@@ -32,30 +34,14 @@ use geode_core::eigen::transmon::{
 };
 use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
 use geode_core::mesh::{TetMesh, TransmonFixture, cube_tet_mesh, read_transmon_smoke_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
 const M_PER_UNIT: f64 = 1e-6;
 
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
 fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
     t.into_data().iter::<f64>().collect()
-}
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
 }
 
 /// Assemble the REAL Nédélec pencil value vectors `(k_vals, m_vals)` for a

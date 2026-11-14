@@ -26,13 +26,11 @@ use std::path::{Path, PathBuf};
 use burn::prelude::Backend;
 use burn::tensor::DType;
 use burn::tensor::backend::BackendTypes;
-use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
-use geode_core::eigen::dense::{
-    EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
-};
-use geode_core::mesh::cube_tet_mesh;
 use geode_core::testing::{TestBackend, device_tolerances};
 use geode_validation::{Fixture, FixtureFormat};
+
+mod common;
+use common::burn_cube_cavity;
 
 type B = TestBackend;
 
@@ -83,30 +81,6 @@ fn fixture_path() -> PathBuf {
 // ---------------------------------------------------------------------------
 // Burn pipeline
 // ---------------------------------------------------------------------------
-
-/// Run the Burn cube-cavity pipeline for given `n` (programmatic mesh)
-/// and `side`. Returns `(lowest_k_eigenvalues, trace(K_int),
-/// trace(M_int))`.
-fn burn_cube_cavity(n: usize, side: f64, k: usize) -> (Vec<f64>, f64, f64) {
-    let device = <B as BackendTypes>::Device::default();
-    let mesh = cube_tet_mesh(n, side);
-    let (nodes, tets) = upload_mesh::<B>(&mesh, &device);
-    let sys = assemble_global_p1(nodes, tets, mesh.n_nodes());
-    let k_mat = burn_matrix_to_faer(sys.k);
-    let m_mat = burn_matrix_to_faer(sys.m);
-    let mask = cube_interior_mask(&mesh.nodes, side);
-    let (k_int, m_int) =
-        apply_dirichlet_bc(k_mat.as_ref(), m_mat.as_ref(), &mask).expect("BC reduction");
-
-    let n_int = k_int.nrows();
-    let trk: f64 = (0..n_int).map(|i| k_int[(i, i)]).sum();
-    let trm: f64 = (0..n_int).map(|i| m_int[(i, i)]).sum();
-
-    let eigvals = FaerDenseEigensolver
-        .smallest_eigenvalues(k_int.as_ref(), m_int.as_ref(), k)
-        .expect("eigensolve");
-    (eigvals, trk, trm)
-}
 
 // Scalar input accessors (`fixture.input_i64` / `fixture.input_f64`) and the
 // recursive JSON numeric flatten live in the shared staging crate.

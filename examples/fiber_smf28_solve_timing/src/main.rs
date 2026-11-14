@@ -20,7 +20,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use clap::Parser;
-use geode_app::{App, Verbosity};
+use geode_app::App;
 use geode_core::analytic::waveguide::{
     disk_pec_interior_dofs2, disk_tri_mesh, epsilon_r_from_region_tags, n_dof_2d_nedelec2,
     solve_dielectric_modes2,
@@ -28,16 +28,12 @@ use geode_core::analytic::waveguide::{
 
 /// SMF-28 fiber p=2 solve-timing harness CLI.
 ///
-/// The original example took no arguments; this flattens the shared
-/// `geode-app` `-v`/`-q` verbosity group and keeps the timing body identical.
+/// The original example took no arguments; this keeps the timing body identical.
 #[derive(Parser)]
 #[command(
     about = "Performance harness timing the SMF-28 fiber p=2 modal solve on the sparse-direct path (issue #327)."
 )]
-struct Args {
-    #[command(flatten)]
-    verbose: Verbosity,
-}
+struct Args {}
 
 impl App for Args {
     fn run(self) -> Result<(), Box<dyn std::error::Error>> {
@@ -82,10 +78,6 @@ impl App for Args {
             eprintln!("  (no bound mode returned)");
         }
         Ok(())
-    }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
     }
 }
 

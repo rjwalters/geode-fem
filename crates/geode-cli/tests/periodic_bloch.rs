@@ -21,7 +21,7 @@ mod scratch_support;
 
 use std::f64::consts::PI;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 
 use geode_core::constants::C_M_PER_S;
 use scratch_support::Scratch;
@@ -105,12 +105,9 @@ fn cube_msh(n: usize) -> String {
     msh::write_msh_volumes(&nodes, &[(1, "cell", tets.as_slice())], &surfaces)
 }
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::geode;
 
 fn json_of(out: &Output) -> Value {
     serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {

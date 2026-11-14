@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "geode_version": "0.9.0",
+  "git_sha": "fa2866a05ee5",
+  "backend": "ndarray",
+  "threads": null,
+  "spec_path": "crates/geode-cli/examples/eigen/box_cavity_p1.json",
+  "kind": "check",
+  "status": "ok",
+  "mesh": {
+    "path": "crates/geode-cli/examples/eigen/../../../geode-core/tests/fixtures/guide_box_lc018.msh",
+    "sha256": "64c9afe1fcfd721419752d87391027824a82694a29848805a2e564bef5118282",
+    "length_unit_m": 0.01,
+    "n_nodes": 546,
+    "n_tets": 1943,
+    "n_edges": 2901,
+    "n_interior": 1662,
+    "element_order": 1,
+    "n_dofs": 2901
+  },
+  "regions": [
+    {
+      "physical_group": "domain",
+      "tag": 1,
+      "n_tets": 1943,
+      "eps_r": [
+        1.0,
+        0.0
+      ],
+      "eps_r_source": "spec",
+      "mu_r": 1.0
+    }
+  ],
+  "pec": [
+    {
+      "physical_group": "walls",
+      "tag": 2,
+      "n_triangles": 826
+    }
+  ],
+  "leontovich": [],
+  "silver_muller": [],
+  "absorbing_regions": [],
+  "ports": [],
+  "wave_ports": [],
+  "frequencies": [],
+  "solver": {
+    "mode": "direct",
+    "tol": null,
+    "max_iters": null
+  },
+  "analysis": "eigen",
+  "eigen": {
+    "n_modes": 4,
+    "shift_hz": 7157017738.855413,
+    "shift_k0": 1.5,
+    "sigma": 2.25,
+    "max_iters": 160,
+    "tol": 1e-9,
+    "residual_tol": 1e-6
+  },
+  "extract": null,
+  "capacitance": null,
+  "inductance": null,
+  "resources": {
+    "solver_mode": "direct",
+    "scalar": "real",
+    "nnz_a": 40353,
+    "n_factorizations": 1,
+    "n_rhs_per_frequency": 0,
+    "anchor_nnz_ratio": 0.001971562556522475,
+    "above_anchor": false,
+    "peak_memory_gb": 0.1860738841044484,
+    "wall_time_s": 1.1149797441527116,
+    "wall_time_per_factorization_s": 1.1149797441527116,
+    "flops_per_iteration": null,
+    "flops_max": null,
+    "peak_memory_confidence": "order_of_magnitude",
+    "wall_time_confidence": "conservative_below_anchor",
+    "calibration_basis": "linear-in-nnz(A) extrapolation from one direct-LU anchor: 2026-07-15 transmon eigen, real pencil, 1157564 interior DOF, nnz(A)=20467522, COLAMD, faer supernodal LU, 565.5 s wall / 92166884 KiB (94.4 GB) peak RSS on a 128 GB cloud box; complex pencil x2 memory / x4 time (uncalibrated); order-of-magnitude only"
+  }
+}

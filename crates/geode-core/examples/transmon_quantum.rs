@@ -24,6 +24,10 @@
 //! **metres** (× `1e-6`) before assembly, so the extracted capacitance is
 //! in SI farads directly (`C = φᵀ K φ`, `K ∝ ε₀ · length`).
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::scaled_mesh;
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
@@ -34,7 +38,7 @@ use geode_core::assembly::electrostatic::{
 use geode_core::mesh::transmon::{
     JUNCTION_CAPACITANCE_F, JUNCTION_INDUCTANCE_H, sapphire_eps_lab, sapphire_eps_scalar,
 };
-use geode_core::mesh::{MetalRole, TetMesh, read_transmon_smoke_fixture};
+use geode_core::mesh::{MetalRole, read_transmon_smoke_fixture};
 use geode_core::quantum::transmon::{
     TransmonAnchor, cross_kerr_from_epr, e_c_hz_from_c_sigma, e_j_hz_from_inductance,
     harmonic_frequency_hz, omega01_asymptotic_hz, self_kerr_from_epr, transmon_spectrum,
@@ -57,17 +61,6 @@ const MESH_CONV_TENSOR_BAND_FF: [f64; 2] = [76.61, 81.75];
 const MESH_CONV_SCALAR_UPPER_FF: f64 = 83.02;
 /// Scalar-ε estimate band (fF).
 const MESH_CONV_SCALAR_BAND_FF: [f64; 2] = [74.14, 79.62];
-
-/// Scale a mesh's node coordinates by `s` (in place on a clone).
-fn scaled_mesh(mesh: &TetMesh, s: f64) -> TetMesh {
-    let mut m = mesh.clone();
-    for n in m.nodes.iter_mut() {
-        n[0] *= s;
-        n[1] *= s;
-        n[2] *= s;
-    }
-    m
-}
 
 fn main() {
     let fx = read_transmon_smoke_fixture().expect("load transmon fixture");

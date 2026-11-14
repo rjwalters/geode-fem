@@ -57,8 +57,6 @@
 //! debug build, #922; no panic was observed within the cap). The old
 //! faer 0.24 `qz_real` overflow panic is fixed in the `faier` fork (#920).
 
-use burn::tensor::backend::BackendTypes;
-
 use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_epsilon, build_epsilon_r, sphere_n_interior_nodes,
 };
@@ -67,13 +65,9 @@ use geode_core::assembly::surface::assemble_silver_muller_surface;
 use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
 use geode_core::eigen::dense::burn_matrix_to_faer;
 use geode_core::mesh::{PHYS_OUTER_BOUNDARY, read_sphere_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 #[test]
 fn silver_muller_surface_is_nonzero_on_outer_boundary() {

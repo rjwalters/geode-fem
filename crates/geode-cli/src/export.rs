@@ -40,7 +40,7 @@ use std::path::{Path, PathBuf};
 use faer::c64;
 use geode_core::mesh::TetMesh;
 use geode_core::postproc::ntff::PatternCut;
-use geode_core::postproc::viz::write_vtu;
+use geode_core::postproc::viz::{write_vtu, write_vtu_cell_data};
 use geode_util::viz::edge_field_to_nodes;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -91,6 +91,30 @@ impl OutDir {
             &e_re,
             imag.then_some(e_im.as_slice()),
             Some(eps_nodes),
+        )
+        .map_err(|err| CliError::Io {
+            path: path.clone(),
+            err,
+        })?;
+        self.file_ref(name)
+    }
+
+    /// Write per-tet conduction fields as a cell-data `.vtu` named `name`
+    /// (`J` vector, `joule_density` and `sigma` scalars, already in SI).
+    pub fn write_cell_fields(
+        &self,
+        name: &str,
+        mesh: &TetMesh,
+        j: &[[f64; 3]],
+        joule: &[f64],
+        sigma: &[f64],
+    ) -> Result<FileRef, CliError> {
+        let path = self.root.join(name);
+        write_vtu_cell_data(
+            &path,
+            mesh,
+            &[("joule_density", joule), ("sigma", sigma)],
+            &[("J", j)],
         )
         .map_err(|err| CliError::Io {
             path: path.clone(),

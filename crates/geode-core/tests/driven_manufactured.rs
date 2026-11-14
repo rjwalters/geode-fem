@@ -43,7 +43,6 @@
 //! `J` is sampled per-tet at centroids (midpoint quadrature), an O(h²)
 //! consistency perturbation that does not limit the O(h) rate.
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use std::f64::consts::PI;
 
@@ -53,13 +52,9 @@ use geode_core::driven::solve::{CurrentSource, DrivenBcs, DrivenMaterials, drive
 use geode_core::eigen::dense::burn_matrix_to_faer;
 use geode_core::elements::nedelec::batched_nedelec_local_rhs;
 use geode_core::mesh::cube_tet_mesh;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// 4-point Gauss–Legendre nodes/weights on [0, 1].
 const GAUSS_4: [(f64, f64); 4] = [

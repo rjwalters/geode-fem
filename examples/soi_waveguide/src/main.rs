@@ -66,7 +66,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
-use geode_app::{App, Verbosity};
+use geode_app::App;
 use geode_core::analytic::waveguide::{
     TriMesh, epsilon_r_from_region_tags, rect_pec_interior_edges, rect_tri_mesh, slab_te0_neff,
     solve_dielectric_modes,
@@ -389,17 +389,13 @@ fn emit_results(results: &[BufferResult]) {
 
 /// SOI strip-waveguide benchmark CLI.
 ///
-/// The original example took no arguments; this flattens the shared
-/// `geode-app` `-v`/`-q` verbosity group and keeps the benchmark body
-/// otherwise identical (same report, same `results.toml` artifact).
+/// The original example took no arguments; this keeps the benchmark body
+/// identical (same report, same `results.toml` artifact).
 #[derive(Parser)]
 #[command(
     about = "SOI strip-waveguide benchmark: fundamental quasi-TE n_eff vs the effective-index-method oracle (issue #306)."
 )]
-struct Args {
-    #[command(flatten)]
-    verbose: Verbosity,
-}
+struct Args {}
 
 impl App for Args {
     fn run(self) -> Result<(), Box<dyn std::error::Error>> {
@@ -475,10 +471,6 @@ impl App for Args {
 
         emit_results(&results);
         Ok(())
-    }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
     }
 }
 

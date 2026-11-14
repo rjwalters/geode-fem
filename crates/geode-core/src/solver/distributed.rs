@@ -105,7 +105,7 @@ use crate::assembly::p1::upload_mesh;
 use crate::mesh::TetMesh;
 use crate::mesh::partition::Partition;
 use crate::solver::ksp::{KspError, KspReport};
-use crate::solver::ksp_burn::SplitComplex;
+use crate::solver::ksp_burn::{SplitComplex, bd_check};
 
 // ---------------------------------------------------------------------------
 // DistributedVector
@@ -827,22 +827,6 @@ fn true_residual_rel<Op: DistributedLinearOperator<B>, B: Backend>(
     let mut resid = op.apply(x, coll);
     resid.axpy(c64::new(-1.0, 0.0), b);
     distributed_norm(coll, &resid) / b_norm
-}
-
-/// Breakdown guard on a bilinear inner-product scalar — mirrors the
-/// single-process `bd_check`.
-fn bd_check(val: c64, iter: usize, kind: &'static str, tol: f64) -> Result<(), KspError> {
-    let mag2 = val.re * val.re + val.im * val.im;
-    if !val.re.is_finite() || !val.im.is_finite() || mag2 < tol * tol {
-        Err(KspError::Breakdown {
-            iter,
-            kind,
-            value_re: val.re,
-            value_im: val.im,
-        })
-    } else {
-        Ok(())
-    }
 }
 
 #[cfg(test)]

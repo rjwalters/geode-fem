@@ -30,13 +30,16 @@
 #   .claude/skills/repo/hooks/*.sh                      <- hooks/repo/*.sh
 #     (guard-destructive.sh only when install-metadata.json's guardHookInstalled
 #     is true/absent — repo#490: a target that deferred to another tool's guard
-#     at install time never had this file, and a resync must not start adding it)
+#     at install time never had this file, and a resync must not start adding it
+#     — and never when the operator opted out with `install.sh --no-guard`,
+#     recorded as "guardHook": "disabled" and preserved on every re-stamp, repo#557)
 #   .claude/skills/repo/scripts/repo-remote.sh          <- scripts/repo/repo-remote.sh
 #   .claude/skills/repo/scripts/repo-scrub-forks.sh     <- scripts/repo/repo-scrub-forks.sh
 #   .claude/skills/repo/scripts/resync-installed.sh     <- scripts/repo/resync-installed.sh
 #   .claude/commands/repo/<cmd>.md                      <- commands/repo/<cmd>.md
 #   .agents/skills/repo/SKILL.md                        <- skills/repo/SKILL.md (Codex form)
-#   .agents/skills/repo/references/<cmd>.md             <- commands/repo/<cmd>.md
+#   .agents/skills/repo-<cmd>/SKILL.md                  <- commands/repo/<cmd>.md (Codex form)
+#   (.agents/skills/repo/references/ is removed: pre-#676 layout, marker-gated)
 #   CLAUDE.md (REPO-SKILLS block, restamped to $VERSION) <- targeted field edit, not a copy
 #
 # The Codex half is refreshed ONLY when it is already installed and carries this
@@ -342,6 +345,8 @@ fi
 
 VERSION="$(cat "$SOURCE_ROOT/VERSION" 2>/dev/null || echo unknown)"
 COMMIT="$(git -C "$SOURCE_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+# The release tag HEAD sits exactly on, if any (repo#669); empty otherwise.
+TAG="$(git -C "$SOURCE_ROOT" describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null || true)"
 # The install-date token is stamped once, at install time. Re-deriving it as
 # "today" would make every rendered file differ on every calendar day, turning a
 # no-op resync into permanent phantom drift — so reuse the recorded install date
@@ -368,6 +373,20 @@ FILTERED="$(json_bool "$METADATA" filtered)"
 GUARD_HOOK_INSTALLED="$(json_bool "$METADATA" guardHookInstalled)"
 [[ -n "$GUARD_HOOK_INSTALLED" ]] || GUARD_HOOK_INSTALLED=true
 
+# guardHook (repo#557): the operator's explicit guard POLICY, distinct from the
+# outcome above. "disabled" (from `install.sh --no-guard`) means the guard is
+# never refreshed or re-added here, whatever guardHookInstalled says, and the
+# policy is carried through both metadata re-stamps below so a resync can never
+# silently drop the opt-out. Absent (every install without the opt-out, and all
+# legacy metadata) means no policy: fall back to guardHookInstalled exactly as
+# before. Only "disabled" is meaningful; any other value is ignored.
+GUARD_POLICY="$(json_string "$METADATA" guardHook)"
+if [[ "$GUARD_POLICY" == disabled ]]; then
+  GUARD_HOOK_INSTALLED=false
+else
+  GUARD_POLICY=""
+fi
+
 # A layout bump means destinations moved or a metadata field changed meaning —
 # things a pure file refresh cannot fix. Warn loudly and keep going (the refresh
 # is still an improvement over stale files) rather than refusing outright.
@@ -384,7 +403,7 @@ fi
 # ---------------------------------------------------------------------------
 PLAN_SRC=(); PLAN_DST=(); PLAN_EXEC=(); PLAN_XFORM=()
 
-plan() {  # <source-rel> <dest-rel> <exec:0|1> [transform: render|codex-skill]
+plan() {  # <source-rel> <dest-rel> <exec:0|1> [transform: render|codex-skill|codex-command]
   PLAN_SRC+=("$1"); PLAN_DST+=("$2"); PLAN_EXEC+=("$3"); PLAN_XFORM+=("${4:-render}")
 }
 
@@ -432,14 +451,19 @@ done <<<"$COMMANDS"
 # The Codex surface, when this install actually has one (see the header). The
 # SKILL.md is emitted by the same lib/codex-skill.sh function install.sh used, so
 # an untouched install reports "unchanged" rather than phantom drift; the
-# references/ files are ordinary rendered copies of the command procedures.
+# legacy references/ directory is migrated away (repo#676).
 CODEX_ROOT=""
 if [[ "$CODEX_EMITTER" == true ]] && codex_skill_is_managed "$TARGET/$CODEX_SKILL_REL/SKILL.md"; then
   CODEX_ROOT="$TARGET/$CODEX_SKILL_REL"
   plan "skills/repo/SKILL.md" "$CODEX_SKILL_REL/SKILL.md" 0 codex-skill
   while IFS= read -r cmd; do
     [[ -n "$cmd" ]] || continue
-    plan "commands/repo/$cmd.md" "$CODEX_REFERENCES_REL/$cmd.md" 0
+    # Per-command skills (repo#676). A repo-<verb> dir someone else authored
+    # (SKILL.md present, no marker) is never planned, so never overwritten.
+    _cmd_dir="$(codex_command_skill_rel "$cmd")"
+    if [[ ! -f "$TARGET/$_cmd_dir/SKILL.md" ]] || codex_skill_is_managed "$TARGET/$_cmd_dir/SKILL.md"; then
+      plan "commands/repo/$cmd.md" "$_cmd_dir/SKILL.md" 0 codex-command
+    fi
   done <<<"$COMMANDS"
 fi
 
@@ -467,6 +491,7 @@ report() {  # <verb> <colour> <dest-rel> [detail]
 emit() {
   case "$2" in
     codex-skill) codex_skill_render "$1" "$COMMANDS" ;;
+    codex-command) codex_command_skill_render "$1" ;;
     *)           render <"$1" ;;
   esac
 }
@@ -653,6 +678,9 @@ sync_claude_md_block() {
 info "Repo Skills resync: $SOURCE_ROOT ($VERSION @ $COMMIT) → $TARGET"
 say "  installed: ${INSTALLED_VERSION:-unknown}   source resolved from: $SOURCE_ORIGIN"
 [[ "$DRY_RUN" == true ]] && info "Dry run — nothing in $TARGET will be written."
+if [[ "$GUARD_POLICY" == disabled ]]; then
+  info "Destructive-command guard disabled (\"guardHook\": \"disabled\" in install-metadata.json) — guard-destructive.sh is not refreshed."
+fi
 if [[ "$DEV_INSTALL" == "true" ]]; then
   info "This is a --dev install: the surfaces are symlinks into the source clone, so edits are already live."
 fi
@@ -670,13 +698,44 @@ while [[ $i -lt ${#PLAN_SRC[@]} ]]; do
   i=$((i + 1))
 done
 
+# Legacy umbrella references/ (pre-#676): redundant with the repo-<verb> skills.
+# Removed only while repo/SKILL.md is marker-managed (CODEX_ROOT implies that).
+if [[ -n "$CODEX_ROOT" && -d "$TARGET/$CODEX_REFERENCES_REL" ]]; then
+  if [[ "$DRY_RUN" == true ]]; then
+    report "would drop" "$YELLOW" "$CODEX_REFERENCES_REL/" "pre-#676 layout; now the repo-<verb> skills"
+  else
+    codex_migrate_references "$TARGET" >/dev/null
+    report "removed" "$YELLOW" "$CODEX_REFERENCES_REL/" "pre-#676 layout; now the repo-<verb> skills"
+  fi
+fi
+
+# Stale per-command Codex skills (repo#676): a marker-managed repo-<verb>/ whose
+# verb is no longer in this install's command set (a filtered install, or a verb
+# retired upstream) is removed. Unmarked directories are someone else's and stay.
+if [[ -n "$CODEX_ROOT" ]]; then
+  for _d in "$TARGET/$CODEX_SKILLS_ROOT_REL/$CODEX_COMMAND_SLUG_PREFIX"*/; do
+    _d="${_d%/}"
+    [[ -d "$_d" ]] || continue
+    [[ "$_d" == "$CODEX_ROOT" ]] && continue
+    codex_skill_is_managed "$_d/SKILL.md" || continue
+    _verb="${_d##*/}"; _verb="${_verb#"$CODEX_COMMAND_SLUG_PREFIX"}"
+    grep -qxF "$_verb" <<<"$COMMANDS" && continue
+    if [[ "$DRY_RUN" == true ]]; then
+      report "would drop" "$YELLOW" "${_d#"$TARGET"/}/" "verb not in this install"
+    else
+      rm -rf -- "$_d"
+      report "removed" "$YELLOW" "${_d#"$TARGET"/}/" "verb not in this install"
+    fi
+  done
+fi
+
 # ---------------------------------------------------------------------------
 # Report what was LEFT ALONE. This is the visible half of "never uninstalls":
 # an installed file with no source counterpart is named, not removed.
 # ---------------------------------------------------------------------------
 ORPHANS=()
 ORPHAN_DIRS=("$TARGET/.claude/commands/repo" "$SKILL_ROOT" "$SKILL_ROOT/hooks" "$SKILL_ROOT/scripts")
-[[ -n "$CODEX_ROOT" ]] && ORPHAN_DIRS+=("$CODEX_ROOT" "$CODEX_ROOT/references")
+[[ -n "$CODEX_ROOT" ]] && ORPHAN_DIRS+=("$CODEX_ROOT")
 for d in "${ORPHAN_DIRS[@]}"; do
   [[ -d "$d" ]] || continue
   for f in "$d"/*; do
@@ -735,10 +794,25 @@ fi
 # sidecar — putting it in the tracked file is exactly the C5 violation this
 # contract exists to prevent.
 # ---------------------------------------------------------------------------
+# policy_kept <staged-file> — false when the operator's guard opt-out (repo#557)
+# would be lost by this re-stamp. Only possible with a source clone whose
+# lib/metadata.sh predates the `guardHook` field and silently ignores the extra
+# argument; keeping the old metadata is strictly better than quietly turning a
+# deliberate opt-out back into the default on the next install.sh run.
+policy_kept() {
+  [[ "$GUARD_POLICY" != disabled ]] || grep -q '"guardHook"' "$1"
+}
+
 stamp_metadata() {
   local tmp
   tmp="$(mktemp "$SKILL_ROOT/.install-metadata.XXXXXX")" || { warn "Could not stage install-metadata.json — version stamp skipped"; return; }
-  metadata_tracked_json "$VERSION" "$COMMIT" "${DEV_INSTALL:-false}" "${FILTERED:-false}" "$COMMANDS" "$GUARD_HOOK_INSTALLED" >"$tmp"
+  metadata_tracked_json "$VERSION" "$COMMIT" "${DEV_INSTALL:-false}" "${FILTERED:-false}" "$COMMANDS" "$GUARD_HOOK_INSTALLED" "$GUARD_POLICY" "$TAG" >"$tmp"
+  if ! policy_kept "$tmp"; then
+    rm -f "$tmp"
+    warn "$SOURCE_ROOT/lib/metadata.sh cannot record \"guardHook\": \"disabled\" — metadata left as is so the"
+    warn "guard opt-out is not lost. Pull that source clone and resync again."
+    return
+  fi
   mv -f "$tmp" "$METADATA" 2>/dev/null || { rm -f "$tmp"; warn "Could not update install-metadata.json — version stamp skipped"; }
 
   # The Codex surface carries its own copy of the same tracked metadata (same
@@ -746,7 +820,8 @@ stamp_metadata() {
   # keep claiming the version it was installed at.
   [[ -n "$CODEX_ROOT" && -f "$CODEX_ROOT/install-metadata.json" ]] || return 0
   tmp="$(mktemp "$CODEX_ROOT/.install-metadata.XXXXXX")" || { warn "Could not stage $CODEX_SKILL_REL/install-metadata.json — version stamp skipped"; return; }
-  metadata_tracked_json "$VERSION" "$COMMIT" "${DEV_INSTALL:-false}" "${FILTERED:-false}" "$COMMANDS" "$GUARD_HOOK_INSTALLED" >"$tmp"
+  metadata_tracked_json "$VERSION" "$COMMIT" "${DEV_INSTALL:-false}" "${FILTERED:-false}" "$COMMANDS" "$GUARD_HOOK_INSTALLED" "$GUARD_POLICY" "$TAG" >"$tmp"
+  policy_kept "$tmp" || { rm -f "$tmp"; return 0; }
   mv -f "$tmp" "$CODEX_ROOT/install-metadata.json" 2>/dev/null \
     || { rm -f "$tmp"; warn "Could not update $CODEX_SKILL_REL/install-metadata.json — version stamp skipped"; }
 }

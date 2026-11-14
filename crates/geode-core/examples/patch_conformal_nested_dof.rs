@@ -112,6 +112,9 @@
 //! the feed and the patch corners) and the feed-crater / substrate-thickness
 //! metrics of the design (`[crater]`).
 
+#[path = "../tests/common/example_io.rs"]
+mod example_io;
+use example_io::sha256_hex;
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::Write as _;
 use std::fs;
@@ -121,9 +124,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
-use sha2::{Digest, Sha256};
 
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::constants::ETA_0_OHM as ETA_0;
@@ -149,7 +150,7 @@ use geode_core::shape::conformal_basis::{
     outline_columns, radial_columns, substrate_top_triangles,
 };
 use geode_core::shape::{FreeformBoundaryMorph, min_tet_volume_ratio, worst_tet_volume_ratio};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::fixture::BackendInfo;
 use geode_util::units::ghz_to_omega_mm;
 
@@ -200,10 +201,6 @@ const FEED_CORE_FRAC: f64 = 0.75;
 const FEED_SUPPORT_FRAC: f64 = 4.0;
 /// RSS sampling period.
 const RSS_SAMPLE: Duration = Duration::from_millis(100);
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 // ── CLI ──────────────────────────────────────────────────────────────────
 
@@ -627,13 +624,6 @@ impl Provenance {
     }
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
 /// Max of `ps -o rss=` samples (GiB) while `f` runs.
 fn with_peak_rss<T>(f: impl FnOnce() -> T) -> (T, f64) {
     let pid = std::process::id().to_string();
@@ -663,14 +653,10 @@ fn with_peak_rss<T>(f: impl FnOnce() -> T) -> (T, f64) {
 }
 
 /// xorshift64* for the random FD directions (reproducible, no dependency).
-struct Rng(u64);
+struct Rng(geode_util::rng::Xorshift64Star);
 impl Rng {
     fn next_f64(&mut self) -> f64 {
-        self.0 ^= self.0 >> 12;
-        self.0 ^= self.0 << 25;
-        self.0 ^= self.0 >> 27;
-        let v = self.0.wrapping_mul(0x2545_F491_4F6C_DD1D);
-        (v >> 11) as f64 / (1u64 << 53) as f64
+        self.0.next_unit()
     }
     /// Standard normal (Box-Muller).
     fn normal(&mut self) -> f64 {
@@ -1459,7 +1445,7 @@ fn sep_cma_es(model: &Model, budget: usize, sigma0: f64, seed: u64) -> (Vec<f64>
     let c_mu =
         (sep * 2.0 * (mu_eff - 2.0 + 1.0 / mu_eff) / ((nf + 2.0).powi(2) + mu_eff)).min(1.0 - c_1);
     let chi_n = nf.sqrt() * (1.0 - 1.0 / (4.0 * nf) + 1.0 / (21.0 * nf * nf));
-    let mut rng = Rng(seed);
+    let mut rng = Rng(geode_util::rng::Xorshift64Star(seed));
     let mut m = vec![0.0_f64; n];
     let mut sigma = sigma0;
     let mut cdiag = vec![1.0_f64; n];
@@ -3697,7 +3683,7 @@ fn main() {
         );
     }
     assert!(gnorm0 > 1e-12, "zero gradient at x = 0");
-    let mut rng = Rng(0x1087_2026_u64);
+    let mut rng = Rng(geode_util::rng::Xorshift64Star(0x1087_2026_u64));
     let mut fd_checks = Vec::new();
     {
         let grad0 = &grad0_adjoint;

@@ -105,7 +105,10 @@ pub fn load(
             })?;
             let file = FileRef {
                 path: rel.display().to_string(),
-                sha256: format!("{:x}", Sha256::digest(text.as_bytes())),
+                sha256: Sha256::digest(text.as_bytes())
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>(),
             };
             (
                 Some(file),

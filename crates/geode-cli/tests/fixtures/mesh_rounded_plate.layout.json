@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "description": "parallel-plate pair: a 10 x 4 electrode with 1-unit rounded corners (edge_radius) above a ground sheet",
+  "length_unit_m": 1e-06,
+  "dielectrics": [
+    {"name": "oxide", "z_bottom": -4, "thickness": 4, "eps_r": [3.9, 0]},
+    {"name": "air", "z_bottom": 0, "thickness": 6}
+  ],
+  "ground": ["gnd"],
+  "conductors": [
+    {"name": "gnd", "z_bottom": -2, "polygons": [
+      {"outer": [[-4, -4], [14, -4], [14, 8], [-4, 8]]}]},
+    {"name": "plate", "z_bottom": 0, "polygons": [
+      {"outer": [[0, 0], [10, 0], [10, 4], [0, 4]], "edge_radius": 1}]}
+  ],
+  "ports": [],
+  "margin": 4,
+  "mesh": {"size_max": 3, "size_conductor": 1}
+}

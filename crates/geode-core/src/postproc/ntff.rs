@@ -54,10 +54,9 @@ use std::f64::consts::PI;
 
 use faer::c64;
 
-use crate::driven::scattering::{
-    BoxFaceSample, box_surface_faces, box_surface_samples, cross, dot,
-};
+use crate::driven::scattering::{BoxFaceSample, box_surface_faces, box_surface_samples};
 use crate::mesh::TetMesh;
+use crate::vec3::{cross3 as cross, dot3 as dot};
 
 /// Free-space impedance in the codebase's natural units (`η₀ = 1`).
 const ETA_0_NATURAL: f64 = 1.0;
@@ -558,8 +557,9 @@ fn ang_dist(a: f64, b: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::driven::scattering::{box_surface_samples, cross};
+    use crate::driven::scattering::box_surface_samples;
     use crate::mesh::cube_tet_mesh;
+    use crate::vec3::cross3 as cross;
 
     /// Analytic far-field components for a short z-directed dipole,
     /// built directly as box face samples (bypasses the FEM), so the

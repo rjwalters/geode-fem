@@ -32,9 +32,9 @@ mod skrf_support;
 #[path = "support/touchstone.rs"]
 mod touchstone_support;
 
-fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::{geode, manifest_dir};
 
 #[test]
 fn scikit_rf_reads_a_driven_s1p() {
@@ -73,13 +73,6 @@ use touchstone_support::C;
 const ETA0: f64 = geode_core::constants::ETA_0_OHM;
 /// Guide length (mesh units = cm).
 const LEN: f64 = 1.2;
-
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
 
 fn committed_guide() -> PathBuf {
     manifest_dir().join("../geode-core/tests/fixtures/waveguide_2x1_smoke.msh")

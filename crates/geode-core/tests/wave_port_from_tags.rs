@@ -22,8 +22,10 @@
 //! 4. Mixed triangle winding in the tagged list is harmless; non-planar
 //!    / empty / zero-amplitude inputs are structured errors, not panics.
 
+#[path = "../../geode-cli/tests/support/msh.rs"]
+mod msh;
+
 use std::f64::consts::PI;
-use std::fmt::Write as _;
 
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
@@ -52,67 +54,14 @@ const TAG_PORT_IN: i32 = 11;
 const TAG_PORT_OUT: i32 = 12;
 const TAG_WALLS: i32 = 13;
 
-/// Serialize a tet mesh + named surface groups as Gmsh MSH 4.1 ASCII:
-/// one volume entity (`guide`) and one surface entity per group.
+/// One volume entity (`guide`) and one surface entity per group, via the
+/// CLI integration tests' shared Gmsh writer.
 fn write_msh(
     nodes: &[[f64; 3]],
     tets: &[[u32; 4]],
     surfaces: &[(i32, &str, &[[u32; 3]])],
 ) -> String {
-    let mut s = String::from("$MeshFormat\n4.1 0 8\n$EndMeshFormat\n$PhysicalNames\n");
-    let _ = writeln!(s, "{}", surfaces.len() + 1);
-    for (tag, name, _) in surfaces {
-        let _ = writeln!(s, "2 {tag} \"{name}\"");
-    }
-    let _ = writeln!(s, "3 {TAG_GUIDE} \"guide\"\n$EndPhysicalNames");
-    let _ = writeln!(s, "$Entities\n0 0 {} 1", surfaces.len());
-    for (i, (tag, _, _)) in surfaces.iter().enumerate() {
-        let _ = writeln!(s, "{} 0 0 0 1 1 1 1 {tag} 0", i + 1);
-    }
-    let bound: Vec<String> = (1..=surfaces.len()).map(|i| i.to_string()).collect();
-    let _ = writeln!(
-        s,
-        "1 0 0 0 1 1 1 1 {TAG_GUIDE} {} {}\n$EndEntities",
-        surfaces.len(),
-        bound.join(" ")
-    );
-    let n = nodes.len();
-    let _ = writeln!(s, "$Nodes\n1 {n} 1 {n}\n3 1 0 {n}");
-    for i in 1..=n {
-        let _ = writeln!(s, "{i}");
-    }
-    for p in nodes {
-        let _ = writeln!(s, "{:.17e} {:.17e} {:.17e}", p[0], p[1], p[2]);
-    }
-    let n_tris: usize = surfaces.iter().map(|(_, _, t)| t.len()).sum();
-    let n_el = n_tris + tets.len();
-    let _ = writeln!(
-        s,
-        "$EndNodes\n$Elements\n{} {n_el} 1 {n_el}",
-        surfaces.len() + 1
-    );
-    let mut id = 1;
-    for (i, (_, _, tris)) in surfaces.iter().enumerate() {
-        let _ = writeln!(s, "2 {} 2 {}", i + 1, tris.len());
-        for t in *tris {
-            let _ = writeln!(s, "{id} {} {} {}", t[0] + 1, t[1] + 1, t[2] + 1);
-            id += 1;
-        }
-    }
-    let _ = writeln!(s, "3 1 4 {}", tets.len());
-    for t in tets {
-        let _ = writeln!(
-            s,
-            "{id} {} {} {} {}",
-            t[0] + 1,
-            t[1] + 1,
-            t[2] + 1,
-            t[3] + 1
-        );
-        id += 1;
-    }
-    s.push_str("$EndElements\n");
-    s
+    msh::write_msh_volumes(nodes, &[(TAG_GUIDE, "guide", tets)], surfaces)
 }
 
 /// The extruded `A × B × LEN` section, round-tripped through MSH 4.1 with

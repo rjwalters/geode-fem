@@ -15,15 +15,15 @@ path = "src/main.rs"
 clap = { workspace = true }
 geode-app = { workspace = true }
 geode-core = { workspace = true, features = ["testing"] }
-# `viz::edge_field_to_nodes` for the `--export-field` Whitney edge-DOF → nodal E reconstruction.
+# `spiral_sweep::{Row, PointRow, run_sweep}` — the one-port spiral sweep shared
+# with `examples/slcfet_3hp_spiral` (issue #1572) — plus the `fixture` row seam
+# and `viz::edge_field_to_nodes` for the `--export-field` Whitney edge-DOF →
+# nodal E reconstruction.
 geode-util = { workspace = true }
 # `BackendTypes` device handle for the driven frequency sweep + `--export-field` solve.
 burn = { workspace = true }
 # `faer::c64` for the per-port complex impedance arithmetic.
 faer = { workspace = true }
-# `#[derive(Serialize)]` on the results row DTO for the serde+toml row seam
-# (geode_util::fixture::push_rows, Epic #429 Phase 3).
-serde = { workspace = true }
 
 # NOTE: this crate deliberately defines NO backend features. The Burn
 # backend (`wgpu` by default, or `ndarray` on headless CI) is selected by

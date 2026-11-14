@@ -73,14 +73,16 @@
 //! `reference/fixtures/transmon_palace/results_coupling_1078/run.sh`
 //! reproduces them.
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::{arr, edge_tables, git_head, vals_to_host};
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use burn::tensor::Tensor;
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::electrostatic::{
@@ -99,13 +101,13 @@ use geode_core::eigen::transmon::{
 use geode_core::mesh::red_refine::red_refine;
 use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
 use geode_core::mesh::transmon::{JUNCTION_CAPACITANCE_F, JUNCTION_INDUCTANCE_H, sapphire_eps_lab};
-use geode_core::mesh::{MetalRole, TetMesh, TransmonFixture, read_transmon_smoke_fixture};
+use geode_core::mesh::{MetalRole, TransmonFixture, read_transmon_smoke_fixture};
 use geode_core::quantum::transmon::{
     DEVICELAYOUT_COUPLING_K, DEVICELAYOUT_COUPLING_K_BAND, DEVICELAYOUT_QUBIT_FREQUENCY_HZ,
     DEVICELAYOUT_RESONATOR_FREQUENCY_HZ, TransmonAnchor, coupled_lc_bare_pair_hz,
     coupled_lc_dressed_pair_hz,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::fixture::BackendInfo;
 
 type B = TestBackend;
@@ -170,26 +172,6 @@ const CLAW_Y_UM: f64 = 720.0;
 const BRACKET_1066_DESIGN_FF: (f64, f64) = (92.758828, 92.998561);
 const BRACKET_CORRECTED_FF: (f64, f64) = (93.891607, 94.136104);
 
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
-    t.into_data().iter::<f64>().collect()
-}
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
-}
-
 // ---------------------------------------------------------------------------
 // Small dense linear algebra.
 // ---------------------------------------------------------------------------
@@ -249,38 +231,14 @@ fn sym_eig(a: &[Vec<f64>]) -> (Vec<f64>, Vec<Vec<f64>>) {
     (vals, vecs)
 }
 
-/// Solve the dense SPD-ish system `a x = b` by Gaussian elimination with
-/// partial pivoting.
+/// Solve the dense SPD-ish system `a x = b` by faer partial-pivot LU.
 fn solve_dense(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
+    use faer::linalg::solvers::Solve;
     let n = b.len();
-    let mut m: Vec<Vec<f64>> = a
-        .iter()
-        .zip(b)
-        .map(|(r, &bi)| {
-            let mut r = r.clone();
-            r.push(bi);
-            r
-        })
-        .collect();
-    for c in 0..n {
-        let p = (c..n)
-            .max_by(|&i, &j| m[i][c].abs().total_cmp(&m[j][c].abs()))
-            .unwrap();
-        m.swap(c, p);
-        for r in c + 1..n {
-            let f = m[r][c] / m[c][c];
-            let pivot = m[c].clone();
-            for (x, pv) in m[r].iter_mut().zip(&pivot).skip(c) {
-                *x -= f * pv;
-            }
-        }
-    }
-    let mut x = vec![0.0; n];
-    for r in (0..n).rev() {
-        let s: f64 = (r + 1..n).map(|k| m[r][k] * x[k]).sum();
-        x[r] = (m[r][n] - s) / m[r][r];
-    }
-    x
+    let am = faer::Mat::<f64>::from_fn(n, n, |i, j| a[i][j]);
+    let bm = faer::Mat::<f64>::from_fn(n, 1, |i, _| b[i]);
+    let sol = am.partial_piv_lu().solve(&bm);
+    (0..n).map(|i| sol[(i, 0)]).collect()
 }
 
 fn invert(a: &[Vec<f64>]) -> Vec<Vec<f64>> {
@@ -1000,16 +958,6 @@ fn ceil_dp(x: f64, dp: i32) -> f64 {
     (x * s).ceil() / s
 }
 
-fn arr(v: &[f64], prec: usize) -> String {
-    format!(
-        "[{}]",
-        v.iter()
-            .map(|x| format!("{x:.prec$}"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    )
-}
-
 fn arr_e(v: &[f64]) -> String {
     format!(
         "[{}]",
@@ -1018,16 +966,6 @@ fn arr_e(v: &[f64]) -> String {
             .collect::<Vec<_>>()
             .join(", ")
     )
-}
-
-fn git_head() -> String {
-    std::process::Command::new("git")
-        .args(["rev-parse", "--short=8", "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|| "unknown".into())
 }
 
 /// The bare-qubit anchor for a coupling `k` (Maxwell form) and its offset

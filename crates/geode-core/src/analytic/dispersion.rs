@@ -67,6 +67,8 @@
 //! **step-size study** (`D` at `h ∈ {25, 50, 100} nm`) is how that noise floor is
 //! *measured*, not assumed. See the benchmark module for the full arithmetic.
 
+use crate::dense_ops::dense_solve;
+
 /// Speed of light in vacuum, `µm/ps` — the natural unit for
 /// `D = −(λ/c)·n″` when `λ` is in µm and `n″` in µm⁻²: `c = 299792.458 nm/ps =
 /// 299.792458 µm/ps`, and `D` comes out in `ps/(nm·km)` with the conversion
@@ -457,41 +459,12 @@ impl SmoothDispersionFit {
     }
 }
 
-/// Solve a small dense linear system `A x = b` by Gaussian elimination with
-/// partial pivoting. `a` is consumed row-major; returns `x`.
-fn solve_linear(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Vec<f64> {
+/// Solve a small dense linear system `A x = b` by partial-pivot LU.
+/// `a` is row-major; panics if singular.
+fn solve_linear(a: Vec<Vec<f64>>, b: Vec<f64>) -> Vec<f64> {
     let n = b.len();
-    for col in 0..n {
-        // Partial pivot.
-        let mut piv = col;
-        for r in (col + 1)..n {
-            if a[r][col].abs() > a[piv][col].abs() {
-                piv = r;
-            }
-        }
-        a.swap(col, piv);
-        b.swap(col, piv);
-        let d = a[col][col];
-        assert!(d.abs() > 1e-300, "singular normal-equation matrix");
-        let pivot_row = a[col].clone();
-        let b_col = b[col];
-        for r in (col + 1)..n {
-            let f = a[r][col] / d;
-            for (ar, &pr) in a[r].iter_mut().zip(pivot_row.iter()).skip(col) {
-                *ar -= f * pr;
-            }
-            b[r] -= f * b_col;
-        }
-    }
-    let mut x = vec![0.0_f64; n];
-    for i in (0..n).rev() {
-        let mut s = b[i];
-        for j in (i + 1)..n {
-            s -= a[i][j] * x[j];
-        }
-        x[i] = s / a[i][i];
-    }
-    x
+    let flat: Vec<f64> = a.iter().flatten().copied().collect();
+    dense_solve(&flat, &b, n).expect("singular normal-equation matrix")
 }
 
 #[cfg(test)]

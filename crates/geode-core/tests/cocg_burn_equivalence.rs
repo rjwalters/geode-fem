@@ -35,34 +35,23 @@
 //! `burn-cuda 0.21` has no f64 (cubecl disables it), so it runs only on the
 //! rented EC2 box, never in CI.
 
-use burn::tensor::backend::BackendTypes;
+mod common;
+use common::edge_tables;
+
 use faer::c64;
 use faer::sparse::{SparseColMat, Triplet};
 use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_epsilon, assemble_nedelec_sigma_damping, cube_pec_interior_edges,
 };
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::mesh::{TetMesh, cube_tet_mesh};
+use geode_core::mesh::cube_tet_mesh;
 use geode_core::solver::ksp::{Cocg, IdentityPreconditioner, JacobiPreconditioner, KspSolve};
 use geode_core::solver::ksp_burn::{
     BurnCocg, ComplexMatrixFreeOperator, InnerProduct, SplitComplex,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-/// Split `mesh.tet_edges()` into the `(idx, sign)` tables the assemblers take.
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter().map(|r| std::array::from_fn(|i| r[i].0)).collect(),
-        te.iter().map(|r| std::array::from_fn(|i| r[i].1)).collect(),
-    )
-}
 
 /// Read a dense `[n, n]` Burn matrix to a host row-major `Vec<f64>`.
 fn dense_to_host(t: burn::tensor::Tensor<B, 2>) -> Vec<f64> {
@@ -71,14 +60,8 @@ fn dense_to_host(t: burn::tensor::Tensor<B, 2>) -> Vec<f64> {
 
 /// Deterministic pseudo-random complex `b` from a 64-bit LCG (no `rand` dep).
 fn pseudo_random_c64(n: usize, seed: u64) -> Vec<c64> {
-    let mut state = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-    let mut next = || {
-        state = state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        let u = (state >> 11) as f64 / (1u64 << 53) as f64;
-        2.0 * u - 1.0
-    };
+    let mut rng = geode_util::rng::Lcg(seed.wrapping_mul(6364136223846793005).wrapping_add(1));
+    let mut next = || rng.next();
     (0..n).map(|_| c64::new(next(), 0.3 * next())).collect()
 }
 

@@ -46,7 +46,6 @@
 
 use std::path::PathBuf;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::analytic::waveguide::solve_waveguide_modes;
 use geode_core::assembly::hcurl_space::HcurlSpace;
@@ -59,13 +58,9 @@ use geode_core::driven::ports::{
 use geode_core::driven::solve::{DrivenBcs, DrivenMaterials, SolverMode};
 use geode_core::elements::ElementOrder;
 use geode_core::mesh::{TetMesh, pec_interior_mask_from_triangles};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn one() -> c64 {
     c64::new(1.0, 0.0)

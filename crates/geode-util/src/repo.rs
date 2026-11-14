@@ -39,8 +39,9 @@ pub fn repo_root() -> PathBuf {
 /// to that directory (e.g. `"sphere_pec/julia_baseline.json"`).
 ///
 /// This is the canonical way to name a reference fixture or mesh; pair it
-/// with a fixture loader (e.g. `geode_validation::Fixture::load_json`) to
-/// load JSON fixtures in one call.
+/// with a fixture loader (e.g. `geode_validation::Fixture::load_from`, or
+/// `Fixture::load` when the path is already absolute) to read the fixture
+/// it names.
 pub fn fixture_path(relative: impl AsRef<Path>) -> PathBuf {
     repo_root().join("reference/fixtures").join(relative)
 }

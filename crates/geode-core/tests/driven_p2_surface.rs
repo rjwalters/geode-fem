@@ -35,7 +35,12 @@
 //! loss, reciprocity / complex symmetry with every surface term present, the
 //! two-port S-matrix and the PROM at p=2.
 
-use burn::tensor::backend::BackendTypes;
+mod common;
+use common::boundary_plane_faces;
+use common::box_fixtures::fit_slope;
+use common::zero_source;
+
+use common::Lcg;
 use faer::c64;
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::driven::extraction::s_parameter_point;
@@ -48,24 +53,9 @@ use geode_core::driven::solve::{
 use geode_core::elements::ElementOrder;
 use geode_core::elements::nedelec_p2::tet_quad_deg4;
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-struct Lcg(u64);
-impl Lcg {
-    fn next(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        ((self.0 >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
-    }
-}
 
 /// `cube_tet_mesh(n)` with interior nodes jittered by up to `0.12·h` and
 /// face-interior boundary nodes jittered within their (flat) face.
@@ -84,35 +74,6 @@ fn jittered(n: usize, seed: u64) -> TetMesh {
         }
     }
     mesh
-}
-
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.boundary_faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
-fn zero_source(mesh: &TetMesh) -> CurrentSource {
-    CurrentSource {
-        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
-    }
-}
-
-fn fit_slope(hs: &[f64], errs: &[f64]) -> f64 {
-    let n = hs.len() as f64;
-    let xs: Vec<f64> = hs.iter().map(|h| h.ln()).collect();
-    let ys: Vec<f64> = errs.iter().map(|e| e.ln()).collect();
-    let (mx, my) = (xs.iter().sum::<f64>() / n, ys.iter().sum::<f64>() / n);
-    let (mut num, mut den) = (0.0, 0.0);
-    for (x, y) in xs.iter().zip(&ys) {
-        num += (x - mx) * (y - my);
-        den += (x - mx) * (x - mx);
-    }
-    num / den
 }
 
 fn order_of(p: usize) -> ElementOrder {
@@ -208,7 +169,10 @@ fn line_operator(
     cap_faces: &[[u32; 3]],
     r: f64,
 ) -> DrivenOperator {
-    let plates = [plane_faces(mesh, 1, 0.0), plane_faces(mesh, 1, 1.0)];
+    let plates = [
+        boundary_plane_faces(mesh, 1, 0.0),
+        boundary_plane_faces(mesh, 1, 1.0),
+    ];
     let mut walls: Vec<&[[u32; 3]]> = plates.iter().map(|v| v.as_slice()).collect();
     if matches!(end, End::Pec) {
         walls.push(cap_faces);
@@ -256,8 +220,8 @@ struct LineResult {
 fn solve_line(p: usize, n: usize, omega: f64, eps_r: f64, end: End) -> LineResult {
     let mesh = jittered(n, 0x5eed + n as u64);
     let space = HcurlSpace::build(&mesh, order_of(p));
-    let port_faces = plane_faces(&mesh, 2, 0.0);
-    let cap_faces = plane_faces(&mesh, 2, 1.0);
+    let port_faces = boundary_plane_faces(&mesh, 2, 0.0);
+    let cap_faces = boundary_plane_faces(&mesh, 2, 1.0);
     let op = line_operator(&mesh, &space, eps_r, end, &port_faces, &cap_faces, 1.0);
     let sol = op.solve_at(omega).expect("solve");
     assert!(sol.residual_rel < 1e-9, "residual {}", sol.residual_rel);
@@ -436,10 +400,10 @@ fn lossy_line_alpha(p: usize, n: usize, omega: f64, model: SurfaceImpedanceModel
     let mesh = jittered(n, 0xa1fa + n as u64);
     let space = HcurlSpace::build(&mesh, order_of(p));
     let mask = vec![true; space.n_dofs()];
-    let p1 = plane_faces(&mesh, 2, 0.0);
-    let p2 = plane_faces(&mesh, 2, 1.0);
-    let y0 = plane_faces(&mesh, 1, 0.0);
-    let y1 = plane_faces(&mesh, 1, 1.0);
+    let p1 = boundary_plane_faces(&mesh, 2, 0.0);
+    let p2 = boundary_plane_faces(&mesh, 2, 1.0);
+    let y0 = boundary_plane_faces(&mesh, 1, 0.0);
+    let y1 = boundary_plane_faces(&mesh, 1, 1.0);
     let port = |faces| LumpedPort {
         faces,
         e_hat: [0.0, 1.0, 0.0],
@@ -558,11 +522,14 @@ fn roughness_scales_wall_loss_by_k_of_f() {
 fn matched_two_port_line_s_matrix_at_p2() {
     let mesh = jittered(4, 77);
     let space = HcurlSpace::build(&mesh, ElementOrder::P2);
-    let plates = [plane_faces(&mesh, 1, 0.0), plane_faces(&mesh, 1, 1.0)];
+    let plates = [
+        boundary_plane_faces(&mesh, 1, 0.0),
+        boundary_plane_faces(&mesh, 1, 1.0),
+    ];
     let walls: Vec<&[[u32; 3]]> = plates.iter().map(|v| v.as_slice()).collect();
     let mask = space.pec_interior_mask(&mesh, &walls).unwrap();
-    let f1 = plane_faces(&mesh, 2, 0.0);
-    let f2 = plane_faces(&mesh, 2, 1.0);
+    let f1 = boundary_plane_faces(&mesh, 2, 0.0);
+    let f2 = boundary_plane_faces(&mesh, 2, 1.0);
     let port = |faces| LumpedPort {
         faces,
         e_hat: [0.0, 1.0, 0.0],
@@ -610,11 +577,11 @@ fn reciprocity_and_symmetry_with_every_surface_term() {
     let mesh = jittered(3, 99);
     let space = HcurlSpace::build(&mesh, ElementOrder::P2);
     let mask = vec![true; space.n_dofs()];
-    let port_faces = plane_faces(&mesh, 2, 0.0);
-    let w_y0 = plane_faces(&mesh, 1, 0.0);
-    let w_y1 = plane_faces(&mesh, 1, 1.0);
-    let w_x0 = plane_faces(&mesh, 0, 0.0);
-    let w_z1 = plane_faces(&mesh, 2, 1.0);
+    let port_faces = boundary_plane_faces(&mesh, 2, 0.0);
+    let w_y0 = boundary_plane_faces(&mesh, 1, 0.0);
+    let w_y1 = boundary_plane_faces(&mesh, 1, 1.0);
+    let w_x0 = boundary_plane_faces(&mesh, 0, 0.0);
+    let w_z1 = boundary_plane_faces(&mesh, 2, 1.0);
     let rough = SurfaceImpedanceModel::RoughConductor {
         sigma: 80.0,
         roughness: SurfaceRoughness::HammerstadJensen { rms: 0.1 },
@@ -744,8 +711,8 @@ fn reciprocity_and_symmetry_with_every_surface_term() {
 fn prom_with_ports_and_walls_matches_dense_at_p2() {
     let mesh = jittered(3, 5);
     let space = HcurlSpace::build(&mesh, ElementOrder::P2);
-    let port_faces = plane_faces(&mesh, 2, 0.0);
-    let cap = plane_faces(&mesh, 2, 1.0);
+    let port_faces = boundary_plane_faces(&mesh, 2, 0.0);
+    let cap = boundary_plane_faces(&mesh, 2, 1.0);
     let end = End::Surface(SurfaceImpedanceModel::GoodConductor { sigma: 30.0 });
     let op = line_operator(&mesh, &space, 2.0, end, &port_faces, &cap, 1.0);
     let omegas: Vec<f64> = (0..31).map(|k| 0.5 + 0.05 * k as f64).collect();
@@ -778,7 +745,7 @@ fn p2_bad_ports_and_dangling_surfaces_are_typed_errors() {
     let mask = vec![true; space.n_dofs()];
     let eps = vec![c64::new(1.0, 0.0); mesh.n_tets()];
     let zero = zero_source(&mesh);
-    let faces = plane_faces(&mesh, 2, 0.0);
+    let faces = boundary_plane_faces(&mesh, 2, 0.0);
     let assemble = |ports: &[LumpedPort<'_>], surfaces: &[SurfaceImpedanceBc<'_>]| {
         DrivenOperator::assemble_with_space::<B>(
             &space,

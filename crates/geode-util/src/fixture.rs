@@ -214,11 +214,7 @@ pub fn value_i64(v: &serde_json::Value) -> Option<i64> {
 //
 // ## Format support
 //
-// Phase A wires only the JSON format. The [`FixtureFormat`] enum is a
-// deliberate extension point — when the cube-cavity fixture (#92) lands and
-// starts carrying complex eigenvectors, a `FixtureFormat::Hdf5` variant will
-// be added behind a feature gate so contributors aren't forced to install
-// `libhdf5` to run the smoke tests.
+// JSON is the only supported format.
 // ---------------------------------------------------------------------------
 
 /// Errors raised by fixture I/O and validation.
@@ -244,10 +240,6 @@ pub enum FixtureError {
     #[error("fixture has no output field named '{0}'")]
     MissingField(String),
 
-    /// HDF5 format requested but not compiled in.
-    #[error("HDF5 fixture format is not enabled in this build")]
-    HdfNotEnabled,
-
     /// A `c128` field had an odd-length interleaved payload (real-imag
     /// interleave requires `len == 2 * prod(shape)`).
     #[error(
@@ -271,17 +263,11 @@ pub enum FixtureError {
 
 /// On-disk fixture format selector.
 ///
-/// JSON is sufficient for small fixtures (Phase A smoke case);
-/// HDF5 becomes the format-of-record once eigenvector-class outputs
-/// land (#92 and later). The HDF5 variant is reserved here so callers
-/// can pin format choice without waiting for the implementation.
+/// JSON is the only supported format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FixtureFormat {
     /// Human-readable JSON. Small fixtures, easy review in PRs.
     Json,
-    /// Binary HDF5 (not yet wired up — placeholder for the
-    /// eigenvector-class fixture work that will arrive with #92).
-    Hdf5,
 }
 
 /// Versions of the on-disk schema this build accepts.
@@ -380,34 +366,12 @@ impl Fixture {
                 fixture.check_schema_version()?;
                 Ok(fixture)
             }
-            FixtureFormat::Hdf5 => Err(FixtureError::HdfNotEnabled),
         }
     }
 
-    /// Load a JSON fixture by its path relative to `reference/fixtures/`
-    /// (e.g. `"cube_cavity/baseline.json"`).
-    ///
-    /// Convenience wrapper over [`Fixture::load_from`] +
-    /// [`crate::repo::fixture_path`] — the one-call form of the
-    /// `load_from(&fixture_path(...), FixtureFormat::Json)` pattern the
-    /// reference tests repeat.
-    pub fn load_json(relative: impl AsRef<Path>) -> Result<Self, FixtureError> {
-        Self::load_from(&crate::repo::fixture_path(relative), FixtureFormat::Json)
-    }
-
-    /// Auto-detect format from file extension.
+    /// Load a fixture from disk (JSON, the only supported format).
     pub fn load(path: &Path) -> Result<Self, FixtureError> {
-        let ext = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        let format = match ext.as_str() {
-            "json" => FixtureFormat::Json,
-            "h5" | "hdf5" => FixtureFormat::Hdf5,
-            _ => FixtureFormat::Json, // default for now
-        };
-        Self::load_from(path, format)
+        Self::load_from(path, FixtureFormat::Json)
     }
 
     /// Verify schema version is supported by this build.
@@ -1374,14 +1338,6 @@ median_ns = 6.0
             }
             other => panic!("expected UnsupportedSchemaVersion, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn load_from_hdf5_format_is_not_enabled() {
-        // HDF5 is a reserved-but-unwired variant; it errors before any I/O.
-        let path = write_fixture_json("hdf.json", &representative_fixture_json());
-        let err = Fixture::load_from(&path, FixtureFormat::Hdf5).unwrap_err();
-        assert!(matches!(err, FixtureError::HdfNotEnabled), "got {err:?}");
     }
 
     // -----------------------------------------------------------------------

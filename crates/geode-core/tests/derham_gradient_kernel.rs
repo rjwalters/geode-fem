@@ -87,7 +87,8 @@ use geode_core::assembly::p1::upload_mesh;
 use geode_core::derham::apply_gradient;
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask};
 use geode_core::mesh::{R_BUFFER, TetMesh, cube_tet_mesh, read_sphere_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
+use geode_util::rng::Lcg32;
 
 type B = TestBackend;
 
@@ -111,20 +112,13 @@ fn residual_tol() -> f64 {
 /// interior-node / interior-edge counts line up with the eigenmode story.
 const N_CUBE: usize = 8;
 
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-/// Deterministic LCG, same constants and reduction as
+/// Deterministic [`Lcg32`], same stream as
 /// `tests/p1_local_matrices.rs::deterministic_tet`, so failures are
 /// reproducible across runs and machines. Returns a closure yielding
 /// values in `[0, 1)`.
 fn lcg(seed: u32) -> impl FnMut() -> f64 {
-    let mut state = seed.wrapping_mul(2_654_435_761);
-    move || {
-        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        (state as f64) / (u32::MAX as f64)
-    }
+    let mut rng = Lcg32::from_seed(seed);
+    move || rng.next_unit()
 }
 
 /// Build a discrete-`H¹₀` nodal field: random values in `[-1, 1)` at

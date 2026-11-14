@@ -1,0 +1,108 @@
+# Design A adjoint min-max run (issue #1579, Epic #1252 Phase 4c).
+# Written by `cargo run --release -j2 -p geode-core --example tcda_design_run`.
+# Re-run and the regression pin: see README.md.
+
+[meta]
+description = "Epic #1252 Phase 4c child 2 (#1579): MMA epigraph min-max run of the Design A element on the recorded Phase-4 grid, from the #1536 baseline at equal footprint, with the #1578 lumped-feed adjoint and the #1535 manufacturability constraints."
+backend = "ndarray"
+float_dtype = "F64"
+generated_at_commit = "12683e8a"
+driver = "crates/geode-core/tests/common/tcda_design.rs (#1578)"
+baseline = "benchmarks/tcda_baseline (#1536)"
+
+[design]
+n_edge = 13
+n_params = 52
+parameterization = "outline-only: 4*n_edge spline coefficients (right, left, top, bottom), millimetres"
+superstrate = "fixed at the baseline eps_r = 2.0 (layers = []), so theta0 IS the recorded baseline"
+bound_mm = 1
+z_ref = 0.15
+mm_per_unit = 14.9896229
+mesh = "10080 tets, 2160 nodes (the #1536 baseline mesh, scaled)"
+
+[grid]
+omega_over_pi = [0.9, 0.95, 1.0, 1.05, 1.1]
+theta_deg = [0, 15, 30, 45, 60]
+phi_deg = [0, 90]
+n_points = 50
+source = "ScanGrid::phase4(PI, 0.2, 5), the recorded grid of #1536"
+
+[cost]
+# Measured on this host before the budget was fixed (the run always probes
+# first; see the example's module docs).
+build_s = 0.1
+forward_pass_s = 227.00          # one assembly + 50 factorizations
+adjoint_pass_s = 5.05          # one point: assembly + factorization + transpose back-solve
+projected_s_per_iteration = 479.6
+wall_clock_s = 5639.1
+iterations = 16
+evaluations = 42
+failed_evaluations = 25
+adjoint_passes = 372       # ConstrainedEpigraph::n_gradients()
+active_margin = 0.15
+
+[run]
+stop_reason = "wall_clock_budget (5400 s); optimizer status Running"
+best_iteration = 13   # the recorded design is the best feasible iterate, not the last
+max_iter_budget = 30
+wall_clock_budget_s = 5400
+initial_worst_db = -3.50
+final_worst_db = -6.27
+final_worst_point = { omega_over_pi = 0.90, theta_deg = 60, phi_deg = 90 }
+worst_e_plane_db = -6.31
+worst_h_plane_db = -6.27
+passive = true                  # all |Gamma| <= 1 + 1e-6
+min_tet_volume_ratio = 0.000028   # > 0: no tet inverted at the final design
+manufacturable = true    # ElementConstraints::is_violated() == false (sampled, #1535)
+max_constraint_violation_mm = -1.344e-1
+
+# Per-point |Gamma| (dB) at the final design, rows omega/pi = 0.9 .. 1.1;
+# columns theta = 0,15,30,45,60. Same layout as benchmarks/tcda_baseline.
+table_e_plane_db = [
+  [-7.79, -8.17, -9.90, -16.94, -6.32],
+  [-8.74, -9.12, -10.93, -19.90, -7.04],
+  [-9.97, -10.34, -12.27, -24.18, -7.26],
+  [-11.59, -11.96, -14.10, -33.67, -6.99],
+  [-13.79, -14.16, -16.68, -31.96, -6.31],
+]
+table_h_plane_db = [
+  [-7.79, -7.99, -8.37, -8.10, -6.27],
+  [-8.74, -9.02, -9.54, -9.20, -6.96],
+  [-9.97, -10.39, -11.23, -10.81, -8.00],
+  [-11.59, -12.27, -13.76, -12.98, -9.13],
+  [-13.79, -15.01, -17.79, -13.95, -7.63],
+]
+
+# The final design vector, in the parameterization's own order
+# (right, left, top, bottom edges, n_edge coefficients each), millimetres.
+final_theta_mm = [-0.720867, 0.000000, 0.000000, 0.000000, 0.000000, -0.429397, -0.649050, -0.429397, 0.000000, 0.000000, 0.000000, 0.000000, -0.959089, -0.782990, 0.000000, 0.000000, 0.000000, 0.000000, -0.356318, -0.575954, -0.356318, 0.000000, 0.000000, 0.000000, 0.000000, -0.734544, -0.507056, 0.891173, 1.000000, 1.000000, 1.000000, 0.295512, -0.206164, -0.035228, 1.000000, 1.000000, 0.997563, 0.723049, -0.963590, -0.576909, 0.777656, 1.000000, 1.000000, 1.000000, 0.015825, -0.190990, 0.188464, 1.000000, 1.000000, 1.000000, 0.926514, -0.679208]
+
+[verdict]
+baseline_worst_db = -3.50
+kill_floor_db = -4.50
+epic_target_db = -10.00
+improvement_db = 2.77
+distance_to_epic_db = 3.73
+kill_criterion = "pass"
+
+[history]
+# One row per MMA iteration (0 = the starting point).
+iterations = [
+  { iter = 0, t = 0.44666406, t_db = -3.500, max_violation = 0.000e0, step_norm = 0.000e0, n_evals = 1 },
+  { iter = 1, t = 0.31399185, t_db = -5.031, max_violation = 0.000e0, step_norm = 5.467e-1, n_evals = 2 },
+  { iter = 2, t = 0.25832036, t_db = -5.878, max_violation = 0.000e0, step_norm = 4.592e-1, n_evals = 3 },
+  { iter = 3, t = 0.24044408, t_db = -6.190, max_violation = 0.000e0, step_norm = 1.963e-1, n_evals = 4 },
+  { iter = 4, t = 0.23843384, t_db = -6.226, max_violation = 0.000e0, step_norm = 1.846e-1, n_evals = 5 },
+  { iter = 5, t = 0.23707102, t_db = -6.251, max_violation = 0.000e0, step_norm = 1.931e-1, n_evals = 6 },
+  { iter = 6, t = 0.23617518, t_db = -6.268, max_violation = 7.949e-5, step_norm = 1.235e-1, n_evals = 7 },
+  { iter = 7, t = 0.23593392, t_db = -6.272, max_violation = 3.568e-4, step_norm = 1.165e-1, n_evals = 9 },
+  { iter = 8, t = 0.23570212, t_db = -6.276, max_violation = 4.131e-4, step_norm = 1.157e-1, n_evals = 11 },
+  { iter = 9, t = 0.23555304, t_db = -6.279, max_violation = 4.189e-4, step_norm = 5.368e-2, n_evals = 14 },
+  { iter = 10, t = 0.23537297, t_db = -6.282, max_violation = 6.525e-4, step_norm = 4.026e-2, n_evals = 17 },
+  { iter = 11, t = 0.23530123, t_db = -6.284, max_violation = 6.619e-4, step_norm = 1.312e-2, n_evals = 22 },
+  { iter = 12, t = 0.23525574, t_db = -6.285, max_violation = 6.563e-4, step_norm = 8.043e-3, n_evals = 28 },
+  { iter = 13, t = 0.23524215, t_db = -6.285, max_violation = 6.553e-4, step_norm = 2.181e-3, n_evals = 36 },
+  { iter = 14, t = 0.48939625, t_db = -3.103, max_violation = 0.000e0, step_norm = 5.000e-1, n_evals = 38 },
+  { iter = 15, t = 0.30160228, t_db = -5.206, max_violation = 0.000e0, step_norm = 1.878e-1, n_evals = 39 },
+  { iter = 16, t = 0.28416609, t_db = -5.464, max_violation = 0.000e0, step_norm = 1.982e-1, n_evals = 42 },
+]

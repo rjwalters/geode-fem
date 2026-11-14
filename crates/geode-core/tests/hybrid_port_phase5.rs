@@ -32,7 +32,6 @@
 //!
 //! Run: `cargo test -p geode-core --release --test hybrid_port_phase5 -- --nocapture`.
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::analytic::microstrip::{ShieldedStripFace, StripMeshOpts};
 use geode_core::driven::ports::solve_wave_port_spec_sweep_dispersive_with_mode;
@@ -42,7 +41,7 @@ use geode_core::driven::ports::{
     solve_hybrid_port_face_sweep, solve_wave_port_spec_sweep_with_mode, strip_line_section,
 };
 use geode_core::driven::solve::{DrivenBcs, DrivenError, DrivenMaterials, SolverMode};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -50,10 +49,6 @@ const A: f64 = 2.0;
 const BH: f64 = 1.0;
 const D: f64 = 0.5;
 const LEN: f64 = 1.2;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Per-tet `ε` of the slab-loaded guide (`slab` below `y = D`, vacuum above).
 fn slab_eps(g: &ExtrudedWaveguideMesh, slab: c64) -> Vec<c64> {

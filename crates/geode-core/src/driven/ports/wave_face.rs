@@ -73,6 +73,7 @@
 //! sweeps at or above it (and wave ports whose rim is not entirely on a
 //! conductor wall); library callers must keep below it themselves.
 
+use crate::vec3::{cross3 as cross, dot3 as dot, norm3 as norm, scale3 as scale, sub3 as sub};
 use std::collections::HashMap;
 
 use faer::c64;
@@ -1159,30 +1160,6 @@ fn canonical_in_plane_axes(n: [f64; 3]) -> ([f64; 3], [f64; 3]) {
     let u_raw = sub(axis, scale(n, dot(axis, n)));
     let u = scale(u_raw, 1.0 / norm(u_raw));
     (u, cross(n, u))
-}
-
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
-fn norm(a: [f64; 3]) -> f64 {
-    dot(a, a).sqrt()
-}
-
-fn scale(a: [f64; 3], s: f64) -> [f64; 3] {
-    [a[0] * s, a[1] * s, a[2] * s]
 }
 
 /// The in-plane footprint of a port face (its 2-D triangles), bucketed on

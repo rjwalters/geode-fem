@@ -1446,7 +1446,6 @@ pub struct HybridModeDerivative<'a> {
     mu: c64,
     /// Restricted `Bz`.
     bz: Vec<c64>,
-    border: f64,
     lu: Lu<usize, c64>,
     /// The bordered matrix (for the refinement residual).
     kmat: SparseColMat<usize, c64>,
@@ -1691,7 +1690,6 @@ impl<'a> HybridModeDerivative<'a> {
             data,
             mu,
             bz,
-            border,
             lu,
             kmat,
             rel_gap,
@@ -2389,12 +2387,6 @@ impl<'a> HybridModeDerivative<'a> {
                 .push(-(dmu + b_zz) / (c64::new(2.0, 0.0) * self.data.beta_sq));
         }
         Ok(out)
-    }
-
-    /// The border scale used (diagnostics).
-    #[doc(hidden)]
-    pub fn border_scale(&self) -> f64 {
-        self.border
     }
 }
 

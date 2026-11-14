@@ -24,7 +24,6 @@
 //!    path (real dielectric everywhere) through the independent
 //!    anisotropic assembly kernel.
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::nedelec::{
@@ -33,13 +32,9 @@ use geode_core::assembly::nedelec::{
 };
 use geode_core::driven::solve::{CurrentSource, DrivenBcs, DrivenMaterials, driven_solve};
 use geode_core::mesh::{R_BUFFER, R_PML_INNER, R_SPHERE, read_sphere_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// ẑ-polarized current confined to the dielectric core (r < 0.5).
 fn core_dipole_source(mesh: &geode_core::mesh::TetMesh) -> CurrentSource {

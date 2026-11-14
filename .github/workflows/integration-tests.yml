@@ -113,6 +113,7 @@ jobs:
               --test bloch_kernel \
               --test circular_waveguide_modes \
               --test cocg_burn_equivalence \
+              --test conduction \
               --test cube_convergence_regression \
               --test derham_curl \
               --test derham_divergence \
@@ -131,12 +132,20 @@ jobs:
               --test driven_upml \
               --test dwr_goals \
               --test eigensolver \
+              --test electromigration \
               --test electrostatic_capacitance \
+              --test electrostatic_capacitance_2d \
+              --test eqs_transient \
               --test extraction \
               --test faer_qz_debug_overflow_guard \
               --test fe_assemble \
               --test fiber_dispersion_benchmark \
+              --test floquet_active_reflection \
+              --test floquet_dipole_array \
+              --test floquet_element \
+              --test floquet_minmax \
               --test floquet_ports \
+              --test floquet_prom \
               --test floquet_sensitivity \
               --test formulation_audit_graddiv \
               --test hcurl_error_estimator \
@@ -208,6 +217,7 @@ jobs:
               --test bloch_kernel \
               --test circular_waveguide_modes \
               --test cocg_burn_equivalence \
+              --test conduction \
               --test derham_curl \
               --test derham_divergence \
               --test derham_exact_sequence \
@@ -225,12 +235,20 @@ jobs:
               --test dwr_goals \
               --test eigen_p2_tagged \
               --test eigensolver \
+              --test electromigration \
               --test electrostatic_capacitance \
+              --test electrostatic_capacitance_2d \
+              --test eqs_transient \
               --test extraction \
               --test faer_qz_debug_overflow_guard \
               --test fe_assemble \
               --test fiber_dispersion_benchmark \
+              --test floquet_active_reflection \
+              --test floquet_dipole_array \
+              --test floquet_element \
+              --test floquet_minmax \
               --test floquet_ports \
+              --test floquet_prom \
               --test floquet_sensitivity \
               --test formulation_audit_graddiv \
               --test hcurl_error_estimator \
@@ -359,6 +377,10 @@ jobs:
               --test spiral_mesh \
               --test step_index_fiber_benchmark \
               --test surface_p2_trace \
+              --test tcda_baseline \
+              --test tcda_design \
+              --test thermal_conduction \
+              --test thermoelastic_validation \
               --test torque_loop_oracle \
               --test transient_sparams \
               --test transmon_devicelayout_controls \
@@ -458,6 +480,10 @@ jobs:
               --test spiral_mesh \
               --test step_index_fiber_benchmark \
               --test surface_p2_trace \
+              --test tcda_baseline \
+              --test tcda_design \
+              --test thermal_conduction \
+              --test thermoelastic_validation \
               --test torque_loop_oracle \
               --test transient_sparams \
               --test transmon_devicelayout_controls \
@@ -946,7 +972,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -977,7 +1003,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Regenerate exact historical mesh bytes
@@ -1006,7 +1032,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 

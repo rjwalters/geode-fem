@@ -6,37 +6,15 @@
 //! assembled stiffness `K` by exactly `ν_r` (and leaves the mass `M`
 //! unweighted), matching the unweighted `assemble_global_nedelec` baseline.
 
+mod common;
+use common::edge_tables;
+
 use burn::backend::NdArray;
 use burn::tensor::{Int, Tensor, TensorData};
 use geode_core::assembly::nedelec::{assemble_global_nedelec, assemble_global_nedelec_with_nu};
 use geode_core::mesh::cube_tet_mesh;
 
 type B = NdArray<f32>;
-
-fn edge_tables(mesh: &geode_core::mesh::TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    let idx = te
-        .iter()
-        .map(|row| {
-            let mut r = [0u32; 6];
-            for (s, &(g, _)) in r.iter_mut().zip(row.iter()) {
-                *s = g;
-            }
-            r
-        })
-        .collect();
-    let sign = te
-        .iter()
-        .map(|row| {
-            let mut r = [0i8; 6];
-            for (s, &(_, sg)) in r.iter_mut().zip(row.iter()) {
-                *s = sg;
-            }
-            r
-        })
-        .collect();
-    (idx, sign)
-}
 
 #[test]
 fn nu_wrapper_scales_stiffness_leaves_mass() {

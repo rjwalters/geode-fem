@@ -32,7 +32,7 @@
 //! | `K`   | `∫ (∇×N_i)(∇×N_j)`            | [`super::waveguide::tri_nedelec_local`] |
 //! | `M_ε` | `∫ ε_r N_i·N_j`               | same (mass × ε) |
 //! | `M₁`  | `∫ N_i·N_j`                   | same (mass) |
-//! | `G`   | `∫ N_i·∇φ_k`                  | closed form `(|T|/3)(∇λ_b − ∇λ_a)·∇λ_k` |
+//! | `G`   | `∫ N_i·∇φ_k`                  | closed form `(\|T\|/3)(∇λ_b − ∇λ_a)·∇λ_k` |
 //! | `L`   | `∫ ∇φ_k·∇φ_l − k₀²ε_r φ_kφ_l` | [`super::waveguide::tri_p1_local`] |
 //!
 //! with `N_i` the 2-D Whitney edge functions and `φ_k` the P1 hats.
@@ -236,6 +236,7 @@ use super::mixed_pencil::{
 };
 use super::waveguide::{TRI_LOCAL_EDGES, TriMesh, tri_bary_grads, tri_nedelec_local, tri_p1_local};
 use crate::eigen::dense::EigenError;
+use crate::sparse_ops::norm2;
 
 /// Null-space classifier: `|β²| ≤ NULL_BETA_SQ_TOL · k₀²ε_max`. Nothing inside
 /// this band is ever returned. The exact null vector sits at
@@ -842,10 +843,6 @@ fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
 
-fn norm2(a: &[f64]) -> f64 {
-    dot(a, a).sqrt()
-}
-
 /// The free-node `L` block `S − k₀²T_ε` (the zz-block of `B`), factored for
 /// the null-space projector `P x = x − (0, L⁻¹ (Bx)_z)`.
 fn zz_block_lu(
@@ -1415,17 +1412,8 @@ fn norm1(a: SparseColMatRef<'_, usize, f64>) -> f64 {
 /// A deterministic pseudo-random start vector (xorshift64*), independent of
 /// the default `sin` start of [`shift_invert_arnoldi_projected`].
 fn pseudo_random_start(n: usize, seed: u64) -> Vec<f64> {
-    let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
-    (0..n)
-        .map(|_| {
-            state ^= state >> 12;
-            state ^= state << 25;
-            state ^= state >> 27;
-            let r = state.wrapping_mul(0x2545_F491_4F6C_DD1D);
-            // Top 53 bits → [0, 1) → [−1, 1).
-            ((r >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
-        })
-        .collect()
+    let mut rng = crate::rng::Xorshift64Star::hashed(seed);
+    (0..n).map(|_| rng.next_signed()).collect()
 }
 
 /// Gather a mode's full-ordering `(ẽ_t, ẽ_z)` into the reduced ordering.
@@ -1981,9 +1969,7 @@ pub fn mode_line_quantities(
 
 /// `y = A x` for a sparse matrix (public helper for the identity tests).
 pub fn sparse_matvec(a: SparseColMatRef<'_, usize, f64>, x: &[f64]) -> Vec<f64> {
-    let mut y = vec![0.0; a.nrows()];
-    sp_matvec(a, x, &mut y);
-    y
+    crate::sparse_ops::spmv(a, x)
 }
 
 #[cfg(test)]

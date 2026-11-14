@@ -32,99 +32,19 @@
 //! (Same `--release` recipe as `rect_waveguide_modes`: faer 0.24's
 //! `gevd::qz_real` panics under `debug-assertions`.)
 
-use burn::tensor::backend::BackendTypes;
+mod common;
+use common::vacuum_eps as vacuum;
+use common::wave_port::rect_wave_port;
 use faer::c64;
-use geode_core::analytic::waveguide::solve_rect_waveguide_modes;
 use geode_core::driven::ports::{
-    PortMedium, PortMode, WavePort, extruded_height_step_waveguide_mesh,
-    extruded_rect_waveguide_mesh, map_mode_profile_to_full_mesh, solve_wave_port_sweep,
+    PortMedium, extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
+    solve_wave_port_sweep,
 };
 use geode_core::driven::solve::{DrivenBcs, DrivenMaterials};
 use geode_core::mesh::TetMesh;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-fn vacuum(mesh: &TetMesh) -> Vec<c64> {
-    vec![c64::new(1.0, 0.0); mesh.n_tets()]
-}
-
-/// Build a TE₁₀ wave port on the `z = z_plane` face of the extruded
-/// rectangular waveguide section. The port mesh is the 2-D `rect_tri_mesh`
-/// with the same `(nx, ny, a, b)` — its vertex layout matches the 3-D
-/// mesh's port face exactly, so the modal eigenvector indexed in the
-/// 2-D edge table maps edge-for-edge into the 3-D edge table.
-///
-/// The 2-D port mesh has its `z = 0` (it's 2-D). The 3-D port face
-/// triangulation has the same `(x, y)` vertices but with `z = z_plane`.
-/// To map: shift each 2-D node `(x,y)` to a 3-D node `(x, y, z_plane)`
-/// and look it up by **3-D node tag** in the extruded mesh.
-#[allow(clippy::too_many_arguments)]
-fn build_te10_port(
-    mesh: &TetMesh,
-    faces_3d: &[[u32; 3]],
-    a: f64,
-    b: f64,
-    nx: usize,
-    ny: usize,
-    z_plane: f64,
-    a_inc: c64,
-) -> WavePort {
-    use geode_core::analytic::waveguide::rect_tri_mesh;
-    let port_mesh = rect_tri_mesh(nx, ny, a, b);
-
-    // 2-D node tag → 3-D node tag. The 3-D mesh from
-    // extruded_rect_waveguide_mesh stores nodes in (i, j, k) order
-    // i + j*npx + k*npx*npy, so we find the 3-D index by location.
-    let tol = 1e-9 * a.max(b).max(1.0);
-    let three_d_idx_of = |x: f64, y: f64| -> u32 {
-        mesh.nodes
-            .iter()
-            .position(|p| {
-                (p[0] - x).abs() < tol && (p[1] - y).abs() < tol && (p[2] - z_plane).abs() < tol
-            })
-            .expect("port-face node not found in 3-D mesh") as u32
-    };
-    let n2d_to_n3d: Vec<u32> = port_mesh
-        .nodes
-        .iter()
-        .map(|p| three_d_idx_of(p[0], p[1]))
-        .collect();
-
-    // 2-D port-mesh edges relabeled to 3-D node tags. Each 2-D edge
-    // (a, b) with a < b gets a 3-D pair (n2d_to_n3d[a], n2d_to_n3d[b])
-    // re-sorted to lower-tag-first to match the 3-D edge convention.
-    let edges_2d = port_mesh.edges();
-    let edges_2d_relabeled: Vec<[u32; 2]> = edges_2d
-        .iter()
-        .map(|e| {
-            let (a3, b3) = (n2d_to_n3d[e[0] as usize], n2d_to_n3d[e[1] as usize]);
-            if a3 < b3 { [a3, b3] } else { [b3, a3] }
-        })
-        .collect();
-
-    // 2-D modal solve → TE₁₀ profile. Take the first (lowest-cutoff)
-    // mode from the unified multi-mode entry point (issue #254).
-    let modes = solve_rect_waveguide_modes(&port_mesh, a, b, 1).expect("2-D modal solve");
-    let m = &modes[0];
-    let mode_2d = m.e_edges.clone();
-
-    // The mode_2d eigenvector is indexed by 2-D edge order; the same
-    // signed-orientation convention (lower tag first). We need to
-    // re-sign per edge whenever the 3-D edge orientation differs from
-    // the 2-D one. With the relabeling above, both tables are
-    // lower-tag-first, but the 2-D table is in 2-D-tag order and the
-    // 3-D one is in 3-D-tag order — so we need a true (lo,hi)-keyed
-    // lookup. `map_mode_profile_to_full_mesh` handles this.
-    let edges_3d = mesh.edges();
-    let mode_3d = map_mode_profile_to_full_mesh(&edges_2d_relabeled, &mode_2d, &edges_3d);
-
-    WavePort::single_mode(faces_3d.to_vec(), mode_3d, m.k_c, a_inc)
-}
 
 /// **Straight section acceptance**: an `a × b × L` rectangular waveguide
 /// excited from port 1 with both ports matched should produce
@@ -148,26 +68,9 @@ fn straight_section_s21_phase_matches_exp_minus_j_beta_l() {
     // contract by driving each port at unit amplitude in *its own*
     // excitation column; the S-matrix entries `S_kj` extract from the
     // per-excitation column.
-    let port1 = build_te10_port(
-        &g.mesh,
-        &g.port1_faces,
-        a,
-        b,
-        nx,
-        ny,
-        0.0,
-        c64::new(1.0, 0.0),
-    );
-    let port2 = build_te10_port(
-        &g.mesh,
-        &g.port2_faces,
-        a,
-        b,
-        nx,
-        ny,
-        length,
-        c64::new(1.0, 0.0),
-    );
+    let one = c64::new(1.0, 0.0);
+    let port1 = rect_wave_port(&g.mesh, &g.port1_faces, 0.0, [nx, ny], [a, b], 1, one);
+    let port2 = rect_wave_port(&g.mesh, &g.port2_faces, length, [nx, ny], [a, b], 1, one);
 
     let bcs = DrivenBcs {
         pec_interior_mask: &pec_mask,
@@ -276,8 +179,9 @@ fn filled_straight_section(
     let pec_mask = g.pec_interior_mask();
     let one = c64::new(1.0, 0.0);
     let ports = [
-        build_te10_port(&g.mesh, &g.port1_faces, a, b, nx, ny, 0.0, one).with_medium(medium),
-        build_te10_port(&g.mesh, &g.port2_faces, a, b, nx, ny, length, one).with_medium(medium),
+        rect_wave_port(&g.mesh, &g.port1_faces, 0.0, [nx, ny], [a, b], 1, one).with_medium(medium),
+        rect_wave_port(&g.mesh, &g.port2_faces, length, [nx, ny], [a, b], 1, one)
+            .with_medium(medium),
     ];
     solve_wave_port_sweep::<B>(
         &g.mesh,
@@ -463,26 +367,9 @@ fn height_step_discontinuity_produces_nontrivial_s11() {
     let eps = vacuum(&g.mesh);
 
     let omega = 2.5_f64;
-    let port1 = build_te10_port(
-        &g.mesh,
-        &g.port1_faces,
-        a,
-        b,
-        nx,
-        ny,
-        0.0,
-        c64::new(1.0, 0.0),
-    );
-    let port2 = build_te10_port(
-        &g.mesh,
-        &g.port2_faces,
-        a,
-        b,
-        nx,
-        ny,
-        length,
-        c64::new(1.0, 0.0),
-    );
+    let one = c64::new(1.0, 0.0);
+    let port1 = rect_wave_port(&g.mesh, &g.port1_faces, 0.0, [nx, ny], [a, b], 1, one);
+    let port2 = rect_wave_port(&g.mesh, &g.port2_faces, length, [nx, ny], [a, b], 1, one);
 
     let bcs = DrivenBcs {
         pec_interior_mask: &pec_mask,
@@ -586,58 +473,6 @@ fn height_step_discontinuity_produces_nontrivial_s11() {
 /// single-mode projection. We file the analytic mode-matching cross-
 /// check as the natural follow-up to multi-mode wave-port support
 /// (#250).
-#[allow(clippy::too_many_arguments)]
-fn build_te10_port_step(
-    mesh: &TetMesh,
-    faces_3d: &[[u32; 3]],
-    a: f64,
-    b_port: f64,
-    nx: usize,
-    ny_port: usize,
-    z_plane: f64,
-    a_inc: c64,
-) -> WavePort {
-    use geode_core::analytic::waveguide::rect_tri_mesh;
-    let port_mesh = rect_tri_mesh(nx, ny_port, a, b_port);
-
-    let tol = 1e-9 * a.max(b_port).max(1.0);
-    let three_d_idx_of = |x: f64, y: f64| -> u32 {
-        mesh.nodes
-            .iter()
-            .position(|p| {
-                (p[0] - x).abs() < tol && (p[1] - y).abs() < tol && (p[2] - z_plane).abs() < tol
-            })
-            .expect("port-face node not found in 3-D step mesh") as u32
-    };
-    let n2d_to_n3d: Vec<u32> = port_mesh
-        .nodes
-        .iter()
-        .map(|p| three_d_idx_of(p[0], p[1]))
-        .collect();
-
-    let edges_2d = port_mesh.edges();
-    let edges_2d_relabeled: Vec<[u32; 2]> = edges_2d
-        .iter()
-        .map(|e| {
-            let (a3, b3) = (n2d_to_n3d[e[0] as usize], n2d_to_n3d[e[1] as usize]);
-            if a3 < b3 { [a3, b3] } else { [b3, a3] }
-        })
-        .collect();
-
-    // 2-D modal solve for this port's cross-section. Different `b`
-    // → different modal basis (different k_c — but only the b-dependent
-    // family; the dominant TE₁₀ has k_c = π/a for both ports).
-    let modes =
-        solve_rect_waveguide_modes(&port_mesh, a, b_port, 1).expect("2-D modal solve (port)");
-    let m = &modes[0];
-    let mode_2d = m.e_edges.clone();
-
-    let edges_3d = mesh.edges();
-    let mode_3d = map_mode_profile_to_full_mesh(&edges_2d_relabeled, &mode_2d, &edges_3d);
-
-    WavePort::single_mode(faces_3d.to_vec(), mode_3d, m.k_c, a_inc)
-}
-
 #[test]
 #[ignore = "heavy: true mesh height-step waveguide; cargo test --release --features ndarray --no-default-features --test wave_port -- --ignored height_step_true"]
 fn height_step_true_mesh_discontinuity_self_consistent() {
@@ -654,26 +489,9 @@ fn height_step_true_mesh_discontinuity_self_consistent() {
     // cutoff on either section (see test docstring).
     let omega = 2.4_f64;
 
-    let port1 = build_te10_port_step(
-        &g.mesh,
-        &g.port1_faces,
-        a,
-        b1,
-        nx,
-        ny1,
-        0.0,
-        c64::new(1.0, 0.0),
-    );
-    let port2 = build_te10_port_step(
-        &g.mesh,
-        &g.port2_faces,
-        a,
-        b2,
-        nx,
-        ny2,
-        l1 + l2,
-        c64::new(1.0, 0.0),
-    );
+    let one = c64::new(1.0, 0.0);
+    let port1 = rect_wave_port(&g.mesh, &g.port1_faces, 0.0, [nx, ny1], [a, b1], 1, one);
+    let port2 = rect_wave_port(&g.mesh, &g.port2_faces, l1 + l2, [nx, ny2], [a, b2], 1, one);
 
     let bcs = DrivenBcs {
         pec_interior_mask: &pec_mask,
@@ -792,72 +610,6 @@ fn height_step_true_mesh_discontinuity_self_consistent() {
 // reciprocity of the augmented operator); full physical validation
 // (mode-cross-coupling, analytic mode-matching) is C1/C2's job.
 
-/// Build a `K`-mode wave port on the `z = z_plane` face by running the
-/// 2-D multi-mode modal solver and stitching the lowest `K` profiles
-/// into the 3-D mesh.
-#[allow(clippy::too_many_arguments)]
-fn build_multimode_port(
-    mesh: &TetMesh,
-    faces_3d: &[[u32; 3]],
-    a: f64,
-    b: f64,
-    nx: usize,
-    ny: usize,
-    z_plane: f64,
-    n_modes: usize,
-    a_inc: c64,
-) -> WavePort {
-    use geode_core::analytic::waveguide::rect_tri_mesh;
-    let port_mesh = rect_tri_mesh(nx, ny, a, b);
-
-    let tol = 1e-9 * a.max(b).max(1.0);
-    let three_d_idx_of = |x: f64, y: f64| -> u32 {
-        mesh.nodes
-            .iter()
-            .position(|p| {
-                (p[0] - x).abs() < tol && (p[1] - y).abs() < tol && (p[2] - z_plane).abs() < tol
-            })
-            .expect("port-face node not found in 3-D mesh") as u32
-    };
-    let n2d_to_n3d: Vec<u32> = port_mesh
-        .nodes
-        .iter()
-        .map(|p| three_d_idx_of(p[0], p[1]))
-        .collect();
-
-    let edges_2d = port_mesh.edges();
-    let edges_2d_relabeled: Vec<[u32; 2]> = edges_2d
-        .iter()
-        .map(|e| {
-            let (a3, b3) = (n2d_to_n3d[e[0] as usize], n2d_to_n3d[e[1] as usize]);
-            if a3 < b3 { [a3, b3] } else { [b3, a3] }
-        })
-        .collect();
-
-    let modes =
-        solve_rect_waveguide_modes(&port_mesh, a, b, n_modes).expect("multi-mode 2-D modal solve");
-    assert_eq!(modes.len(), n_modes);
-
-    let edges_3d = mesh.edges();
-    let port_modes: Vec<PortMode> = modes
-        .iter()
-        .map(|m| {
-            let mode_3d = map_mode_profile_to_full_mesh(&edges_2d_relabeled, &m.e_edges, &edges_3d);
-            PortMode {
-                mode: mode_3d,
-                k_c: m.k_c,
-                a_inc,
-            }
-        })
-        .collect();
-
-    WavePort {
-        faces: faces_3d.to_vec(),
-        modes: port_modes,
-        medium: PortMedium::VACUUM,
-    }
-}
-
 /// **Rank-N SMW machinery unit test** (issue #255): a 2-port × 2-mode
 /// straight section produces a **4 × 4 block-structured** S-matrix
 /// with reciprocity `|S_ij − S_ji|` near zero across all block
@@ -906,27 +658,16 @@ fn bimodal_block_s_matrix_is_reciprocal() {
     let omega = 3.5_f64;
     let n_modes = 2;
 
-    let port1 = build_multimode_port(
-        &g.mesh,
-        &g.port1_faces,
-        a,
-        b,
-        nx,
-        ny,
-        0.0,
-        n_modes,
-        c64::new(1.0, 0.0),
-    );
-    let port2 = build_multimode_port(
+    let one = c64::new(1.0, 0.0);
+    let port1 = rect_wave_port(&g.mesh, &g.port1_faces, 0.0, [nx, ny], [a, b], n_modes, one);
+    let port2 = rect_wave_port(
         &g.mesh,
         &g.port2_faces,
-        a,
-        b,
-        nx,
-        ny,
         length,
+        [nx, ny],
+        [a, b],
         n_modes,
-        c64::new(1.0, 0.0),
+        one,
     );
 
     assert_eq!(port1.n_modes(), 2);
@@ -1066,27 +807,16 @@ fn bimodal_straight_section_orthogonality() {
     let omega = 3.5_f64;
     let n_modes = 2;
 
-    let port1 = build_multimode_port(
-        &g.mesh,
-        &g.port1_faces,
-        a,
-        b,
-        nx,
-        ny,
-        0.0,
-        n_modes,
-        c64::new(1.0, 0.0),
-    );
-    let port2 = build_multimode_port(
+    let one = c64::new(1.0, 0.0);
+    let port1 = rect_wave_port(&g.mesh, &g.port1_faces, 0.0, [nx, ny], [a, b], n_modes, one);
+    let port2 = rect_wave_port(
         &g.mesh,
         &g.port2_faces,
-        a,
-        b,
-        nx,
-        ny,
         length,
+        [nx, ny],
+        [a, b],
         n_modes,
-        c64::new(1.0, 0.0),
+        one,
     );
     assert_eq!(port1.n_modes(), 2);
     assert_eq!(port2.n_modes(), 2);
@@ -1141,11 +871,8 @@ fn bimodal_straight_section_orthogonality() {
         beta_m2_analytic,
         beta_m2_analytic * length,
     );
-    for k in 0..n {
-        eprintln!(
-            "  channel[{}] β = {:.4} + {:.4}i",
-            k, pt.beta[k].re, pt.beta[k].im
-        );
+    for (k, b) in pt.beta.iter().enumerate().take(n) {
+        eprintln!("  channel[{}] β = {:.4} + {:.4}i", k, b.re, b.im);
     }
     eprintln!("  residual_rel = {:.3e}", pt.residual_rel);
     eprintln!("  S-matrix (row k = response, col j = excitation):");
@@ -1160,11 +887,11 @@ fn bimodal_straight_section_orthogonality() {
 
     // β positive and real for both propagating modes; matched between
     // the two ports (same cross-section).
-    for k in 0..n {
+    for (k, b) in pt.beta.iter().enumerate().take(n) {
         assert!(
-            pt.beta[k].re > 0.0 && pt.beta[k].im.abs() < 1e-9,
+            b.re > 0.0 && b.im.abs() < 1e-9,
             "channel[{k}] β must be real-positive (propagating); got {:?}",
-            pt.beta[k]
+            b
         );
     }
     assert!((pt.beta[c_p1_m1].re - pt.beta[c_p2_m1].re).abs() < 1e-12);

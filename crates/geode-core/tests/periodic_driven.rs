@@ -35,7 +35,6 @@ mod fixtures;
 
 use std::f64::consts::PI;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use faer::sparse::SparseColMat;
 
@@ -50,7 +49,7 @@ use geode_core::mesh::TetMesh;
 use geode_core::mesh::periodic::{
     PeriodicMap, PeriodicMatchOptions, boundary_triangles_on_plane, box_periodic_pairs,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 use fixtures::{box_tet_mesh, renumber};
 
@@ -60,10 +59,6 @@ const A: f64 = 1.0;
 const B_Y: f64 = 1.0;
 const C: f64 = 0.5;
 const OMEGA: f64 = 2.0;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// 4-point Gauss–Legendre on [0, 1].
 const GAUSS_4: [(f64, f64); 4] = [

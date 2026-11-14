@@ -35,13 +35,15 @@
 //! (override the directory with `$TRANSMON_DL_BENCH_DIR`). Checked by
 //! `tests/transmon_devicelayout_crosscheck.rs`.
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::{arr, edge_tables, git_head, tarr, tf, tget, vals_to_host};
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use burn::tensor::Tensor;
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::nedelec::{
@@ -55,8 +57,8 @@ use geode_core::eigen::transmon::{
 };
 use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
 use geode_core::mesh::transmon::{JUNCTION_CAPACITANCE_F, JUNCTION_INDUCTANCE_H};
-use geode_core::mesh::{TetMesh, TransmonFixture, read_transmon_fixture_from_bytes};
-use geode_core::testing::TestBackend;
+use geode_core::mesh::{TransmonFixture, read_transmon_fixture_from_bytes};
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::fixture::BackendInfo;
 
 type B = TestBackend;
@@ -75,26 +77,6 @@ const PALACE_DIR: &str = "reference/fixtures/transmon_palace/results_crosscheck_
 /// Palace modes with a port EPR below this are the port-sheet artifact
 /// (#1045); they are dropped before the modes are ordered.
 const PORT_SHEET_ARTIFACT_MAX_P: f64 = 1e-6;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
-    t.into_data().iter::<f64>().collect()
-}
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
-}
 
 /// Peak resident set size (GB) from `/proc/self/status` (Linux only).
 fn peak_rss_gb() -> Option<f64> {
@@ -293,56 +275,15 @@ fn solve_mode(mesh_path: &Path, label: &str, sigma_ghz: f64, n_modes: usize, run
 // Assemble mode: readers.
 // ---------------------------------------------------------------------------
 
-fn git_head() -> String {
-    std::process::Command::new("git")
-        .args(["rev-parse", "--short=8", "HEAD"])
-        .current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|| "unknown".into())
-}
-
 fn toml_doc(path: &Path) -> toml::Value {
     let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     toml::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
-}
-
-fn tget<'a>(v: &'a toml::Value, path: &str) -> &'a toml::Value {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur
-}
-
-fn tf(v: &toml::Value, path: &str) -> f64 {
-    let x = tget(v, path);
-    x.as_float()
-        .or_else(|| x.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("{path} is not a number"))
 }
 
 fn ti(v: &toml::Value, path: &str) -> i64 {
     tget(v, path)
         .as_integer()
         .unwrap_or_else(|| panic!("{path} is not an integer"))
-}
-
-fn tarr(v: &toml::Value, path: &str) -> Vec<f64> {
-    tget(v, path)
-        .as_array()
-        .unwrap_or_else(|| panic!("{path} is not an array"))
-        .iter()
-        .map(|x| {
-            x.as_float()
-                .or_else(|| x.as_integer().map(|i| i as f64))
-                .unwrap()
-        })
-        .collect()
 }
 
 fn csv_col(path: &Path, col: usize) -> Vec<f64> {
@@ -498,16 +439,6 @@ fn richardson2(f: [f64; 2], p: f64) -> f64 {
 
 fn pct(x: f64, r: f64) -> f64 {
     100.0 * (x / r - 1.0)
-}
-
-fn arr(v: &[f64], prec: usize) -> String {
-    format!(
-        "[{}]",
-        v.iter()
-            .map(|x| format!("{x:.prec$}"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    )
 }
 
 fn arri(v: &[usize]) -> String {

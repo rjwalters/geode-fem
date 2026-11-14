@@ -47,13 +47,15 @@
 //! `reference/fixtures/transmon_palace/results_loop_1079/run.sh` reproduces
 //! them.
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::{arr, edge_tables, git_head, tarr, tf, vals_to_host};
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use burn::tensor::Tensor;
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::nedelec::{
@@ -67,14 +69,14 @@ use geode_core::eigen::transmon::{
 };
 use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
 use geode_core::mesh::transmon::{JUNCTION_CAPACITANCE_F, JUNCTION_INDUCTANCE_H};
-use geode_core::mesh::{TetMesh, TransmonFixture, read_transmon_smoke_fixture};
+use geode_core::mesh::{TransmonFixture, read_transmon_smoke_fixture};
 use geode_core::quantum::transmon::{
     DEVICELAYOUT_COUPLING_K, DEVICELAYOUT_COUPLING_K_BAND, DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H,
     DEVICELAYOUT_LOOP_INDUCTANCE_H, DEVICELAYOUT_QUBIT_FREQUENCY_HZ,
     DEVICELAYOUT_RESONATOR_FREQUENCY_HZ, TransmonAnchor, coupled_lc_bare_pair_hz,
     coupled_lc_dressed_pair_hz, harmonic_frequency_hz, series_loop_inductance_from_participations,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::fixture::BackendInfo;
 
 type B = TestBackend;
@@ -182,26 +184,6 @@ const FINGER_LEN_UM: f64 = 620.0;
 const WIRE_W_UM: f64 = 1.0;
 const WIRE_LEN_UM: f64 = 12.0;
 const MU0: f64 = 1.256_637_062_12e-6;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
-    t.into_data().iter::<f64>().collect()
-}
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
-}
 
 /// The fixture with the wire's port stretch set to `[y_lo, y_hi]` (µm).
 /// Returns the variant and the number of retagged triangles.
@@ -467,16 +449,6 @@ fn ceil_dp(x: f64, dp: i32) -> f64 {
     (x * s).ceil() / s
 }
 
-fn arr(v: &[f64], prec: usize) -> String {
-    format!(
-        "[{}]",
-        v.iter()
-            .map(|x| format!("{x:.prec$}"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    )
-}
-
 fn arr_e(v: &[f64]) -> String {
     format!(
         "[{}]",
@@ -497,49 +469,9 @@ fn strs(v: &[&str]) -> String {
     )
 }
 
-fn git_head() -> String {
-    std::process::Command::new("git")
-        .args(["rev-parse", "--short=8", "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|| "unknown".into())
-}
-
 fn toml_doc(path: &Path) -> toml::Value {
     let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     toml::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
-}
-
-fn tget<'a>(v: &'a toml::Value, path: &str) -> &'a toml::Value {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur
-}
-
-fn tf(v: &toml::Value, path: &str) -> f64 {
-    let x = tget(v, path);
-    x.as_float()
-        .or_else(|| x.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("{path} is not a number"))
-}
-
-fn tarr(v: &toml::Value, path: &str) -> Vec<f64> {
-    tget(v, path)
-        .as_array()
-        .unwrap_or_else(|| panic!("{path} is not an array"))
-        .iter()
-        .map(|x| {
-            x.as_float()
-                .or_else(|| x.as_integer().map(|i| i as f64))
-                .unwrap()
-        })
-        .collect()
 }
 
 /// Complete elliptic integral of the first kind `K(k)` by the AGM.

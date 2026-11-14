@@ -82,6 +82,9 @@
 //! read next to the bent mesh, exactly as the baseline example does, and
 //! both sha256s are checked against the provenance.
 
+#[path = "../tests/common/example_io.rs"]
+mod example_io;
+use example_io::sha256_hex;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
@@ -91,9 +94,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
-use sha2::{Digest, Sha256};
 
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::constants::ETA_0_OHM as ETA_0;
@@ -111,7 +112,7 @@ use geode_core::mesh::patch::{
 };
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles};
 use geode_core::shape::{BoundaryMotionDof, FreeformBoundaryMorph};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::fixture::BackendInfo;
 use geode_util::units::ghz_to_omega_mm;
 
@@ -151,20 +152,7 @@ const LADDER_REPORT_GHZ: [f64; 4] = [2.28, 2.31, 2.40, 2.4835];
 /// The level stems of the h-ladder, finest last.
 const LEVELS: [&str; 4] = ["L0", "L1", "L2", "L3"];
 
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
+use geode_util::repo::repo_root;
 
 fn env_f64(key: &str, default: f64) -> f64 {
     std::env::var(key)
@@ -1322,19 +1310,6 @@ impl Model {
     }
 }
 
-/// A small LCG (deterministic, dependency-free) for the random directions.
-struct Lcg(u64);
-
-impl Lcg {
-    fn next_f64(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        ((self.0 >> 11) as f64) / ((1u64 << 53) as f64)
-    }
-}
-
 #[allow(clippy::too_many_lines)]
 fn run_fd(bent_path: &Path, out: Option<PathBuf>) {
     let l = load(bent_path);
@@ -1385,7 +1360,7 @@ fn run_fd(bent_path: &Path, out: Option<PathBuf>) {
         "adjoint objective {g0_adj} disagrees with forward {g0}"
     );
 
-    let mut rng = Lcg(seed);
+    let mut rng = geode_util::rng::Lcg(seed);
     struct Dir {
         analytic: f64,
         fd: f64,
@@ -1397,7 +1372,7 @@ fn run_fd(bent_path: &Path, out: Option<PathBuf>) {
     }
     let mut dirs = Vec::new();
     for k in 0..n_dirs {
-        let mut d: Vec<f64> = (0..n_dofs).map(|_| 2.0 * rng.next_f64() - 1.0).collect();
+        let mut d: Vec<f64> = (0..n_dofs).map(|_| 2.0 * rng.next_unit() - 1.0).collect();
         let nrm = d.iter().map(|v| v * v).sum::<f64>().sqrt();
         for v in &mut d {
             *v /= nrm;

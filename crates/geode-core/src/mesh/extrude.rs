@@ -34,6 +34,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::analytic::waveguide::TriMesh;
 use crate::mesh::TetMesh;
+use crate::vec3::tet_signed_volume;
 
 /// What a 3-D edge of an [`ExtrudedTriMesh`] is, in terms of the 2-D mesh.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,11 +161,7 @@ pub fn extrude_tri_mesh_layers(tri: &TriMesh, z: &[f64]) -> ExtrudedTriMesh {
 }
 
 fn signed_volume(nodes: &[[f64; 3]], t: &[u32; 4]) -> f64 {
-    let p = |k: usize| nodes[t[k] as usize];
-    let d = |a: [f64; 3], b: [f64; 3]| [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-    let (a, b, c) = (d(p(0), p(1)), d(p(0), p(2)), d(p(0), p(3)));
-    a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
-        + a[2] * (b[0] * c[1] - b[1] * c[0])
+    tet_signed_volume(&t.map(|i| nodes[i as usize]))
 }
 
 impl ExtrudedTriMesh {
@@ -308,7 +305,7 @@ mod tests {
         for t in &mesh.tets {
             let v = signed_volume(&mesh.nodes, t);
             assert!(v > 0.0, "tet {t:?} volume {v}");
-            vol += v / 6.0;
+            vol += v;
         }
         assert!((vol - 2.0 * 1.5).abs() < 1e-12, "volume {vol}");
         // Conforming: every interior triangular face is shared by exactly two

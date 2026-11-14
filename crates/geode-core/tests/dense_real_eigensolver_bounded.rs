@@ -34,10 +34,12 @@
 //! * the eigenvector path (`smallest_eigenpairs`), by eigen-residual and
 //!   M-normalization.
 
+mod common;
+
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use burn::tensor::backend::BackendTypes;
+use common::Lcg;
 use faer::{Mat, MatRef, Side};
 use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
@@ -48,7 +50,7 @@ use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer,
 };
 use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -95,18 +97,6 @@ fn with_watchdog<T: Send + 'static>(
     }
 }
 
-/// Deterministic LCG in `[-0.5, 0.5)`, so the test needs no `rand` dependency.
-struct Lcg(u64);
-impl Lcg {
-    fn next(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        ((self.0 >> 11) as f64) / ((1u64 << 53) as f64) - 0.5
-    }
-}
-
 /// `Sᵀ diag(d) S`.
 fn congruence(s: &Mat<f64>, d: &[f64]) -> Mat<f64> {
     let n = s.nrows();
@@ -124,18 +114,18 @@ fn synthetic_null_cluster_pencil_matches_exact_spectrum() {
     let n_null = n / 9;
     let mut rng = Lcg(0x800);
     let s = Mat::<f64>::from_fn(n, n, |i, j| {
-        (if i == j { 1.0 } else { 0.0 }) + 0.5 * rng.next() / (n as f64).sqrt()
+        (if i == j { 1.0 } else { 0.0 }) + 0.5 * rng.next_centered() / (n as f64).sqrt()
     });
     let dk: Vec<f64> = (0..n)
         .map(|i| {
             if i < n_null {
                 0.0
             } else {
-                1.0 + 50.0 * (rng.next() + 0.5)
+                1.0 + 50.0 * (rng.next_centered() + 0.5)
             }
         })
         .collect();
-    let dm: Vec<f64> = (0..n).map(|_| 1.0 + rng.next()).collect();
+    let dm: Vec<f64> = (0..n).map(|_| 1.0 + rng.next_centered()).collect();
     let (k, m) = (congruence(&s, &dk), congruence(&s, &dm));
 
     let (got, _) = with_watchdog("synthetic null-cluster pencil", move || {
@@ -164,10 +154,6 @@ fn synthetic_null_cluster_pencil_matches_exact_spectrum() {
         err < 1e-10,
         "max relative error vs exact spectrum {err:.3e}"
     );
-}
-
-fn device() -> <B as BackendTypes>::Device {
-    Default::default()
 }
 
 /// The real part `(Re K, Re M)` of the reduced Mie PML pencil from the

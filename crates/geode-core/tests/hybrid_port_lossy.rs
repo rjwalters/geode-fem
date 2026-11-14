@@ -661,7 +661,6 @@ fn lossy_accuracy_estimate_tracks_the_true_error() {
 // 3-D: lossy / dispersive hybrid wave ports in the driven solve
 // ===========================================================================
 
-use burn::tensor::backend::BackendTypes;
 use geode_core::driven::ports::{
     ExtrudedWaveguideMesh, HybridPortFace, HybridWavePort, HybridWavePortOpts, WavePortSpec,
     WavePortSpecSweep, extruded_rect_waveguide_mesh,
@@ -671,17 +670,13 @@ use geode_core::driven::rom::{DrivenRom, RomError, RomSettings};
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SolverMode,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
 const LEN: f64 = 1.2;
 /// Single-mode band of the ε = 2.25 slab guide (LSE₀₁ cuts on at k₀ ≈ 2.42).
 const BAND: [f64; 8] = [1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2];
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// The Phase 2 slab fixture: `16 × 8 × 4`, face h = b/8.
 fn guide3d() -> ExtrudedWaveguideMesh {

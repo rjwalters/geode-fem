@@ -26,19 +26,14 @@
 //!
 //! # What this provides
 //!
-//! - [`coordinate_nested_dissection`]: a self-contained geometric (coordinate)
-//!   nested-dissection ordering. Pure Rust, zero external dependencies. It
-//!   recursively bisects the DOFs by the median coordinate along the longest
-//!   bounding-box axis, orders each half first (recursively), and orders the
-//!   coupling vertex separator last.
 //! - [`CustomOrderLu`]: a supernodal LU factorization with a caller-supplied
 //!   column ordering (`LuColOrdering::Custom`), plus an in-place multi-RHS
 //!   solve.
 //! - [`amd_ordering`]: an approximate-minimum-degree ordering (via faer's
-//!   public `amd` module) — the pattern-only fallback used when no coordinates
-//!   are available, and the measured best on the tested meshes.
-//! - [`column_ordering`]: the selector — coordinate ND when coordinates are
-//!   supplied, else AMD.
+//!   public `amd` module) — pattern-only, and the measured best on the tested
+//!   meshes.
+//! - [`longest_bbox_axis`] / [`rank_split_along_axis`]: the geometric
+//!   bisection primitives shared with the mesh k-way partitioner.
 //! - `symmetric_factor_nnz`: the true symmetric Cholesky fill `nnz(L)` under a
 //!   given ordering, used to compare orderings in tests (the metric matching the
 //!   issue #543 measurement).
@@ -68,11 +63,6 @@ use faer::sparse::linalg::colamd;
 
 use crate::eigen::dense::EigenError;
 
-/// Recursion cutoff for [`coordinate_nested_dissection`]: subsets with at most
-/// this many DOFs are emitted in natural order rather than bisected further.
-/// Below this size the separator bookkeeping costs more than the fill it saves.
-const ND_LEAF_THRESHOLD: usize = 64;
-
 /// Allocate a faer scratch buffer or map the failure to an [`EigenError`].
 fn scratch(req: StackReq, what: &str) -> Result<MemBuffer, EigenError> {
     MemBuffer::try_new(req).ok().ok_or_else(|| {
@@ -80,154 +70,11 @@ fn scratch(req: StackReq, what: &str) -> Result<MemBuffer, EigenError> {
     })
 }
 
-/// Build the forward/inverse permutation arrays from an elimination order.
-///
-/// `order[k]` is the original DOF index placed at new position `k` (interior
-/// DOFs first, separators last). The returned `(forward, inverse)` pair matches
-/// faer's `PermRef` convention as produced by `amd::order` / `colamd::order`
-/// and consumed by both the sparse-LU `LuColOrdering::Custom` (which takes
-/// `forward` alone) and the Cholesky `Custom` ordering: **`forward[k]` is the
-/// original DOF placed at new position `k`** (so `forward` *is* the
-/// elimination order) and `inverse[old]` is its new position.
-///
-/// The orientation matters for fill (though not for solve correctness): feeding
-/// the reversed mapping eliminates the separators *first*, which maximizes fill
-/// instead of minimizing it. This convention was verified empirically against
-/// COLAMD/AMD on the real Nédélec pattern (see `nested_dissection_reduces_fill_vs_colamd`).
-fn order_to_perm(order: &[usize]) -> (Vec<usize>, Vec<usize>) {
-    let n = order.len();
-    let mut forward = vec![0usize; n];
-    let mut inverse = vec![0usize; n];
-    for (new_pos, &old) in order.iter().enumerate() {
-        forward[new_pos] = old;
-        inverse[old] = new_pos;
-    }
-    (forward, inverse)
-}
-
-/// Geometric (coordinate) nested-dissection column ordering for a
-/// structurally-symmetric pattern.
-///
-/// `pattern` is the (square, structurally symmetric) sparsity of `A`; `coords`
-/// gives one coordinate per DOF (for Nédélec edge DOFs, the edge midpoint).
-/// Returns `(forward, inverse)` permutation arrays suitable for
-/// `PermRef::new_checked`; [`CustomOrderLu::factorize`] takes `forward`.
-///
-/// # Algorithm
-///
-/// Recursively:
-/// 1. If the subset is at most [`ND_LEAF_THRESHOLD`], emit it in natural order.
-/// 2. Otherwise bisect the subset into balanced halves `L` and `R` at the
-///    rank-median along the longest bounding-box axis (sort by coordinate,
-///    tie-break by index, cut at the halfway rank). The rank cut keeps the two
-///    halves balanced even when many DOFs share a coordinate — the structured
-///    cube mesh has heavy coordinate ties among axis-aligned edge midpoints,
-///    where a value-threshold split degenerates into a near-linear ordering.
-/// 3. The vertex separator `C` is the set of `L`-vertices with at least one
-///    neighbour in `R`; removing them leaves `L' = L \ C` with no edge to `R`.
-/// 4. Recurse on `L'` and `R`, then emit `C` last.
-///
-/// # Panics
-///
-/// Panics if `pattern` is not square or `coords.len() != pattern.ncols()`.
-pub(crate) fn coordinate_nested_dissection(
-    pattern: SymbolicSparseColMatRef<'_, usize>,
-    coords: &[[f64; 3]],
-) -> (Vec<usize>, Vec<usize>) {
-    let n = pattern.ncols();
-    assert_eq!(
-        pattern.nrows(),
-        n,
-        "nested dissection needs a square pattern"
-    );
-    assert_eq!(coords.len(), n, "one coordinate per DOF");
-
-    let col_ptr = pattern.col_ptr();
-    let row_idx = pattern.row_idx();
-
-    let mut order: Vec<usize> = Vec::with_capacity(n);
-    // Membership marker reused across the whole recursion to test "is this
-    // neighbour on the R side" without an O(n) reset per call.
-    let mut is_right = vec![false; n];
-    let all: Vec<usize> = (0..n).collect();
-    nd_recurse(&all, coords, col_ptr, row_idx, &mut is_right, &mut order, n);
-    debug_assert_eq!(order.len(), n, "nested dissection dropped DOFs");
-    order_to_perm(&order)
-}
-
-/// Recursive worker for [`coordinate_nested_dissection`].
-///
-/// `total` is the full DOF count (length of `is_right`); it is only used for a
-/// debug assertion. `is_right` must be all-`false` on entry and is restored to
-/// all-`false` before this call returns.
-fn nd_recurse(
-    subset: &[usize],
-    coords: &[[f64; 3]],
-    col_ptr: &[usize],
-    row_idx: &[usize],
-    is_right: &mut [bool],
-    order: &mut Vec<usize>,
-    total: usize,
-) {
-    debug_assert!(subset.len() <= total);
-    if subset.len() <= ND_LEAF_THRESHOLD {
-        order.extend_from_slice(subset);
-        return;
-    }
-
-    // Balanced (rank-based) median split along the longest bounding-box axis —
-    // the shared geometric-bisection primitive (also used by the mesh k-way
-    // partitioner, [`crate::mesh::partition`]). Cutting at the halfway rank
-    // keeps the two halves balanced even when many DOFs share a coordinate.
-    let axis = longest_bbox_axis(subset, coords);
-    let half = subset.len() / 2;
-    let (left, right) = rank_split_along_axis(subset, coords, axis, half);
-
-    // Mark the right side, then peel off the left-side boundary layer as the
-    // vertex separator `C`: any left vertex adjacent to a right vertex.
-    for &v in &right {
-        is_right[v] = true;
-    }
-    let mut left_interior: Vec<usize> = Vec::with_capacity(left.len());
-    let mut separator: Vec<usize> = Vec::new();
-    for &v in &left {
-        let mut on_boundary = false;
-        for &nbr in &row_idx[col_ptr[v]..col_ptr[v + 1]] {
-            if is_right[nbr] {
-                on_boundary = true;
-                break;
-            }
-        }
-        if on_boundary {
-            separator.push(v);
-        } else {
-            left_interior.push(v);
-        }
-    }
-    // Restore the marker for the sibling recursion / caller.
-    for &v in &right {
-        is_right[v] = false;
-    }
-
-    nd_recurse(
-        &left_interior,
-        coords,
-        col_ptr,
-        row_idx,
-        is_right,
-        order,
-        total,
-    );
-    nd_recurse(&right, coords, col_ptr, row_idx, is_right, order, total);
-    order.extend_from_slice(&separator);
-}
-
 /// Longest bounding-box axis (`0`, `1`, or `2`) of `subset` under `coords`.
 ///
-/// The shared geometric-bisection primitive: both
-/// [`coordinate_nested_dissection`] (the fill-reducing DOF ordering) and the
-/// mesh k-way partitioner ([`crate::mesh::partition`]) recursively cut along
-/// this axis. Operates on arbitrary index sets into `coords`, so it serves both
+/// The shared geometric-bisection primitive used by the mesh k-way
+/// partitioner ([`crate::mesh::partition`]), which recursively cuts along this
+/// axis. Operates on arbitrary index sets into `coords`, so it serves both
 /// per-DOF (edge-midpoint) and per-element (centroid) coordinate arrays.
 /// Returns `0` for an empty subset.
 pub(crate) fn longest_bbox_axis(subset: &[usize], coords: &[[f64; 3]]) -> usize {
@@ -329,25 +176,6 @@ pub(crate) fn amd_ordering(
     Ok((forward, inverse))
 }
 
-/// Choose a fill-reducing column permutation for `pattern`.
-///
-/// Prefers geometric coordinate nested dissection when per-DOF coordinates are
-/// available and well-formed (issue #543 option 1, the headline algorithm);
-/// otherwise falls back to AMD minimum-degree (option 2), which needs only the
-/// sparsity pattern. Both beat the COLAMD ordering faer's high-level `sp_lu`
-/// uses (measured on the real Nédélec pattern: coord-ND ~1.4×, AMD ~1.7×
-/// less symmetric fill than COLAMD, with the advantage growing at larger 3D
-/// sizes). Returns `(forward, inverse)`.
-pub(crate) fn column_ordering(
-    pattern: SymbolicSparseColMatRef<'_, usize>,
-    coords: Option<&[[f64; 3]]>,
-) -> Result<(Vec<usize>, Vec<usize>), EigenError> {
-    match coords {
-        Some(c) if c.len() == pattern.ncols() => Ok(coordinate_nested_dissection(pattern, c)),
-        _ => amd_ordering(pattern),
-    }
-}
-
 /// Number of nonzeros in the Cholesky factor `L` of the (structurally
 /// symmetric) `pattern` under a given symmetric ordering — the true symmetric
 /// fill `nnz(L)` (so `nnz(L+U) ≈ 2·nnz(L)`).
@@ -400,7 +228,7 @@ impl CustomOrderLu {
     /// elimination order `col_perm_fwd`.
     ///
     /// `col_perm_fwd` is the **forward** (new → old) permutation from
-    /// [`column_ordering`] / [`order_to_perm`]: `col_perm_fwd[k]` is the
+    /// [`amd_ordering`]: `col_perm_fwd[k]` is the
     /// original DOF eliminated at step `k`. This is exactly the orientation
     /// [`LuColOrdering::Custom`] takes; passing the inverse would still solve
     /// correctly but maximize fill.
@@ -554,28 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn nested_dissection_is_a_valid_permutation() {
-        let (pattern, coords) = cube_nedelec_pattern(6);
-        let n = coords.len();
-        let a = faer_from_pattern(&pattern, n);
-        let (fwd, inv) = coordinate_nested_dissection(a.symbolic(), &coords);
-
-        assert_eq!(fwd.len(), n);
-        assert_eq!(inv.len(), n);
-        // Bijection over 0..n and mutually inverse.
-        let mut seen = vec![false; n];
-        for &p in &fwd {
-            assert!(p < n, "permutation index out of range");
-            assert!(!seen[p], "permutation is not a bijection");
-            seen[p] = true;
-        }
-        for k in 0..n {
-            assert_eq!(inv[fwd[k]], k, "inverse does not invert forward");
-        }
-    }
-
-    #[test]
-    fn nested_dissection_reduces_fill_vs_colamd() {
+    fn amd_reduces_fill_vs_colamd() {
         let (pattern, coords) = cube_nedelec_pattern(8);
         let n = coords.len();
         let a = faer_from_pattern(&pattern, n);
@@ -585,33 +392,18 @@ mod tests {
         let colamd_fill = symmetric_factor_nnz(a.symbolic(), Some((&cf, &ci))).unwrap();
         let (af, ai) = amd_ordering(a.symbolic()).unwrap();
         let amd_fill = symmetric_factor_nnz(a.symbolic(), Some((&af, &ai))).unwrap();
-        let (nf, ni) = coordinate_nested_dissection(a.symbolic(), &coords);
-        let nd_fill = symmetric_factor_nnz(a.symbolic(), Some((&nf, &ni))).unwrap();
 
         eprintln!(
             "n={n}  symmetric nnz(L): natural={natural}  colamd={colamd_fill}  \
-             amd={amd_fill}  coord-ND={nd_fill}  \
-             (coord-ND is {:.2}x, AMD is {:.2}x less than COLAMD)",
-            colamd_fill as f64 / nd_fill as f64,
+             amd={amd_fill}  (AMD is {:.2}x less than COLAMD)",
             colamd_fill as f64 / amd_fill as f64
         );
 
-        // Both fill-reducing orderings must beat the COLAMD baseline the direct
-        // path uses today (issue #543 measured ~5x with METIS; on this moderate
-        // mesh coordinate-ND lands ~1.4x and AMD ~1.7x — the advantage grows
-        // with problem size for 3D). AMD is the measured winner and the ordering
-        // the wired path defaults to when no coordinates are supplied.
-        assert!(
-            nd_fill < colamd_fill,
-            "coordinate nested dissection did not beat COLAMD: nd={nd_fill} colamd={colamd_fill}"
-        );
+        // AMD must beat the COLAMD baseline faer's high-level `sp_lu` uses
+        // (issue #543: ~1.7x on this moderate mesh, growing with 3D size).
         assert!(
             amd_fill < colamd_fill,
             "AMD did not beat COLAMD: amd={amd_fill} colamd={colamd_fill}"
-        );
-        assert!(
-            nd_fill < natural,
-            "coordinate nested dissection did not beat natural order"
         );
         assert!(amd_fill < natural, "AMD did not beat natural order");
     }
@@ -621,7 +413,7 @@ mod tests {
         let (pattern, coords) = cube_nedelec_pattern(5);
         let n = coords.len();
         let a = spd_from_pattern(&pattern, n);
-        let (fwd, _inv) = coordinate_nested_dissection(a.symbolic(), &coords);
+        let (fwd, _inv) = amd_ordering(a.symbolic()).unwrap();
         let lu = CustomOrderLu::factorize(a.as_ref(), &fwd, Par::Seq).unwrap();
         assert_eq!(lu.dim(), n);
 
@@ -757,7 +549,7 @@ mod tests {
     /// Issue #972: `CustomOrderLu` on `LuColOrdering::Custom` +
     /// `FORCE_SUPERNODAL` must be the *same* factorization the retired
     /// deeper-API copy produced — identical supernodal structure, fill, values
-    /// and pivots — for both the coordinate-ND and AMD orderings. Also pins
+    /// and pivots — for the AMD ordering. Also pins
     /// the orientation: the column permutation faer stores must be our
     /// forward (new → old) order, not its inverse (which would still solve
     /// correctly but maximize fill).
@@ -766,9 +558,8 @@ mod tests {
         let (pattern, coords) = cube_nedelec_pattern(5);
         let n = coords.len();
         let a = spd_from_pattern(&pattern, n);
-        let nd = coordinate_nested_dissection(a.symbolic(), &coords);
         let amd = amd_ordering(a.symbolic()).unwrap();
-        for (name, (fwd, inv)) in [("coord-ND", nd), ("AMD", amd)] {
+        for (name, (fwd, inv)) in [("AMD", amd)] {
             let lu = CustomOrderLu::factorize(a.as_ref(), &fwd, Par::Seq).unwrap();
             let (got_fwd, got_inv) = lu.lu_ref().col_perm().arrays();
             assert_eq!(

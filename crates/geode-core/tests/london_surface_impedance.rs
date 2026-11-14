@@ -28,6 +28,8 @@
 //!    with the same λ_L reproduces the single-tag solve; distinct λ_L on
 //!    the two halves solves cleanly (multi-tag support).
 
+mod common;
+use common::vacuum_eps as vacuum;
 use faer::c64;
 use std::collections::BTreeMap;
 use std::f64::consts::PI;
@@ -131,10 +133,6 @@ fn slab_source(mesh: &TetMesh, h: f64) -> CurrentSource {
         let jz = if c[0] < h { (PI * c[1]).sin() } else { 0.0 };
         [c64::new(0.0, 0.0), c64::new(0.0, 0.0), c64::new(jz, 0.0)]
     })
-}
-
-fn vacuum(mesh: &TetMesh) -> Vec<c64> {
-    vec![c64::new(1.0, 0.0); mesh.n_tets()]
 }
 
 // ---------------------------------------------------------------------------

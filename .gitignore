@@ -46,6 +46,9 @@ Cargo.lock.bak
 # #1135 controls: Palace run logs and worker orchestration / memory logs
 !reference/fixtures/transmon_palace/results_controls_1135/*/palace_run.log
 !reference/fixtures/transmon_palace/results_controls_1135/logs/*.log
+# #1579 Design A min-max run: the run's own stdout (cost probe and the true
+# per-iteration worst case, which results.toml's [history] does not carry)
+!benchmarks/tcda_design/run.log
 # #1145 T7: adaptive refinement on the final design, Palace run log and worker orchestration / memory logs
 !reference/fixtures/transmon_palace/results_controls_1145/*/palace_run.log
 !reference/fixtures/transmon_palace/results_controls_1145/logs/*.log
@@ -187,3 +190,123 @@ papers/**/*.vision/pages/
 
 # #1084: flat companions of bent patch fixtures are regenerated, not committed
 crates/geode-core/tests/fixtures/*.flat.msh
+
+# #1410: cargo ignores a dependency's own Cargo.lock (the root Cargo.lock is
+# authoritative) but rewrites one inside vendored crates whenever it resolves
+# there, which dirtied the checkout. Never track them.
+vendor/*/Cargo.lock
+
+# Repo Skills Codex-side machine-local install metadata (never committed)
+.agents/skills/repo/.install-local.json
+
+# #1506 tracked logs cited as evidence by tests, run scripts, READMEs or paper manifests
+# (kept tracked; the rest of the previously tracked ignored logs were untracked)
+!benchmarks/motor_nonlinear_m1/m1_tables.log
+!benchmarks/motor_nonlinear_m2/*.log
+!benchmarks/motor_optimization/logs/build_initial_L1-L3.log
+!benchmarks/motor_optimization/logs/check_meshes.log
+!benchmarks/motor_optimization/logs/harness_mutation_checks.log
+!benchmarks/motor_optimization/logs/make_starts.log
+!benchmarks/motor_optimization/logs/mesh_repair_attempts_L0.log
+!benchmarks/motor_optimization/logs/mutation_checks.log
+!benchmarks/motor_optimization/logs/reproduce.log
+!benchmarks/motor_optimization/runs/pilot/logs/check_meshes_pilot.log
+!benchmarks/motor_optimization/runs/pilot/logs/cobyqa_a_lhs1_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/cobyqa_a_lhs1_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/cobyqa_a_lhs2_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/cobyqa_a_lhs2_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/cobyqa_a_theta0_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/cobyqa_a_theta0_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/cobyqa_b_lhs1_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/cobyqa_b_lhs1_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/cobyqa_b_lhs2_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/cobyqa_b_lhs2_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/cobyqa_b_theta0_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/cobyqa_b_theta0_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/slsqp_a_lhs1_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/slsqp_a_lhs1_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/slsqp_a_lhs2_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/slsqp_a_lhs2_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/slsqp_a_theta0_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/slsqp_a_theta0_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/slsqp_b_lhs1_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/slsqp_b_lhs1_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/slsqp_b_lhs2_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/slsqp_b_lhs2_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/slsqp_b_theta0_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/slsqp_b_theta0_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/surrogate_a_lhs1_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/surrogate_a_lhs1_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/surrogate_a_lhs2_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/surrogate_a_lhs2_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/surrogate_a_theta0_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/surrogate_a_theta0_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/surrogate_b_lhs1_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/surrogate_b_lhs1_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/surrogate_b_lhs2_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/surrogate_b_lhs2_r2.log
+!benchmarks/motor_optimization/runs/pilot/logs/surrogate_b_theta0_r1.log
+!benchmarks/motor_optimization/runs/pilot/logs/surrogate_b_theta0_r2.log
+!benchmarks/motor_optimization/smoke/amendment7/logs/cobyqa_a_lhs1_r1.log
+!benchmarks/motor_optimization/smoke/amendment7/logs/cobyqa_a_theta0_r1.log
+!benchmarks/motor_optimization/smoke/amendment7/logs/cobyqa_b_lhs1_r1.log
+!benchmarks/motor_optimization/smoke/amendment7/logs/cobyqa_b_theta0_r1.log
+!benchmarks/motor_optimization/smoke/amendment7/logs/slsqp_a_lhs1_r1.log
+!benchmarks/motor_optimization/smoke/amendment7/logs/slsqp_a_theta0_r1.log
+!benchmarks/motor_optimization/smoke/amendment7/logs/slsqp_b_lhs1_r1.log
+!benchmarks/motor_optimization/smoke/amendment7/logs/slsqp_b_theta0_r1.log
+!benchmarks/motor_optimization/smoke/amendment7/logs/surrogate_a_lhs1_r1.log
+!benchmarks/motor_optimization/smoke/amendment7/logs/surrogate_a_theta0_r1.log
+!benchmarks/motor_optimization/smoke/amendment7/logs/surrogate_b_lhs1_r1.log
+!benchmarks/motor_optimization/smoke/amendment7/logs/surrogate_b_theta0_r1.log
+!benchmarks/motor_optimization/smoke/logs/*.log
+!benchmarks/motor_reference/forward/logs/analyze.log
+!benchmarks/motor_reference/forward/logs/run_all.log
+!benchmarks/motor_reference/forward_harmonic/logs/analyze.log
+!benchmarks/motor_reference/forward_harmonic/logs/run_all.log
+!benchmarks/motor_reference/forward_harmonic/logs/run_free_ends.log
+!benchmarks/motor_reference/forward_harmonic/logs/test_motor_icem_harmonic.log
+!benchmarks/motor_reference/forward_harmonic/logs/test_sector_harmonic.log
+!benchmarks/motor_reference/parametric/logs/analyze.log
+!benchmarks/motor_reference/parametric/logs/build_initial_L1-L3.log
+!benchmarks/motor_reference/parametric/logs/check_boundaries.log
+!benchmarks/motor_reference/parametric/logs/curves.log
+!benchmarks/motor_reference/parametric/logs/move.log
+!benchmarks/motor_reference/parametric/logs/quality_variants.log
+!benchmarks/motor_reference/parametric_cp/logs/analyze.log
+!benchmarks/motor_reference/parametric_cp/logs/boundary_check_cp.log
+!benchmarks/motor_reference/parametric_cp/logs/build_initial_L1-L3.log
+!benchmarks/motor_reference/parametric_cp/logs/curves.log
+!benchmarks/motor_reference/parametric_cp/logs/fit.log
+!benchmarks/motor_reference/parametric_cp/logs/fixture.log
+!benchmarks/motor_reference/parametric_cp/logs/move.log
+!benchmarks/motor_reference/parametric_cp/logs/plan.log
+!benchmarks/motor_reference/parametric_cp/logs/quality_variants.log
+!benchmarks/motor_reference/parametric_cp/logs/table.log
+!benchmarks/motor_reference/parametric_cp/logs/test_motor_icem_controlpoints.log
+!benchmarks/motor_reference/reference_refinement/logs/analyze.log
+!benchmarks/motor_reference/reference_refinement/logs/prepare_octave_tree.log
+!benchmarks/motor_reference/reference_refinement/logs/run_all.log
+!benchmarks/motor_reference/reference_refinement/logs/run_tolerance.log
+!benchmarks/motor_reference/reference_refinement/logs/setup_checks.log
+!benchmarks/motor_remesh/logs/identity_L1.log
+!benchmarks/motor_remesh/logs/path_L1_cold.log
+!benchmarks/motor_shape_gradient/band_guard/logs/mutation_checks.log
+!benchmarks/motor_shape_gradient/band_guard/logs/test_magnetostatic_shape_unit.log
+!benchmarks/motor_shape_gradient/design/logs/analyze.log
+!benchmarks/motor_shape_gradient/design/logs/build_initial_L3.log
+!benchmarks/motor_shape_gradient/design/logs/cost.log
+!benchmarks/motor_shape_gradient/design/logs/mutation_checks.log
+!benchmarks/motor_shape_gradient/design/logs/test_magnetostatic_shape_unit.log
+!benchmarks/motor_shape_gradient/design/logs/test_motor_design_gradient.log
+!benchmarks/motor_shape_gradient/logs/*.log
+!benchmarks/patch_antenna_conformal/designc/c3/c3_sm57_rim020_p2/*.log
+!benchmarks/patch_antenna_conformal/designc/logs/c4_fd.log
+!benchmarks/patch_antenna_conformal/recentre/logs/p2_sm57.log
+!benchmarks/patch_antenna_conformal/recentre/palace/sm57_p2/*.log
+!benchmarks/patch_antenna_conformal/recentre/palace/sm57_p3/*.log
+!benchmarks/transmon_diffopt/c_sigma_bracket_grounded_box_attempt1.log
+!papers/motor-gradient-optimization/motor-gradient-optimization.1/figures/src/data/m1_tables.log
+!papers/motor-gradient-optimization/motor-gradient-optimization.2/figures/src/data/m1_tables.log
+!papers/motor-gradient-optimization/motor-gradient-optimization.3/figures/src/data/m1_tables.log
+!reference/fixtures/transmon_palace/results_p1_target2/target2_L1/*.log

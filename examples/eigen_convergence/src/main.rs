@@ -7,7 +7,7 @@ use std::process::ExitCode;
 
 use burn::tensor::backend::BackendTypes;
 use clap::Parser;
-use geode_app::{App, Verbosity};
+use geode_app::App;
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
 use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
@@ -20,11 +20,7 @@ use geode_core::testing::TestBackend;
 #[command(
     about = "Convergence probe: (1,1,1) ground-mode eigenvalue vs mesh refinement (O(h²) rate)."
 )]
-struct Args {
-    /// Verbosity (`-v` / `-q`), fed to the logging seam.
-    #[command(flatten)]
-    verbose: Verbosity,
-}
+struct Args {}
 
 impl App for Args {
     fn run(self) -> Result<(), Box<dyn std::error::Error>> {
@@ -83,10 +79,6 @@ impl App for Args {
         }
 
         Ok(())
-    }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
     }
 }
 

@@ -484,15 +484,7 @@ impl DrivenAms {
 
 /// Real CSC SpMV `y = P x` (overwrite).
 fn spmv_real(p: &SparseColMat<usize, f64>, x: &[f64], y: &mut [f64]) {
-    y.iter_mut().for_each(|v| *v = 0.0);
-    let pr = p.as_ref();
-    let (cp, ri, va) = (pr.col_ptr(), pr.row_idx(), pr.val());
-    for j in 0..pr.ncols() {
-        let xj = x[j];
-        for k in cp[j]..cp[j + 1] {
-            y[ri[k]] += va[k] * xj;
-        }
-    }
+    crate::sparse_ops::spmv_into(p.as_ref(), x, y);
 }
 
 impl crate::solver::ksp::Preconditioner for DrivenAms {

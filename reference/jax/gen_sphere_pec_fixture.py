@@ -14,10 +14,6 @@ Usage
 
 JAX is required. Install with: pip install "jax[cpu]"
 
-If JAX is not available, use ``--stub`` to write a placeholder fixture:
-
-    python3 reference/jax/gen_sphere_pec_fixture.py --stub
-
 Epic #88 / Phase G.3 / Issue #128.
 """
 
@@ -68,74 +64,6 @@ def _load_numpy_baseline():
         return None
     with open(path) as f:
         return json.load(f)
-
-
-def write_stub_fixture(out_path: Path):
-    """Write a placeholder fixture when JAX is not available.
-
-    The fixture has the correct schema shape but all numeric values are
-    copied from the NumPy baseline (or set to zero if baseline is missing).
-    A ``TODO`` comment in the description flags it for regeneration.
-    """
-    print("Writing stub fixture (JAX not available — must be regenerated with JAX)")
-
-    numpy_baseline = _load_numpy_baseline()
-
-    if numpy_baseline is not None:
-        # Use NumPy baseline values as placeholders
-        np_out = numpy_baseline["outputs"]
-        n_nodes = int(np_out["n_nodes"]["data"][0])
-        n_tets = int(np_out["n_tets"]["data"][0])
-        n_edges = int(np_out["n_edges"]["data"][0])
-        n_interior_edges = int(np_out["n_interior_edges"]["data"][0])
-        spurious_dim = int(np_out["spurious_dim"]["data"][0])
-        k_int_frobenius = float(np_out["k_int_frobenius"]["data"][0])
-        m_int_frobenius = float(np_out["m_int_frobenius"]["data"][0])
-        k_int_diag = list(np_out["k_int_diag"]["data"])
-        m_int_diag = list(np_out["m_int_diag"]["data"])
-        eigenvalues_lowest = list(np_out["eigenvalues_lowest"]["data"])
-        physical_eigenvalues = list(np_out["physical_eigenvalues"]["data"])
-        note = (
-            "STUB: JAX was not available at generation time. Values are copied "
-            "from the NumPy baseline. Regenerate with JAX installed: "
-            "python3 reference/jax/gen_sphere_pec_fixture.py"
-        )
-    else:
-        # No baseline available — write zeros with correct shapes
-        n_nodes, n_tets, n_edges = 774, 3335, 4512
-        n_interior_edges, spurious_dim = 3300, 368
-        k_int_frobenius, m_int_frobenius = 0.0, 0.0
-        k_int_diag = [0.0] * n_interior_edges
-        m_int_diag = [0.0] * n_interior_edges
-        eigenvalues_lowest = [0.0] * (spurious_dim + 8)
-        physical_eigenvalues = [0.0] * 5
-        note = (
-            "STUB: JAX was not available and no NumPy baseline was found. "
-            "All numeric values are zero placeholders. "
-            "Regenerate with JAX installed: "
-            "python3 reference/jax/gen_sphere_pec_fixture.py"
-        )
-
-    fixture = _build_fixture_dict(
-        n_nodes=n_nodes,
-        n_tets=n_tets,
-        n_edges=n_edges,
-        n_interior_edges=n_interior_edges,
-        spurious_dim=spurious_dim,
-        k_int_frobenius=k_int_frobenius,
-        m_int_frobenius=m_int_frobenius,
-        k_int_diag=k_int_diag,
-        m_int_diag=m_int_diag,
-        eigenvalues_lowest=eigenvalues_lowest,
-        physical_eigenvalues=physical_eigenvalues,
-        verified_note=note,
-    )
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w") as f:
-        json.dump(fixture, f, indent=2)
-        f.write("\n")
-    print(f"Wrote stub fixture to {out_path} ({os.path.getsize(out_path)} bytes)")
 
 
 def _build_fixture_dict(
@@ -310,11 +238,6 @@ def main():
         help="Output JSON path (default: reference/fixtures/sphere_pec/jax_baseline.json)",
     )
     parser.add_argument(
-        "--stub",
-        action="store_true",
-        help="Write a placeholder fixture without running JAX (use when JAX is not installed)",
-    )
-    parser.add_argument(
         "--tol",
         type=float,
         default=1e-6,
@@ -323,17 +246,12 @@ def main():
     args = parser.parse_args()
     out_path = Path(args.out)
 
-    if args.stub:
-        write_stub_fixture(out_path)
-        return
-
     # Try to import JAX
     try:
         from reference.jax.sphere_pec import solve_sphere_pec_jax, JaxSpherePecResult
     except ImportError as e:
         print(f"ERROR: Could not import JAX pipeline: {e}")
         print("Install JAX with: pip install 'jax[cpu]'")
-        print("Or use --stub to write a placeholder fixture.")
         sys.exit(1)
 
     print("Solving sphere-PEC with JAX pipeline (Phase G.3)...")

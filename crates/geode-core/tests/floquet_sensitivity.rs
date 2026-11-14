@@ -18,9 +18,9 @@
 #[path = "common/periodic_fixtures.rs"]
 mod fixtures;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
+use geode_core::assembly::nedelec::tet_centroid as centroid;
 use geode_core::driven::floquet::{
     FloquetCell, FloquetCellSpec, FloquetChannel, FloquetIncidence, FloquetPolarization,
     FloquetPortSpec, FloquetSettings,
@@ -34,15 +34,11 @@ use geode_core::mesh::TetMesh;
 use geode_core::mesh::periodic::{
     PeriodicMap, PeriodicMatchOptions, boundary_triangles_on_plane, box_periodic_pairs,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 use fixtures::{box_tet_mesh, renumber};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 const K0: f64 = 2.5;
 /// The acceptance bound on the Frobenius-relative FD error.
@@ -73,16 +69,6 @@ fn cell(n: [usize; 3], size: [f64; 3], seed: u64) -> Cell {
         top,
         size,
     }
-}
-
-fn centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
-    let mut c = [0.0; 3];
-    for &v in &mesh.tets[t] {
-        for (cd, x) in c.iter_mut().zip(mesh.nodes[v as usize]) {
-            *cd += 0.25 * x;
-        }
-    }
-    c
 }
 
 fn floquet_on(c: &Cell, mesh: &TetMesh, eps: &[c64]) -> FloquetCell {

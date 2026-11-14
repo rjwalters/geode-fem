@@ -65,6 +65,8 @@ use crate::eigen::lanczos::{HISTORICAL_BREAKDOWN_REL, krylov_breakdown, tridiag_
 use crate::eigen::shift_guard::{
     DEGENERATE_SHIFT_REL_TOL, check_degenerate_shift, check_gradient_probe, median_diag_ratio,
 };
+use crate::eigen::transmon::{assemble_reduced_real, junction_participation};
+use crate::sparse_ops::{lu_solve, spmv, spmv_into, spmv_transpose_into};
 
 /// The sparse interior-restricted discrete gradient `G = d⁰_interior` plus
 /// the reduced dimensions it maps between.
@@ -191,40 +193,6 @@ impl InteriorGradient {
     }
 }
 
-/// `y = A · x` for a CSC sparse matrix (overwrite). `A` is `nrows × ncols`;
-/// `x.len() == ncols`, `y.len() == nrows`.
-fn spmv(a: SparseColMatRef<'_, usize, f64>, x: &[f64], y: &mut [f64]) {
-    y.iter_mut().for_each(|v| *v = 0.0);
-    let col_ptr = a.col_ptr();
-    let row_idx = a.row_idx();
-    let val = a.val();
-    for j in 0..a.ncols() {
-        let xj = x[j];
-        if xj == 0.0 {
-            continue;
-        }
-        for k in col_ptr[j]..col_ptr[j + 1] {
-            y[row_idx[k]] += val[k] * xj;
-        }
-    }
-}
-
-/// `y = Aᵀ · x` for a CSC sparse matrix (overwrite). `A` is `nrows × ncols`;
-/// `x.len() == nrows`, `y.len() == ncols`. `Aᵀ` in CSC is a row-walk of the
-/// stored columns: column `j` of `A` dotted with `x` is entry `j` of `Aᵀx`.
-fn spmv_transpose(a: SparseColMatRef<'_, usize, f64>, x: &[f64], y: &mut [f64]) {
-    let col_ptr = a.col_ptr();
-    let row_idx = a.row_idx();
-    let val = a.val();
-    for j in 0..a.ncols() {
-        let mut acc = 0.0;
-        for k in col_ptr[j]..col_ptr[j + 1] {
-            acc += val[k] * x[row_idx[k]];
-        }
-        y[j] = acc;
-    }
-}
-
 /// The `M`-orthogonal projector `P = I − G (Gᵀ M G)⁻¹ Gᵀ M` onto the
 /// divergence-free subspace, with `Gᵀ M G` factored once.
 ///
@@ -343,17 +311,17 @@ impl<'m> MOrthogonalGradientProjector<'m> {
 
         // mw = M · w
         let mut mw = vec![0.0_f64; self.edge_dim];
-        spmv(self.m, w, &mut mw);
+        spmv_into(self.m, w, &mut mw);
         // rhs = Gᵀ · mw   (node-space)
         let mut rhs = vec![0.0_f64; self.node_dim];
-        spmv_transpose(self.gradient.matrix(), &mw, &mut rhs);
+        spmv_transpose_into(self.gradient.matrix(), &mw, &mut rhs);
         // y = C⁻¹ rhs
         let mut y_mat: Mat<f64> = Mat::from_fn(self.node_dim, 1, |r, _| rhs[r]);
         self.c_lu.solve_in_place(y_mat.as_mut());
         let y: Vec<f64> = (0..self.node_dim).map(|r| y_mat[(r, 0)]).collect();
         // gy = G · y   (edge-space)
         let mut gy = vec![0.0_f64; self.edge_dim];
-        spmv(self.gradient.matrix(), &y, &mut gy);
+        spmv_into(self.gradient.matrix(), &y, &mut gy);
         // w ← w − G·y
         for (wi, &gyi) in w.iter_mut().zip(gy.iter()) {
             *wi -= gyi;
@@ -368,13 +336,13 @@ impl<'m> MOrthogonalGradientProjector<'m> {
     pub fn divergence_ratio(&self, w: &[f64]) -> f64 {
         assert_eq!(w.len(), self.edge_dim, "vector length mismatch");
         let mut mw = vec![0.0_f64; self.edge_dim];
-        spmv(self.m, w, &mut mw);
+        spmv_into(self.m, w, &mut mw);
         let m_norm2 = w.iter().zip(mw.iter()).map(|(a, b)| a * b).sum::<f64>();
         if m_norm2 <= 0.0 {
             return 0.0;
         }
         let mut rhs = vec![0.0_f64; self.node_dim];
-        spmv_transpose(self.gradient.matrix(), &mw, &mut rhs);
+        spmv_transpose_into(self.gradient.matrix(), &mw, &mut rhs);
         let res2 = rhs.iter().map(|x| x * x).sum::<f64>();
         (res2 / m_norm2).sqrt()
     }
@@ -394,7 +362,7 @@ impl<'m> MOrthogonalGradientProjector<'m> {
     /// `M`-inner product `xᵀ M y`.
     fn m_inner(&self, x: &[f64], y: &[f64]) -> f64 {
         let mut my = vec![0.0_f64; self.edge_dim];
-        spmv(self.m, y, &mut my);
+        spmv_into(self.m, y, &mut my);
         x.iter().zip(my.iter()).map(|(a, b)| a * b).sum::<f64>()
     }
 
@@ -412,17 +380,17 @@ impl<'m> MOrthogonalGradientProjector<'m> {
         assert_eq!(x.len(), self.edge_dim, "vector length mismatch");
         // mw = M · x
         let mut mw = vec![0.0_f64; self.edge_dim];
-        spmv(self.m, x, &mut mw);
+        spmv_into(self.m, x, &mut mw);
         // rhs = Gᵀ · mw   (node-space)
         let mut rhs = vec![0.0_f64; self.node_dim];
-        spmv_transpose(self.gradient.matrix(), &mw, &mut rhs);
+        spmv_transpose_into(self.gradient.matrix(), &mw, &mut rhs);
         // y = C⁻¹ rhs
         let mut y_mat: Mat<f64> = Mat::from_fn(self.node_dim, 1, |r, _| rhs[r]);
         self.c_lu.solve_in_place(y_mat.as_mut());
         let y: Vec<f64> = (0..self.node_dim).map(|r| y_mat[(r, 0)]).collect();
         // u = G · y   (edge-space, in image(G))
         let mut u = vec![0.0_f64; self.edge_dim];
-        spmv(self.gradient.matrix(), &y, &mut u);
+        spmv_into(self.gradient.matrix(), &y, &mut u);
         Ok(u)
     }
 }
@@ -528,7 +496,7 @@ impl<'m> PortAwareGradientProjector<'m> {
             *v *= inv;
         }
         let mut m_u_hat = vec![0.0_f64; edge_dim];
-        spmv(bulk.m(), &u, &mut m_u_hat);
+        spmv_into(bulk.m(), &u, &mut m_u_hat);
         Ok(Self {
             bulk,
             u_hat: u,
@@ -755,9 +723,9 @@ impl<'m> PortSubspaceGradientProjector<'m> {
         let bulk = self.bulk;
         assert_eq!(w.len(), bulk.edge_dim, "projected vector length mismatch");
         let mut mw = vec![0.0_f64; bulk.edge_dim];
-        spmv(bulk.m, w, &mut mw);
+        spmv_into(bulk.m, w, &mut mw);
         let mut rhs = vec![0.0_f64; bulk.node_dim];
-        spmv_transpose(bulk.gradient.matrix(), &mw, &mut rhs);
+        spmv_transpose_into(bulk.gradient.matrix(), &mw, &mut rhs);
         let mut phi: Mat<f64> = Mat::from_fn(bulk.node_dim, 1, |i, _| rhs[i]);
         bulk.c_lu.solve_in_place(phi.as_mut());
         let mut psi: Vec<f64> = (0..bulk.node_dim).map(|i| phi[(i, 0)]).collect();
@@ -777,7 +745,7 @@ impl<'m> PortSubspaceGradientProjector<'m> {
             }
         }
         let mut g_psi = vec![0.0_f64; bulk.edge_dim];
-        spmv(bulk.gradient.matrix(), &psi, &mut g_psi);
+        spmv_into(bulk.gradient.matrix(), &psi, &mut g_psi);
         for (wi, gi) in w.iter_mut().zip(g_psi.iter()) {
             *wi -= gi;
         }
@@ -801,13 +769,6 @@ impl KrylovProjector for PortSubspaceGradientProjector<'_> {
     fn edge_dim(&self) -> usize {
         self.bulk.edge_dim()
     }
-}
-
-/// `y = A · x` for a CSC sparse matrix, returning a fresh vector.
-fn spmv_vec(a: SparseColMatRef<'_, usize, f64>, x: &[f64]) -> Vec<f64> {
-    let mut y = vec![0.0_f64; a.nrows()];
-    spmv(a, x, &mut y);
-    y
 }
 
 /// `K − σ M` as a fresh sparse matrix, used only to build the shift-invert
@@ -848,8 +809,8 @@ fn relative_residual(
     x: &[f64],
     sigma: f64,
 ) -> f64 {
-    let kx = spmv_vec(k, x);
-    let mx = spmv_vec(m, x);
+    let kx = spmv(k, x);
+    let mx = spmv(m, x);
     let r = kx
         .iter()
         .zip(mx.iter())
@@ -864,17 +825,6 @@ fn relative_residual(
     };
     let den = scale * mx_norm;
     if den > 0.0 { r / den } else { f64::NAN }
-}
-
-/// Solve `A y = b` in-place via a precomputed LU factorization.
-fn solve_with_lu(lu: &Lu<usize, f64>, rhs: &[f64], out: &mut [f64]) {
-    use faer::linalg::solvers::Solve;
-    let n = rhs.len();
-    let mut work: Mat<f64> = Mat::from_fn(n, 1, |i, _| rhs[i]);
-    lu.solve_in_place(work.as_mut());
-    for (i, o) in out.iter_mut().enumerate() {
-        *o = work[(i, 0)];
-    }
 }
 
 /// Tunables for the projected shift-invert Lanczos (mirrors
@@ -1127,8 +1077,8 @@ impl ProjectedShiftInvertLanczos {
             let mut pz = z.clone();
             projector.project_in_place(&mut pz)?;
             let g: Vec<f64> = z.iter().zip(pz.iter()).map(|(a, b)| a - b).collect();
-            let mg = spmv_vec(m, &g);
-            let kg = spmv_vec(k, &g);
+            let mg = spmv(m, &g);
+            let kg = spmv(k, &g);
             let norm = |v: &mut dyn Iterator<Item = f64>| v.map(|x| x * x).sum::<f64>().sqrt();
             let a_g = norm(&mut kg.iter().zip(mg.iter()).map(|(a, b)| a - self.sigma * b));
             let m_g = norm(&mut mg.iter().copied());
@@ -1156,7 +1106,7 @@ impl ProjectedShiftInvertLanczos {
             .map(|i| (((i as f64) + 1.0) * 0.5432).sin())
             .collect();
         projector.project_in_place(&mut v)?;
-        let mut mv = spmv_vec(m, &v);
+        let mut mv = spmv(m, &v);
         let mut nrm2 = v.iter().zip(mv.iter()).map(|(a, b)| a * b).sum::<f64>();
         if nrm2 <= 0.0 {
             return Err(EigenError::FaerGevd(
@@ -1175,8 +1125,8 @@ impl ProjectedShiftInvertLanczos {
 
         for j in 0..max_k {
             diag.iterations = j + 1;
-            spmv(m, &v, &mut mv);
-            solve_with_lu(&lu, &mv, &mut w);
+            spmv_into(m, &v, &mut mv);
+            lu_solve(&lu, &mv, &mut w);
 
             // --- Divergence-free projection of the fresh Krylov vector. ---
             let pre = projector.divergence_ratio(&w);
@@ -1220,7 +1170,7 @@ impl ProjectedShiftInvertLanczos {
                 w[i] -= c * v[i];
             }
 
-            spmv(m, &w, &mut work);
+            spmv_into(m, &w, &mut work);
             nrm2 = w.iter().zip(work.iter()).map(|(a, b)| a * b).sum::<f64>();
             let nrm2 = nrm2.max(0.0);
             nrm = nrm2.sqrt();
@@ -1315,7 +1265,7 @@ impl ProjectedShiftInvertLanczos {
 
         let mut out = Vec::with_capacity(take);
         for (lambda, mut x) in picked {
-            spmv(m, &x, &mut work);
+            spmv_into(m, &x, &mut work);
             let norm2 = x.iter().zip(work.iter()).map(|(a, b)| a * b).sum::<f64>();
             if norm2 > 0.0 {
                 let s = norm2.sqrt();
@@ -2020,7 +1970,7 @@ pub fn ungauged_mode_divergences(
     for pair in &pairs {
         let x = &pair.vector;
         // M-norm ‖x‖_M = √(xᵀ M x).
-        let mx = spmv_vec(m_red.as_ref(), x);
+        let mx = spmv(m_red.as_ref(), x);
         let m_norm = x
             .iter()
             .zip(mx.iter())
@@ -2031,7 +1981,7 @@ pub fn ungauged_mode_divergences(
         // ‖P x‖_M / ‖x‖_M.
         let mut px = x.clone();
         projector.project_in_place(&mut px)?;
-        let mpx = spmv_vec(m_red.as_ref(), &px);
+        let mpx = spmv(m_red.as_ref(), &px);
         let px_norm = px
             .iter()
             .zip(mpx.iter())
@@ -2048,71 +1998,6 @@ pub fn ungauged_mode_divergences(
         });
     }
     Ok(out)
-}
-
-/// Build a real reduced sparse matrix from a `[nnz]` value slice aligned to
-/// the volume sparsity pattern, restricted to the interior DOFs, with extra
-/// surface triplets summed on top. Mirrors the private helper in
-/// [`crate::eigen::transmon`] (the projected entry point reuses the exact
-/// same reduction so `K_red`/`M_red` match the ungauged path bit-for-bit).
-fn assemble_reduced_real(
-    pattern_rows: &[u32],
-    pattern_cols: &[u32],
-    vals: &[f64],
-    extra: &[(usize, usize, f64)],
-    interior_index: &[Option<usize>],
-    dim: usize,
-) -> Result<SparseColMat<usize, f64>, EigenError> {
-    let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(vals.len() + extra.len());
-    for ((&r, &c), &v) in pattern_rows
-        .iter()
-        .zip(pattern_cols.iter())
-        .zip(vals.iter())
-    {
-        if let (Some(ri), Some(ci)) = (interior_index[r as usize], interior_index[c as usize]) {
-            trips.push(Triplet::new(ri, ci, v));
-        }
-    }
-    for &(r, c, v) in extra {
-        if let (Some(ri), Some(ci)) = (interior_index[r], interior_index[c]) {
-            trips.push(Triplet::new(ri, ci, v));
-        }
-    }
-    SparseColMat::<usize, f64>::try_new_from_triplets(dim, dim, &trips)
-        .map_err(|e| EigenError::FaerGevd(format!("reduced sparse assembly: {e:?}")))
-}
-
-/// Junction participation `p = (xᵀ K_port x) / (xᵀ (K + K_port) x)`, clamped
-/// to `[0, 1]`. Mirrors the private metric in [`crate::eigen::transmon`].
-fn junction_participation(
-    k_total: &SparseColMat<usize, f64>,
-    k_port: &SparseColMat<usize, f64>,
-    x: &[f64],
-) -> f64 {
-    let num = quad_form(k_port, x);
-    let den = quad_form(k_total, x);
-    if den <= 0.0 {
-        return 0.0;
-    }
-    (num / den).clamp(0.0, 1.0)
-}
-
-/// Quadratic form `xᵀ A x` for a CSC sparse matrix.
-fn quad_form(a: &SparseColMat<usize, f64>, x: &[f64]) -> f64 {
-    let col_ptr = a.col_ptr();
-    let row_idx = a.row_idx();
-    let val = a.val();
-    let mut acc = 0.0;
-    for j in 0..a.ncols() {
-        let xj = x[j];
-        if xj == 0.0 {
-            continue;
-        }
-        for k in col_ptr[j]..col_ptr[j + 1] {
-            acc += x[row_idx[k]] * val[k] * xj;
-        }
-    }
-    acc
 }
 
 #[cfg(test)]
@@ -2269,7 +2154,7 @@ mod tests {
         let y: Vec<f64> = (0..g.node_dim())
             .map(|i| (((i as f64) + 1.0) * 0.913).sin())
             .collect();
-        let mut g_field = spmv_vec(g.matrix(), &y);
+        let mut g_field = spmv(g.matrix(), &y);
         let gnorm = g_field.iter().map(|x| x * x).sum::<f64>().sqrt();
         assert!(gnorm > 1e-6, "gradient field must be nonzero");
         let mut projected = g_field.clone();
@@ -2389,7 +2274,7 @@ mod tests {
         let bulk = MOrthogonalGradientProjector::build(&g, m.as_ref()).unwrap();
 
         let m_inner = |x: &[f64], y: &[f64]| -> f64 {
-            let my = spmv_vec(m.as_ref(), y);
+            let my = spmv(m.as_ref(), y);
             x.iter().zip(my.iter()).map(|(a, b)| a * b).sum::<f64>()
         };
         let m_norm = |x: &[f64]| m_inner(x, x).sqrt();
@@ -2400,7 +2285,7 @@ mod tests {
         let a: Vec<f64> = (0..g.node_dim())
             .map(|i| (((i as f64) + 1.0) * 0.771).sin())
             .collect();
-        let grad = spmv_vec(g.matrix(), &a);
+        let grad = spmv(g.matrix(), &a);
         let mut sol: Vec<f64> = (0..edge_dim)
             .map(|i| (((i as f64) + 3.0) * 0.281).cos())
             .collect();
@@ -2454,7 +2339,7 @@ mod tests {
             let b: Vec<f64> = (0..g.node_dim())
                 .map(|i| (((i as f64) + 4.0) * 1.213).cos())
                 .collect();
-            let mut g_perp = spmv_vec(g.matrix(), &b);
+            let mut g_perp = spmv(g.matrix(), &b);
             // remove the û-component: g_perp ← g_perp − (ûᵀ M g_perp) û
             let c = m_inner(&uhat, &g_perp);
             for (gi, &ui) in g_perp.iter_mut().zip(uhat.iter()) {
@@ -3043,7 +2928,7 @@ mod tests {
                     *yi += cb * zi;
                 }
             }
-            spmv_vec(g.matrix(), &y)
+            spmv(g.matrix(), &y)
         };
         let mut pv_v = v.clone();
         pv.project_in_place(&mut pv_v).unwrap();
@@ -3061,7 +2946,7 @@ mod tests {
         for &j in &nodes {
             y[j] = 0.0;
         }
-        let gy = spmv_vec(g.matrix(), &y);
+        let gy = spmv(g.matrix(), &y);
         let mut p_gy = gy.clone();
         pv.project_in_place(&mut p_gy).unwrap();
         assert!(

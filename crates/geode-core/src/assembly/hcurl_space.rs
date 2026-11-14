@@ -61,6 +61,7 @@
 //!   through [`HcurlSpace::tet_dofs`] and evaluate fields with
 //!   [`HcurlSpace::field_at`] / [`HcurlSpace::curl_at`].
 
+use crate::vec3::cross3 as cross;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use faer::c64;
@@ -549,15 +550,6 @@ fn face_fn_coeffs(x: usize, y: usize, z: usize) -> [f64; 2] {
         _ => [-1.0, -1.0],
     };
     [sign * base[0], sign * base[1]]
-}
-
-#[inline]
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
 }
 
 #[cfg(test)]

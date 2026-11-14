@@ -24,11 +24,9 @@
 //!
 //! Backwards-compatibility note: the older two-shell fixture used a
 //! single `vacuum_buffer` (`r > R_SPHERE`) physical group with tag `2`.
-//! The new fixture promotes this region to two layered groups; the
-//! `PHYS_VACUUM_BUFFER` alias is kept as a deprecated synonym for
-//! `PHYS_VACUUM_GAP` so older callers (e.g. the `vacuum_buffer` symbol
-//! in [`crate::assembly::nedelec::build_complex_epsilon_r_pml`]) continue to compile, but new
-//! code should branch on `PHYS_VACUUM_GAP` and `PHYS_PML_SHELL`.
+//! The new fixture promotes this region to two layered groups; code
+//! should branch on `PHYS_VACUUM_GAP` and `PHYS_PML_SHELL` (the old
+//! `PHYS_VACUUM_BUFFER` alias has been removed).
 //!
 //! The fixture is shipped as bytes via `include_bytes!`, so callers don't
 //! need Gmsh installed at runtime. The script that generated it lives at
@@ -74,17 +72,6 @@ pub const PHYS_SPHERE_INTERIOR: i32 = 1;
 /// Physical-group tag for the real-vacuum gap shell (3D),
 /// `R_SPHERE < r ≤ R_PML_INNER`.
 pub const PHYS_VACUUM_GAP: i32 = 2;
-
-/// Deprecated alias kept for the (#25/#28) two-shell convention. The
-/// new layered fixture uses [`PHYS_VACUUM_GAP`] for the inner vacuum
-/// shell and [`PHYS_PML_SHELL`] for the outer absorbing shell. This
-/// alias preserves the integer tag (`2`) for callers that pattern-
-/// match on the raw physical id.
-#[deprecated(
-    since = "0.2.0",
-    note = "the layered sphere fixture replaced `vacuum_buffer` with `vacuum_gap` (PHYS_VACUUM_GAP) + `pml_shell` (PHYS_PML_SHELL); update call sites accordingly"
-)]
-pub const PHYS_VACUUM_BUFFER: i32 = PHYS_VACUUM_GAP;
 
 /// Physical-group tag for the absorbing PML shell (3D),
 /// `R_PML_INNER < r ≤ R_BUFFER`.

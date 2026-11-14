@@ -17,25 +17,11 @@ script's output (the cap legs run the same sizes in the same order per
 process, so setup cancels in the subtraction). Pure stdlib, no fitting.
 """
 import pathlib
-import re
 import sys
-import tomllib
+
+from _summarize_common import fragment_partial as fragment
 
 d = pathlib.Path(sys.argv[1])
-
-
-def fragment(path):
-    txt = path.read_text()
-    # A leg killed mid-run (partial/) has no end marker: parse to EOF, keeping
-    # only complete [[cell]] tables (a truncated trailing table is dropped).
-    m = re.search(r"# ---- gpu_driven_scaling TOML fragment.*?\n(.*?)(?:# ---- end fragment ----|\Z)", txt, re.S)
-    if not m:
-        return []
-    body = m.group(1)
-    try:
-        return tomllib.loads(body).get("cell", [])
-    except tomllib.TOMLDecodeError:
-        return tomllib.loads(body[: body.rfind("[[cell]]")]).get("cell", [])
 
 
 def time_v(path):

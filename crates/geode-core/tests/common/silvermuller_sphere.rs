@@ -51,8 +51,6 @@
 //! number in the table in CI.
 #![allow(dead_code)] // each test binary uses a subset
 
-use burn::tensor::backend::BackendTypes;
-
 #[allow(unused_imports)] // referenced by the module docs
 use geode_core::analytic::mie::{characteristic_tm_open, open_space_wgm_roots_n15};
 use geode_core::analytic::mie::{psi_c, psi_prime_c, xi_c, xi_prime_c};
@@ -65,13 +63,9 @@ use geode_core::eigen::complex::{ComplexEigenSolver, FaerComplexEigensolver};
 use geode_core::eigen::dense::{EigenError, burn_matrix_to_faer};
 use geode_core::eigen::self_consistent::SelfConsistentEigensolver;
 use geode_core::mesh::{PHYS_OUTER_BOUNDARY, read_sphere_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Refractive index of the fixture's sphere.
 pub const N_SPHERE: f64 = 1.5;

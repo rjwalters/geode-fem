@@ -16,7 +16,10 @@
 //! `~3e-8` relative; the fixed upload passes at `1e-12`. Only meaningful
 //! on an f64 backend — on an f32-only backend (CUDA) the test is skipped.
 
-use burn::tensor::backend::{Backend, BackendTypes};
+mod common;
+use common::edge_tables;
+
+use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, TensorData};
 use faer::c64;
 use geode_core::assembly::nedelec::{
@@ -29,8 +32,8 @@ use geode_core::assembly::nedelec::{
 };
 use geode_core::assembly::nedelec_matvec::MatrixFreeNedelecOperator;
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::mesh::cube_tet_mesh;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -40,26 +43,10 @@ const S: f64 = 1.0001;
 /// f32 upload violates it by four orders of magnitude (`~3e-8`).
 const TOL: f64 = 1e-12;
 
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
 /// True when the backend stores floats as f64 (the only case the
 /// precision claim applies to).
 fn is_f64_backend<Bk: Backend>() -> bool {
     std::mem::size_of::<Bk::FloatElem>() == 8
-}
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
 }
 
 fn host<const D: usize>(t: Tensor<B, D>) -> Vec<f64> {

@@ -19,6 +19,9 @@
 //! 5. **Skin-effect oracle** — field decay into a conducting slab
 //!    matches the analytic skin depth `δ = √(2/(ωμσ))`.
 
+mod common;
+use common::edge_tables;
+
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Int, Tensor, TensorData};
 use faer::c64;
@@ -34,30 +37,12 @@ use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, driven_solve, driven_solve_with_sigma,
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
 fn readback_f64<const D: usize>(t: Tensor<B, D>) -> Vec<f64> {
     t.into_data().iter::<f64>().collect()
-}
-
-/// Per-tet edge index/sign tables in the form the assemblers take.
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let tet_edges = mesh.tet_edges();
-    let idx = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let sign = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
-    (idx, sign)
 }
 
 /// A spatially varying per-tet conductivity (nonconstant on purpose, so

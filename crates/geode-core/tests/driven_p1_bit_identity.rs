@@ -26,6 +26,9 @@
 //! which compares the pre-#838 entry points against the order-generic
 //! `assemble_with_space` p=1 arm inside one binary, on every platform.
 
+mod common;
+use common::boundary_plane_faces;
+
 use faer::c64;
 use geode_core::driven::extraction::{driven_frequency_sweep, s_parameter_frequency_sweep};
 use geode_core::driven::ports::LumpedPort;
@@ -36,15 +39,9 @@ use geode_core::driven::solve::{
     driven_solve_with_surface_impedance,
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
-
-use burn::tensor::backend::BackendTypes;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// FNV-1a over the bit patterns of a complex vector (re then im).
 fn hash_c(v: &[c64]) -> u64 {
@@ -99,26 +96,15 @@ fn lossy_eps(mesh: &TetMesh) -> Vec<c64> {
         .collect()
 }
 
-/// Boundary faces of the mesh in the plane `coord[axis] == value`.
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.boundary_faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
 /// Parallel-plate fixture: PEC at y = 0/1 and z = 1, lumped port on z = 0.
 fn plate() -> (TetMesh, Vec<bool>, Vec<[u32; 3]>) {
     let mesh = cube_tet_mesh(3, 1.0);
     let walls: Vec<[u32; 3]> = [(1, 0.0), (1, 1.0), (2, 1.0)]
         .iter()
-        .flat_map(|&(a, v)| plane_faces(&mesh, a, v))
+        .flat_map(|&(a, v)| boundary_plane_faces(&mesh, a, v))
         .collect();
     let mask = geode_core::mesh::pec_interior_mask_from_triangles(&mesh.edges(), &[&walls]);
-    let port_faces = plane_faces(&mesh, 2, 0.0);
+    let port_faces = boundary_plane_faces(&mesh, 2, 0.0);
     (mesh, mask, port_faces)
 }
 
@@ -254,7 +240,7 @@ fn p1_single_omega_entry_points_are_bit_identical() {
     );
 
     // Leontovich good-conductor wall on x = 1 (left free in the mask).
-    let wall = plane_faces(&mesh, 0, 1.0);
+    let wall = boundary_plane_faces(&mesh, 0, 1.0);
     let x1_mask = {
         let others: Vec<[u32; 3]> = mesh
             .boundary_faces()

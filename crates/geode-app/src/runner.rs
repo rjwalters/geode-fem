@@ -4,8 +4,6 @@
 use std::error::Error;
 use std::process::ExitCode;
 
-use crate::args::Verbosity;
-
 /// Implemented by an example's top-level [`clap::Parser`] struct to plug
 /// into the [`main`] harness.
 ///
@@ -13,17 +11,9 @@ use crate::args::Verbosity;
 /// type that is `Into<Box<dyn Error>>` propagates with `?` — no `anyhow`
 /// or other error crate is required.
 pub trait App: clap::Parser {
-    /// The application body. Runs after argument parsing and the
-    /// observability seam; its `Result` is mapped to a process
+    /// The application body. Runs after argument parsing; its `Result` is mapped to a process
     /// [`ExitCode`] by [`main`].
     fn run(self) -> Result<(), Box<dyn Error>>;
-
-    /// The resolved [`Verbosity`] fed to the (currently no-op) logging
-    /// seam. Defaults to no verbosity; override by returning your
-    /// flattened [`Verbosity`] group.
-    fn verbosity(&self) -> Verbosity {
-        Verbosity::default()
-    }
 }
 
 /// Standard entry point for an example binary.
@@ -36,9 +26,8 @@ pub trait App: clap::Parser {
 /// }
 /// ```
 ///
-/// The harness parses arguments ([`clap::Parser::parse`]), runs the no-op
-/// observability seam ([`crate::lifecycle::init_observability`]) with the
-/// app's [`App::verbosity`], executes [`App::run`], and maps the result to
+/// The harness parses arguments ([`clap::Parser::parse`]), executes
+/// [`App::run`], and maps the result to
 /// an [`ExitCode`]: `Ok(())` → [`ExitCode::SUCCESS`]; `Err(e)` → the error
 /// and its source chain are printed to stderr (`error: …` then one
 /// `  caused by: …` line per source) and [`ExitCode::FAILURE`] is
@@ -46,7 +35,6 @@ pub trait App: clap::Parser {
 /// `examples/*` binary share this exit-code contract.
 pub fn main<A: App>() -> ExitCode {
     let app = A::parse();
-    crate::lifecycle::init_observability(app.verbosity());
     match app.run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

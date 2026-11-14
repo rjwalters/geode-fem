@@ -135,7 +135,7 @@ use burn::tensor::backend::BackendTypes;
 use clap::Parser;
 use faer::c64;
 
-use geode_app::{App, OutputDir, Verbosity};
+use geode_app::{App, OutputDir};
 use geode_core::analytic::patch::PatchCavity;
 use geode_core::constants::ETA_0_OHM as ETA_0;
 use geode_core::driven::extraction::{im_z_zero_crossings, s11};
@@ -1459,9 +1459,6 @@ struct Args {
 
     #[command(flatten)]
     out: OutputDir,
-
-    #[command(flatten)]
-    verbose: Verbosity,
 }
 
 impl App for Args {
@@ -1558,10 +1555,6 @@ impl App for Args {
         };
         run_benchmark::<B>(&device, choice);
         Ok(())
-    }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
     }
 }
 

@@ -111,7 +111,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
-use geode_app::{App, Verbosity};
+use geode_app::App;
 use geode_core::analytic::fiber::{fiber_lp_neff, normalized_b, v_number};
 use geode_core::analytic::waveguide::{
     REGION_CORE, TriMesh, dielectric_mode_field_shape_pml, disk_pec_interior_dofs2,
@@ -609,17 +609,13 @@ fn emit_results(
 
 /// SMF-28 step-index fiber benchmark CLI.
 ///
-/// The original example took no arguments; this flattens the shared
-/// `geode-app` `-v`/`-q` verbosity group and keeps the benchmark body
-/// otherwise identical (same report, same `results.toml` artifact).
+/// The original example took no arguments; this keeps the benchmark body
+/// identical (same report, same `results.toml` artifact).
 #[derive(Parser)]
 #[command(
     about = "SMF-28 step-index fiber benchmark vs the exact LP-mode oracle on the PML-terminated solver (issue #333)."
 )]
-struct Args {
-    #[command(flatten)]
-    verbose: Verbosity,
-}
+struct Args {}
 
 impl App for Args {
     fn run(self) -> Result<(), Box<dyn std::error::Error>> {
@@ -740,10 +736,6 @@ impl App for Args {
          converges monotonically to b~0.77, NOT the oracle"
         );
         Ok(())
-    }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
     }
 }
 

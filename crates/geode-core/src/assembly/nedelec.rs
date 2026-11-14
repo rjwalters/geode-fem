@@ -607,42 +607,6 @@ pub struct NedelecSparseFullTensorSystem<B: Backend> {
     pub m_im_vals: Tensor<B, 1>,
 }
 
-/// Node-based PEC edge mask: an edge is eliminated iff **both** endpoints
-/// are flagged in `on_boundary`.
-///
-/// # Deprecated: over-eliminates interior chords (issue #771)
-///
-/// "Both endpoints on the boundary" is **not** "the edge lies on the
-/// boundary". An interior edge whose two endpoints sit on *different* wall
-/// faces — a chord across a cube's edge, a cylinder's rim between the cap
-/// and the side wall, the body diagonal of `cube_tet_mesh(1, ..)` — passes
-/// the node test but is not on the PEC surface, so this rule pins a DOF
-/// that `n × E = 0` does not constrain. On `cube_tet_mesh(n, ..)` it
-/// wrongly eliminates `12(n − 1)` interior edges (n ≥ 2): an artificial
-/// O(h) constraint that biases the coarse-mesh solution and inflates the
-/// first-order error.
-///
-/// Use the face-exact [`boundary_pec_interior_edges`] (edges of boundary
-/// faces, optionally filtered by position) or
-/// [`crate::mesh::pec_interior_mask_from_triangles`] (edges of tagged
-/// triangles) instead. Retained only for out-of-tree callers; no in-tree
-/// code uses it.
-#[deprecated(
-    since = "0.7.1",
-    note = "over-eliminates interior chords between boundary faces (issue #771); \
-            use `boundary_pec_interior_edges` or `pec_interior_mask_from_triangles`"
-)]
-pub fn pec_interior_edge_mask(edges: &[[u32; 2]], on_boundary: &[bool]) -> Vec<bool> {
-    edges
-        .iter()
-        .map(|e| {
-            let a = e[0] as usize;
-            let b = e[1] as usize;
-            !(on_boundary[a] && on_boundary[b])
-        })
-        .collect()
-}
-
 /// **Face-exact** PEC interior-edge mask over the mesh's outer surface.
 ///
 /// An edge is PEC-eliminated (`mask[e] == false`) iff it is an edge of a
@@ -653,9 +617,10 @@ pub fn pec_interior_edge_mask(edges: &[[u32; 2]], on_boundary: &[bool]) -> Vec<b
 ///
 /// For PEC (perfect electric conductor) BC, `n × E = 0` on the wall forces
 /// every edge DOF *lying in* the wall to zero — exactly the edges of the
-/// wall's triangles. Unlike the deprecated node-based
-/// [`pec_interior_edge_mask`], interior chords whose endpoints happen to
-/// lie on two different wall faces stay free (issue #771).
+/// wall's triangles. Unlike a node-based rule
+/// (eliminate every edge whose two endpoints are on the boundary), interior
+/// chords whose endpoints happen to lie on two different wall faces stay
+/// free (issue #771).
 ///
 /// Returns `(edges, interior_mask)` with `edges = mesh.edges()`, so the
 /// caller can locate the interior edge indices without re-deriving the
@@ -1628,6 +1593,23 @@ pub fn build_anisotropic_pml_tensor_diag(
         .collect()
 }
 
+/// Centroid `(x, y, z)` (mean of the four vertices) of tet `t` in `mesh`.
+///
+/// The single-tet form of [`tet_centroids`]; both share this arithmetic.
+pub fn tet_centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
+    let mut c = [0.0_f64; 3];
+    for &v in &mesh.tets[t] {
+        let p = mesh.nodes[v as usize];
+        c[0] += p[0];
+        c[1] += p[1];
+        c[2] += p[2];
+    }
+    c[0] *= 0.25;
+    c[1] *= 0.25;
+    c[2] *= 0.25;
+    c
+}
+
 /// Compute per-tet centroids `(x, y, z)` for every tet in `mesh`.
 ///
 /// Returned in `mesh.tets` order; companion to [`tet_centroid_radii`]
@@ -1635,21 +1617,8 @@ pub fn build_anisotropic_pml_tensor_diag(
 /// anisotropic PML tensor builder, which needs the radial direction
 /// not just its magnitude).
 pub fn tet_centroids(mesh: &TetMesh) -> Vec<[f64; 3]> {
-    mesh.tets
-        .iter()
-        .map(|tet| {
-            let mut c = [0.0_f64; 3];
-            for &v in tet {
-                let p = mesh.nodes[v as usize];
-                c[0] += p[0];
-                c[1] += p[1];
-                c[2] += p[2];
-            }
-            c[0] *= 0.25;
-            c[1] *= 0.25;
-            c[2] *= 0.25;
-            c
-        })
+    (0..mesh.tets.len())
+        .map(|t| tet_centroid(mesh, t))
         .collect()
 }
 

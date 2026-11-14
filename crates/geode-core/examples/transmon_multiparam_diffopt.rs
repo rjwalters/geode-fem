@@ -34,6 +34,10 @@
 //! artifact carries a SUPERSEDED ANCHOR header. The current anchor is
 //! `TransmonAnchor::devicelayout` (`C_Σ` ≈ 93.9537 fF, junction excluded).
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::{floor_fmt, scaled_mesh};
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
@@ -74,23 +78,6 @@ const HARMONIC_594_SLOPE_SAFE: f64 = 114.5;
 /// (slope_at_safe * |theta_safe|)` from `harmonic_results.toml` with the
 /// unrounded slope at the safe bound: 6.256959 ("at least about 6.26x").
 const HARMONIC_594_SHORTFALL_LOWER_BOUND: f64 = 6.256959;
-
-/// Format `x` floored to `dp` decimals, so a stated lower bound is never
-/// rounded up.
-fn floor_fmt(x: f64, dp: usize) -> String {
-    let p = 10f64.powi(dp as i32);
-    format!("{:.dp$}", (x * p).floor() / p)
-}
-
-fn scaled_mesh(mesh: &TetMesh, s: f64) -> TetMesh {
-    let mut m = mesh.clone();
-    for n in m.nodes.iter_mut() {
-        n[0] *= s;
-        n[1] *= s;
-        n[2] *= s;
-    }
-    m
-}
 
 /// Independent multi-conductor extraction at `X⁰ + θ·vel`: move, re-assemble,
 /// [`extract_capacitance`] (its own per-excitation solves). Returns
@@ -643,8 +630,8 @@ fn main() {
     let jc = {
         let mut c = [0.0_f64; 3];
         for &n in &roles.junction {
-            for d in 0..3 {
-                c[d] += base.nodes[n as usize][d] / roles.junction.len() as f64;
+            for (cd, &x) in c.iter_mut().zip(&base.nodes[n as usize]) {
+                *cd += x / roles.junction.len() as f64;
             }
         }
         c

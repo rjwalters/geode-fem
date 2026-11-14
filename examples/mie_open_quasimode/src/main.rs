@@ -210,7 +210,7 @@ use burn::tensor::backend::BackendTypes;
 use clap::{Parser, ValueEnum};
 use faer::sparse::{SparseColMat, Triplet};
 
-use geode_app::{App, Verbosity};
+use geode_app::App;
 use geode_core::analytic::mie::{MiePolarisation, MieRootComplex, open_space_wgm_roots_n15};
 use geode_core::assembly::nedelec::{
     NedelecScatterMap, assemble_global_nedelec_with_full_tensors,
@@ -822,8 +822,7 @@ fn write_results(rows: &[QuasiModeRow]) {
 
 /// Matched-UPML open-space quasi-mode benchmark CLI.
 ///
-/// Flattens the shared `geode-app` `-v`/`-q` verbosity group and keeps
-/// the example-local `--dense` toggle the original hand-rolled argv scan
+/// Keeps the example-local `--dense` toggle the original hand-rolled argv scan
 /// recognised.
 #[derive(Parser)]
 #[command(
@@ -877,9 +876,6 @@ struct Args {
     /// through the sparse `[nnz]` path.
     #[arg(long, value_enum, default_value_t = FixtureChoice::Coarse)]
     fixture: FixtureChoice,
-
-    #[command(flatten)]
-    verbose: Verbosity,
 }
 
 /// Which bundled sphere mesh to solve on.
@@ -1158,10 +1154,6 @@ impl App for Args {
         }
 
         Ok(())
-    }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
     }
 }
 

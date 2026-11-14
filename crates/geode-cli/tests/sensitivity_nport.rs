@@ -21,13 +21,15 @@
 //! * **Rejections**: every unsupported combination is `invalid_spec` naming
 //!   what would lift it.
 
+#[path = "support/msh.rs"]
+mod msh;
 #[path = "support/scratch.rs"]
 mod scratch_support;
 
+use msh::write_msh_volumes as write_msh;
 use scratch_support::{Scratch, ScratchFile};
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use geode_core::driven::ports::extruded_rect_waveguide_mesh;
 use serde_json::{Value, json};
@@ -43,12 +45,9 @@ const FD_REL_TOL: f64 = 1e-4;
 /// points of a central difference).
 const SLAB_EPS: [f64; 2] = [2.5, -0.05];
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::geode;
 
 fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -78,78 +77,6 @@ fn err(out: &Output, code: &str) -> String {
 
 fn f(v: &Value) -> f64 {
     v.as_f64().unwrap_or_else(|| panic!("not a number: {v}"))
-}
-
-/// Serialize a tet mesh with named volume and surface groups as Gmsh MSH
-/// 4.1 ASCII (one entity per group).
-fn write_msh(
-    nodes: &[[f64; 3]],
-    volumes: &[(i32, &str, &[[u32; 4]])],
-    surfaces: &[(i32, &str, &[[u32; 3]])],
-) -> String {
-    let mut s = String::from("$MeshFormat\n4.1 0 8\n$EndMeshFormat\n$PhysicalNames\n");
-    let _ = writeln!(s, "{}", surfaces.len() + volumes.len());
-    for (tag, name, _) in surfaces {
-        let _ = writeln!(s, "2 {tag} \"{name}\"");
-    }
-    for (tag, name, _) in volumes {
-        let _ = writeln!(s, "3 {tag} \"{name}\"");
-    }
-    s.push_str("$EndPhysicalNames\n");
-    let _ = writeln!(s, "$Entities\n0 0 {} {}", surfaces.len(), volumes.len());
-    for (i, (tag, _, _)) in surfaces.iter().enumerate() {
-        let _ = writeln!(s, "{} 0 0 0 1 1 1 1 {tag} 0", i + 1);
-    }
-    let bound: Vec<String> = (1..=surfaces.len()).map(|i| i.to_string()).collect();
-    for (i, (tag, _, _)) in volumes.iter().enumerate() {
-        let _ = writeln!(
-            s,
-            "{} 0 0 0 1 1 1 1 {tag} {} {}",
-            i + 1,
-            surfaces.len(),
-            bound.join(" ")
-        );
-    }
-    s.push_str("$EndEntities\n");
-    let n = nodes.len();
-    let _ = writeln!(s, "$Nodes\n1 {n} 1 {n}\n3 1 0 {n}");
-    for i in 1..=n {
-        let _ = writeln!(s, "{i}");
-    }
-    for p in nodes {
-        let _ = writeln!(s, "{:.17e} {:.17e} {:.17e}", p[0], p[1], p[2]);
-    }
-    let n_tris: usize = surfaces.iter().map(|(_, _, t)| t.len()).sum();
-    let n_el = n_tris + volumes.iter().map(|(_, _, t)| t.len()).sum::<usize>();
-    let _ = writeln!(
-        s,
-        "$EndNodes\n$Elements\n{} {n_el} 1 {n_el}",
-        surfaces.len() + volumes.len()
-    );
-    let mut id = 1;
-    for (i, (_, _, tris)) in surfaces.iter().enumerate() {
-        let _ = writeln!(s, "2 {} 2 {}", i + 1, tris.len());
-        for t in *tris {
-            let _ = writeln!(s, "{id} {} {} {}", t[0] + 1, t[1] + 1, t[2] + 1);
-            id += 1;
-        }
-    }
-    for (i, (_, _, tets)) in volumes.iter().enumerate() {
-        let _ = writeln!(s, "3 {} 4 {}", i + 1, tets.len());
-        for t in *tets {
-            let _ = writeln!(
-                s,
-                "{id} {} {} {} {}",
-                t[0] + 1,
-                t[1] + 1,
-                t[2] + 1,
-                t[3] + 1
-            );
-            id += 1;
-        }
-    }
-    s.push_str("$EndElements\n");
-    s
 }
 
 /// The `2 × 1 × 1.2` guide (8 × 4 × 6 cells) with a dielectric `slab`
@@ -1109,7 +1036,7 @@ fn unsupported_n_port_combinations_are_rejected_naming_the_gap() {
                     "dispersion": {"model": "djordjevic_sarkar", "eps_r": 4.4,
                                    "tan_delta": 0.02, "f_ref_hz": 1e9}}]);
             }),
-            &["dispersion", "sensitivity", "Phase 2a"],
+            &["dispersion", "sensitivity", "wave_ports", "#1259"],
         ),
         (
             "anisotropic",
@@ -1406,4 +1333,164 @@ fn conductivity_is_validated_and_scoped_to_the_driven_analyses() {
     });
     let m = check_err(&eig);
     assert!(m.contains("conductivity_s_m") && m.contains("eigen"), "{m}");
+}
+
+/// A slab-guide lumped spec whose slab carries `dispersion` and that
+/// differentiates `params` (model parameters of the slab) plus the constant
+/// guide fill's `ε′`.
+fn dispersive_spec(name: &str, dispersion: Value, params: Value) -> ScratchFile {
+    slab_spec(name, Ports::Lumped, |v| {
+        v["materials"] = json!([{"physical_group": "slab", "dispersion": dispersion}]);
+        let mut all = params.as_array().unwrap().clone();
+        all.push(json!({"kind": "eps_r", "physical_group": "guide"}));
+        v["sensitivity"]["parameters"] = json!(all);
+    })
+}
+
+fn model_param(name: &str, pole: Option<usize>) -> Value {
+    let mut v = json!({"kind": "dispersion", "physical_group": "slab", "model_parameter": name});
+    if let Some(k) = pole {
+        v["pole"] = json!(k);
+    }
+    v
+}
+
+#[test]
+fn dispersive_lumped_gradients_agree_with_the_shipped_dispersive_forward() {
+    // Epic #841 Phase 2a (#1259): every model parameter's `∂S/∂θ` — one
+    // adjoint pass per frequency at the forward's own ε(ω) — against the
+    // central FD of the shipped `geode driven` forward with the parameter
+    // moved in the spec's own unit, for each of the three models.
+    let cases: Vec<(&str, Value, Value)> = vec![
+        (
+            "ds",
+            json!({"model": "djordjevic_sarkar", "eps_r": 3.2, "tan_delta": 0.02,
+                   "f_ref_hz": 1.2e10}),
+            json!([model_param("eps_r", None), model_param("tan_delta", None)]),
+        ),
+        (
+            "debye",
+            json!({"model": "debye", "eps_inf": 2.2,
+                   "poles": [{"delta_eps": 1.0, "tau_s": 2e-11},
+                             {"delta_eps": 0.5, "tau_s": 5e-12}]}),
+            json!([
+                model_param("eps_inf", None),
+                model_param("delta_eps", Some(0)),
+                model_param("tau_s", Some(0)),
+                model_param("delta_eps", Some(1)),
+                model_param("tau_s", Some(1)),
+            ]),
+        ),
+        (
+            "drude",
+            json!({"model": "drude", "eps_inf": 4.0, "omega_p_rad_s": 3e10,
+                   "gamma_rad_s": 2e10}),
+            json!([
+                model_param("eps_inf", None),
+                model_param("omega_p_rad_s", None),
+                model_param("gamma_rad_s", None),
+            ]),
+        ),
+    ];
+    for (name, dispersion, params) in cases {
+        let n = params.as_array().unwrap().len();
+        let spec = dispersive_spec(&format!("disp-{name}"), dispersion, params);
+        let r = ok(
+            &geode(&["driven", spec.to_str().unwrap(), "--check-gradient"]),
+            "geode driven --check-gradient (dispersive)",
+        );
+        let label = format!("dispersive lumped slab guide ({name})");
+        let s = assert_fd_agreement(&r, &label);
+        // Liveness in the parameter's own scale: a per-rad/s or per-second
+        // gradient is ~1e-11 or ~1e10, so test `|value · ∂S/∂θ|`.
+        for (k, prm) in s["parameters"].as_array().unwrap().iter().enumerate() {
+            let max = s["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|e| e["parameter"] == k)
+                .map(|e| f(&e["gradient"]).abs())
+                .fold(0.0, f64::max);
+            assert!(
+                max * f(&prm["value"]).abs() > 1e-6,
+                "{label}: parameter {k} has a dead gradient"
+            );
+        }
+        assert_eq!(s["parameters"].as_array().unwrap().len(), n + 1);
+        assert_eq!(s["parameters"][0]["kind"], "dispersion");
+    }
+}
+
+#[test]
+fn dispersion_parameters_are_validated_naming_the_fix() {
+    let ds = json!({"model": "djordjevic_sarkar", "eps_r": 3.2, "tan_delta": 0.02,
+                    "f_ref_hz": 1.2e10});
+    let debye = json!({"model": "debye", "eps_inf": 2.2,
+                       "poles": [{"delta_eps": 1.0, "tau_s": 2e-11}]});
+    type Case<'a> = (&'a str, Value, Value, &'a [&'a str]);
+    let cases: Vec<Case> = vec![
+        (
+            "constant-kind-on-dispersive",
+            ds.clone(),
+            json!([{"kind": "eps_r", "physical_group": "slab"}]),
+            &["dispersion", "model_parameter"],
+        ),
+        (
+            "model-mismatch",
+            ds.clone(),
+            json!([model_param("tau_s", Some(0))]),
+            &["no such parameter", "djordjevic_sarkar"],
+        ),
+        (
+            "pole-missing",
+            debye.clone(),
+            json!([model_param("tau_s", None)]),
+            &["needs `pole`"],
+        ),
+        (
+            "pole-out-of-range",
+            debye.clone(),
+            json!([model_param("tau_s", Some(3))]),
+            &["out of range", "1 pole"],
+        ),
+        (
+            "pole-on-eps-inf",
+            debye,
+            json!([{"kind": "dispersion", "physical_group": "slab",
+                    "model_parameter": "eps_inf", "pole": 0}]),
+            &["`pole` applies to"],
+        ),
+        (
+            "no-model-parameter",
+            ds.clone(),
+            json!([{"kind": "dispersion", "physical_group": "slab"}]),
+            &["needs `model_parameter`"],
+        ),
+        (
+            "model-parameter-on-other-kind",
+            ds,
+            json!([{"kind": "eps_r", "physical_group": "slab", "model_parameter": "eps_r"}]),
+            &["apply to `kind = \"dispersion\"`"],
+        ),
+    ];
+    for (name, dispersion, params, needles) in cases {
+        let spec = slab_spec(&format!("disp-reject-{name}"), Ports::Lumped, |v| {
+            v["materials"] = json!([{"physical_group": "slab", "dispersion": dispersion}]);
+            v["sensitivity"]["parameters"] = params;
+        });
+        let msg = check_err(&spec);
+        for n in needles {
+            assert!(msg.contains(n), "{name}: {msg}");
+        }
+        eprintln!("REJECT | {name} | {msg}");
+    }
+}
+
+#[test]
+fn dispersion_kind_on_a_constant_group_is_rejected() {
+    let spec = slab_spec("disp-constant", Ports::Lumped, |v| {
+        v["sensitivity"]["parameters"] = json!([model_param("eps_r", None)]);
+    });
+    let msg = check_err(&spec);
+    assert!(msg.contains("no `materials[].dispersion` model"), "{msg}");
 }

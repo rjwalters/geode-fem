@@ -32,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Parser;
-use geode_app::{App, Verbosity};
+use geode_app::App;
 use serde::{Deserialize, Serialize};
 
 /// Criterion's per-statistic shape inside `estimates.json`.
@@ -236,11 +236,7 @@ fn emit_results(rows: &[Row], out_path: &Path) -> Result<(), Box<dyn std::error:
 #[command(
     about = "Walk target/criterion and write benchmarks/perf/baseline.toml (medians + IQR; issue #50)."
 )]
-struct Args {
-    /// Verbosity (`-v` / `-q`), fed to the logging seam.
-    #[command(flatten)]
-    verbose: Verbosity,
-}
+struct Args {}
 
 impl App for Args {
     fn run(self) -> Result<(), Box<dyn std::error::Error>> {
@@ -281,10 +277,6 @@ impl App for Args {
         }
 
         Ok(())
-    }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
     }
 }
 

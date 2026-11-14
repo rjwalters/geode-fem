@@ -34,12 +34,11 @@ pub mod red_refine;
 pub mod sphere;
 pub mod spiral;
 pub mod tagged_tri;
+pub(crate) mod tet_split;
 pub mod transmon;
 
 pub use extrude::{ExtrudedEdge, ExtrudedTriMesh, extrude_tri_mesh, extrude_tri_mesh_layers};
 pub use msh_write::write_tagged_tet_mesh;
-#[allow(deprecated)]
-pub use sphere::PHYS_VACUUM_BUFFER;
 pub use sphere::{
     PHYS_OUTER_BOUNDARY, PHYS_PML_INTERFACE, PHYS_PML_SHELL, PHYS_SPHERE_INTERIOR,
     PHYS_SPHERE_SURFACE, PHYS_VACUUM_GAP, R_BUFFER, R_PML_INNER, R_SPHERE, SphereFixture,
@@ -77,10 +76,11 @@ pub use transmon::{
 /// independent of the (possibly sparse, 1-based) tags in the source file.
 ///
 /// Not to be confused with the [`Mesh`](crate::traits::Mesh) trait in the crate
-/// root — that one is a placeholder for in-pipeline (potentially GPU-resident)
-/// mesh objects parameterized by a Burn backend. `TetMesh` is the raw CPU
-/// output of mesh I/O; a `Mesh`-implementing struct would typically wrap
-/// (or be constructed from) a `TetMesh` plus device-side tensors.
+/// root — that one is a reserved, currently unused trait for in-pipeline
+/// (potentially GPU-resident) mesh objects parameterized by a Burn backend.
+/// `TetMesh` is the raw CPU output of mesh I/O; a `Mesh`-implementing struct
+/// would typically wrap (or be constructed from) a `TetMesh` plus device-side
+/// tensors.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TetMesh {
     /// Node coordinates, `nodes[i] = [x, y, z]`.

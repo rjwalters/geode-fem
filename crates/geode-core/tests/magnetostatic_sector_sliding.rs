@@ -38,9 +38,12 @@
 //! tests, not measured data.
 #![allow(clippy::needless_range_loop)]
 
+mod common;
+
 use std::collections::HashMap;
 use std::f64::consts::{PI, TAU};
 
+use common::{Lcg, norm, spmv};
 use geode_core::analytic::slotless_pm::{MU_0, SlotlessPm, SlotlessPmDriven};
 use geode_core::analytic::waveguide::TriMesh;
 use geode_core::assembly::magnetostatic::{
@@ -212,10 +215,6 @@ fn tight() -> NewtonConfig {
         rel_tol: 1e-13,
         ..NewtonConfig::default()
     }
-}
-
-fn norm(v: &[f64]) -> f64 {
-    v.iter().map(|x| x * x).sum::<f64>().sqrt()
 }
 
 fn max_abs(v: &[f64]) -> f64 {
@@ -705,28 +704,6 @@ fn sliding_band_linear_slotless_oracle() {
 // ─────────────────────────────────────────────────────────────────────
 // 5. Reduced tangent PᵀKP: FD, symmetry, and PᵀK_fullP
 // ─────────────────────────────────────────────────────────────────────
-
-struct Lcg(u64);
-impl Lcg {
-    fn next(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        ((self.0 >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
-    }
-}
-
-fn spmv(k: &faer::sparse::SparseColMat<usize, f64>, x: &[f64]) -> Vec<f64> {
-    let kr = k.as_ref();
-    let mut out = vec![0.0; kr.nrows()];
-    for j in 0..kr.ncols() {
-        for idx in kr.col_ptr()[j]..kr.col_ptr()[j + 1] {
-            out[kr.row_idx()[idx]] += kr.val()[idx] * x[j];
-        }
-    }
-    out
-}
 
 fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()

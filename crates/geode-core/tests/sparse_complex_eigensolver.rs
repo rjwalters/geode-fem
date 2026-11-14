@@ -94,9 +94,12 @@
 //! still records `backend` / `float_dtype` / `generated_at_commit` by
 //! convention.
 
+#[path = "common/example_io.rs"]
+mod example_io;
+use example_io::sha256_hex;
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
-use burn::tensor::backend::BackendTypes;
 use faer::sparse::{SparseColMat, Triplet};
 use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_complex_epsilon, build_complex_epsilon_r_pml,
@@ -107,8 +110,7 @@ use geode_core::assembly::p1::upload_mesh;
 use geode_core::eigen::complex::{SparseComplexEigenSolver, SparseComplexShiftInvertLanczos};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer};
 use geode_core::mesh::{R_BUFFER, read_sphere_fixture};
-use geode_core::testing::TestBackend;
-use sha2::{Digest, Sha256};
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -209,10 +211,6 @@ fn regenerated_fixture_path() -> PathBuf {
 const REGEN_CMD: &str = "GEODE_BLESS_DENSE_ORACLE=1 cargo test -p geode-core --release \
                          --test sparse_complex_eigensolver -- --ignored --exact \
                          regenerate_dense_oracle_fixture";
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// The sparse complex Mie pencil `(K_int, M_int)` on the bundled sphere
 /// fixture (PEC-reduced to interior edges).
@@ -320,13 +318,6 @@ struct PencilFingerprint {
     nnz_m: usize,
     k_fro: f64,
     m_fro: f64,
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
 }
 
 fn fro(a: &SparseColMat<usize, faer::c64>) -> f64 {

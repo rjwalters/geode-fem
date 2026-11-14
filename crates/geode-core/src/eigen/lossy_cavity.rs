@@ -147,6 +147,7 @@ use crate::eigen::hcurl_null::{
 use crate::eigen::lanczos::ConvergenceCheck;
 use crate::elements::ElementOrder;
 use crate::mesh::{TaggedTetMesh, TetMesh, pec_interior_mask_from_triangles};
+use crate::sparse_ops::{norm2_c as norm2, spmv_c};
 
 /// Errors from the lossy / open cavity eigensolve.
 #[derive(Debug, thiserror::Error)]
@@ -502,28 +503,6 @@ pub fn assemble_lossy_pencil<B: Backend>(
     ))
 }
 
-/// `y = A x` for a column-major complex sparse `A`.
-fn spmv(a: SparseColMatRef<'_, usize, c64>, x: &[c64]) -> Vec<c64> {
-    let mut y = vec![c64::new(0.0, 0.0); a.nrows()];
-    for (j, &xj) in x.iter().enumerate() {
-        if xj.re == 0.0 && xj.im == 0.0 {
-            continue;
-        }
-        for (i, v) in a.row_idx_of_col(j).zip(a.val_of_col(j)) {
-            y[i] += *v * xj;
-        }
-    }
-    y
-}
-
-/// Hermitian 2-norm.
-fn norm2(v: &[c64]) -> f64 {
-    v.iter()
-        .map(|z| z.re * z.re + z.im * z.im)
-        .sum::<f64>()
-        .sqrt()
-}
-
 fn validate_settings(s: &LossyCavitySettings) -> Result<(), LossyCavityError> {
     let invalid = |m: String| LossyCavityError::InvalidInput(m);
     if !(s.sigma.is_finite() && s.sigma > 0.0) {
@@ -638,8 +617,8 @@ fn solve_lossy_pencil_modes(
     let candidates: Vec<LossyCavityMode> = std::mem::take(&mut solve.pairs)
         .into_iter()
         .map(|p| {
-            let kx = spmv(k, &p.vector);
-            let mx = spmv(m, &p.vector);
+            let kx = spmv_c(k, &p.vector);
+            let mx = spmv_c(m, &p.vector);
             let r: Vec<c64> = kx
                 .iter()
                 .zip(&mx)
@@ -1758,15 +1737,11 @@ mod tests {
         seed: u64,
         n_null: usize,
     ) -> (Vec<c64>, SparseColMat<usize, c64>, SparseColMat<usize, c64>) {
-        let lcg = |s: u64| {
-            s.wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407)
-        };
-        let mut st = lcg(seed + 1000);
-        let mut rnd = || {
-            st = lcg(st);
-            ((st >> 11) as f64) / ((1u64 << 53) as f64)
-        };
+        // Seed with one LCG step (discarded draw), as the pre-consolidation
+        // copy did via `lcg(seed + 1000)`.
+        let mut rng = geode_util::rng::Lcg(seed + 1000);
+        rng.next_unit();
+        let mut rnd = || rng.next_unit();
         let tan_d = 0.125;
         let phys = [
             25.3, 37.3, 42.8, 52.0, 52.05, 54.2, 66.1, 70.5, 81.4, 81.5, 88.1, 98.0,

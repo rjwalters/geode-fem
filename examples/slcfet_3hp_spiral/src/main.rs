@@ -67,25 +67,21 @@ use burn::tensor::backend::BackendTypes;
 use clap::Parser;
 use faer::c64;
 
-use geode_app::{App, Verbosity};
+use geode_app::App;
 use geode_core::analytic::spiral::{
     SquareSpiral, modified_wheeler_l, mohan_current_sheet_l, monomial_fit_l,
 };
-use geode_core::constants::ETA_0_OHM as ETA_0;
-use geode_core::driven::extraction::{detect_srf, driven_frequency_sweep, extrapolate_l0};
-use geode_core::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
-};
+use geode_core::driven::extraction::{detect_srf, extrapolate_l0};
 use geode_core::mesh::{
-    SLCFET_3HP_MATERIALS, SpiralFixture, pec_interior_mask_from_triangles,
-    read_spiral_slcfet_3hp_fixture, read_spiral_slcfet_3hp_smoke_fixture,
+    SLCFET_3HP_MATERIALS, SpiralFixture, read_spiral_slcfet_3hp_fixture,
+    read_spiral_slcfet_3hp_smoke_fixture,
 };
 use geode_core::testing::TestBackend;
 use geode_util::fixture::{BackendInfo, preserved_table_block};
-use geode_util::units::{ghz_to_omega_um as ghz_to_omega, omega_to_ghz_um};
-
-/// Port reference resistance (Ω).
-const R_PORT_OHM: f64 = 50.0;
+// The one-port spiral sweep is shared with `examples/spiral_inductor`
+// (issue #1572): same pipeline, different material set.
+use geode_util::spiral_sweep::{FixtureChoice, PointRow, R_PORT_OHM, Row, run_sweep};
+use geode_util::units::omega_to_ghz_um;
 
 /// Fixture spiral parameterization
 /// (`tests/fixtures/spiral_slcfet_3hp.provenance.txt`), meters.
@@ -130,58 +126,6 @@ const MOM_L0_NH: f64 = 2.154_950_934_609_390_7;
 /// oracle). `reference/fixtures/slcfet_mom/baseline.json`.
 const MOM_Q_3GHZ: f64 = 5.614_758_740_936_693_5;
 
-#[derive(Clone, Copy, PartialEq)]
-enum FixtureChoice {
-    /// `spiral_slcfet_3hp.msh` (76,964 edges) → `results.toml`.
-    Benchmark,
-    /// `spiral_slcfet_3hp_smoke.msh` (~13 k edges) → `results_smoke.toml`.
-    Smoke,
-}
-
-struct Row {
-    f_ghz: f64,
-    omega: f64,
-    z_ohm: c64,
-    l_nh: f64,
-    r_ohm: f64,
-    q: f64,
-    s11_mag: f64,
-    residual_rel: f64,
-}
-
-/// Serde view of a [`Row`] matching the emitted `[point_<i>]` TOML
-/// columns: the `c64` impedance is split into its real/imaginary parts
-/// and the natural-frequency / residual columns are renamed. Serialized
-/// through the shared `geode_util::fixture::push_rows` seam.
-#[derive(serde::Serialize)]
-struct PointRow {
-    f_ghz: f64,
-    omega_natural: f64,
-    z_re_ohm: f64,
-    z_im_ohm: f64,
-    l_nh: f64,
-    r_ohm: f64,
-    q: f64,
-    s11_mag: f64,
-    solve_residual_rel: f64,
-}
-
-impl From<&Row> for PointRow {
-    fn from(r: &Row) -> Self {
-        PointRow {
-            f_ghz: r.f_ghz,
-            omega_natural: r.omega,
-            z_re_ohm: r.z_ohm.re,
-            z_im_ohm: r.z_ohm.im,
-            l_nh: r.l_nh,
-            r_ohm: r.r_ohm,
-            q: r.q,
-            s11_mag: r.s11_mag,
-            solve_residual_rel: r.residual_rel,
-        }
-    }
-}
-
 /// Quasi-static inductance L0 (nH) by Richardson extrapolation of the
 /// two lowest sweep points to f→0. Below self-resonance a
 /// substrate-loaded spiral follows L(f) ≈ L0 − a·f² (the shunt substrate
@@ -199,96 +143,10 @@ fn l0_nh(rows: &[Row]) -> f64 {
         .l0
 }
 
+/// Results TOML for this example's `benchmarks/slcfet_3hp/` directory;
+/// the file name comes from the shared [`FixtureChoice`].
 fn results_path(choice: FixtureChoice) -> PathBuf {
-    let file = match choice {
-        FixtureChoice::Benchmark => "results.toml",
-        FixtureChoice::Smoke => "results_smoke.toml",
-    };
-    geode_util::repo::repo_root()
-        .join("benchmarks")
-        .join("slcfet_3hp")
-        .join(file)
-}
-
-fn run_sweep<B: Backend>(
-    device: &B::Device,
-    fixture: &SpiralFixture,
-    freqs_ghz: &[f64],
-) -> Vec<Row> {
-    let edges = fixture.mesh.edges();
-    let eps = fixture.epsilon_r_for(&SLCFET_3HP_MATERIALS);
-
-    // PEC outer walls; the conductor surface carries the Leontovich BC.
-    let outer = fixture.outer_boundary_triangles();
-    let mask = pec_interior_mask_from_triangles(&edges, &[outer.as_slice()]);
-
-    let cond = fixture.conductor_triangles();
-    let surface = SurfaceImpedanceBc {
-        triangles: &cond,
-        model: SurfaceImpedanceModel::GoodConductor {
-            sigma: SLCFET_3HP_MATERIALS.conductor_sigma_natural(),
-        },
-    };
-
-    let port = fixture.port();
-    let r_nat = R_PORT_OHM / ETA_0;
-    let lp = port.lumped_port(r_nat, c64::new(1.0, 0.0));
-
-    let source = CurrentSource {
-        j_tet: vec![[c64::new(0.0, 0.0); 3]; fixture.mesh.n_tets()],
-    };
-
-    let omegas: Vec<f64> = freqs_ghz.iter().map(|&f| ghz_to_omega(f)).collect();
-
-    eprintln!(
-        "assembling DrivenOperator: {} edges, {} tets, {} conductor faces, {} port faces",
-        edges.len(),
-        fixture.mesh.n_tets(),
-        cond.len(),
-        port.faces.len()
-    );
-    let t0 = std::time::Instant::now();
-    let points = driven_frequency_sweep::<B>(
-        &fixture.mesh,
-        DrivenMaterials::Scalar(&eps),
-        None,
-        &DrivenBcs {
-            pec_interior_mask: &mask,
-        },
-        std::slice::from_ref(&lp),
-        std::slice::from_ref(&surface),
-        &omegas,
-        &source,
-        device,
-    )
-    .expect("port-driven frequency sweep on the SLCFET 3HP spiral fixture");
-    eprintln!(
-        "sweep of {} points done in {:.1} s",
-        points.len(),
-        t0.elapsed().as_secs_f64()
-    );
-
-    points
-        .iter()
-        .zip(freqs_ghz.iter())
-        .map(|(pt, &f_ghz)| {
-            let pc = pt.ports[0];
-            let z_ohm = pc.z * ETA_0;
-            // L = Im Z / ω in SI: Im(Z_Ω) / (2π f) — in nH the 1e9
-            // cancels against f in GHz.
-            let l_nh = z_ohm.im / (2.0 * std::f64::consts::PI * f_ghz);
-            Row {
-                f_ghz,
-                omega: pt.omega,
-                z_ohm,
-                l_nh,
-                r_ohm: z_ohm.re,
-                q: pc.quality_factor(),
-                s11_mag: pc.s11(r_nat).norm(),
-                residual_rel: pt.residual_rel,
-            }
-        })
-        .collect()
+    geode_util::spiral_sweep::results_path("slcfet_3hp", choice)
 }
 
 /// Default `[oracles.palace]` block, written when the output file does
@@ -479,8 +337,7 @@ enum Mode {
 
 /// SLCFET 3HP spiral-inductor extraction benchmark CLI.
 ///
-/// Flattens the shared `geode-app` `-v`/`-q` verbosity group and keeps the
-/// example-local fixture selector (positional `smoke`) the original
+/// Keeps the example-local fixture selector (positional `smoke`) the original
 /// hand-rolled argv recognised.
 #[derive(Parser)]
 #[command(
@@ -490,9 +347,6 @@ struct Args {
     /// Fixture to sweep (`benchmark` default, or `smoke` for the coarse run).
     #[arg(value_enum, default_value_t = Mode::Benchmark)]
     mode: Mode,
-
-    #[command(flatten)]
-    verbose: Verbosity,
 }
 
 impl App for Args {
@@ -505,10 +359,6 @@ impl App for Args {
         let device = <B as BackendTypes>::Device::default();
         run::<B>(choice, &device);
         Ok(())
-    }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
     }
 }
 
@@ -528,7 +378,8 @@ fn run<B: Backend>(choice: FixtureChoice, device: &B::Device) {
         ),
     };
 
-    let rows = run_sweep::<B>(device, &fixture, freqs);
+    let rows = run_sweep::<B>(device, &fixture, &SLCFET_3HP_MATERIALS, freqs)
+        .expect("port-driven frequency sweep on the SLCFET 3HP spiral fixture");
 
     let omegas: Vec<f64> = rows.iter().map(|r| r.omega).collect();
     let zs: Vec<c64> = rows.iter().map(|r| r.z_ohm).collect();

@@ -36,9 +36,13 @@
 //! cargo test -p geode-cli --release --test dispersive_golden -- --ignored
 //! ```
 
+#[path = "support/scratch.rs"]
+mod scratch_support;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use scratch_support::Scratch;
 use serde_json::{Value, json};
 
 const EPS: f64 = 11.9;
@@ -47,30 +51,9 @@ const F_REF: f64 = 1e9;
 const F_LO: f64 = 1e3;
 const F_HI: f64 = 1e12;
 
-fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-/// Scratch dir unique to this test process + name, removed on drop.
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "geode-cli-dispersive-{name}-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        Self(dir)
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::manifest_dir;
 
 /// `fixture` with its mesh path made absolute and `edit` applied, written
 /// to `dir/name`.
@@ -376,21 +359,21 @@ fn spiral_ds(v: &mut Value) {
 
 #[test]
 fn spiral_ds_rows_equal_constant_eps_runs() {
-    let dir = TempDir::new("spiral");
+    let dir = Scratch::new("geode-cli-dispersive-", "spiral");
     // The committed fixture (= the cookbook example) is exactly the
     // smoke spec with `spiral_ds` applied.
     let from_fixture = spec_from(
         "spiral_dispersive_smoke.json",
-        &dir.0,
+        &dir,
         "fixture-ds.json",
         |_| {},
     );
-    let in_code = spec_from("spiral_golden_smoke.json", &dir.0, "ds.json", spiral_ds);
+    let in_code = spec_from("spiral_golden_smoke.json", &dir, "ds.json", spiral_ds);
     let parse =
         |p: &Path| -> Value { serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap() };
     assert_eq!(parse(&from_fixture), parse(&in_code));
     let spec = from_fixture;
-    let outdir = dir.0.join("ds-out");
+    let outdir = dir.join("ds-out");
     let disp = geode(&["driven", "--outdir", outdir.to_str().unwrap()], &spec);
     assert_eq!(rows(&disp).len(), 4);
 
@@ -416,7 +399,7 @@ fn spiral_ds_rows_equal_constant_eps_runs() {
         |_| {},
         "substrate",
         "driven",
-        &dir.0,
+        &dir,
         Some(&outdir),
         "spiral",
     );
@@ -429,7 +412,7 @@ fn spiral_ds_rows_equal_constant_eps_runs() {
     // The 1 GHz row reproduces the committed (constant-ε) fixture row.
     let fixture = geode(
         &["driven"],
-        &spec_from("spiral_golden_smoke.json", &dir.0, "fixture.json", |v| {
+        &spec_from("spiral_golden_smoke.json", &dir, "fixture.json", |v| {
             v["frequencies"] = json!({ "unit": "ghz", "values": [1.0] });
         }),
     );
@@ -459,8 +442,8 @@ fn assert_fixture_is(fixture: &str, edit: fn(&mut Value), dir: &Path) -> PathBuf
 /// falling and `Im ε < 0`, every row = the constant-ε run.
 #[test]
 fn spiral_debye_rows_equal_constant_eps_runs() {
-    let dir = TempDir::new("debye");
-    let spec = assert_fixture_is("spiral_debye_smoke.json", spiral_debye, &dir.0);
+    let dir = Scratch::new("geode-cli-dispersive-", "debye");
+    let spec = assert_fixture_is("spiral_debye_smoke.json", spiral_debye, &dir);
     let disp = geode(&["driven"], &spec);
     assert_eq!(rows(&disp).len(), 4);
     let mut prev_re = f64::INFINITY;
@@ -478,7 +461,7 @@ fn spiral_debye_rows_equal_constant_eps_runs() {
         |_| {},
         "substrate",
         "driven",
-        &dir.0,
+        &dir,
         None,
         "debye",
     );
@@ -488,8 +471,8 @@ fn spiral_debye_rows_equal_constant_eps_runs() {
 /// the conductor limit `Im ε ≈ −σ/(ωε₀)`, every row = the constant-ε run.
 #[test]
 fn spiral_drude_rows_equal_constant_eps_runs() {
-    let dir = TempDir::new("drude");
-    let spec = assert_fixture_is("spiral_drude_smoke.json", spiral_drude, &dir.0);
+    let dir = Scratch::new("geode-cli-dispersive-", "drude");
+    let spec = assert_fixture_is("spiral_drude_smoke.json", spiral_drude, &dir);
     let disp = geode(&["driven"], &spec);
     assert_eq!(rows(&disp).len(), 4);
     let eps0 = 8.8541878128e-12;
@@ -514,7 +497,7 @@ fn spiral_drude_rows_equal_constant_eps_runs() {
         |_| {},
         "substrate",
         "driven",
-        &dir.0,
+        &dir,
         None,
         "drude",
     );
@@ -525,8 +508,8 @@ fn spiral_drude_rows_equal_constant_eps_runs() {
 /// the γ = 0 limit echoes a purely real `ε`.
 #[test]
 fn spiral_drude_plasma_negative_re_eps_solves_direct() {
-    let dir = TempDir::new("plasma");
-    let spec = spec_from("spiral_golden_smoke.json", &dir.0, "plasma.json", |v| {
+    let dir = Scratch::new("geode-cli-dispersive-", "plasma");
+    let spec = spec_from("spiral_golden_smoke.json", &dir, "plasma.json", |v| {
         spiral_plasma(v);
         v["frequencies"] = json!({ "unit": "ghz", "values": [1.0, 20.0] });
     });
@@ -549,13 +532,13 @@ fn spiral_drude_plasma_negative_re_eps_solves_direct() {
         |v| v["frequencies"] = json!({ "unit": "ghz", "values": [1.0, 20.0] }),
         "substrate",
         "driven",
-        &dir.0,
+        &dir,
         None,
         "plasma",
     );
 
     // γ = 0: `geode check` echoes a purely real ε(f) (no solve needed).
-    let lossless = spec_from("spiral_golden_smoke.json", &dir.0, "lossless.json", |v| {
+    let lossless = spec_from("spiral_golden_smoke.json", &dir, "lossless.json", |v| {
         spiral_plasma(v);
         material(v, "substrate")["dispersion"]["gamma_rad_s"] = json!(0.0);
     });
@@ -588,17 +571,12 @@ fn substrate_region(check: &Value) -> &Value {
 /// `ε_r(f)`; the region's `eps_r` is the model at the first frequency.
 #[test]
 fn check_echoes_debye_and_drude() {
-    let dir = TempDir::new("check761");
+    let dir = Scratch::new("geode-cli-dispersive-", "check761");
     let ghz = [1.0, 5.0, 10.0, 20.0];
 
     let check = geode(
         &["check"],
-        &spec_from(
-            "spiral_golden_smoke.json",
-            &dir.0,
-            "debye.json",
-            spiral_debye,
-        ),
+        &spec_from("spiral_golden_smoke.json", &dir, "debye.json", spiral_debye),
     );
     let region = substrate_region(&check);
     assert_eq!(region["eps_r_source"], "dispersion");
@@ -631,12 +609,7 @@ fn check_echoes_debye_and_drude() {
 
     let check = geode(
         &["check"],
-        &spec_from(
-            "spiral_golden_smoke.json",
-            &dir.0,
-            "drude.json",
-            spiral_drude,
-        ),
+        &spec_from("spiral_golden_smoke.json", &dir, "drude.json", spiral_drude),
     );
     let region = substrate_region(&check);
     let first = drude_closed_form(SI_EPS_INF, SI_WP, SI_GAMMA, 1e9);
@@ -666,9 +639,9 @@ fn check_echoes_debye_and_drude() {
 /// with the iterative AMS solve; above the crossover it is accepted.
 #[test]
 fn drude_negative_re_eps_with_ams_is_invalid_spec() {
-    let dir = TempDir::new("amsguard");
+    let dir = Scratch::new("geode-cli-dispersive-", "amsguard");
     let ams = |name: &str, ghz: Value| {
-        spec_from("spiral_golden_smoke.json", &dir.0, name, |v| {
+        spec_from("spiral_golden_smoke.json", &dir, name, |v| {
             spiral_plasma(v);
             v["solver"] = json!({ "mode": "iterative", "preconditioner": "ams" });
             v["frequencies"] = json!({ "unit": "ghz", "values": ghz });
@@ -702,8 +675,8 @@ fn drude_negative_re_eps_with_ams_is_invalid_spec() {
 /// stderr) that names the material and the preconditioner used.
 #[test]
 fn drude_negative_re_eps_with_default_preconditioner_falls_back_to_jacobi_with_a_warning() {
-    let dir = TempDir::new("amsauto");
-    let spec = spec_from("spiral_golden_smoke.json", &dir.0, "auto.json", |v| {
+    let dir = Scratch::new("geode-cli-dispersive-", "amsauto");
+    let spec = spec_from("spiral_golden_smoke.json", &dir, "auto.json", |v| {
         spiral_plasma(v);
         v["solver"] = json!({ "mode": "iterative" });
         v["frequencies"] = json!({ "unit": "ghz", "values": [1.0, 5.0, 10.0, 20.0] });
@@ -743,8 +716,8 @@ fn patch_upml_ds_rows_equal_constant_eps_runs() {
     fn base(v: &mut Value) {
         v.as_object_mut().unwrap().remove("extract");
     }
-    let dir = TempDir::new("patch");
-    let spec = spec_from("patch_extract_smoke.json", &dir.0, "ds.json", |v| {
+    let dir = Scratch::new("geode-cli-dispersive-", "patch");
+    let spec = spec_from("patch_extract_smoke.json", &dir, "ds.json", |v| {
         base(v);
         make_dispersive(v, "substrate", 4.4, 0.02, 2.4e9);
     });
@@ -762,7 +735,7 @@ fn patch_upml_ds_rows_equal_constant_eps_runs() {
         base,
         "substrate",
         "driven",
-        &dir.0,
+        &dir,
         None,
         "patch",
     );
@@ -770,8 +743,8 @@ fn patch_upml_ds_rows_equal_constant_eps_runs() {
 
 #[test]
 fn check_echoes_model_fit_and_eps_of_f() {
-    let dir = TempDir::new("check");
-    let spec = spec_from("spiral_golden_smoke.json", &dir.0, "ds.json", spiral_ds);
+    let dir = Scratch::new("geode-cli-dispersive-", "check");
+    let spec = spec_from("spiral_golden_smoke.json", &dir, "ds.json", spiral_ds);
     let check = geode(&["check"], &spec);
     let region = check["regions"]
         .as_array()
@@ -817,7 +790,7 @@ fn check_echoes_model_fit_and_eps_of_f() {
 /// (exhaustive cases are unit-tested in `src/problem.rs`).
 #[test]
 fn unsupported_combinations_are_invalid_spec() {
-    let dir = TempDir::new("invalid");
+    let dir = Scratch::new("geode-cli-dispersive-", "invalid");
     type Edit = fn(&mut Value);
     let cases: [(&str, Edit, &str); 4] = [
         (
@@ -852,7 +825,7 @@ fn unsupported_combinations_are_invalid_spec() {
     for (name, edit, needle) in cases {
         let spec = spec_from(
             "spiral_golden_smoke.json",
-            &dir.0,
+            &dir,
             &format!("{name}.json"),
             |v| {
                 spiral_ds(v);
@@ -892,14 +865,14 @@ fn spiral_drude_ams_matches_direct() {
 /// The AMS-preconditioned solve of the spiral smoke with `edit` matches
 /// direct LU row by row.
 fn ams_matches_direct(tag: &str, edit: fn(&mut Value)) {
-    let dir = TempDir::new(tag);
+    let dir = Scratch::new("geode-cli-dispersive-", tag);
     let direct = geode(
         &["driven"],
-        &spec_from("spiral_golden_smoke.json", &dir.0, "direct.json", edit),
+        &spec_from("spiral_golden_smoke.json", &dir, "direct.json", edit),
     );
     let ams = geode(
         &["driven"],
-        &spec_from("spiral_golden_smoke.json", &dir.0, "ams.json", |v| {
+        &spec_from("spiral_golden_smoke.json", &dir, "ams.json", |v| {
             edit(v);
             v["solver"] = json!({ "mode": "iterative", "preconditioner": "ams" });
         }),

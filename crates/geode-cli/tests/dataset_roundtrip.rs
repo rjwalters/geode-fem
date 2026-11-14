@@ -15,14 +15,15 @@
 //! * validation: a spec without `sensitivity` fails `invalid_spec` before
 //!   writing anything, and `geode extract` rejects the flag.
 //!
-//! Write → read exactness is the unit test `dataset::tests`.
+//! Byte-exact encoding of NaN, -0.0, inf and `u32::MAX` (values the real
+//! samples never contain) is the unit test `dataset::tests`, which checks
+//! `write()` against raw little-endian bytes.
 
 #[path = "support/scratch.rs"]
 mod scratch_support;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
 
 use scratch_support::Scratch;
 use serde_json::Value;
@@ -35,12 +36,9 @@ fn example(name: &str) -> PathBuf {
     manifest().join("examples").join(name)
 }
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::geode;
 
 fn run_ok(sub: &str, spec: &Path, dataset: &Path, report: &Path) -> Value {
     let out = geode(&[

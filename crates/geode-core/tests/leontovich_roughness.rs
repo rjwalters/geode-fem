@@ -18,20 +18,15 @@
 
 use std::f64::consts::PI;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, SurfaceImpedanceBc,
     SurfaceImpedanceModel, SurfaceRoughness, driven_solve_with_surface_impedance,
 };
 use geode_core::mesh::cube_tet_mesh;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    Default::default()
-}
 
 /// Copper on a micrometre mesh: σ_nat = σ_SI · η₀ · L_unit.
 const SIGMA_CU_NAT: f64 = 5.8e7 * 376.730_313_412 * 1e-6;

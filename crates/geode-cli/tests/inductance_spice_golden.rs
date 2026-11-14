@@ -33,7 +33,7 @@ mod scratch_support;
 
 use scratch_support::Scratch;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Command;
 
 use sha2::{Digest, Sha256};
 
@@ -46,12 +46,9 @@ fn scratch(name: &str) -> Scratch {
     Scratch::new("geode-lspice-test-", name)
 }
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::geode;
 
 /// Run `geode inductance <spec> --spice <out>` and return the report.
 fn inductance_with_spice(spec: &Path, out: &Path) -> serde_json::Value {

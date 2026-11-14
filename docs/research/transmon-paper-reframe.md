@@ -81,11 +81,11 @@ DOF), matched first-order Nédélec / Palace Order 1, junction as a reactive `Lu
 
 Source: [`benchmarks/transmon_eigen/results.toml`](../../benchmarks/transmon_eigen/results.toml)
 
-| mode | GEODE (GHz) | Palace (GHz) | rel-err |
-|------|------------:|-------------:|--------:|
-| qubit (p = 0.9942) | 3.452751 | 3.452749306805 (Target 2 GHz, #1043) | 0.00005% |
-| resonator | 5.153 | 5.151335830348 | 0.032% |
-| port-sheet artifact (p ≈ 1; was "junction LC") | 17.490 | 17.49010903536 | 0.001% |
+| mode | port model | GEODE (GHz) | Palace (GHz) | rel-err |
+|------|------------|------------:|-------------:|--------:|
+| qubit (p = 0.9942) | `S_Γ` (default; Palace's operator) | 3.452751 | 3.452749306805 (Target 2 GHz, #1043) | 0.00005% |
+| resonator | `S_Γ` (default; Palace's operator) | 5.153 | 5.151335830348 | 0.032% |
+| port-sheet artifact (p ≈ 1; was "junction LC") | `S_Γ` (default; Palace's operator) | 17.490 | 17.49010903536 | 0.001% |
 
 Worst-case per-mode agreement **0.032%** — the ≤1% same-input-mesh bar met with ~25× margin.
 Corrected 2026-10-11 (#1045): an earlier version of this paragraph called the 3.4528 GHz mode

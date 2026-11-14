@@ -147,6 +147,16 @@ pub struct ProblemSpec {
     /// inductance`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inductance: Option<InductanceSpec>,
+    /// Steady DC current-conduction settings (additive in v1, issue #1479).
+    /// Its presence makes this a **conduction spec** (for `geode
+    /// conduction`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conduction: Option<ConductionSpec>,
+    /// Electro-quasi-static transient / admittance settings (additive in
+    /// v1, issue #1494). Its presence makes this an **eqs spec** (for
+    /// `geode eqs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eqs: Option<EqsSpec>,
     /// Design sensitivities of the analysis's observable (additive in v1,
     /// issues #707 / #739 / #883). Not an analysis section: it rides on a
     /// `capacitance` (two-terminal), `inductance`, lossless `eigen` or
@@ -155,6 +165,13 @@ pub struct ProblemSpec {
     /// `sensitivities` block to that report. Extract specs reject it in v1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sensitivity: Option<SensitivitySpec>,
+    /// Gradient-based design loop for `geode optimize` (additive in v1,
+    /// Epic #841 Phase 6b, issue #1261). Not an analysis section: it rides
+    /// on a `driven` spec whose `sensitivity` section (N-port observables)
+    /// defines the design parameters and observables it references by name.
+    /// The other subcommands ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub optimize: Option<OptimizeSpec>,
     /// Nédélec element order of the H(curl) space (additive in v1, issue
     /// #1265, Epic #836 Phase 5a): `1` (default, lowest-order edge
     /// elements) or `2` (second-order, `2·n_edges + 2·n_faces` DOFs).
@@ -171,6 +188,301 @@ pub struct ProblemSpec {
     /// `sweep.adaptive`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adaptive_mesh: Option<AdaptiveMeshSpec>,
+    /// The two Floquet ports (the open faces) of a periodic driven unit
+    /// cell (additive in v1, Epic #837 Phase 4b). Needs
+    /// `boundary_conditions.periodic` (the two lattice vectors) and exactly
+    /// one of `incidence` / `scan` / `fixed_k_t`; cannot be combined with lumped or wave
+    /// ports.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub floquet_ports: Vec<FloquetPortSpec>,
+    /// A single plane-wave incidence (Floquet-port specs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub incidence: Option<IncidenceSpec>,
+    /// A scan over incidence angles (Floquet-port specs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scan: Option<ScanSpec>,
+    /// A sweep at a fixed transverse wave vector `k_t` (Floquet-port specs,
+    /// issue #1521): the Bloch phase does not move with frequency, so
+    /// `sweep.adaptive` uses a reduced-order model here. Excludes
+    /// `incidence` / `scan`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_k_t: Option<FixedKtSpec>,
+}
+
+/// A fixed transverse wave vector for a Floquet-port frequency sweep.
+///
+/// Unlike an `incidence` / `scan` (a fixed *angle*, where `k_t = k₀ √ε_r
+/// sin θ (…)` moves with frequency), the Bloch phase is the same at every
+/// frequency. This is the case in which `sweep.adaptive` applies: it builds
+/// a reduced-order model over the band (a band over which the set of
+/// diffraction orders in the channel list changes falls back to the dense
+/// sweep, with a `floquet` warning).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FixedKtSpec {
+    /// The transverse wave vector `(k_x, k_y, k_z)` in rad per mesh length
+    /// unit, in the lattice plane (its component along the lattice normal
+    /// must be zero).
+    pub k_t: [f64; 3],
+    /// Incident polarization (default `"both"`).
+    #[serde(default = "default_polarization")]
+    pub polarization: IncidencePolarization,
+}
+
+/// One Floquet port: the open cell face and the medium beyond it.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FloquetPortSpec {
+    /// Dimension-2 physical-group name of the open face.
+    pub physical_group: String,
+    /// Evanescent termination rings: every order with
+    /// `max(|m|, |n|) <= n_evanescent` is a channel (default `4`).
+    #[serde(default = "default_n_evanescent")]
+    pub n_evanescent: usize,
+    /// Physical-group name of the volume `materials` entry that fills the
+    /// half-space beyond this port (homogeneous, isotropic, real `eps_r`).
+    /// Default: vacuum.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub medium: Option<String>,
+}
+
+pub(crate) fn default_n_evanescent() -> usize {
+    4
+}
+
+/// Incident polarization of a Floquet-port analysis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum IncidencePolarization {
+    /// Transverse electric.
+    Te,
+    /// Transverse magnetic.
+    Tm,
+    /// Both (two incident columns per point).
+    Both,
+}
+
+fn default_polarization() -> IncidencePolarization {
+    IncidencePolarization::Both
+}
+
+/// One plane-wave incidence, from the first Floquet port.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct IncidenceSpec {
+    /// Polar angle from the lattice normal, degrees, in `[0, 90)`.
+    pub theta_deg: f64,
+    /// Azimuth from the first lattice vector, degrees.
+    #[serde(default)]
+    pub phi_deg: f64,
+    /// Incident polarization (default `"both"`).
+    #[serde(default = "default_polarization")]
+    pub polarization: IncidencePolarization,
+}
+
+/// A linear angle range `start..=stop` with `count` samples.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AngleRangeSpec {
+    /// First angle (degrees).
+    pub start: f64,
+    /// Last angle (degrees).
+    pub stop: f64,
+    /// Number of samples (`>= 1`; `1` uses `start`).
+    pub count: usize,
+}
+
+/// A scan over incidence angles: every `theta_deg` at every `phi_deg`.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ScanSpec {
+    /// Polar angles.
+    pub theta_deg: AngleRangeSpec,
+    /// Azimuths (degrees; default `[0]`).
+    #[serde(default = "default_scan_phi")]
+    pub phi_deg: Vec<f64>,
+    /// Incident polarization (default `"both"`).
+    #[serde(default = "default_polarization")]
+    pub polarization: IncidencePolarization,
+}
+
+fn default_scan_phi() -> Vec<f64> {
+    vec![0.0]
+}
+
+/// The `optimize` section (Epic #841 Phase 6b): design variables, a
+/// weighted objective and constraints, over the parameters and observables
+/// of the spec's `sensitivity` section (no second parameter vocabulary).
+///
+/// Variables are named as the sensitivity parameter's report name: a shape
+/// parameter's `name`, or `kind(physical_group)` for a material one, e.g.
+/// `eps_r(substrate)`. Observables are named by their report `label`, e.g.
+/// `real(z0[port_in, mode 0])` as listed by `geode check`'s sensitivity
+/// summary. Values are in the parameter's own unit (metres for a shape
+/// parameter). With no `constraints` the loop runs L-BFGS-B; with any, MMA
+/// (which needs finite variable bounds).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OptimizeSpec {
+    /// The design variables (`≥ 1`, distinct). Sensitivity parameters not
+    /// listed here stay at their spec value.
+    pub variables: Vec<OptimizeVariableSpec>,
+    /// Weighted objective terms (`≥ 1`); the objective is their weighted sum.
+    pub objective: Vec<ObjectiveTermSpec>,
+    /// Observable inequality constraints (default none).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub constraints: Vec<ConstraintSpec>,
+    /// Mesh-quality guard: a trial design whose morphed mesh has a tet
+    /// whose volume falls below this fraction of its meshed volume (the
+    /// `geode-core` `min_tet_volume_ratio`) is a failed evaluation (the
+    /// optimizer backs off and the history records it). Default `0.1`;
+    /// `0 ≤ r < 1`. Without a `remesh` section the run only backs off at the
+    /// guard; with one, the iteration ends in a re-mesh onto the next rung.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_volume_ratio: Option<f64>,
+    /// Re-mesh policy: a ladder of pre-meshed specs to continue on when the
+    /// mesh-quality guard trips or every `every` iterations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remesh: Option<OptimizeRemeshSpec>,
+    /// Passivity tripwire tolerance: `σ_max(S) ≤ 1 + tol` at every
+    /// evaluation (default `1e-6`). A violation is a failed evaluation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub passivity_tol: Option<f64>,
+    /// Stopping criteria and L-BFGS memory (defaults of `geode-optimize`
+    /// except `max_iter = 50`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop: Option<OptimizeStopSpec>,
+}
+
+/// One design variable of an [`OptimizeSpec`].
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OptimizeVariableSpec {
+    /// The sensitivity parameter's report name (see [`OptimizeSpec`]).
+    pub parameter: String,
+    /// Lower bound, in the parameter's unit (`< upper`).
+    pub lower: f64,
+    /// Upper bound, in the parameter's unit.
+    pub upper: f64,
+    /// Starting value (default: the parameter's value at the spec's
+    /// geometry / materials); within the bounds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial: Option<f64>,
+    /// Length of one optimizer unit in the parameter's unit (default:
+    /// `upper − lower`); the optimizer works on `(p − initial) / scale`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<f64>,
+}
+
+/// How a term's per-frequency residuals become one number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OptimizeAggregate {
+    /// `Σ r²` over the band.
+    SumSq,
+    /// `(1/N) Σ r²` over the band.
+    Mean,
+    /// The worst squared residual `max r²`, smoothed by the
+    /// Kreisselmeier–Steinhauser function (`ks_rho`).
+    Max,
+}
+
+/// Which side of the target is penalized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TargetMode {
+    /// `r = max(0, v − target)`: the value should be at most the target.
+    Below,
+    /// `r = max(0, target − v)`: at least the target.
+    Above,
+    /// `r = v − target`.
+    Equal,
+}
+
+/// One term of the objective: `weight · aggregate(r(observable, band))`.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ObjectiveTermSpec {
+    /// The sensitivity observable's report `label`.
+    pub observable: String,
+    /// `[lo_hz, hi_hz]`: the differentiated frequencies inside the band
+    /// (inclusive). Default: all of them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub band_hz: Option<[f64; 2]>,
+    /// Default `sum_sq`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aggregate: Option<OptimizeAggregate>,
+    /// Default `equal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<TargetMode>,
+    /// The target value, in the observable's unit.
+    pub target: f64,
+    /// Term weight (default `1`, `≥ 0`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weight: Option<f64>,
+    /// KS sharpness for `max` (default `50`, in 1 / (squared-residual unit)).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ks_rho: Option<f64>,
+}
+
+/// An observable inequality `max over the band of (v − bound) ≤ 0`
+/// (`below`) or `max over the band of (bound − v) ≤ 0` (`above`), the max
+/// smoothed by KS.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConstraintSpec {
+    /// The sensitivity observable's report `label`.
+    pub observable: String,
+    /// `[lo_hz, hi_hz]` (default: all differentiated frequencies).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub band_hz: Option<[f64; 2]>,
+    /// `below` or `above` (`equal` is not an inequality).
+    pub mode: TargetMode,
+    /// The bound, in the observable's unit.
+    pub bound: f64,
+    /// KS sharpness (default `50`, in 1 / (observable unit)).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ks_rho: Option<f64>,
+}
+
+/// Re-mesh policy of an [`OptimizeSpec`]: the spec's own mesh is rung 0 and
+/// `rungs` are the following ones, in order. Within an outer iteration (and
+/// its line search) the topology stays frozen; at the iteration boundary the
+/// run moves to the rung whose meshed parameter values are nearest (in
+/// optimizer units) to the current design among the later rungs that accept
+/// it under `min_volume_ratio`, re-baselines the objective there and starts
+/// a fresh L-BFGS-B / MMA state at the current design.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OptimizeRemeshSpec {
+    /// Also re-mesh after every this many iterations on a rung (`≥ 1`;
+    /// default: only when the guard trips). Once no later rung is usable the
+    /// cadence is skipped; a guard breach then fails the run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub every: Option<usize>,
+    /// Complete geode specs (a mesh and the parameter values it was meshed
+    /// at), later rungs after earlier ones; relative paths resolve against
+    /// the directory of the spec. Each must have the same `sensitivity`
+    /// parameters, observables and frequencies as the spec.
+    pub rungs: Vec<PathBuf>,
+}
+
+/// Stopping criteria of an [`OptimizeSpec`].
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OptimizeStopSpec {
+    /// Maximum iterations (default 50).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_iter: Option<usize>,
+    /// Maximum evaluations, failed ones included (default 5000).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_evals: Option<usize>,
+    /// Projected-gradient / KKT tolerance, in optimizer units (default `1e-6`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pg_tol: Option<f64>,
+    /// Relative objective change (default `1e-12`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub f_rel_tol: Option<f64>,
 }
 
 /// `element_order`: `1` or `2` (any other value is a `spec_parse` error).
@@ -333,6 +645,10 @@ pub enum Analysis {
     Capacitance,
     /// Static Maxwell inductance matrix (`geode inductance`).
     Inductance,
+    /// DC terminal conductance matrix (`geode conduction`).
+    Conduction,
+    /// EQS transient / admittance (`geode eqs`).
+    Eqs,
 }
 
 impl Analysis {
@@ -344,6 +660,8 @@ impl Analysis {
             Analysis::Extract => "extract",
             Analysis::Capacitance => "capacitance",
             Analysis::Inductance => "inductance",
+            Analysis::Conduction => "conduction",
+            Analysis::Eqs => "eqs",
         }
     }
 }
@@ -362,6 +680,10 @@ impl ProblemSpec {
             Analysis::Capacitance
         } else if self.inductance.is_some() {
             Analysis::Inductance
+        } else if self.conduction.is_some() {
+            Analysis::Conduction
+        } else if self.eqs.is_some() {
+            Analysis::Eqs
         } else {
             Analysis::Driven
         }
@@ -489,6 +811,175 @@ pub struct CapacitanceSpec {
     /// shield, enclosure. At least one is required in v1.
     #[serde(default)]
     pub ground: Vec<String>,
+}
+
+/// Steady DC current-conduction settings (`geode conduction`, issue
+/// #1479).
+///
+/// Solves `∇·(σ∇φ) = 0` (P1 on the tets, per-region `σ` from
+/// `materials[].conductivity_s_m`, S/m) with every terminal a Dirichlet
+/// surface and all other boundaries insulating
+/// ([`geode_core::assembly::conduction`]). The terminal conductance matrix
+/// `G` (`I_i = Σ_j G_ij V_j`) comes from one unit-voltage solve per
+/// terminal. The reported operating point (per-terminal currents, total
+/// power, power balance) drives the **first terminal at 1 V and every
+/// other terminal at 0 V**.
+///
+/// Every `materials` entry of a conduction spec must give
+/// `conductivity_s_m`; tets in unlisted regions are insulating (`σ = 0`).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConductionSpec {
+    /// Dimension-2 physical-group names, one per terminal, in matrix
+    /// row/column order (`≥ 1`, distinct).
+    pub terminals: Vec<String>,
+    /// Optional lumped series resistance (Ω, finite, `> 0`) per terminal,
+    /// keyed by terminal name: the terminal's surface is then held at its
+    /// applied voltage through that resistor instead of being pinned.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub r_ext: std::collections::BTreeMap<String, f64>,
+}
+
+/// A terminal drive waveform `V(t)` (volts, `t` in seconds), a pure
+/// function of time (`geode eqs`, issue #1494).
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum WaveformSpec {
+    /// `0` before `t0`, `v` from `t0` on.
+    Step {
+        /// Step time (s, finite, `>= 0`).
+        t0: f64,
+        /// Level after the step (V).
+        v: f64,
+    },
+    /// SPICE-style trapezoidal pulse from 0 to `v`: `0` until `delay`,
+    /// linear rise over `rise`, flat for `width`, linear fall over `fall`,
+    /// then `0`. A zero `rise` / `fall` is an instantaneous edge.
+    Pulse {
+        /// Start of the rising edge (s, `>= 0`).
+        delay: f64,
+        /// Rise time (s, `>= 0`).
+        rise: f64,
+        /// Flat-top width (s, `>= 0`).
+        width: f64,
+        /// Fall time (s, `>= 0`).
+        fall: f64,
+        /// Pulse level (V).
+        v: f64,
+    },
+    /// Piecewise-linear `[[t, v], ...]` (`t` strictly increasing); the
+    /// first / last value is held before / after the table.
+    Pl {
+        /// `(t_s, v)` points, at least one.
+        points: Vec<[f64; 2]>,
+    },
+}
+
+impl WaveformSpec {
+    /// Value (V) at time `t` (s).
+    pub fn eval(&self, t: f64) -> f64 {
+        match self {
+            WaveformSpec::Step { t0, v } => {
+                if t >= *t0 {
+                    *v
+                } else {
+                    0.0
+                }
+            }
+            WaveformSpec::Pulse {
+                delay,
+                rise,
+                width,
+                fall,
+                v,
+            } => {
+                let u = t - delay;
+                if u < 0.0 {
+                    0.0
+                } else if u < *rise {
+                    v * u / rise
+                } else if u <= rise + width {
+                    *v
+                } else if u < rise + width + fall {
+                    v * (1.0 - (u - rise - width) / fall)
+                } else {
+                    0.0
+                }
+            }
+            WaveformSpec::Pl { points } => {
+                let first = points[0];
+                let last = points[points.len() - 1];
+                if t <= first[0] {
+                    return first[1];
+                }
+                if t >= last[0] {
+                    return last[1];
+                }
+                let k = points.partition_point(|p| p[0] <= t);
+                let (a, b) = (points[k - 1], points[k]);
+                a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0])
+            }
+        }
+    }
+}
+
+/// One driven terminal of an `eqs` spec.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EqsTerminalSpec {
+    /// Dimension-2 physical-group name of the terminal surface.
+    pub name: String,
+    /// Drive waveform; required with `transient`, forbidden with
+    /// `frequencies` (the admittance uses a unit drive per terminal).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waveform: Option<WaveformSpec>,
+}
+
+/// θ-method time stepping of an `eqs` transient.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EqsTransientSpec {
+    /// Time step (s, `> 0`). Give exactly one of `dt` and `n_steps`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dt: Option<f64>,
+    /// Number of steps (`>= 1`); `dt = t_end / n_steps`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_steps: Option<usize>,
+    /// End time (s, `> 0`).
+    pub t_end: f64,
+    /// θ-method weight in `[0.5, 1]` (default `1`, backward Euler;
+    /// `0.5` is Crank-Nicolson).
+    #[serde(default = "default_eqs_theta")]
+    pub theta: f64,
+}
+
+fn default_eqs_theta() -> f64 {
+    1.0
+}
+
+/// Electro-quasi-static settings (`geode eqs`, issue #1494).
+///
+/// Solves `div(sigma grad phi + d/dt(eps grad phi)) = 0`
+/// ([`geode_core::assembly::eqs_transient`]) with per-region `eps_r` and
+/// `conductivity_s_m` from `materials[]` (every material needs
+/// `conductivity_s_m`; unlisted regions are vacuum, `sigma = 0`). Exactly
+/// one of `transient` (time-domain response to the terminal waveforms) and
+/// `frequencies` (small-signal admittance) must be given.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EqsSpec {
+    /// Driven terminals (dimension-2 physical groups), in report order.
+    pub terminals: Vec<EqsTerminalSpec>,
+    /// Floating conductors (dimension-2 physical groups): equipotential,
+    /// zero net current, initially uncharged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub floating: Vec<String>,
+    /// Time-domain mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transient: Option<EqsTransientSpec>,
+    /// Frequency-domain mode: frequencies in Hz (finite, `>= 0`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frequencies: Option<Vec<f64>>,
 }
 
 /// Static inductance-extraction settings (`geode inductance`, issue
@@ -743,6 +1234,54 @@ pub struct SensitivityParameterSpec {
     /// Shape only: 2-D / 3-D physical groups whose nodes stay fixed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned: Option<Vec<String>>,
+    /// `kind = "dispersion"` only (required): the parameter of the group's
+    /// `materials[].dispersion` model to differentiate — `eps_r` /
+    /// `tan_delta` (`djordjevic_sarkar`), `eps_inf` / `delta_eps` / `tau_s`
+    /// (`debye`), `eps_inf` / `omega_p_rad_s` / `gamma_rad_s` (`drude`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_parameter: Option<DispersionParameter>,
+    /// `kind = "dispersion"` with a `debye` model, `delta_eps` / `tau_s`
+    /// only (required there): the 0-based index of the relaxation pole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pole: Option<usize>,
+}
+
+/// A differentiable parameter of a [`DispersionSpec`] model (Epic #841
+/// Phase 2a, issue #1259): the `model_parameter` of a
+/// [`SensitivityParameterKind::Dispersion`] parameter. Units are the
+/// model's own (`tau_s` s, `omega_p_rad_s` / `gamma_rad_s` rad/s).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DispersionParameter {
+    /// Djordjevic–Sarkar datasheet `ε′` at `f_ref_hz` (`tan δ` held).
+    EpsR,
+    /// Djordjevic–Sarkar datasheet `tan δ` at `f_ref_hz` (`ε′` held).
+    TanDelta,
+    /// Debye / Drude high-frequency permittivity `ε∞`.
+    EpsInf,
+    /// Debye pole step `Δε_k` (needs `pole`).
+    DeltaEps,
+    /// Debye pole relaxation time `τ_k` in s (needs `pole`).
+    TauS,
+    /// Drude plasma angular frequency `ω_p` (rad/s).
+    OmegaPRadS,
+    /// Drude collision rate `γ` (rad/s).
+    GammaRadS,
+}
+
+impl DispersionParameter {
+    /// Snake-case name, as in the spec.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::EpsR => "eps_r",
+            Self::TanDelta => "tan_delta",
+            Self::EpsInf => "eps_inf",
+            Self::DeltaEps => "delta_eps",
+            Self::TauS => "tau_s",
+            Self::OmegaPRadS => "omega_p_rad_s",
+            Self::GammaRadS => "gamma_rad_s",
+        }
+    }
 }
 
 /// The motion of a shape [`SensitivityParameterSpec`].
@@ -806,6 +1345,12 @@ pub enum SensitivityParameterKind {
     /// Huray sphere density `N/A_tile` (1/m²) of a Leontovich wall, at
     /// fixed sphere radius.
     WallBallDensity,
+    /// A parameter of the group's `materials[].dispersion` model (driven
+    /// N-port S sensitivity, Epic #841 Phase 2a, issue #1259): see
+    /// [`SensitivityParameterSpec::model_parameter`]. Costs zero extra
+    /// solves: `∂ε(ω)/∂θ` is contracted with the region's mass at every
+    /// frequency.
+    Dispersion,
 }
 
 impl SensitivityParameterKind {
@@ -823,6 +1368,7 @@ impl SensitivityParameterKind {
             SensitivityParameterKind::WallRmsRoughness => "wall_rms_roughness",
             SensitivityParameterKind::WallBallRadius => "wall_ball_radius",
             SensitivityParameterKind::WallBallDensity => "wall_ball_density",
+            SensitivityParameterKind::Dispersion => "dispersion",
         }
     }
 
@@ -1954,6 +2500,7 @@ mod tests {
         assert!(
             !serde_json::to_string(&ProblemSpec {
                 sensitivity: None,
+                optimize: None,
                 ..spec
             })
             .unwrap()

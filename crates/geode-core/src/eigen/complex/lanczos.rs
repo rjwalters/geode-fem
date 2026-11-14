@@ -91,7 +91,7 @@
 
 use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef};
-use faer::{Mat, MatMut, c64};
+use faer::{Mat, c64};
 
 use crate::eigen::dense::EigenError;
 use crate::eigen::lanczos::{
@@ -102,6 +102,7 @@ use crate::eigen::parallel::{
     ParallelismGuard, SequentialSolveScope, resolve_num_threads, sequential_scope_for_solves,
 };
 use crate::eigen::shift_guard::{check_degenerate_shift, median_diag_ratio};
+use crate::sparse_ops::{lu_solve, spmv_c_into as spmv};
 
 /// Sparse generalized complex-symmetric eigensolver via shift-and-invert
 /// Lanczos.
@@ -171,34 +172,6 @@ pub trait SparseComplexEigenSolver {
         m: SparseColMatRef<'_, usize, c64>,
         n: usize,
     ) -> Result<Vec<c64>, EigenError>;
-}
-
-/// Compute `y += A · x` for complex `A` in CSC form.
-pub(crate) fn spmv_add(a: SparseColMatRef<'_, usize, c64>, x: &[c64], y: &mut [c64]) {
-    let col_ptr = a.col_ptr();
-    let row_idx = a.row_idx();
-    let val = a.val();
-    let ncols = a.ncols();
-    for j in 0..ncols {
-        let start = col_ptr[j];
-        let end = col_ptr[j + 1];
-        let xj = x[j];
-        if xj.re == 0.0 && xj.im == 0.0 {
-            continue;
-        }
-        for k in start..end {
-            let i = row_idx[k];
-            y[i] += val[k] * xj;
-        }
-    }
-}
-
-/// Compute `y = A · x` (overwrite) for complex sparse `A`.
-pub(crate) fn spmv(a: SparseColMatRef<'_, usize, c64>, x: &[c64], y: &mut [c64]) {
-    for v in y.iter_mut() {
-        *v = c64::new(0.0, 0.0);
-    }
-    spmv_add(a, x, y);
 }
 
 /// Bilinear M-inner product `u^T M v = sum u[i] * (M v)[i]`. Note **no
@@ -271,23 +244,6 @@ fn shifted_pencil_complex(
 /// [`crate::eigen::parallel::solve_probe`] key for the Lanczos loops' solves.
 #[cfg(test)]
 const LANCZOS_SOLVE_SITE: &str = "complex_lanczos";
-
-/// Solve `A y = b` in-place via a precomputed complex sparse LU.
-pub(crate) fn solve_with_lu(
-    lu: &Lu<usize, c64>,
-    rhs: &[c64],
-    out: &mut [c64],
-) -> Result<(), EigenError> {
-    use faer::linalg::solvers::Solve;
-    let n = rhs.len();
-    let mut work: Mat<c64> = Mat::from_fn(n, 1, |i, _| rhs[i]);
-    let work_mut: MatMut<'_, c64> = work.as_mut();
-    lu.solve_in_place(work_mut);
-    for i in 0..n {
-        out[i] = work[(i, 0)];
-    }
-    Ok(())
-}
 
 /// Solve the complex-symmetric tridiagonal eigenproblem for `(alpha,
 /// beta)`. `alpha` (len k) is the diagonal and `beta` (len k-1) is the
@@ -567,7 +523,7 @@ impl SparseComplexShiftInvertLanczos {
             // w = A^{-1} (M v)
             #[cfg(test)]
             crate::eigen::parallel::solve_probe::record(LANCZOS_SOLVE_SITE);
-            solve_with_lu(&lu, &mv, &mut w)?;
+            lu_solve(&lu, &mv, &mut w);
 
             // α_j = v^T M w = (M v)^T w  (using M^T = M, bilinear form)
             //     = sum mv[i] * w[i].
@@ -1447,7 +1403,7 @@ impl ComplexLanczosRun {
             spmv(m, &self.v, &mut self.mv);
             #[cfg(test)]
             crate::eigen::parallel::solve_probe::record(LANCZOS_SOLVE_SITE);
-            solve_with_lu(lu, &self.mv, &mut self.w)?;
+            lu_solve(lu, &self.mv, &mut self.w);
 
             let w = &mut self.w;
             let v = &self.v;
@@ -2198,15 +2154,11 @@ pub(crate) mod tests {
     /// platform.
     pub(crate) fn spurious_ritz_pencil()
     -> (Vec<c64>, SparseColMat<usize, c64>, SparseColMat<usize, c64>) {
-        let lcg = |s: u64| {
-            s.wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407)
-        };
-        let mut st = lcg(349);
-        let mut rnd = || {
-            st = lcg(st);
-            ((st >> 11) as f64) / ((1u64 << 53) as f64)
-        };
+        // Seed with one LCG step (discarded draw), as the pre-consolidation
+        // copy did via `lcg(349)`.
+        let mut rng = geode_util::rng::Lcg(349);
+        rng.next_unit();
+        let mut rnd = || rng.next_unit();
         let n = 40;
         let mut lam = vec![
             c64::new(1.15, -0.01),

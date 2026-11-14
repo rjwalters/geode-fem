@@ -216,6 +216,28 @@ selection. It is Apple-only and not exercised on CI (all runners are headless
 Linux, which use the `ndarray` CPU backend); verify it locally on Apple hardware
 with `cargo test -p geode-core --features metal`.
 
+## Using `geode-core` as a library
+
+`geode-core` is not published on crates.io. Depend on it as a git dependency
+pinned to a release **tag** (not a branch):
+
+```toml
+[dependencies]
+geode-core = { git = "https://github.com/rjwalters/geode-fem", tag = "v0.9.0" }
+```
+
+Pin a commit (`rev = "<sha>"`) only to pick up unreleased work.
+
+**SemVer intent.** The workspace is pre-1.0. A minor bump (`0.N` to `0.N+1`)
+may break any public item; a patch bump will not. `geode_core::assembly::electrostatic`
+and `geode_core::mesh::TetMesh` are the surface downstream users most rely on,
+and they get no stronger guarantee than that rule.
+
+**Where breaks are recorded.** Breaking library changes are listed in
+[`CHANGELOG.md`](CHANGELOG.md) under a `**Breaking (`geode-core` library):**`
+bullet in the `### Changed` section of the release (or `[Unreleased]`) entry.
+Read it before moving a tag pin to a new minor version.
+
 ## System dependencies
 
 The default build is **pure Rust**: backend GPU drivers (Metal, Vulkan, CUDA,
@@ -282,7 +304,7 @@ crates/
   geode-util/        # pre-core staging layer above geode-core: shared
                      # math / convert / interop / fixture / viz helpers
                      # (Epic #414)
-  geode-app/         # shared application spine (logging / verbosity seam)
+  geode-app/         # shared application spine (clap harness / arg groups)
                      # for the GEODE-FEM example binaries
   geode-cli/         # the `geode` binary: headless JSON/TOML problem spec
                      # in, versioned JSON report out (check / driven /

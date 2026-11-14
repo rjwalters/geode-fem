@@ -53,7 +53,45 @@ repo-remote attach [--container|--host] [--command <cmd>]
                                      # verify the host, THEN resolve the GitHub credential, then open a
                                      # session on the existing instance (connect and reconnect; repo#565)
 repo-remote down [--yes] [--delete]  # dry-run listing without --yes; stop (or --delete to terminate) with --yes
+repo-remote prune [--yes] [--json]   # list (or with --yes remove) stale repo-remote-* SSH aliases; see below
 ```
+
+#### One name per repo, and cleaning up SSH aliases (#628)
+
+`<name>` (the `repo-remote-<name>` alias, the `repo-remote=<name>` instance
+tag, the SSH ingress marker) is the directory name of the **primary checkout**:
+the parent of `git rev-parse --git-common-dir`, resolved physically. A main
+checkout and every linked worktree of one repo therefore resolve the same
+alias and the same box, instead of `repo-remote-issue-576` for a worktree
+named `issue-576`. When the common dir is not a `.git` directory (a bare repo,
+no git at all) the name falls back to the basename of the git toplevel (or the
+cwd). There is no new setting. **One-time effect:** a box that an earlier
+version tagged with a worktree directory name is no longer found by tag from
+the main checkout. Pin it with `REPO_REMOTE_INSTANCE_ID`, or re-tag it
+`repo-remote=<name>`.
+
+Aliases are cleaned up in two places, both editing only `Host repo-remote-*`
+blocks, under the same lock, atomic temp-file `mv` and `ssh -G` parse check
+that the alias writer uses, and both followed by `ssh-keygen -R <HostName>`:
+
+- `down --yes --delete` (AWS and GCP) removes the terminated box's alias and
+  known_hosts entry after the terminate succeeds. A failed cleanup is only a
+  warning (the box is already gone). A stop-only `down --yes` keeps both,
+  because the box still exists.
+- `repo-remote prune` removes the aliases of boxes that no longer exist. It is
+  a **dry run** unless `--yes` is given. It lists the instances carrying a
+  `repo-remote` tag/label at the configured provider and region and keeps a
+  block whose `HostName` is a live instance's public IP or id, or whose alias is
+  `repo-remote-<tag>` for a live instance (a stopped box's recorded IP is stale
+  by design). It **fails closed**: if the lookup errors or returns anything it
+  cannot parse, it exits `4` and removes nothing. A block it cannot judge
+  (multi-pattern `Host` line, no `HostName`) and every non-`repo-remote-*`
+  block stay byte-identical. It judges only the configured provider/region, so
+  aliases for boxes in another region or provider look stale: read the dry run
+  first. `--json` prints `{"action":"prune","provider":..,"disposition":
+  "dry-run"|"removed","stale":[..],"kept":N}`. The VM-side idle shutdown cannot
+  reach your local `~/.ssh/config`, so `prune` is the way to clear aliases left
+  by it.
 
 `--yes` **removes the prompt, not the consent.** A cost-relevant field missing
 from config — the provider, its credentials, or `REPO_REMOTE_INSTANCE_TYPE` —
@@ -80,6 +118,12 @@ meaning; under `ssm`, `public_ip` is `""` because no public IP is looked up.
 See [AWS transport: direct SSH or SSM Session
 Manager](#aws-transport-direct-ssh-or-ssm-session-manager).
 
+The `--json` output for `up` (plan and real provision) and `down` also carries
+an **additive** `market` field (repo#616): `"on-demand"` (the default) or
+`"spot"`, the configured `REPO_REMOTE_MARKET`, so automation can tell a Spot
+launch from an on-demand one **before** spending money. See [AWS market:
+on-demand or Spot](#aws-market-on-demand-or-spot).
+
 `--force` is a **separate** override with a single job: it lets `up` reuse, or
 `down` stop/terminate, an instance carrying a **fleet marker** (see
 [Fleet-marked hosts: the reuse and teardown
@@ -88,14 +132,16 @@ relax the cost gate — `--force` without a pre-supplied
 `REPO_REMOTE_INSTANCE_TYPE` still fails loudly.
 
 Exit codes: `0` success (including a dry-run plan), `2` missing/invalid required
-config (the cost gate), `3` provider authentication failed, `4` cloud operation
-failed, `5` refused to reuse a fleet-marked instance (pass `--force`), `6`
+config (the cost gate; also the `REPO_REMOTE_MARKET=spot` lifecycle refusals),
+`3` provider authentication failed, `4` cloud operation
+failed (for `prune`: the provider lookup failed, nothing removed), `5` refused to reuse a fleet-marked instance (pass `--force`), `6`
 host-identity verification failed — the host reachable at the SSH alias is not
 this repo's instance, or its identity could not be established (see [Stale SSH
 aliases and released public IPs](#stale-ssh-aliases-and-released-public-ips-host-identity-verification);
 **not** overridable with `--force`), `7` `attach` could not resolve the GitHub
-credential — `REPO_REMOTE_GH_TOKEN_CMD` failed or printed a malformed token;
-nothing was sent and the static token was **not** used instead (see [GitHub
+credential — none is configured, the device flow was declined, expired, timed
+out or failed, or `REPO_REMOTE_GH_TOKEN_CMD` failed or printed a malformed
+token; nothing was sent and no other source was used instead (see [GitHub
 credentials on the VM](#github-credentials-on-the-vm)), `64` usage error.
 `attach` otherwise exits with the remote session's own status.
 
@@ -145,6 +191,19 @@ recommending `REPO_REMOTE_ENV_FILE`. The read/write still happens; the primary
 checkout never warns. When operating by hand from a linked worktree, say the
 same thing to the user rather than silently updating that file.
 
+**Naming a second box (`REPO_REMOTE_NAME`).** A box's identity (the
+`repo-remote=<name>` tag, the `repo-remote-<name>` SSH alias, the security-group
+names and the SSH-ingress marker) defaults to the primary checkout's directory
+name, so one checkout drives one box. Set `REPO_REMOTE_NAME=<name>` (process
+environment, shared `remote.env`, or the per-repo file) to use a different name
+and therefore a fully distinct box. The typical use is a **build/test box** (the
+default, fast pre-CI builds) plus a separate **fit box** (big-RAM, long-running
+jobs) for the same repo: the per-box `remote-run` lock then no longer serializes
+the two. Give the second box its own `REPO_REMOTE_ENV_FILE` so it pins its own
+instance id and sizing. Only `[A-Za-z0-9._-]` is allowed; anything else exits 2
+before any cloud call. Empty or unset keeps the derived name. It also overrides
+the name in a linked worktree.
+
 Variables are namespaced `REPO_REMOTE_*` so they don't collide with the app's
 own vars; the provisioning credentials use their standard cloud names. Either
 file may set any variable — the split below is the recommended home for each,
@@ -165,25 +224,29 @@ REPO_REMOTE_SSH_KEY=~/.ssh/id_ed25519     # key used for the SSH session (fine t
                                            # EC2 key pair at launch (repo#177) — the same key,
                                            # two roles, so `up` never launches keyless.
 
-# --- dev-session auth (optional; used ON the VM) ---
+# --- dev-session auth (used ON the VM) ---
 # Unlike the provisioning creds above, these DO travel to the VM so gh/claude
 # work there. The gh token is resolved by `repo-remote attach` for each session
 # and handed over as data on the verified SSH connection (never a file, never
 # the container's configuration); the Claude account pool (token FILES) is
 # copied to the VM's .loom/tokens/ (chmod 600) so a Loom install there can
 # rotate accounts. See "GitHub credentials on the VM" below.
-REPO_REMOTE_GH_TOKEN_CMD=                  # RECOMMENDED: a LOCAL command whose stdout is a short-lived
+REPO_REMOTE_GH_APP_CLIENT_ID=              # REQUIRED PATH: the public client ID of the GitHub App
+                                           # (Device Flow enabled). Each attach runs GitHub's device
+                                           # flow: you approve a one-time code in your browser and the
+                                           # session acts as YOUR account (App permissions, ~8 h).
+                                           # Not a secret; no client secret is needed. Wins over
+                                           # REPO_REMOTE_GH_TOKEN_CMD.
+REPO_REMOTE_GH_TOKEN_CMD=                  # alternative: a LOCAL command whose stdout is a short-lived
                                            # token, run for every attach (e.g. a GitHub App
-                                           # installation-token minter). Wins over REPO_REMOTE_GH_TOKEN
-                                           # when non-empty; a failure is fatal (exit 7), never a
-                                           # fallback to the static token.
-REPO_REMOTE_GH_TOKEN=                      # legacy static GitHub token → gh + git-over-https on the VM.
-                                           # Fine-grained, scoped to the target repo. For Loom-style
-                                           # label workflows grant Contents + Issues + Pull requests
-                                           # (all Read/write): issue labels need Issues:write, PR labels
-                                           # need Pull requests:write. Sets existing labels only — no
-                                           # label *creation* needed (Loom never invents labels).
-                                           # The same permissions apply to a minted token.
+                                           # installation-token minter). Used when no client ID is
+                                           # set; a failure is fatal (exit 7), never a fallback.
+# REPO_REMOTE_GH_TOKEN=                    # legacy static token: REFUSED by attach (exit 2) unless
+# REPO_REMOTE_ALLOW_STATIC_GH_TOKEN=1      # this break-glass opt-out is also set — then every attach
+                                           # warns that the session runs as one shared, long-lived
+                                           # identity. Repository permissions for any source, for
+                                           # Loom-style label workflows: Contents + Issues + Pull
+                                           # requests (all Read/write).
 REPO_REMOTE_GH_API_HOST=                   # optional: route gh's API traffic through an operator-run
                                            # gateway (bare hostname) — see "GitHub API gateway" below
 
@@ -222,6 +285,7 @@ REPO_REMOTE_SETUP="make setup"            # optional first-boot command; fallbac
 # --- session ---
 REPO_REMOTE_IDLE_SHUTDOWN_MIN=120         # interactive-host default; use ~20 for daemon-managed/worker hosts; 0 disables the guard entirely (see below)
 REPO_REMOTE_IDLE_MARKER=                   # optional idle-exit marker path (default: /var/run/repo-remote-daemon-idle.marker)
+REPO_REMOTE_RUST=0                        # AWS only: 1 installs rustup/cargo system-wide at first boot (see "Rust toolchain" below)
 
 # --- fleet-marker guard (refuse to reuse a managed fleet host) ---
 REPO_REMOTE_FLEET_TAG_KEY=Fleet           # tag (AWS) / label (GCP) key that marks a managed fleet host; empty disables the check
@@ -232,7 +296,11 @@ REPO_REMOTE_SSH_CIDR=                     # optional: pin the SG's SSH-ingress C
                                            # overrides current-IP detection outright. Validated — see below
 REPO_REMOTE_SSH_MIN_PREFIX=32             # narrowest IPv4 prefix accepted for SSH ingress (default 32 = one address;
                                            # set e.g. 24 to allow a known ISP block)
+REPO_REMOTE_SSH_STALE_DAYS=7                # days a tool-owned rule for a DIFFERENT address is kept before `up` revokes it
+                                           # as stale (0 = revoke immediately); keeps both IPs of an alternating egress
 REPO_REMOTE_ALLOW_WORLD_SSH=              # "1" opts in, loudly, to a CIDR wider than the minimum (0.0.0.0/0, ::/0)
+REPO_REMOTE_CALLER=                       # optional: caller id stamped into this host's SSH rule Description
+                                           # (default: short hostname); set it when hosts share a short hostname
 
 # --- transport (AWS only; see "AWS transport: direct SSH or SSM Session Manager" below) ---
 REPO_REMOTE_TRANSPORT=ssh                 # ssh (default: public IP + tcp/22 from your address) or
@@ -240,6 +308,10 @@ REPO_REMOTE_TRANSPORT=ssh                 # ssh (default: public IP + tcp/22 fro
 REPO_REMOTE_INSTANCE_PROFILE=             # optional IAM instance profile NAME attached at launch
                                            # (--iam-instance-profile Name=<name>); REQUIRED for a fresh ssm launch.
                                            # Setting it alone does not change the transport.
+
+# --- market (AWS only; see "AWS market: on-demand or Spot" below) ---
+REPO_REMOTE_MARKET=on-demand              # on-demand (default) or spot: a one-time Spot launch that is
+                                           # TERMINATED (never stopped) on interruption or idle shutdown
 ```
 
 Only `REPO_REMOTE_PROVIDER` (or a provider argument) and that provider's
@@ -261,26 +333,28 @@ IPs](#stale-ssh-aliases-and-released-public-ips-host-identity-verification).
 - **Provisioning credentials** (`AWS_*`, `GCP_*`) drive the cloud CLI *locally*
   and are **never** copied to the VM.
 - **Dev-session auth** (the GitHub credential, the `ACCOUNT_*` Claude pool) is
-  **optional** and, when set, is **placed on the VM by design** so `gh` and
-  `claude` work there.
-  - **GitHub — the recommended path is a minted token:** set
-    `REPO_REMOTE_GH_TOKEN_CMD` to a local command that prints a short-lived
-    token (a GitHub App installation token, for example). `repo-remote attach`
-    runs it for **each session**, only after the host identity is verified,
-    and hands the result to that session over the verified SSH connection — it
-    lives only in the session's process environment: not in `remote.env`, not
-    on the VM's disk, not in the container's configuration, not in any argv. A
-    compromised VM then exposes a credential that expires, attributed to the
-    App rather than a person. A static `REPO_REMOTE_GH_TOKEN` still works the
-    same way (with a one-line notice recommending the command form); it is
-    simply long-lived. See [GitHub credentials on the
-    VM](#github-credentials-on-the-vm).
+  **placed on the VM by design** so `gh` and `claude` work there.
+  - **GitHub — the required path is the device flow (a per-user token):** set
+    `REPO_REMOTE_GH_APP_CLIENT_ID` to the GitHub App's public client ID. For
+    **each session**, only after the host identity is verified, `repo-remote
+    attach` runs GitHub's device flow: it shows a URL and a one-time code, you
+    approve it in your browser, and the session gets a GitHub App **user**
+    access token for **your own** account — limited to the App's permissions,
+    expiring after about 8 hours. It is handed to that session over the
+    verified SSH connection and lives only in the session's process
+    environment: not in `remote.env`, not on the VM's disk, not in the
+    container's configuration, not in any argv. Every person running
+    `/repo:remote` acts on GitHub as themselves, never as a shared identity.
+    `attach` **requires** a credential: with none configured it fails (exit
+    `7`). `REPO_REMOTE_GH_TOKEN_CMD` remains as an alternative source; a static
+    `REPO_REMOTE_GH_TOKEN` is refused unless the break-glass
+    `REPO_REMOTE_ALLOW_STATIC_GH_TOKEN=1` is also set. See [GitHub credentials
+    on the VM](#github-credentials-on-the-vm).
   - **Claude pool:** the pool's **token files** are copied to the VM's
     `.loom/tokens/` at `chmod 600` (they must be files for Loom to rotate
     them); they are wiped when the box is terminated.
 
-  If neither is set, the VM stays unauthenticated and you log in there
-  interactively.
+  Without a Claude pool, you log in to `claude` on the VM interactively.
 
 **Pool resolution (layered, like the config files):** the shared pool is
 `~/.config/repo/remote.env`'s `ACCOUNT_*` registry + `~/.config/repo/tokens/`.
@@ -305,19 +379,75 @@ shipped — so remoting a Loom repo carries *its* accounts, not the shared set.
 is resolved and delivered **per session** by `repo-remote attach` — the
 credential-aware connect *and* reconnect entry point — and by nothing else:
 `up` (dry run or `--yes`), `status`, `verify` and `down` never run the token
-command and never send a token anywhere.
+command, never start the device flow, and never send a token anywhere.
+
+Every person who runs `/repo:remote` must act on GitHub **as themselves**: the
+required source is a GitHub App **user access token** for the person running
+`attach`, obtained through the App's device flow. `attach` will not open a
+session without a credential, and never falls back from one source to another.
 
 ### Where the token comes from
 
+Precedence is device flow > command > static; each value follows the normal
+two-layer rule first (the per-repo file overrides the shared `remote.env`).
+
 | Configured | What `attach` does |
 |---|---|
-| `REPO_REMOTE_GH_TOKEN_CMD` (non-empty) — **recommended** | Runs it locally and uses its stdout. Wins over a static token, which is then ignored (a notice says so) and is **never** used as a fallback. |
-| only `REPO_REMOTE_GH_TOKEN` | Uses the static token, exactly as before, and prints one line recommending `REPO_REMOTE_GH_TOKEN_CMD`. The notice never contains the token. |
-| neither | Opens a plain session; `gh`/git-over-https on the VM stay unauthenticated. |
+| `REPO_REMOTE_GH_APP_CLIENT_ID` (non-empty) — **required path** | Runs GitHub's device flow (below) and uses the resulting per-user token. Wins over a token command, which is then not run (a notice says so). |
+| `REPO_REMOTE_GH_TOKEN_CMD` (non-empty), no client ID | Runs it locally and uses its stdout. |
+| `REPO_REMOTE_GH_TOKEN` **without** `REPO_REMOTE_ALLOW_STATIC_GH_TOKEN=1` | **Refused**, exit `2` before connecting — whatever else is configured — with a message naming `REPO_REMOTE_GH_APP_CLIENT_ID` as the replacement. Remove it (a per-repo `REPO_REMOTE_GH_TOKEN=` clears a shared one). |
+| `REPO_REMOTE_GH_TOKEN` **with** `REPO_REMOTE_ALLOW_STATIC_GH_TOKEN=1` (break-glass) | Used only when no client ID and no command is set, and then delivered the same way under a prominent warning, printed on **every** attach, that the session runs as one shared, long-lived identity. With a higher-precedence source it is ignored (a notice says so) and **never** used as a fallback. |
+| nothing | **Fails, exit `7`**, before connecting, explaining how to set `REPO_REMOTE_GH_APP_CLIENT_ID`. There is no unauthenticated session any more. |
 
-Both values follow the normal two-layer rule (the per-repo file overrides the
-shared `remote.env`), so a repo can set its own command, and a per-repo
-`REPO_REMOTE_GH_TOKEN_CMD=` (empty) switches off a shared one.
+A per-repo `REPO_REMOTE_GH_APP_CLIENT_ID=` or `REPO_REMOTE_GH_TOKEN_CMD=`
+(empty) switches off a shared one. The dry-run plan (`up` without `--yes`)
+reports which source `attach` would use (`"gh_credential_source"`: `device`,
+`command`, `static` or `none`) without running anything.
+
+**Why the static token is behind a flag.** One personal token in a shared
+`remote.env` makes everyone who uses that config act as its owner — exactly
+what the per-user requirement removes. Keeping it behind a loudly named
+opt-out, refused even next to another source, means a leftover token in a
+shared file cannot quietly come back.
+
+**The device flow.** `REPO_REMOTE_GH_APP_CLIENT_ID` is the **public** client ID
+of a GitHub App with **Device Flow** enabled in its settings (no client secret
+is used or needed). After the host identity is verified, `attach`:
+
+1. posts the client ID to `https://github.com/login/device/code`;
+2. prints, on **stderr**, the verification URL and a one-time user code:
+
+   ```
+   repo-remote: GitHub sign-in for this session (device flow; the session will act as YOUR GitHub account):
+   repo-remote:   1. open   https://github.com/login/device
+   repo-remote:   2. enter  WDJB-MJHT
+   ```
+
+3. polls `https://github.com/login/oauth/access_token` while you approve it,
+   waiting the server's `interval` before each poll, adding 5 seconds on
+   `slow_down`, and continuing on `authorization_pending`;
+4. stops at the code's `expires_in` (GitHub issues ~15 minutes; the wait is
+   capped at 15 minutes whatever the server says). `expired_token`,
+   `access_denied` (you declined), the timeout, an unreachable endpoint, or a
+   malformed response are all exit `7` with nothing sent. Response bodies are
+   never displayed — only a validated OAuth error name. `Ctrl-C` cancels.
+
+The resulting token is a GitHub App user-to-server token (`ghu_…`) for your
+own account, limited to the intersection of the App's permissions and yours,
+and it expires after about **8 hours** (GitHub's fixed lifetime). No refresh
+token is requested or stored; re-running `attach` runs the flow again. The
+verified SSH connection stays open while you approve the code; if it drops
+meanwhile, `attach` fails with exit `6` and nothing is sent — run it again.
+
+Hygiene: the client ID is the only value placed in `curl`'s arguments. The
+device code (a bearer secret for the poll) and the token are passed to `curl`
+on **stdin** through a pipe, parsed in-process (no `jq`, no `python`), never
+written to a file, and never printed; the whole window runs with shell tracing
+suspended. The token then travels exactly like any other source's (below).
+
+The App itself (owner, permissions — Contents and Pull requests for a minimal
+setup; add Issues for Loom-style label workflows — and installation on the
+repositories you work on) is created outside this tool.
 
 **How the command runs.** `REPO_REMOTE_GH_TOKEN_CMD` is a shell command string
 run **on your machine** with `bash -c`, stdin from `/dev/null`, with the same
@@ -338,14 +468,16 @@ inside the command instead. Requirements, all enforced:
 Anything else — a non-zero exit, empty output, a second line — stops `attach`
 with exit `7` **before** anything is sent, and says so. There is no fallback to
 `REPO_REMOTE_GH_TOKEN`: a broken minter is a failure, not a reason to quietly
-use the long-lived credential it was meant to replace.
+use the long-lived credential it was meant to replace. Note that an App
+**installation** token minted this way acts as the App, not as you; the device
+flow is the per-user path.
 
 ```bash
 # e.g. a GitHub App installation token minted by a local helper (operator-supplied):
 REPO_REMOTE_GH_TOKEN_CMD='gh-app-token --app-id 123456 --installation-id 7890123 --key-file ~/.config/repo/app.pem'
 ```
 
-The minted token needs the same repository permissions the static one did
+A minted token needs the same repository permissions as any other source
 (Contents, Issues, Pull requests read/write for Loom-style workflows). This
 tool does not provision GitHub Apps, distribute keys, or run a broker — you
 supply the command.
@@ -354,13 +486,15 @@ supply the command.
 
 `repo-remote attach` does these in order, each step gating the next:
 
-1. **Validate config** — transport, gateway, repo name, static-token shape. No
-   network, nothing run.
+1. **Validate config** — transport, gateway, repo name, credential source
+   (none configured: exit `7`; a static token without the opt-out or a
+   malformed client ID: exit `2`). No network, nothing run.
 2. **Open one SSH master connection** over `repo-remote-<name>` and **verify
    the host identity over it**, exactly as `repo-remote verify` does: a
    mismatch, an unreachable host, or an identity it cannot establish is exit
-   `6`, and the token command has **not** run.
-3. **Resolve the credential** (run the command, or read the static token).
+   `6`, and neither the device flow nor the token command has run.
+3. **Resolve the credential** (run the device flow, or the command, or — with
+   the opt-out — read the static token).
 4. **Open the session over that same verified connection** (multiplexed —
    `ControlMaster`), with `StrictHostKeyChecking=yes` as a backstop, carrying
    the token as an SSH **environment value** (`SendEnv
@@ -373,6 +507,14 @@ On the VM a small generated bootstrap (it contains no secret) reads that value,
   `-e GH_TOKEN` passes the value by *name*, so it is not in docker's argv, and
   an exec's environment is not part of the container's persisted configuration;
 - **no container** (or `--host`) → your login shell in `~/<repo-name>`.
+
+Before the session starts, the bootstrap runs `gh api user --jq .login` where
+the session will run (in the container, else on the host) and prints
+`repo-remote: acting as GitHub user <login>`, so you see which account the
+session acts as. It is best effort: if `gh` is missing there or the lookup
+fails (an App installation token has no user, so it always does with one), a
+warning is printed and the session still opens. Only a value shaped like a
+GitHub login is ever printed.
 
 `--container` / `--host` force one side (`--container` with no running
 container is refused on the VM, exit `98`). `--command '<cmd>'` runs `<cmd>`
@@ -418,7 +560,8 @@ container without `-e GH_TOKEN` to remove the stored copy (step 6).
 ### Reconnect and refresh
 
 Re-running `repo-remote attach` (or `/repo:remote --attach`) **is** the refresh:
-it verifies the host again, runs the token command again, and the **new**
+it verifies the host again, runs the device flow (or the token command) again,
+and the **new**
 session gets the new token — on the same instance and the same container,
 with nothing provisioned, started, or stopped. A token that expires mid-session
 is replaced by attaching again; no relaunch is needed.
@@ -434,8 +577,8 @@ background renewal.
 `REPO_REMOTE_GH_API_HOST=<hostname>` routes `gh`'s API traffic on the VM
 through an operator-run gateway (for teams that broker and audit API access
 centrally), while **git keeps talking to its github.com remote** with the same
-token. This composes with the token command — git still needs a token, so a
-gateway with no credential configured is refused.
+token. This composes with any credential source (the device flow or the token
+command) — git still needs a token, and `attach` refuses to run without one.
 
 The contract is narrow on purpose, because `gh` itself decides where requests
 go:
@@ -518,10 +661,15 @@ settings there and never create an in-tree `.env`.
    command instead.
 7. **SSH key.** Ask which SSH key to use (`REPO_REMOTE_SSH_KEY`); it goes in
    the shared file by default (a key path is usually the same everywhere).
-   **GitHub on the VM (optional).** Recommend `REPO_REMOTE_GH_TOKEN_CMD` — ask
-   for the operator's own minter command — over pasting a long-lived
-   `REPO_REMOTE_GH_TOKEN`. Never run the command during the wizard, and never
-   echo a token back. Only offer `REPO_REMOTE_GH_API_HOST` if the user already
+   **GitHub on the VM (required for `attach`).** Ask for the GitHub App's
+   client ID and write `REPO_REMOTE_GH_APP_CLIENT_ID` (it is public, so the
+   shared file is fine); each person then approves their own device-flow
+   code at every attach. Offer `REPO_REMOTE_GH_TOKEN_CMD` only as the
+   alternative for an operator-supplied minter. Never offer to paste a
+   static `REPO_REMOTE_GH_TOKEN` (it is refused without the break-glass
+   `REPO_REMOTE_ALLOW_STATIC_GH_TOKEN=1`); if one is already configured, say
+   that `attach` will refuse it and offer to remove it. Never run the command
+   or start the device flow during the wizard, and never echo a token back. Only offer `REPO_REMOTE_GH_API_HOST` if the user already
    runs a GHES-shaped gateway (see [GitHub API gateway](#github-api-gateway)).
 8. **Validate & write.** Run the provider identity check with the entered
    credentials to prove they work. Then show **both** resulting files (shared
@@ -631,6 +779,10 @@ RUNNING → offer reuse; STOPPED → offer to start.
    change and no current-IP or public-IP lookup, and re-points the alias at the
    instance ID instead — see [AWS transport: direct SSH or SSM Session
    Manager](#aws-transport-direct-ssh-or-ssm-session-manager).
+   With `REPO_REMOTE_MARKET=spot`, a **stopped** instance (pinned or
+   tag-discovered) is never started: `up` refuses (exit `2`) before
+   `start-instances` — see [AWS market: on-demand or
+   Spot](#aws-market-on-demand-or-spot). A running one is still reused.
    On AWS, reuse also **inspects the instance's actual root volume** and, if it
    is still gp2, prints a stderr advisory with the exact `aws ec2
    modify-volume` command to convert it — `up` never runs that command itself.
@@ -672,6 +824,11 @@ Requirements for the created instance:
 - **AWS: the configured instance profile, if any** — `REPO_REMOTE_INSTANCE_PROFILE=<name>`
   adds `--iam-instance-profile Name=<name>` to `run-instances` on either
   transport. A fresh `ssm` launch requires it.
+- **AWS: the configured market** — `REPO_REMOTE_MARKET=spot` adds
+  `--instance-market-options MarketType=spot,SpotOptions={SpotInstanceType=one-time,InstanceInterruptionBehavior=terminate}`
+  and `--instance-initiated-shutdown-behavior terminate` to the same single
+  `run-instances` call; on-demand (the default) adds neither. See **AWS market:
+  on-demand or Spot** below.
 - For GPU hosts, see **GPU hosts** below — this needs a GPU-ready image and,
   on AWS, quota-aware handling.
 - Install an idle-shutdown guard (cron checking SSH sessions + CPU, running
@@ -686,7 +843,10 @@ Requirements for the created instance:
   GCP: prefer OS Login / IAP.
 
 If the zone/region is stocked out (common for GPU types), offer the nearest
-alternative zone or the next type down rather than failing.
+alternative zone or the next type down rather than failing. That is an offer
+to the human, not something the script does: `repo-remote up` calls
+`run-instances` exactly once and never retries another type, zone, or market
+on its own.
 
 #### Security group and SSH ingress (AWS)
 
@@ -733,23 +893,60 @@ landed before it ever calls `run-instances`:
      to `0.0.0.0/0` with only a printed notice.)
 4. **Authorize idempotently, and label the rule.** `authorize-security-group-ingress`
    for tcp/22 from the resolved CIDR, via `--ip-permissions` so the rule
-   carries a `Description` of `repo-remote:<repo-name>:<YYYY-MM-DD>`; a
-   duplicate rule on a reused group counts as success. That marker is what
+   carries a `Description` of `repo-remote:<repo-name>:<caller>:<YYYY-MM-DD>`;
+   a duplicate rule on a reused group counts as success. That marker is what
    makes each rule traceable to its owner in an audit — and what step 4a keys
    on.
 
-   4a. **Replace, don't accumulate.** Before authorizing the current address,
-   any tcp/22 rule on the group whose `Description` carries this tooling's
-   `repo-remote:<repo-name>:` marker — i.e. one *this* tooling wrote on an
-   earlier run — is revoked. Without this, every `up` from a new address added
+   `<caller>` identifies the host/operator running `up`. It is
+   `REPO_REMOTE_CALLER` if set, otherwise the short hostname (`hostname -s`),
+   sanitised to `[A-Za-z0-9_.-]` (any other character, including `:`, becomes
+   `-`) and capped at 40 characters. Set `REPO_REMOTE_CALLER` explicitly when
+   two machines that `up` the same repo's box share a short hostname (e.g. two
+   laptops both named `macbook`), or when the hostname is not stable across
+   sessions — otherwise they share one marker and step 4a on one would revoke
+   the other's rule. Conversely, give one operator the *same* value on every
+   machine only if you want each `up` to reclaim the others' rules.
+
+   4a. **Replace, don't accumulate — but only your own rules, and only once
+   they are stale.** Before authorizing the current address, any tcp/22 rule on
+   the group whose `Description` starts with **this caller's** marker,
+   `repo-remote:<repo-name>:<caller>:` — i.e. one *this host* wrote on an
+   earlier run — is revoked **if the date at the end of its `Description` is
+   older than `REPO_REMOTE_SSH_STALE_DAYS` (default 7)**. A rule for another
+   address authorized within that window is kept (and logged), because a caller
+   whose egress alternates between two addresses (e.g. an HTTPS proxy vs. the
+   direct SSH path) would otherwise revoke the address its next launch needs
+   and leave boxes unreachable (rjwalters/repo#703). Re-authorizing an address
+   whose rule already exists refreshes that rule's date, so an address still in
+   use never ages out; a rule whose date cannot be parsed is kept. Set
+   `REPO_REMOTE_SSH_STALE_DAYS=0` for the old immediate-revoke behaviour. Without this, every `up` from a new address added
    a `/32` and removed none, so a few weeks of roaming left a group admitting
    every address the operator had ever had. A rule for the address being
-   authorized now is kept (a repeat run from the same place does not flap it),
-   and **rules without that marker are never touched** — an operator-added or
-   pre-existing rule is not this tooling's to revoke. A revoke that fails
-   (e.g. credentials without `RevokeSecurityGroupIngress`) is a loud notice
-   with the manual command, not a failed `up`: it leaves a stale-but-narrow
-   rule behind, never a wider one.
+   authorized now is kept (a repeat run from the same place does not flap it).
+   Everything else is left in place:
+   - **Other callers' rules** (`repo-remote:<repo-name>:<other-caller>:…`) are
+     never touched, so a second host's `up` on a shared box cannot revoke the
+     first host's rule and lock it out (rjwalters/loom#11616).
+   - **Legacy-format rules** written before the per-caller marker
+     (`repo-remote:<repo-name>:<YYYY-MM-DD>`, no caller segment) are **no longer
+     revoked automatically** — their owner is unknown. `up` instead prints a
+     `NOTICE: legacy-format SSH ingress rule(s) on <sg> (tcp/22 from: …)` line
+     with the manual `aws ec2 revoke-security-group-ingress` command; revoke
+     them by hand if stale. The match is exact (the text after
+     `repo-remote:<repo-name>:` must be a bare 10-character date), so a
+     per-caller rule whose caller id happens to start with `20` (e.g. hostname
+     `2024-mbp`) is never reported as legacy.
+   - **Rules without any `repo-remote:` marker** are never touched — an
+     operator-added or pre-existing rule is not this tooling's to revoke.
+
+   A revoke that fails (e.g. credentials without
+   `RevokeSecurityGroupIngress`) is a loud notice with the manual command, not
+   a failed `up`: it leaves a stale-but-narrow rule behind, never a wider one.
+
+   If SSH readiness fails, `up` logs a `diagnostic:` line with the group's
+   current tcp/22 CIDRs and the address authorized this run before exiting, so
+   a caller-address mismatch is visible at a glance.
 5. **Verify before spending money.** `describe-security-groups` on the
    resolved group must show a tcp/22 rule, or the run fails loudly (exit `4`)
    before `run-instances` is ever called — this is what would have caught the
@@ -928,11 +1125,101 @@ Invalid values fail before any cloud call (exit `2`): an unknown transport,
 under `ssm` (it goes into the `ProxyCommand`), and an SSH user or key path
 that would add a line to the SSH config.
 
+#### AWS market: on-demand or Spot
+
+`REPO_REMOTE_MARKET` picks the EC2 purchasing option for a **fresh** launch
+(AWS only; the usual two config layers apply, repo wins). It is **opt-in**:
+unset, empty, or `on-demand` launches exactly as before — no market flag is
+passed and the lifecycle is unchanged.
+
+```bash
+# per-repo (or shared) config
+REPO_REMOTE_MARKET=spot
+```
+
+With `spot`, the one `run-instances` call gains two arguments:
+
+```bash
+--instance-market-options MarketType=spot,SpotOptions={SpotInstanceType=one-time,InstanceInterruptionBehavior=terminate}
+--instance-initiated-shutdown-behavior terminate
+```
+
+Everything else about the launch is unchanged: tag, key pair, security group
+and SSH ingress (or the zero-inbound `ssm` group), IMDSv2 pin, typed root
+volume, instance profile, user-data (identity marker and idle guard), and the
+post-launch host-identity check.
+
+**What Spot changes about the lifecycle.**
+
+- **It terminates; it never stops.** A Spot interruption terminates the box,
+  and so does the idle guard: its `shutdown -h` is an instance-initiated
+  shutdown, which this launch turns into **termination**. The root volume, and
+  everything on it that you did not push or copy off, goes with it. Commit and
+  push often. The idle guard is still installed (it is what ends the bill).
+- **No reuse of a stopped box.** `up` never starts a stopped or stopping
+  instance under `spot` — pinned or tag-discovered. It exits `2` before
+  `start-instances`, with two ways forward: set `REPO_REMOTE_MARKET=on-demand`
+  to restart that box as before, or terminate it with
+  `repo-remote down --yes --delete` and re-run `up`. A **running** instance is
+  still reused. A pinned `REPO_REMOTE_INSTANCE_ID` that is already
+  `terminated` or `shutting-down` (an interruption or idle shutdown happened)
+  is treated as gone, and `up` launches a fresh Spot instance and writes its id
+  back.
+- **Teardown is `--delete`.** `repo-remote down --yes` without `--delete` would
+  stop the box, which this configuration does not support, so it is refused
+  (exit `2`) before any cloud call. `repo-remote down --yes --delete`
+  terminates exactly the resolved instances, with the fleet-marker guard
+  intact. The dry run (`down` without `--yes`) still lists what would be
+  affected and notes the refusal.
+- **Price and capacity are not guaranteed.** AWS may have no Spot capacity for
+  the type, or may reclaim it at any time with a two-minute notice. A rejected
+  launch (`InsufficientInstanceCapacity`, a Spot quota such as
+  `MaxSpotInstanceCountExceeded`, `SpotMaxPriceTooLow`) fails with exit `4`.
+  **Nothing is retried**: no second `run-instances`, no fallback to
+  on-demand, no other instance type. Spot vCPU quotas are separate from
+  on-demand ones (Service Quotas → EC2 → *All Standard (A, C, D, H, I, M, R,
+  T, Z) Spot Instance Requests*, `L-34B43A08`; GPU: *All G and VT Spot Instance
+  Requests*, `L-3819A6DF`).
+- **The cost estimate stays the on-demand rate.** No maximum price is passed,
+  so AWS caps the Spot price at the on-demand price. The estimate in the plan
+  and the `up` JSON is therefore an upper bound for Spot. The actual Spot
+  price varies and is usually lower.
+
+The plan (dry run) names the market and these caveats; the `up` and `down`
+JSON carry `"market":"spot"` or `"market":"on-demand"`. On reuse the field
+reports the **configuration**. It is not an inspection of the existing
+instance's actual lifecycle.
+
+Any value other than exactly `on-demand` or `spot` (including `Spot`), and
+`spot` with GCP, fails before any cloud call (exit `2`), on `up` (dry run
+included) and on `down`.
+
+#### Rust toolchain (`REPO_REMOTE_RUST=1`, AWS)
+
+Opt-in and off by default; with it off the user-data is unchanged. When set to
+`1`, a newly created AWS box's user-data installs rustup system-wide
+(`/opt/rust`, minimal profile, stable toolchain; plus `build-essential` if there
+is no C compiler) and puts `cargo`, `rustc` and `rustup` wrapper scripts (which set `RUSTUP_HOME`) in
+`/usr/local/bin`, so `ssh box cargo --version` works non-interactively. The
+fragment runs last and is non-fatal: a failed install leaves ssh keys, host
+identity and the idle guard intact (log: `/var/log/repo-remote-rust.log`).
+
+- **Wait for the marker.** User-data runs asynchronously after ssh is
+  reachable, so `up` returning does not mean Rust is ready. The file
+  `/var/lib/repo-remote/rust-ready` appears only after `cargo` and `rustc`
+  ran successfully with `RUSTUP_HOME`/`CARGO_HOME` unset (as over ssh); poll for it before an on-box `cargo install`.
+- **Existing boxes are not retrofitted.** `up` never re-attaches user-data to a
+  reused instance, so recreate the box (or install Rust by hand once).
+- GCP is not covered.
+
 #### The idle-shutdown guard
 
 The guard is a cron watchdog (`/usr/local/bin/repo-remote-idle-check`, run every
 minute) installed via cloud-init user-data. It powers the host off with
 `shutdown -h` once it has been idle for `REPO_REMOTE_IDLE_SHUTDOWN_MIN` minutes.
+On an on-demand box that **stops** it. Under `REPO_REMOTE_MARKET=spot` it
+**terminates** it, disk included (see [AWS market: on-demand or
+Spot](#aws-market-on-demand-or-spot)).
 
 **`REPO_REMOTE_IDLE_SHUTDOWN_MIN=0` (or any non-positive value) disables the
 guard outright** — no cron/watchdog script is installed at all. This is
@@ -1386,6 +1673,23 @@ Update the line in place if present, else append it. Report the edit.
 
 ### 5. Get the repo onto the instance
 
+**Resolve the code identity first**, before any clone or rsync, so the box can
+record exactly what it was given. `git rev-parse HEAD` works on a detached HEAD
+and with no `origin`, so neither case needs special handling:
+
+```bash
+SHA=$(git rev-parse HEAD)
+DIRTY=$(git status --porcelain --untracked-files=no | grep -q . && echo true || echo false)
+```
+
+`DIRTY` covers tracked changes only; untracked and gitignored files never count.
+
+**Opt-in clean run.** If the user asked for a clean run (for example "run this
+clean" or "refuse a dirty tree"), and `DIRTY` is `true`, stop step 5 here: tell
+the user which tracked files differ from `HEAD` and do not rsync anything. By
+default, with no such request, a dirty tree is **not** refused: step 5 keeps
+syncing uncommitted work as before.
+
 - **Repo has an `origin` remote:** clone on the VM and check out the current
   branch. For a private GitHub repo, run the clone through `attach` so it is
   authenticated by a freshly resolved session token and nothing is stored:
@@ -1403,6 +1707,20 @@ rsync -az --delete \
   --filter=':- .gitignore' --exclude '.git/' \
   ./ repo-remote-<name>:~/<repo-name>/
 ```
+
+**Then record the identity on the box, after the rsync.** `rsync --delete`
+removes any file on the box that is not in the local tree, so a marker written
+earlier would be deleted. Write `~/<repo-name>/.repo-remote-sha` with the SHA
+and the dirty flag:
+
+```bash
+repo-remote attach --host --command "printf 'sha: %s\ndirty: %s\n' $SHA $DIRTY > ~/<repo-name>/.repo-remote-sha"
+```
+
+**Report the recorded SHA and the dirty flag to the user** (for example
+`recorded sha 1a2b3c4 dirty: false`). A job on the box can read
+`.repo-remote-sha` to know which commit, and whether uncommitted tracked
+changes, it ran against.
 
 Always target the SSH alias `repo-remote-<name>`, not a raw IP. The alias
 carries the user, key, and on `REPO_REMOTE_TRANSPORT=ssm` the SSM
@@ -1474,7 +1792,8 @@ VM to interactive login.
 2. **gh — per session, via `attach`.** Do **not** export a token for
    `docker run`, and do not run `gh auth login` or `gh auth setup-git`. Every
    session opened with `repo-remote attach` receives a freshly resolved token
-   (`REPO_REMOTE_GH_TOKEN_CMD`, else the static `REPO_REMOTE_GH_TOKEN`) as
+   (the per-user device-flow token, else `REPO_REMOTE_GH_TOKEN_CMD`, else —
+   break-glass only — the static `REPO_REMOTE_GH_TOKEN`) as
    `GH_TOKEN`, plus an environment-only git credential helper — see [GitHub
    credentials on the VM](#github-credentials-on-the-vm). The token lives only
    in that session's processes. **Note:** `gh` infers the repo from the local
@@ -1552,8 +1871,9 @@ session command is simply:
 
 It lands in the dev container at `/work` when one is running, else in
 `~/<repo-name>` on the host (`--container` / `--host` force one). Because the
-token command runs **in that terminal, at attach time**, every new window gets
-a fresh credential; to refresh an expired one, exit and attach again (see
+credential is resolved **in that terminal, at attach time**, every new window
+gets a fresh credential — with the device flow, the verification URL and the
+one-time code appear in that new window, and the person at it approves them; to refresh an expired one, exit and attach again (see
 [Reconnect and refresh](#reconnect-and-refresh)). Do not hand-build an
 `ssh … 'docker exec …'` command that carries a token: a token in a command
 string lands in process lists, shell history, and logs.
@@ -1595,8 +1915,10 @@ IPs](#stale-ssh-aliases-and-released-public-ips-host-identity-verification).
 Delegates to `repo-remote attach` in a new terminal window (step 7). It is the
 reconnect path too: run it whenever you want another session, or a fresh token
 after one expired. It verifies the host identity first (exit `6` stops it
-before any credential is resolved), then resolves the credential (exit `7` if
-the token command fails — no static fallback), then opens the session on the
+before any credential is resolved), then resolves the credential — normally
+the per-user device flow, whose URL and code it prints for you to approve
+(exit `7` if none is configured or the flow or token command fails — no
+fallback), then opens the session on the
 existing instance. It never creates, starts, or stops anything, and needs no
 cost confirmation. Full contract: [GitHub credentials on the
 VM](#github-credentials-on-the-vm).
@@ -1608,7 +1930,9 @@ which resolves the same two config layers and only ever touches instances
 carrying this repo's `repo-remote` tag. `repo-remote down` without `--yes` is a
 dry run that lists exactly what would stop; `--yes` acts, and `--delete`
 terminates. `down` is subject to the same fleet-marker guard as `up`'s reuse
-path — see **Fleet-marked hosts: the reuse and teardown guard** above.
+path — see **Fleet-marked hosts: the reuse and teardown guard** above. Under
+`REPO_REMOTE_MARKET=spot`, `down --yes` without `--delete` is refused (exit
+`2`) because a Spot box terminates rather than stops; use `--delete`.
 
 - `--status`: list all instances labeled `repo-remote=<repo-name>` with state
   and uptime; estimate accumulated cost. Uses the resolved credentials (shared
@@ -1628,9 +1952,10 @@ path — see **Fleet-marked hosts: the reuse and teardown guard** above.
    the pinned `REPO_REMOTE_INSTANCE_ID`) — never enumerate-and-guess
 3. **Two secret classes, handled differently** — **provisioning credentials**
    (`AWS_*`/`GCP_*`) are local-only and **never** reach the VM; **dev-session
-   auth** (the GitHub credential, the `ACCOUNT_*` Claude pool) is opt-in and
-   goes to the VM *by design*: the GitHub token — preferably minted per
-   session by `REPO_REMOTE_GH_TOKEN_CMD` — only into the environment of a
+   auth** (the GitHub credential, the `ACCOUNT_*` Claude pool) goes to the VM
+   *by design*: the GitHub token — a per-user token from the device flow
+   (`REPO_REMOTE_GH_APP_CLIENT_ID`), never a shared one without the
+   break-glass opt-out — only into the environment of a
    session opened by `repo-remote attach`; pool token files at `chmod 600`
    under the VM's `.loom/tokens/`. Never copy the provisioning `.env`
    wholesale — carry only the resolved dev-session secrets.
@@ -1652,4 +1977,4 @@ path — see **Fleet-marked hosts: the reuse and teardown guard** above.
    URL, `docker run -e`, `remote.env` write-back, or a `gh auth login` /
    stored git credential on the VM. Use `repo-remote attach`, which hands the
    token over as data after verifying the host; never run the token command
-   for `--status`, `--verify`, `--down`, or a dry run
+   or start the device flow for `--status`, `--verify`, `--down`, or a dry run

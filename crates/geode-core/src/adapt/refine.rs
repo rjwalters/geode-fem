@@ -139,12 +139,16 @@
 //! - **Refinement only.** Coarsening and anisotropic or hanging-node
 //!   refinement are non-goals of Epic #835.
 
+use crate::vec3::{
+    cross3 as cross, dot3 as dot, norm3 as norm, sub3 as sub, tet_signed_volume as signed_volume,
+};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use faer::sparse::{SparseColMat, Triplet};
 
 use crate::assembly::hcurl_space::HcurlSpace;
+use crate::dense_ops::dense_solve_multi;
 use crate::elements::ElementOrder;
 use crate::elements::nedelec_p2::{
     TET_NEDELEC2_DOFS, ascending_vertex_perm, tet_barycentric_gradients, tet_nedelec2_shapes,
@@ -1526,73 +1530,16 @@ fn p2_prolongation(
     rows_to_matrix(rows, cs.n_dofs(), "p=2")
 }
 
-/// Solve `M X = B` for a small dense SPD `M` (partial-pivot elimination).
-#[allow(clippy::needless_range_loop)]
-fn solve_dense<const N: usize>(
-    mut m: [[f64; N]; N],
-    mut b: [[f64; N]; N],
-) -> Option<[[f64; N]; N]> {
-    for col in 0..N {
-        let piv = (col..N).max_by(|&i, &j| m[i][col].abs().total_cmp(&m[j][col].abs()))?;
-        if m[piv][col] == 0.0 {
-            return None;
-        }
-        m.swap(col, piv);
-        b.swap(col, piv);
-        for r in (col + 1)..N {
-            let f = m[r][col] / m[col][col];
-            if f != 0.0 {
-                for c in col..N {
-                    m[r][c] -= f * m[col][c];
-                }
-                for c in 0..N {
-                    b[r][c] -= f * b[col][c];
-                }
-            }
-        }
+/// Solve `M X = B` for a small dense SPD `M`.
+fn solve_dense<const N: usize>(m: [[f64; N]; N], b: [[f64; N]; N]) -> Option<[[f64; N]; N]> {
+    let mf: Vec<f64> = m.iter().flatten().copied().collect();
+    let bf: Vec<f64> = b.iter().flatten().copied().collect();
+    let x = dense_solve_multi(&mf, &bf, N, N)?;
+    let mut out = [[0.0; N]; N];
+    for (i, row) in out.iter_mut().enumerate() {
+        row.copy_from_slice(&x[i * N..(i + 1) * N]);
     }
-    for col in (0..N).rev() {
-        for c in 0..N {
-            let mut s = b[col][c];
-            for k in (col + 1)..N {
-                s -= m[col][k] * b[k][c];
-            }
-            b[col][c] = s / m[col][col];
-        }
-    }
-    Some(b)
-}
-
-// ---------------------------------------------------------------------------
-// Small vector helpers
-// ---------------------------------------------------------------------------
-
-#[inline]
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-#[inline]
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-#[inline]
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
-#[inline]
-fn norm(a: [f64; 3]) -> f64 {
-    dot(a, a).sqrt()
-}
-
-fn signed_volume(p: &[[f64; 3]; 4]) -> f64 {
-    dot(sub(p[1], p[0]), cross(sub(p[2], p[0]), sub(p[3], p[0]))) / 6.0
+    Some(out)
 }
 
 #[cfg(test)]

@@ -51,15 +51,9 @@ use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
 use geode_core::mesh::cube_tet_mesh;
-use geode_core::testing::TestBackend;
-
-use burn::tensor::backend::BackendTypes;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Build (K_int, M_int) for the Dirichlet Laplacian on the unit cube
 /// at the given mesh refinement.

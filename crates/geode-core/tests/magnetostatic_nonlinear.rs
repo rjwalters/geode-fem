@@ -28,8 +28,11 @@
 //! electrical-steel shape, not measured data and not tied to any grade.
 #![allow(clippy::needless_range_loop)]
 
+mod common;
+
 use std::f64::consts::{PI, TAU};
 
+use common::{Lcg, norm};
 use faer::Side;
 use geode_core::analytic::waveguide::{
     RadialGrading, TRI_QUAD_DEG4, TriMesh, disk_boundary_nodes, disk_tri_mesh_bands, rect_tri_mesh,
@@ -72,22 +75,6 @@ fn synthetic_steel() -> TabulatedBhLaw {
 /// μ_r ≈ 35 at 2 T.
 fn brauer() -> BrauerLaw {
     BrauerLaw::new(3.8, 2.17, 396.2).expect("valid Brauer law")
-}
-
-/// Deterministic LCG in [-1, 1).
-struct Lcg(u64);
-impl Lcg {
-    fn next(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        ((self.0 >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
-    }
-}
-
-fn norm(v: &[f64]) -> f64 {
-    v.iter().map(|x| x * x).sum::<f64>().sqrt()
 }
 
 /// Concentric-ring disk mesh with explicit ring radii (`ring_r[0] == 0`),

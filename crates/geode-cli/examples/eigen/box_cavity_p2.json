@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "element_order": 2,
+  "mesh": {
+    "path": "../../../geode-core/tests/fixtures/guide_box_lc030.msh",
+    "length_unit_m": 0.01
+  },
+  "materials": [
+    {
+      "physical_group": "domain",
+      "eps_r": [
+        1.0,
+        0.0
+      ]
+    }
+  ],
+  "boundary_conditions": {
+    "pec": [
+      "walls"
+    ]
+  },
+  "eigen": {
+    "n_modes": 4,
+    "unit": "k0",
+    "shift": 1.5
+  }
+}

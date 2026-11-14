@@ -29,7 +29,7 @@ use std::process::ExitCode;
 use burn::prelude::Backend;
 use burn::tensor::backend::BackendTypes;
 use clap::Parser;
-use geode_app::{App, Verbosity};
+use geode_app::App;
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
 use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
@@ -77,11 +77,7 @@ fn fixture_path() -> PathBuf {
 #[command(
     about = "Regenerate crates/geode-core/tests/fixtures/cube_convergence.toml (--release required)."
 )]
-struct Args {
-    /// Verbosity (`-v` / `-q`), fed to the logging seam.
-    #[command(flatten)]
-    verbose: Verbosity,
-}
+struct Args {}
 
 impl App for Args {
     fn run(self) -> Result<(), Box<dyn std::error::Error>> {
@@ -132,10 +128,6 @@ impl App for Args {
         fs::write(&path, out)?;
         eprintln!("\nWrote fixture: {}", path.display());
         Ok(())
-    }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
     }
 }
 

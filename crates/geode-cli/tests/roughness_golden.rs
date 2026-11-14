@@ -29,10 +29,14 @@
 //! cargo test -p geode-cli --release --test roughness_golden -- --ignored
 //! ```
 
+#[path = "support/scratch.rs"]
+mod scratch_support;
+
 use std::f64::consts::PI;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use scratch_support::Scratch;
 use serde_json::{Value, json};
 
 const SIGMA: f64 = 5.8e7;
@@ -40,28 +44,9 @@ const RMS_M: f64 = 1.0e-6;
 /// Huray clone: a = 0.5 µm, 14 spheres per 100 µm² tile.
 const HURAY: (f64, f64, f64) = (0.5e-6, 14.0, 1.0e-10);
 
-fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-/// Scratch dir unique to this test process + name, removed on drop.
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn new(name: &str) -> Self {
-        let dir =
-            std::env::temp_dir().join(format!("geode-cli-roughness-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        Self(dir)
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::manifest_dir;
 
 /// `fixture` with its mesh path made absolute and `edit` applied, written
 /// to `dir/name`.
@@ -154,7 +139,7 @@ fn reported_k(row: &Value) -> f64 {
 /// an unknown model or a stray key is a `spec_parse` error.
 #[test]
 fn invalid_roughness_is_invalid_spec() {
-    let dir = TempDir::new("invalid");
+    let dir = Scratch::new("geode-cli-roughness-", "invalid");
     let cases = [
         (
             json!({ "model": "hammerstad", "rms_m": -1e-6 }),
@@ -190,7 +175,7 @@ fn invalid_roughness_is_invalid_spec() {
     for (i, (block, needle, code)) in cases.into_iter().enumerate() {
         let spec = spec_from(
             "spiral_golden_smoke.json",
-            &dir.0,
+            &dir,
             &format!("bad{i}.json"),
             |v| leontovich(v)["roughness"] = block.clone(),
         );
@@ -210,9 +195,9 @@ fn invalid_roughness_is_invalid_spec() {
 
 #[test]
 fn zero_rms_reproduces_smooth_bit_for_bit() {
-    let dir = TempDir::new("rms0");
-    let smooth = spec_from("spiral_golden_smoke.json", &dir.0, "smooth.json", |_| {});
-    let rms0 = spec_from("spiral_golden_smoke.json", &dir.0, "rms0.json", |v| {
+    let dir = Scratch::new("geode-cli-roughness-", "rms0");
+    let smooth = spec_from("spiral_golden_smoke.json", &dir, "smooth.json", |_| {});
+    let rms0 = spec_from("spiral_golden_smoke.json", &dir, "rms0.json", |v| {
         leontovich(v)["roughness"] = json!({ "model": "hammerstad", "rms_m": 0.0 });
     });
     let (a, b) = (driven(&smooth), driven(&rms0));
@@ -283,10 +268,10 @@ fn assert_equals_smooth_at_scaled_sigma(
 
 #[test]
 fn hammerstad_rough_matches_analytic_k_and_scaled_sigma() {
-    let dir = TempDir::new("hammerstad");
-    let rough_spec = spec_from("spiral_rough_smoke.json", &dir.0, "rough.json", |_| {});
+    let dir = Scratch::new("geode-cli-roughness-", "hammerstad");
+    let rough_spec = spec_from("spiral_rough_smoke.json", &dir, "rough.json", |_| {});
     let rough = driven(&rough_spec);
-    let ks = assert_equals_smooth_at_scaled_sigma(&rough, k_hammerstad, &dir.0, "hammerstad");
+    let ks = assert_equals_smooth_at_scaled_sigma(&rough, k_hammerstad, &dir, "hammerstad");
     // K rises with f towards (but below) the Hammerstad ceiling 2.
     assert!(ks.windows(2).all(|w| w[0].1 < w[1].1 && w[1].1 < 2.0));
 
@@ -306,12 +291,12 @@ fn hammerstad_rough_matches_analytic_k_and_scaled_sigma() {
 
 #[test]
 fn huray_rough_matches_analytic_k_and_scaled_sigma() {
-    let dir = TempDir::new("huray");
-    let spec = spec_from("spiral_golden_smoke.json", &dir.0, "huray.json", |v| {
+    let dir = Scratch::new("geode-cli-roughness-", "huray");
+    let spec = spec_from("spiral_golden_smoke.json", &dir, "huray.json", |v| {
         leontovich(v)["roughness"] = huray_block();
     });
     let rough = driven(&spec);
-    let ks = assert_equals_smooth_at_scaled_sigma(&rough, k_huray, &dir.0, "huray");
+    let ks = assert_equals_smooth_at_scaled_sigma(&rough, k_huray, &dir, "huray");
     let (a, n, area) = HURAY;
     let k_max = 1.0 + 1.5 * n * 4.0 * PI * a * a / area;
     assert!(ks.windows(2).all(|w| w[0].1 < w[1].1 && w[1].1 < k_max));
@@ -322,14 +307,14 @@ fn huray_rough_matches_analytic_k_and_scaled_sigma() {
 /// one (see the module docs for why it is not exactly one).
 #[test]
 fn rough_conductor_loss_rises_with_k() {
-    let dir = TempDir::new("loss");
+    let dir = Scratch::new("geode-cli-roughness-", "loss");
     let lossless = |v: &mut Value| {
         for m in v["materials"].as_array_mut().unwrap() {
             m["eps_r"][1] = json!(0.0);
         }
     };
-    let smooth = spec_from("spiral_golden_smoke.json", &dir.0, "smooth.json", lossless);
-    let rough = spec_from("spiral_rough_smoke.json", &dir.0, "rough.json", lossless);
+    let smooth = spec_from("spiral_golden_smoke.json", &dir, "smooth.json", lossless);
+    let rough = spec_from("spiral_rough_smoke.json", &dir, "rough.json", lossless);
     let (s, r) = (driven(&smooth), driven(&rough));
     for (rs, rr) in rows(&s).iter().zip(rows(&r)) {
         let k = reported_k(rr);
@@ -351,16 +336,16 @@ fn rough_conductor_loss_rises_with_k() {
 #[test]
 #[ignore = "heavy in debug (AMS COCG on 4 spiral frequencies); CI runs it in release with --ignored"]
 fn rough_ams_matches_direct() {
-    let dir = TempDir::new("ams");
+    let dir = Scratch::new("geode-cli-roughness-", "ams");
     let direct = driven(&spec_from(
         "spiral_rough_smoke.json",
-        &dir.0,
+        &dir,
         "direct.json",
         |_| {},
     ));
     let ams = driven(&spec_from(
         "spiral_rough_smoke.json",
-        &dir.0,
+        &dir,
         "ams.json",
         |v| {
             v["solver"] = json!({ "mode": "iterative", "preconditioner": "ams" });
@@ -390,11 +375,11 @@ fn rough_ams_matches_direct() {
 #[ignore = "heavy in debug (~2 min: 16-point spiral sweeps); CI runs it in release with --ignored"]
 fn rough_adaptive_sweep_matches_dense() {
     const TOL: f64 = 1e-6;
-    let dir = TempDir::new("adaptive");
+    let dir = Scratch::new("geode-cli-roughness-", "adaptive");
     let band = json!({ "unit": "ghz", "start": 1.0, "stop": 20.0, "count": 16 });
     let dense = driven(&spec_from(
         "spiral_rough_smoke.json",
-        &dir.0,
+        &dir,
         "dense.json",
         |v| {
             v["frequencies"] = band.clone();
@@ -402,7 +387,7 @@ fn rough_adaptive_sweep_matches_dense() {
     ));
     let adaptive = driven(&spec_from(
         "spiral_rough_smoke.json",
-        &dir.0,
+        &dir,
         "adaptive.json",
         |v| {
             v["frequencies"] = band.clone();

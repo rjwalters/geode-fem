@@ -78,7 +78,6 @@
 //! of scope for this issue (Epic #57 Phase 3.A is JUST the kernel-
 //! dimension check).
 
-use burn::tensor::backend::BackendTypes;
 use faer::Mat;
 
 use geode_core::assembly::nedelec::{
@@ -93,7 +92,7 @@ use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
 use geode_core::mesh::{R_BUFFER, TetMesh, cube_tet_mesh, read_sphere_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -134,10 +133,6 @@ const KERNEL_THRESHOLD_REL: f64 = 1e-3;
 /// Extra eigenvalues to request beyond the predicted kernel size, so
 /// the kernel/physical spectral gap is visible in the printout.
 const KERNEL_BUFFER: usize = 20;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 // `restrict_gradient_dense` was lifted into `geode_core::assembly::nedelec`
 // for reuse from the sphere PEC eigenmode test, the geode-validation

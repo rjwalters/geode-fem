@@ -209,6 +209,7 @@
 //! The adaptive PROM is never used here: sensitivities are always
 //! full-order (the bypass default of Epic #841 Phase 4).
 
+use crate::vec3::sorted3;
 use std::collections::HashMap;
 
 use burn::tensor::backend::Backend;
@@ -419,11 +420,6 @@ impl EpsDirection {
         }
     }
 
-    /// The diagonal component this direction acts on (`None`: isotropic).
-    pub fn axis_index(&self) -> Option<usize> {
-        self.axis
-    }
-
     /// `tan δ` of a region at **fixed `ε′`**: `ε = ε′(1 − j tan δ)`, so
     /// `∂ε/∂tan δ = −jε′` and `∂g/∂tan δ = ε′ ∂g/∂ε″`.
     pub fn tan_delta(region: usize, name: impl Into<String>, eps_prime: f64) -> Self {
@@ -628,23 +624,6 @@ impl ShapeDesign {
             )));
         }
         Ok(Self { columns, names })
-    }
-
-    /// The columns of a [`FreeformBoundaryMorph`], one name per column.
-    ///
-    /// # Errors
-    ///
-    /// As [`Self::from_columns`].
-    pub fn from_morph(
-        morph: &FreeformBoundaryMorph,
-        names: Vec<String>,
-    ) -> Result<Self, SSensitivityError> {
-        Self::from_columns(
-            (0..morph.n_dofs())
-                .map(|i| morph.velocity(i).to_vec())
-                .collect(),
-            names,
-        )
     }
 
     /// One column per [`GroupTranslation`]: the named 2-D physical groups'
@@ -1673,12 +1652,6 @@ fn check_drive(
         )));
     }
     Ok(())
-}
-
-fn sorted3(t: [u32; 3]) -> [u32; 3] {
-    let mut t = t;
-    t.sort_unstable();
-    t
 }
 
 /// Every tet bounding one of `faces`.
@@ -3462,10 +3435,9 @@ impl<'n> Prepared<'n> {
     fn mode_notes(&self, at: &NetAt<'_>) -> Vec<HybridModeNote> {
         let mut out = Vec::new();
         let mut local = vec![0usize; self.ports.len()];
-        let chans_of_port = |c: usize| -> Option<usize> { at.hyb[c].as_ref().map(|h| h.port) };
-        for c in 0..at.n_ch {
-            let Some(p) = chans_of_port(c) else { continue };
-            let h = at.hyb[c].as_ref().expect("checked");
+        for hc in at.hyb.iter().take(at.n_ch) {
+            let Some(h) = hc.as_ref() else { continue };
+            let p = h.port;
             for w in h.deriv.warnings() {
                 out.push(HybridModeNote {
                     port: p,

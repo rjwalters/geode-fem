@@ -52,6 +52,10 @@
 //! artifact carries a SUPERSEDED ANCHOR header. The current anchor is
 //! `TransmonAnchor::devicelayout` (`C_Σ` ≈ 93.9537 fF, junction excluded).
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::scaled_mesh;
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
@@ -89,16 +93,6 @@ const FD_H_HEADLINE: f64 = 1e-4;
 const MIN_VOL_RATIO_SAFE: f64 = 0.25;
 /// The #589 rigid safe boundary, for the budget-extension comparison.
 const RIGID_THETA_SAFE: f64 = -0.007258;
-
-fn scaled_mesh(mesh: &TetMesh, s: f64) -> TetMesh {
-    let mut m = mesh.clone();
-    for n in m.nodes.iter_mut() {
-        n[0] *= s;
-        n[1] *= s;
-        n[2] *= s;
-    }
-    m
-}
 
 /// **Independent** forward `C_ii` at pad parameter `θ` under a general
 /// node-motion field `vel`: move ALL nodes by `θ·vel`, re-assemble, re-solve

@@ -16,8 +16,10 @@
 //! FAILS the 1% bar. Structural checks (symmetry, SPD, Maxwell sign
 //! structure, non-negative row sums) run on every extracted matrix.
 
+mod common;
+use common::repo_root;
+
 use std::f64::consts::PI;
-use std::path::PathBuf;
 
 use geode_core::assembly::electrostatic::{
     CapacitanceMatrix, ConductorSurface, EPS_0, Electrode, assemble_electrostatic,
@@ -541,12 +543,12 @@ fn oracle_two_sphere_offdiagonal_symmetry_and_honest_band() {
         "Maxwell sign structure violated"
     );
     // Ground-capacitance row-sum sanity: C_ii ≥ Σ_{j≠i}|C_ij|.
-    for i in 0..2 {
-        let off: f64 = (0..2).filter(|&j| j != i).map(|j| cm.c[i][j].abs()).sum();
+    for (i, row) in cm.c.iter().enumerate().take(2) {
+        let off: f64 = (0..2).filter(|&j| j != i).map(|j| row[j].abs()).sum();
         assert!(
-            cm.c[i][i] >= off - 1e-6 * cm.c[i][i].abs(),
+            row[i] >= off - 1e-6 * row[i].abs(),
             "row {i}: C_ii {} must be >= sum|off-diag| {off}",
-            cm.c[i][i]
+            row[i]
         );
     }
 
@@ -570,12 +572,6 @@ fn oracle_two_sphere_offdiagonal_symmetry_and_honest_band() {
     // Named accessors.
     assert_eq!(cm.get("A", "B"), Some(cm.c[0][1]));
     assert!(cm.c_sigma(0) > 0.0);
-}
-
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
 }
 
 /// Load the committed `[oracles.palace]` slot from

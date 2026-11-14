@@ -41,15 +41,16 @@ mod icem_design;
 #[path = "../tests/common/icem_shape.rs"]
 mod icem_shape;
 
+#[path = "../tests/common/example_io.rs"]
+mod example_io;
+use example_io::{curves_json, write_json_out as write_json};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::time::Instant;
 
 use geode_core::assembly::magnetostatic_nonlinear::NewtonConfig;
-use geode_core::mesh::icem_controlpoints::{
-    IcemCpDesign, N_CP_PARAMS, N_OFFSETS, OFFSET_NAMES, sector_curves_cp_f64,
-};
-use geode_core::mesh::icem_parametric::{CurveShape, N_PARAMS, motion_quality};
+use geode_core::mesh::icem_controlpoints::{IcemCpDesign, N_CP_PARAMS, N_OFFSETS, OFFSET_NAMES};
+use geode_core::mesh::icem_parametric::{N_PARAMS, motion_quality};
 use icem::{I_PEAK_INITIAL, IcemModel, IronLaw, LEVELS};
 use icem_cp_design::{
     CpDesignGradient, CpDesignPoint, CpDesignSetup, KC_ANGLE, KC_SCALE, N_CP_DESIGN,
@@ -178,15 +179,6 @@ fn components(spec: &str) -> Vec<usize> {
                 .collect()
         }
     }
-}
-
-fn write_json(path: &Option<PathBuf>, v: &Value) {
-    let p = path.clone().expect("--out FILE");
-    if let Some(d) = p.parent() {
-        std::fs::create_dir_all(d).unwrap();
-    }
-    std::fs::write(&p, serde_json::to_string_pretty(v).unwrap()).unwrap();
-    eprintln!("wrote {}", p.display());
 }
 
 fn grad_json(g: &CpDesignGradient) -> Value {
@@ -383,35 +375,6 @@ fn cmd_study(a: &Args) {
     }
     print!("{md}");
     write_json(&a.out, &rec);
-}
-
-fn curves_json(d: &IcemCpDesign) -> Value {
-    json!(
-        sector_curves_cp_f64(d)
-            .expect("construction")
-            .iter()
-            .map(|c| match &c.shape {
-                CurveShape::Line { a, b } =>
-                    json!({"name": c.name, "kind": "line", "a": a, "b": b}),
-                CurveShape::Arc {
-                    c: cc,
-                    r,
-                    phi_a,
-                    phi_b,
-                    a,
-                    b,
-                } => json!({"name": c.name, "kind": "arc", "c": cc, "r": r,
-                    "phi_a": phi_a, "phi_b": phi_b, "a": a, "b": b}),
-                CurveShape::Spline {
-                    degree,
-                    knots,
-                    cps,
-                    weights,
-                } => json!({"name": c.name, "kind": "nurbs", "degree": degree, "knots": knots,
-                    "cps": cps, "weights": weights, "a": cps[0], "b": cps[cps.len() - 1]}),
-            })
-            .collect::<Vec<_>>()
-    )
 }
 
 fn cmd_plan(a: &Args) {

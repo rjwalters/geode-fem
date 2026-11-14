@@ -496,12 +496,6 @@ impl GuideTmGuard {
     pub fn is_computed(&self) -> bool {
         matches!(self.source, TmCutoffSource::ShareFree3d { .. })
     }
-
-    /// The guard's relative margin below the face estimate `k_face`:
-    /// `1 − guard_k_c / k_face`.
-    pub fn margin_below(&self, k_face: f64) -> f64 {
-        1.0 - self.guard_k_c / k_face
-    }
 }
 
 impl PortFaceProjection {

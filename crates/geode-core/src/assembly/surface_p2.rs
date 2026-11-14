@@ -61,6 +61,7 @@ use crate::assembly::hcurl_space::HcurlSpace;
 use crate::driven::shape::{Dual, dcross3, ddot3, dlc3, dscale3, dsub3};
 use crate::elements::ElementOrder;
 use crate::mesh::TetMesh;
+use crate::vec3::{cross3 as cross, dot3 as dot, sub3 as sub};
 
 /// Number of tangential-trace DOFs of the p=2 Nédélec space on one
 /// triangle (3 edges × 2 + 1 face × 2).
@@ -69,23 +70,6 @@ pub const TRI_NEDELEC2_TRACE_DOFS: usize = 8;
 /// The local face edges `(a, b), (a, c), (b, c)` of the trace layout, as
 /// positions in the ascending vertex triple.
 const TRACE_EDGES: [(usize, usize); 3] = [(0, 1), (0, 2), (1, 2)];
-
-#[inline]
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-#[inline]
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-#[inline]
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
 
 /// In-plane (surface) barycentric gradients `∇_sλ_p` of a 3-D triangle and
 /// its (unsigned) area.

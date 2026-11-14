@@ -4,8 +4,6 @@
 //! matrices that are byte-for-byte identical (within f64 round-off) to the
 //! existing two-step path: `assemble_global_p1` → `apply_dirichlet_bc`.
 
-use burn::tensor::backend::BackendTypes;
-
 use geode_core::assembly::fe::fe_assemble;
 use geode_core::assembly::fe::{DirichletBc, ElementType};
 use geode_core::assembly::nedelec::{
@@ -14,13 +12,9 @@ use geode_core::assembly::nedelec::{
 use geode_core::assembly::p1::{assemble_global_p1, upload_mesh};
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask};
 use geode_core::mesh::{R_BUFFER, cube_tet_mesh, read_sphere_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Maximum acceptable entry-wise difference between fe_assemble and the
 /// manual two-step path. Set to a safe multiple of f64 machine epsilon —

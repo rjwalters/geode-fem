@@ -19,7 +19,6 @@
 
 use std::f64::consts::PI;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::constants::ETA_0_OHM;
@@ -37,7 +36,7 @@ use geode_core::mesh::patch::{
 };
 use geode_core::mesh::{TetMesh, pec_interior_mask_from_triangles};
 use geode_core::postproc::ntff::{broadside_directivity, far_field_covectors, ntff_far_field};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
@@ -47,10 +46,6 @@ const FLUX_SHRINK: f64 = 0.10;
 /// Observation direction of the FD gate (off the pole, off the φ seam).
 const THETA0: f64 = 0.5;
 const PHI0: f64 = 0.7;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 #[test]
 fn ntff_realized_gain_shape_gradient_matches_finite_difference() {

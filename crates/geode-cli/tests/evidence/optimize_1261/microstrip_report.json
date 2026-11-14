@@ -1,0 +1,62 @@
+{
+ "schema_version": 1,
+ "geode_version": "0.9.0",
+ "git_sha": "8a9d7db261ba-dirty",
+ "backend": "ndarray",
+ "threads": null,
+ "spec_path": "microstrip_spec.json",
+ "kind": "optimize",
+ "status": "ok",
+ "algorithm": "lbfgsb",
+ "converged": true,
+ "stop_status": "converged:firstorder",
+ "iterations": 5,
+ "evaluations": 7,
+ "failed_evaluations": 1,
+ "objective_initial": 41.696961054630805,
+ "objective_best": 2.6556579453748225e-12,
+ "max_violation_best": 0.0,
+ "variables": [
+  {
+   "parameter": "strip_width",
+   "initial": 0.0015,
+   "value": 0.0018631288098086576,
+   "lower": 0.00145,
+   "upper": 0.0024
+  }
+ ],
+ "term_values": [
+  2.6556579453748225e-12
+ ],
+ "constraint_values": [],
+ "passivity_sigma_max": 0.999999999999983,
+ "min_volume_ratio": 0.9107083565881611,
+ "history_file": {
+  "path": "history.jsonl",
+  "sha256": "715badeb586476e806615243a01f1bb93ebd2e9bdbab573dbd9b1a2f86cf20e8"
+ },
+ "checkpoint_file": {
+  "path": "checkpoint.json",
+  "sha256": "9d3abff00164fb6b713668a2b61d8d3b8698dc36b399f60e1ef9706c4f138f20"
+ },
+ "best_spec_file": {
+  "path": "best_spec.json",
+  "sha256": "e3b2684b9976fb182e7697ccef249e45edaa4121eb7df2a4c4d2ba8b4608bdb6"
+ },
+ "best_mesh_file": {
+  "path": "best_mesh.msh",
+  "sha256": "8b93bc4e297ca88537ff4fe268464e2b59dec27699d4655429b1a982645ff24b"
+ },
+ "final_fd_check": {
+  "passed": true,
+  "summary": {
+   "relative_step": 0.0001,
+   "tolerance": 0.0001,
+   "max_rel_error": 1.1779200584021971e-08,
+   "n_forward_solves": 2
+  },
+  "detail": null
+ },
+ "warnings": [],
+ "wall_time_s": 301.914562959
+}

@@ -47,13 +47,15 @@
 //! **Assemble** (default): read the committed records and Palace cells and
 //! write `benchmarks/transmon_devicelayout_optimize/results.toml`.
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::{arr, git_head, tarr, tf, tget, vals_to_host};
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use burn::tensor::Tensor;
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::nedelec::{
@@ -69,7 +71,7 @@ use geode_core::eigen::transmon::{
 use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
 use geode_core::mesh::transmon::{JUNCTION_CAPACITANCE_F, JUNCTION_INDUCTANCE_H};
 use geode_core::mesh::{TetMesh, TransmonFixture, read_transmon_fixture_from_bytes};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::fixture::BackendInfo;
 
 type B = TestBackend;
@@ -92,30 +94,11 @@ const TOP_BLEND_ABOVE_CAP_UM: f64 = 1700.0;
 const ISLAND_HALF_WIDTH_UM: f64 = 12.0;
 const CUTOUT_HALF_WIDTH_UM: f64 = 42.0;
 
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
-    t.into_data().iter::<f64>().collect()
-}
-
 fn peak_rss_gb() -> Option<f64> {
     let s = fs::read_to_string("/proc/self/status").ok()?;
     let line = s.lines().find(|l| l.starts_with("VmHWM:"))?;
     let kb: f64 = line.split_whitespace().nth(1)?.parse().ok()?;
     Some(kb / 1e6)
-}
-
-fn git_head() -> String {
-    std::process::Command::new("git")
-        .args(["rev-parse", "--short=8", "HEAD"])
-        .current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|| "unknown".to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -349,16 +332,6 @@ fn moved(fx: &TransmonFixture, vel: &[[f64; 3]], h: f64) -> TransmonFixture {
     m
 }
 
-fn arr(v: &[f64], prec: usize) -> String {
-    format!(
-        "[{}]",
-        v.iter()
-            .map(|x| format!("{x:.prec$}"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    )
-}
-
 fn solve_mode(
     mesh_path: &Path,
     label: &str,
@@ -550,36 +523,6 @@ const PALACE_XCHECK_DIR: &str = "reference/fixtures/transmon_palace/results_cros
 fn toml_doc(path: &Path) -> toml::Value {
     let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     toml::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
-}
-
-fn tget<'a>(v: &'a toml::Value, path: &str) -> &'a toml::Value {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur
-}
-
-fn tf(v: &toml::Value, path: &str) -> f64 {
-    let x = tget(v, path);
-    x.as_float()
-        .or_else(|| x.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("{path} is not a number"))
-}
-
-fn tarr(v: &toml::Value, path: &str) -> Vec<f64> {
-    tget(v, path)
-        .as_array()
-        .unwrap_or_else(|| panic!("{path} is not an array"))
-        .iter()
-        .map(|x| {
-            x.as_float()
-                .or_else(|| x.as_integer().map(|i| i as f64))
-                .unwrap()
-        })
-        .collect()
 }
 
 fn csv_col(path: &Path, col: usize) -> Vec<f64> {
