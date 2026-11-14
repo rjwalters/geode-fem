@@ -43,8 +43,13 @@
 //! `J` is sampled per-tet at centroids (midpoint quadrature), an O(h²)
 //! consistency perturbation that does not limit the O(h) rate.
 
+#[path = "common/edge_interp.rs"]
+mod edge_interp;
+
 use faer::c64;
 use std::f64::consts::PI;
+
+use edge_interp::edge_interpolant_re;
 
 use geode_core::assembly::nedelec::{assemble_global_nedelec, cube_pec_interior_edges};
 use geode_core::assembly::p1::upload_mesh;
@@ -56,33 +61,8 @@ use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
-/// 4-point Gauss–Legendre nodes/weights on [0, 1].
-const GAUSS_4: [(f64, f64); 4] = [
-    (0.5 - 0.430568155797026, 0.173927422568727),
-    (0.5 - 0.169990521792428, 0.326072577431273),
-    (0.5 + 0.169990521792428, 0.326072577431273),
-    (0.5 + 0.430568155797026, 0.173927422568727),
-];
-
 fn psi(x: f64, y: f64) -> f64 {
     (PI * x).sin() * (PI * y).sin()
-}
-
-/// Analytic edge DOF `∫_e E · dl` for `E = (0, 0, ψ)`, integrated from
-/// the lower-tagged endpoint to the higher-tagged endpoint (the global
-/// canonical edge direction).
-fn analytic_edge_dof(p: [f64; 3], q: [f64; 3]) -> f64 {
-    let dz = q[2] - p[2];
-    if dz == 0.0 {
-        return 0.0;
-    }
-    let mut acc = 0.0;
-    for &(t, w) in GAUSS_4.iter() {
-        let x = p[0] + t * (q[0] - p[0]);
-        let y = p[1] + t * (q[1] - p[1]);
-        acc += w * psi(x, y);
-    }
-    acc * dz
 }
 
 /// Run the manufactured-solution driven solve at refinement `n` and
@@ -122,10 +102,7 @@ fn manufactured_error(n: usize) -> f64 {
     );
 
     // Analytic interpolant DOFs (zero on PEC edges by construction of E).
-    let x_a: Vec<f64> = edges
-        .iter()
-        .map(|e| analytic_edge_dof(mesh.nodes[e[0] as usize], mesh.nodes[e[1] as usize]))
-        .collect();
+    let x_a = edge_interpolant_re(&mesh, |x| [0.0, 0.0, psi(x[0], x[1])]);
 
     // M-norm error: assemble the vacuum mass for the discrete L² metric.
     let tet_edges = mesh.tet_edges();

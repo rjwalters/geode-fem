@@ -33,6 +33,9 @@
 #[path = "common/periodic_fixtures.rs"]
 mod fixtures;
 
+#[path = "common/edge_interp.rs"]
+mod edge_interp;
+
 use std::f64::consts::PI;
 
 use faer::c64;
@@ -51,6 +54,7 @@ use geode_core::mesh::periodic::{
 };
 use geode_core::testing::{TestBackend, test_device as device};
 
+use edge_interp::edge_interpolant_re;
 use fixtures::{box_tet_mesh, renumber};
 
 type B = TestBackend;
@@ -60,14 +64,6 @@ const B_Y: f64 = 1.0;
 const C: f64 = 0.5;
 const OMEGA: f64 = 2.0;
 
-/// 4-point Gauss–Legendre on [0, 1].
-const GAUSS_4: [(f64, f64); 4] = [
-    (0.5 - 0.430568155797026, 0.173927422568727),
-    (0.5 - 0.169990521792428, 0.326072577431273),
-    (0.5 + 0.169990521792428, 0.326072577431273),
-    (0.5 + 0.430568155797026, 0.173927422568727),
-];
-
 fn psi_osc(x: f64, y: f64) -> f64 {
     (2.0 * PI * x / A).sin() * (2.0 * PI * y / B_Y).cos()
 }
@@ -76,23 +72,9 @@ fn psi(x: f64, y: f64) -> f64 {
     psi_osc(x, y) + 0.5
 }
 
-/// Whitney interpolant `∫_e E · dl` (low → high global node).
+/// Whitney interpolant `∫_e E · dl` of `E = ẑ ψ` (low → high global node).
 fn interpolant(mesh: &TetMesh) -> Vec<f64> {
-    mesh.edges()
-        .iter()
-        .map(|e| {
-            let (p, q) = (mesh.nodes[e[0] as usize], mesh.nodes[e[1] as usize]);
-            let dz = q[2] - p[2];
-            if dz == 0.0 {
-                return 0.0;
-            }
-            GAUSS_4
-                .iter()
-                .map(|&(t, w)| w * psi(p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])))
-                .sum::<f64>()
-                * dz
-        })
-        .collect()
+    edge_interpolant_re(mesh, |x| [0.0, 0.0, psi(x[0], x[1])])
 }
 
 fn lid_mask(mesh: &TetMesh, space: &HcurlSpace) -> Vec<bool> {

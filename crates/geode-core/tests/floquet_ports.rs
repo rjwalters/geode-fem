@@ -53,6 +53,10 @@ use geode_core::testing::{TestBackend, test_device as device};
 #[path = "common/rcwa1d.rs"]
 mod rcwa1d;
 
+#[path = "common/edge_interp.rs"]
+mod edge_interp;
+
+use edge_interp::edge_interpolant;
 use fixtures::{box_tet_mesh, renumber};
 use rcwa1d::{Rcwa1d, RcwaPol};
 
@@ -1218,14 +1222,6 @@ fn propagating_higher_orders_and_bad_specs_are_typed_errors() {
 
 // --- Bloch-phase periodic driven solve (lifted #866 refusal) -----------------
 
-/// Gauss–Legendre 4-point on [0, 1].
-const GAUSS_4: [(f64, f64); 4] = [
-    (0.5 - 0.430568155797026, 0.173927422568727),
-    (0.5 - 0.169990521792428, 0.326072577431273),
-    (0.5 + 0.169990521792428, 0.326072577431273),
-    (0.5 + 0.430568155797026, 0.173927422568727),
-];
-
 /// Bloch manufactured solution `E = ẑ e^{−j k·ρ}` on `[0,1]² × [0, ½]`
 /// with PEC lids: relative M-norm error of the Bloch-phased direct solve,
 /// and the same with a zero-phase constraint (tripwire).
@@ -1273,19 +1269,8 @@ fn bloch_manufactured(n: usize, k: [f64; 3]) -> (f64, f64, f64) {
         )
         .unwrap()
     };
-    let x_a: Vec<c64> = mesh
-        .edges()
-        .iter()
-        .map(|e| {
-            let (p, q) = (mesh.nodes[e[0] as usize], mesh.nodes[e[1] as usize]);
-            let dz = q[2] - p[2];
-            GAUSS_4
-                .iter()
-                .map(|&(t, w)| field(p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])) * w)
-                .fold(c64::new(0.0, 0.0), |a, b| a + b)
-                * dz
-        })
-        .collect();
+    let zero = c64::new(0.0, 0.0);
+    let x_a = edge_interpolant(&mesh, |x| [zero, zero, field(x[0], x[1])]);
     let ones = vec![1.0; mesh.n_tets()];
     let all = vec![true; mesh.edges().len()];
     let (_, m) = assemble_lossless_pencil_with_materials::<B>(
