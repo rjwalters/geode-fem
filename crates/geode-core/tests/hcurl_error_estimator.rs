@@ -34,7 +34,7 @@
 //! ```
 
 mod common;
-use common::box_fixtures::box_mesh_with;
+use common::box_fixtures::{box_mesh_with, fit_slope};
 
 use std::f64::consts::PI;
 use std::time::Instant;
@@ -147,18 +147,6 @@ fn spread(v: &[f64]) -> f64 {
     let max = v.iter().cloned().fold(f64::MIN, f64::max);
     let min = v.iter().cloned().fold(f64::MAX, f64::min);
     max / min
-}
-
-/// Least-squares slope of `log y` against `log x`.
-fn fitted_slope(x: &[f64], y: &[f64]) -> f64 {
-    let lx: Vec<f64> = x.iter().map(|v| v.ln()).collect();
-    let ly: Vec<f64> = y.iter().map(|v| v.ln()).collect();
-    let n = lx.len() as f64;
-    let mx = lx.iter().sum::<f64>() / n;
-    let my = ly.iter().sum::<f64>() / n;
-    let num: f64 = lx.iter().zip(&ly).map(|(a, b)| (a - mx) * (b - my)).sum();
-    let den: f64 = lx.iter().map(|a| (a - mx) * (a - mx)).sum();
-    num / den
 }
 
 fn pec_everywhere(_: [u32; 3]) -> BoundaryFaceKind {
@@ -316,11 +304,11 @@ fn golden1_driven_manufactured_cube_effectivity() {
 
     let hs: Vec<f64> = levels[1..].iter().map(|l| l.h).collect();
     let etas: Vec<f64> = levels[1..].iter().map(|l| l.eta).collect();
-    let rate = fitted_slope(&hs, &etas);
+    let rate = fit_slope(&hs, &etas);
     let errs: Vec<f64> = levels[1..].iter().map(|l| l.err).collect();
     eprintln!(
         "golden1 observed rate in h (n = 4, 8, 16): eta {rate:.4}, true error {:.4}",
-        fitted_slope(&hs, &errs)
+        fit_slope(&hs, &errs)
     );
     assert!(
         (rate - 1.0).abs() <= 0.15,
