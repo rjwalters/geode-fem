@@ -24,6 +24,7 @@ under [`crates/`](../crates/README.md) has its own README.
 | [`2026-07-20-distributed-collectives-ir-vs-ffi.md`](research/2026-07-20-distributed-collectives-ir-vs-ffi.md) | Tensor-IR vs FFI boundary for distributed collectives. Decided (Epic #546 Phase B) |
 | [`transmon-paper-reframe.md`](research/transmon-paper-reframe.md) | Outline of the transmon paper: LOM optimization now, eigenmode as roadmap (Epic #476) |
 | [`self-heating-thermoelastic-electromigration.md`](research/self-heating-thermoelastic-electromigration.md) | Build plan: heat conduction, thermo-elastic stress, EM lifetime models. Plan only (#1555; children #1556-#1558) |
+| [`2026-11-14-palace-floquet-crosscheck.md`](research/2026-11-14-palace-floquet-crosscheck.md) | Palace can model the Design A Floquet cell (Bloch-periodic driven, lumped feed, per-run scan angle); the #1581 cross-check is possible as specified, at the vendored pin. Answered (#1629) |
 
 The tearsheet images in `images/` are regenerated with the `geode_viz`
 package in [`tools/viz/`](../tools/viz/README.md).
