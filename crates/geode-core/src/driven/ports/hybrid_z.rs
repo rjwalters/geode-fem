@@ -43,9 +43,9 @@ use std::collections::HashMap;
 use faer::c64;
 use faer::sparse::{SparseColMat, SparseColMatRef};
 
-use super::hybrid::{
-    HybridComplexLineReport, HybridLineReport, HybridPortFace, PortAccuracyOpts, PortWarning,
-    PortWarningKind,
+use super::hybrid::HybridPortFace;
+use super::hybrid_report::{
+    HybridComplexLineReport, HybridLineReport, PortAccuracyOpts, PortWarning, PortWarningKind,
 };
 use crate::analytic::lossy_port_modes::{LossyHybridMode, dot_u, lossy_pairing_vector, rmatvec};
 use crate::analytic::port_modes::{
