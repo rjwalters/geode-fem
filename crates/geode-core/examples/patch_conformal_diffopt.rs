@@ -78,13 +78,16 @@
 //! passivity bound). Both are complete deliverables; the numbers are reported
 //! as measured, never fabricated or forced.
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::signed_det6;
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
 
 use faer::c64;
 
-use burn::tensor::backend::BackendTypes;
 use geode_core::constants::ETA_0_OHM as ETA_0;
 use geode_core::driven::extraction::{s11_sq_and_dg_dv, s11_sq_objective};
 use geode_core::driven::ports::assemble_port_flux;
@@ -97,7 +100,7 @@ use geode_core::mesh::patch::{
 };
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_smoke_fixture};
 use geode_core::shape::{BoundaryMotionDof, FreeformBoundaryMorph};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::fixture::BackendInfo;
 use geode_util::units::omega_to_ghz_mm;
 
@@ -150,10 +153,6 @@ const MAX_BACKTRACKS: usize = 50;
 /// `DIR_SCALE_FRAC · h` mm along the outward radial normal.
 const DIR_SCALE_FRAC: f64 = 0.5;
 
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
 /// `section.key → value` parameter values of the committed smoke fixture
 /// (`tests/fixtures/patch_2g4_smoke.provenance.txt`), recorded in `[meta]`.
 fn smoke_parameters() -> std::collections::BTreeMap<String, String> {
@@ -185,15 +184,6 @@ fn smoke_parameters() -> std::collections::BTreeMap<String, String> {
         }
     }
     out
-}
-
-/// Six-times the signed tet volume `det[v1−v0, v2−v0, v3−v0]`.
-fn signed_det6(v: &[[f64; 3]; 4]) -> f64 {
-    let e1 = [v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]];
-    let e2 = [v[2][0] - v[0][0], v[2][1] - v[0][1], v[2][2] - v[0][2]];
-    let e3 = [v[3][0] - v[0][0], v[3][1] - v[0][1], v[3][2] - v[0][2]];
-    e1[0] * (e2[1] * e3[2] - e2[2] * e3[1]) - e1[1] * (e2[0] * e3[2] - e2[2] * e3[0])
-        + e1[2] * (e2[0] * e3[1] - e2[1] * e3[0])
 }
 
 /// Per-frequency evaluation record at one design point.

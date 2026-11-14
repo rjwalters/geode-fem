@@ -72,12 +72,9 @@ use std::process::{Command, Output};
 const EPS0: f64 = 8.8541878128e-12;
 const MU0: f64 = 1.25663706212e-6;
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::geode;
 
 /// Fresh scratch dir for one test.
 fn scratch(name: &str) -> PathBuf {

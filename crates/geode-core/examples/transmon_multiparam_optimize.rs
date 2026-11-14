@@ -70,6 +70,10 @@
 //! artifact carries a SUPERSEDED ANCHOR header. The current anchor is
 //! `TransmonAnchor::devicelayout` (`C_Σ` ≈ 93.9537 fF, junction excluded).
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::{floor_fmt, scaled_mesh};
+
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::fs;
@@ -135,22 +139,6 @@ const PHASE_A_BOX_C_SIGMA_FF: f64 = 97.027749;
 /// Outer tensor-retarget iterations.
 const MAX_RETARGETS: usize = 3;
 
-/// Format `x` floored to `dp` decimals (never rounded up).
-fn floor_fmt(x: f64, dp: usize) -> String {
-    let p = 10f64.powi(dp as i32);
-    format!("{:.dp$}", (x * p).floor() / p)
-}
-
-fn scaled_mesh(mesh: &TetMesh, s: f64) -> TetMesh {
-    let mut m = mesh.clone();
-    for n in m.nodes.iter_mut() {
-        n[0] *= s;
-        n[1] *= s;
-        n[2] *= s;
-    }
-    m
-}
-
 fn um(v: f64) -> f64 {
     v / M_PER_UNIT
 }
@@ -185,7 +173,7 @@ fn fmt3(c: [f64; 3]) -> String {
 fn mode_of(alpha: Option<f64>) -> RemorphMode {
     match alpha {
         None => RemorphMode::Fixed,
-        Some(a) if a == 0.0 => RemorphMode::Unit,
+        Some(0.0) => RemorphMode::Unit,
         Some(a) => RemorphMode::Stiffened { alpha: a },
     }
 }
@@ -777,8 +765,7 @@ fn main() {
         .fold(f64::NEG_INFINITY, f64::max);
     let last_stalled_stiff = stalled
         .iter()
-        .filter(|r| matches!(r.mode, RemorphMode::Stiffened { .. }))
-        .last()
+        .rfind(|r| matches!(r.mode, RemorphMode::Stiffened { .. }))
         .map(|r| (alpha_of(r.mode), ff(r.prob.c_sigma() - C_SIGMA_TARGET_F)));
 
     let mut t = String::with_capacity(131_072);

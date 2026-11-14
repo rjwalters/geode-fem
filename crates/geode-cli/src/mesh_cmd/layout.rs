@@ -102,7 +102,9 @@ pub struct Layout {
     /// with a Gmsh `Periodic Surface` constraint so the two faces mesh
     /// identically, and the starter spec wires them as
     /// `boundary_conditions.periodic` pairs of an `eigen.bloch` spec at Γ.
-    /// Needs `--analysis eigen` (ports are not meshed) and a PEC
+    /// Needs `--analysis eigen` (ports are not meshed) or, with both axes
+    /// periodic and no lumped `ports`, `--analysis driven` (the z walls
+    /// become the Floquet-port groups `z_lo` / `z_hi`); and a PEC
     /// `boundary`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub periodic: Vec<Axis>,
@@ -183,6 +185,18 @@ pub struct Polygon {
     /// hole.
     #[serde(default)]
     pub holes: Vec<Vec<[f64; 2]>>,
+    /// Optional edge radius (`≥ 0`, default `0` = sharp corners): every
+    /// **convex** corner of the outer ring is replaced by a tangent
+    /// circular arc of this radius (in the layer plane, extruded through
+    /// the layer thickness). Reflex corners and hole rings stay sharp.
+    /// Only axis-parallel outer rings can be rounded, and the radius must
+    /// not exceed half the shortest outer edge.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub edge_radius: f64,
+}
+
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
 }
 
 /// Port kind. v1 knows only lumped gap ports.
@@ -509,13 +523,27 @@ impl ResolvedLayout {
         self.groups[g]
             .parts
             .iter()
-            .map(|p| self.conductor_size(p.layer))
+            .map(|p| {
+                let arc = p.poly.as_ref().map_or(f64::INFINITY, |s| {
+                    if s.edge_radius > 0.0 {
+                        std::f64::consts::FRAC_PI_2 * s.edge_radius / ARC_ELEMENTS
+                    } else {
+                        f64::INFINITY
+                    }
+                });
+                self.conductor_size(p.layer).min(arc)
+            })
             .fold(f64::INFINITY, f64::min)
     }
 
     /// Whether ports are meshed (and wired into the starter spec).
     pub fn meshes_ports(&self) -> bool {
-        self.analysis == MeshAnalysis::Driven
+        self.analysis == MeshAnalysis::Driven && self.layout.periodic.is_empty()
+    }
+
+    /// Whether the z walls are Floquet ports (a periodic driven cell).
+    pub fn meshes_floquet_ports(&self) -> bool {
+        self.analysis == MeshAnalysis::Driven && !self.layout.periodic.is_empty()
     }
 
     /// Whether contacts are meshed (and wired into the starter spec).
@@ -675,6 +703,29 @@ pub struct PolyShape {
     pub outer: Vec<[f64; 2]>,
     /// Hole rings (no closing vertices).
     pub holes: Vec<Vec<[f64; 2]>>,
+    /// Radius of the tangent arcs replacing the outer ring's convex
+    /// corners (`0` = sharp; see [`Polygon::edge_radius`]).
+    pub edge_radius: f64,
+}
+
+/// Elements the mesher puts along one rounded-corner quarter arc: the
+/// layer's target size is refined to `π r / 2 / ARC_ELEMENTS` near it.
+pub const ARC_ELEMENTS: f64 = 4.0;
+
+/// One vertex of a (possibly rounded) outer ring.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RingSeg {
+    /// A sharp corner.
+    Corner([f64; 2]),
+    /// A convex corner replaced by the arc `t_in → t_out` about `centre`.
+    Arc {
+        /// Tangent point on the incoming edge.
+        t_in: [f64; 2],
+        /// Arc centre.
+        centre: [f64; 2],
+        /// Tangent point on the outgoing edge.
+        t_out: [f64; 2],
+    },
 }
 
 /// Where a point lies relative to a ring.
@@ -877,7 +928,77 @@ impl PolyShape {
         Ok(PolyShape {
             outer,
             holes: checked,
+            edge_radius: 0.0,
         })
+    }
+
+    /// Round the outer ring's convex corners with radius `r` (`> 0`).
+    /// Errors (relative to the polygon) when the outer ring has a
+    /// non-axis-parallel edge or `r` exceeds half the shortest outer edge.
+    pub fn with_edge_radius(mut self, r: f64) -> Result<Self, String> {
+        if !(r.is_finite() && r >= 0.0) {
+            return Err(format!("edge_radius must be finite and ≥ 0 (got {r})"));
+        }
+        if r == 0.0 {
+            return Ok(self);
+        }
+        if !ring_edges(&self.outer).all(|(a, b)| a[0] == b[0] || a[1] == b[1]) {
+            return Err(
+                "edge_radius is supported only on axis-parallel outer rings (a ±45° edge \
+                 cannot be rounded yet)"
+                    .into(),
+            );
+        }
+        let shortest = ring_edges(&self.outer)
+            .map(|(a, b)| (b[0] - a[0]).hypot(b[1] - a[1]))
+            .fold(f64::INFINITY, f64::min);
+        if r > 0.5 * shortest {
+            return Err(format!(
+                "edge_radius {r} is too large for the feature: it must not exceed half the \
+                 shortest outer edge ({})",
+                0.5 * shortest
+            ));
+        }
+        self.edge_radius = r;
+        Ok(self)
+    }
+
+    /// The outer ring with its convex corners rounded, as a list of
+    /// [`RingSeg`]s (a plain polygon when `edge_radius` is `0`).
+    pub fn rounded_outer(&self) -> Vec<RingSeg> {
+        let n = self.outer.len();
+        let signed: f64 = ring_edges(&self.outer)
+            .map(|(a, b)| a[0] * b[1] - b[0] * a[1])
+            .sum();
+        let mut out = Vec::new();
+        for i in 0..n {
+            let (prev, v, next) = (
+                self.outer[(i + n - 1) % n],
+                self.outer[i],
+                self.outer[(i + 1) % n],
+            );
+            let convex = cross(prev, v, next) * signed > 0.0;
+            if self.edge_radius > 0.0 && convex {
+                let dir = |a: [f64; 2]| {
+                    let (dx, dy) = (a[0] - v[0], a[1] - v[1]);
+                    let l = dx.hypot(dy);
+                    [dx / l, dy / l]
+                };
+                let (u, w) = (dir(prev), dir(next));
+                let r = self.edge_radius;
+                let t_in = [v[0] + r * u[0], v[1] + r * u[1]];
+                let t_out = [v[0] + r * w[0], v[1] + r * w[1]];
+                let centre = [v[0] + r * (u[0] + w[0]), v[1] + r * (u[1] + w[1])];
+                out.push(RingSeg::Arc {
+                    t_in,
+                    centre,
+                    t_out,
+                });
+            } else {
+                out.push(RingSeg::Corner(v));
+            }
+        }
+        out
     }
 
     /// Bounding box of the outer ring.
@@ -901,6 +1022,7 @@ impl PolyShape {
         PolyShape {
             outer: rect_ring(r),
             holes: Vec::new(),
+            edge_radius: 0.0,
         }
     }
 
@@ -1044,12 +1166,30 @@ impl Layout {
         }
 
         if !self.periodic.is_empty() {
-            if analysis != MeshAnalysis::Eigen {
+            if !matches!(analysis, MeshAnalysis::Eigen | MeshAnalysis::Driven) {
                 return Err(format!(
-                    "`periodic` builds a unit cell for a Bloch band solve: use `--analysis eigen` \
-                     (got `{}`; periodic driven / Floquet ports land with Epic #837 Phase 4b)",
+                    "`periodic` builds a unit cell for a Bloch band solve or a Floquet-port \
+                     driven solve: use `--analysis eigen` or `--analysis driven` (got `{}`)",
                     analysis.name()
                 ));
+            }
+            if analysis == MeshAnalysis::Driven {
+                for a in [Axis::X, Axis::Y] {
+                    if !self.periodic.contains(&a) {
+                        return Err(format!(
+                            "a periodic driven cell (Floquet ports on the z walls) needs both \
+                             lateral axes periodic: `periodic` is missing `{}`",
+                            a.name()
+                        ));
+                    }
+                }
+                if !self.ports.is_empty() {
+                    return Err(
+                        "a periodic driven cell is driven through its Floquet z-wall \
+                         ports (`z_lo` / `z_hi`): remove the lumped `ports`"
+                            .into(),
+                    );
+                }
             }
             if !matches!(self.boundary, BoundaryDef::Pec {}) {
                 return Err(
@@ -1078,6 +1218,9 @@ impl Layout {
 
         // Names: unique across every physical group.
         let mut names: Vec<&str> = vec![OUTER_BOUNDARY];
+        if analysis == MeshAnalysis::Driven && !self.periodic.is_empty() {
+            names.extend(["z_lo", "z_hi"]);
+        }
         let groups = self
             .dielectrics
             .iter()
@@ -1180,16 +1323,18 @@ impl Layout {
                 // Rectilinear without holes: the v1 rectangle
                 // decomposition (byte-stable output). Anything else is one
                 // polygon part.
-                let (r, poly) = if p.holes.is_empty() && is_rectilinear(&p.outer) {
-                    let r = decompose_rectilinear(&p.outer)
-                        .map_err(|e| format!("conductors[{}] polygon {label}: {e}", c.name))?;
-                    let n = r.len();
-                    (r, vec![None; n])
-                } else {
-                    let shape = PolyShape::new(&p.outer, &p.holes)
-                        .map_err(|e| format!("conductors[{}] polygon {label}: {e}", c.name))?;
-                    (vec![shape.bbox()], vec![Some(shape)])
-                };
+                let (r, poly) =
+                    if p.holes.is_empty() && p.edge_radius == 0.0 && is_rectilinear(&p.outer) {
+                        let r = decompose_rectilinear(&p.outer)
+                            .map_err(|e| format!("conductors[{}] polygon {label}: {e}", c.name))?;
+                        let n = r.len();
+                        (r, vec![None; n])
+                    } else {
+                        let shape = PolyShape::new(&p.outer, &p.holes)
+                            .and_then(|s| s.with_edge_radius(p.edge_radius))
+                            .map_err(|e| format!("conductors[{}] polygon {label}: {e}", c.name))?;
+                        (vec![shape.bbox()], vec![Some(shape)])
+                    };
                 rects.extend_from_slice(&r);
                 polys.extend(poly.iter().cloned());
                 shapes.push(Shape {
@@ -1274,6 +1419,7 @@ impl Layout {
                     let void = PolyShape {
                         outer: hole.clone(),
                         holes: Vec::new(),
+                        edge_radius: 0.0,
                     };
                     for (lj, (c2, shapes2)) in self.conductors.iter().zip(&shape_rects).enumerate()
                     {
@@ -1396,7 +1542,7 @@ impl Layout {
             // cavity (or, with `periodic`, a Bloch unit cell).
             MeshAnalysis::Eigen => {}
             MeshAnalysis::Driven => {
-                if self.ports.is_empty() {
+                if self.ports.is_empty() && self.periodic.is_empty() {
                     return Err("`ports` needs ≥ 1 port (driven analysis)".into());
                 }
             }
@@ -1546,7 +1692,15 @@ impl Layout {
             .copied()
             .chain(ports.iter().map(|p| p.rect))
             .reduce(|a, b| a.union(&b))
-            .expect("≥ 1 port or conductor group (checked per analysis)");
+            // A conductor-free, port-free layout (a periodic driven Floquet
+            // cell) has no footprint: the cell is the square of half-width
+            // `margin` centred on the origin.
+            .unwrap_or(Rect {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 0.0,
+                y1: 0.0,
+            });
         let domain = Rect {
             x0: footprint.x0 - self.margin,
             y0: footprint.y0 - self.margin,
@@ -2145,6 +2299,27 @@ mod tests {
         .unwrap()
     }
 
+    /// A conductor-free, port-free periodic driven cell (Floquet z ports)
+    /// resolves to a `2·margin` square centred on the origin: no panic.
+    #[test]
+    fn empty_footprint_periodic_driven_cell_resolves_without_panic() {
+        let l: Layout = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [{"name": "air", "z_bottom": 0, "thickness": 10}],
+            "conductors": [],
+            "margin": 5,
+            "periodic": ["x", "y"],
+            "mesh": {"size_max": 3, "size_conductor": 1}
+        }))
+        .unwrap();
+        let r = l.resolve_for(MeshAnalysis::Driven).expect("resolves");
+        assert_eq!(
+            (r.domain.x0, r.domain.y0, r.domain.x1, r.domain.y1),
+            (-5.0, -5.0, 5.0, 5.0)
+        );
+    }
+
     /// Regular-ish octagon of "radius" `r` (edges at 0°, 45°, 90°, …)
     /// centred on `(cx, cy)`; `s` is the diagonal cut.
     fn octagon(cx: f64, cy: f64, r: f64, s: f64) -> Vec<[f64; 2]> {
@@ -2183,8 +2358,12 @@ mod tests {
             .resolve_for(MeshAnalysis::Capacitance)
             .unwrap_err();
         assert!(e.contains("--analysis eigen"), "{e}");
-        let e = ok.resolve().unwrap_err();
-        assert!(e.contains("--analysis eigen"), "{e}");
+        // Driven needs both axes and no lumped ports; none needed otherwise.
+        assert!(ok.clone().resolve_for(MeshAnalysis::Driven).is_ok());
+        let e = periodic_base(serde_json::json!(["x"]))
+            .resolve_for(MeshAnalysis::Driven)
+            .unwrap_err();
+        assert!(e.contains("missing `y`"), "{e}");
         let dup = periodic_base(serde_json::json!(["x", "x"]));
         let e = dup.resolve_for(MeshAnalysis::Eigen).unwrap_err();
         assert!(e.contains("twice"), "{e}");

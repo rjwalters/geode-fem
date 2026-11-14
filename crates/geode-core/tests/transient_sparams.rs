@@ -29,59 +29,19 @@
 //!       --test transient_sparams transient_self_oracle_broadband -- --ignored
 //!   ```
 
+mod common;
+use common::vacuum_eps as vacuum;
+use common::{all_plane_faces, pec_mask_for_planes, zero_source};
+
 use faer::c64;
 use geode_core::driven::extraction::driven_frequency_sweep;
 use geode_core::driven::ports::LumpedPort;
-use geode_core::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator,
-};
+use geode_core::driven::solve::{DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator};
 use geode_core::driven::transient::{GaussianPulse, TransientScheme, TransientSolver};
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
-
-use burn::tensor::backend::BackendTypes;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-fn vacuum(mesh: &TetMesh) -> Vec<c64> {
-    vec![c64::new(1.0, 0.0); mesh.n_tets()]
-}
-
-fn zero_source(mesh: &TetMesh) -> CurrentSource {
-    CurrentSource {
-        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
-    }
-}
-
-/// Boundary faces of the mesh lying entirely in the plane
-/// `coord[axis] == value` (copied from `tests/lumped_port.rs`).
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
-/// PEC interior-edge mask (copied from `tests/lumped_port.rs`).
-fn pec_mask_for_planes(mesh: &TetMesh, edges: &[[u32; 2]], planes: &[(usize, f64)]) -> Vec<bool> {
-    edges
-        .iter()
-        .map(|e| {
-            let a = mesh.nodes[e[0] as usize];
-            let b = mesh.nodes[e[1] as usize];
-            !planes.iter().any(|&(axis, value)| {
-                (a[axis] - value).abs() < 1e-12 && (b[axis] - value).abs() < 1e-12
-            })
-        })
-        .collect()
-}
 
 /// The parallel-plate transmission-line fixture (unit cube, PEC plates
 /// at y = 0/1, PEC short at z = 1, PMC side walls at x = 0/1, one lumped
@@ -101,7 +61,7 @@ impl PlateFixture {
     fn new(n: usize) -> Self {
         let mesh = cube_tet_mesh(n, 1.0);
         let edges = mesh.edges();
-        let port_faces = plane_faces(&mesh, 2, 0.0);
+        let port_faces = all_plane_faces(&mesh, 2, 0.0);
         assert!(!port_faces.is_empty());
         let mask = pec_mask_for_planes(&mesh, &edges, &[(1, 0.0), (1, 1.0), (2, 1.0)]);
         let eps = vacuum(&mesh);
@@ -452,7 +412,7 @@ fn transient_rejects_surface_impedance() {
     let fixture = PlateFixture::new(3);
     // A Leontovich surface on the z = 1 face (any triangles suffice to
     // trip the non-empty-surfaces guard).
-    let surf_tris = plane_faces(&fixture.mesh, 2, 1.0);
+    let surf_tris = all_plane_faces(&fixture.mesh, 2, 1.0);
     let bc = SurfaceImpedanceBc {
         triangles: &surf_tris,
         model: SurfaceImpedanceModel::Fixed(c64::new(1.0, 0.0)),

@@ -30,8 +30,6 @@ mod fixtures;
 
 use std::f64::consts::PI;
 
-use burn::tensor::backend::BackendTypes;
-
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::assembly::periodic::PeriodicConstraint;
 use geode_core::eigen::pec_cavity::{
@@ -43,7 +41,7 @@ use geode_core::mesh::TetMesh;
 use geode_core::mesh::periodic::{
     PeriodicMap, PeriodicMatchOptions, boundary_triangles_on_plane, box_periodic_pairs,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 use fixtures::{box_tet_mesh, renumber};
 
@@ -53,10 +51,6 @@ const A: f64 = 1.0;
 const B_Y: f64 = 1.25;
 const C: f64 = 1.0;
 const N_MODES: usize = 12;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// The analytic periodic-cavity spectrum (`λ = k²`, with multiplicity),
 /// ascending, excluding the `λ = 0` harmonic field.

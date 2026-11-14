@@ -18,11 +18,8 @@
 //! `scripts/recentre_summary.py`); no solve runs here. See
 //! `recentre/README.md`.
 
-use std::path::PathBuf;
-
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
+mod common;
+use common::repo_root as repo;
 
 fn load_at(rel: &str) -> toml::Value {
     let p = repo().join(rel);

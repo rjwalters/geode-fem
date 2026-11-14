@@ -20,7 +20,10 @@
 //! central FD (`h = 1e-6`), relative error `< 1e-4` (normalised by
 //! `|FD| + 1e-3·max|gradient|` so a near-zero component cannot dominate).
 
-use burn::tensor::backend::BackendTypes;
+mod common;
+use common::boundary_plane_faces;
+
+use common::Lcg;
 use faer::c64;
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::driven::adjoint::{
@@ -34,28 +37,13 @@ use geode_core::driven::solve::{
 };
 use geode_core::elements::ElementOrder;
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 const OMEGA: f64 = 1.3;
 const FD_H: f64 = 1e-6;
 const TOL: f64 = 1e-4;
-
-struct Lcg(u64);
-impl Lcg {
-    fn next(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        ((self.0 >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
-    }
-}
 
 /// `cube_tet_mesh(n)` with interior and face-interior nodes jittered.
 fn jittered(n: usize, seed: u64) -> TetMesh {
@@ -73,16 +61,6 @@ fn jittered(n: usize, seed: u64) -> TetMesh {
         }
     }
     mesh
-}
-
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.boundary_faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
 }
 
 fn regions(mesh: &TetMesh) -> Vec<usize> {
@@ -173,9 +151,12 @@ struct Fixture {
 fn fixture(case: Case) -> Fixture {
     let mesh = jittered(2, 0x1264);
     let space = HcurlSpace::build(&mesh, ElementOrder::P2);
-    let port_faces = plane_faces(&mesh, 2, 0.0);
-    let cap_faces = plane_faces(&mesh, 2, 1.0);
-    let plates = [plane_faces(&mesh, 1, 0.0), plane_faces(&mesh, 1, 1.0)];
+    let port_faces = boundary_plane_faces(&mesh, 2, 0.0);
+    let cap_faces = boundary_plane_faces(&mesh, 2, 1.0);
+    let plates = [
+        boundary_plane_faces(&mesh, 1, 0.0),
+        boundary_plane_faces(&mesh, 1, 1.0),
+    ];
     let mut walls: Vec<&[[u32; 3]]> = plates.iter().map(Vec::as_slice).collect();
     if !case.port {
         walls.push(port_faces.as_slice());

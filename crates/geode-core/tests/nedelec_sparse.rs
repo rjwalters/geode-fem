@@ -21,6 +21,9 @@
 //!    node coordinates exist, finite, non-zero — mirrors the dense-path
 //!    test at `tests/sigma_conductivity.rs`).
 
+mod common;
+use common::edge_tables;
+
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Int, Tensor, TensorData};
 use faer::c64;
@@ -34,25 +37,9 @@ use geode_core::assembly::nedelec::{
 };
 use geode_core::assembly::p1::{SparsityPattern, upload_mesh};
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
-}
 
 /// Read a dense `[n, n]` Burn matrix to a host row-major Vec<f64>.
 fn dense_to_host(t: Tensor<B, 2>) -> Vec<f64> {

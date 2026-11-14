@@ -206,6 +206,9 @@
 //! closure instead, which returns a [`FacePairing`] with its phase. Give one
 //! or the other, not both.
 
+use crate::vec3::{
+    cross3 as cross, dot3 as dot, norm3 as norm, scale3 as scale, sorted3, sub3 as sub,
+};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::path::Path;
@@ -2005,11 +2008,6 @@ fn par_map<T: Send>(n: usize, f: impl Fn(usize) -> T + Sync + Send) -> Vec<T> {
     }
 }
 
-fn sorted3(mut t: [u32; 3]) -> [u32; 3] {
-    t.sort_unstable();
-    t
-}
-
 /// Natural-order barycentrics in `tet` of the face point with face
 /// barycentrics `mu[0..3]` on the sorted face `face`. Exact (the face's
 /// vertices are vertices of the tet; the opposite vertex gets 0).
@@ -2037,35 +2035,6 @@ fn point_bary(coords: &[[f64; 3]; 4], grad: &[[f64; 3]; 4], y: [f64; 3]) -> [f64
 
 fn bary_to_point(coords: &[[f64; 3]; 4], bary: &[f64; 4]) -> [f64; 3] {
     std::array::from_fn(|d| (0..4).map(|i| bary[i] * coords[i][d]).sum())
-}
-
-#[inline]
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-#[inline]
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-#[inline]
-fn norm(a: [f64; 3]) -> f64 {
-    dot(a, a).sqrt()
-}
-
-#[inline]
-fn scale(a: [f64; 3], s: f64) -> [f64; 3] {
-    [a[0] * s, a[1] * s, a[2] * s]
-}
-
-#[inline]
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
 }
 
 /// `n × v` for a real `n` and a complex `v`.

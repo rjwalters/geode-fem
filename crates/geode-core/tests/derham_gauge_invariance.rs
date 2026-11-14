@@ -99,7 +99,6 @@
 //! cargo test -p geode-core --release --test derham_gauge_invariance
 //! ```
 
-use burn::tensor::backend::BackendTypes;
 use faer::Mat;
 use faer::linalg::solvers::Solve;
 
@@ -110,7 +109,8 @@ use geode_core::eigen::dense::{
     FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask,
 };
 use geode_core::mesh::cube_tet_mesh;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
+use geode_util::rng::Lcg32;
 
 type B = TestBackend;
 
@@ -143,19 +143,12 @@ const KERNEL_FRAC_OF_MAX: f64 = 1e-3;
 /// at n=8 (mirrors the bound in `nedelec_cavity.rs:227`).
 const TM11_TOL: f64 = 0.15;
 
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-/// Deterministic LCG (same constants as `derham_gradient_kernel.rs::lcg`
+/// Deterministic [`Lcg32`] (same stream as `derham_gradient_kernel.rs::lcg`
 /// and `p1_local_matrices.rs::deterministic_tet`). Distinct seed family
 /// (`0x_6A0E_0000`) keeps this test independent of #59's `0x_C0BE_0000`.
 fn lcg(seed: u32) -> impl FnMut() -> f64 {
-    let mut state = seed.wrapping_mul(2_654_435_761);
-    move || {
-        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        (state as f64) / (u32::MAX as f64)
-    }
+    let mut rng = Lcg32::from_seed(seed);
+    move || rng.next_unit()
 }
 
 /// Random `φ ∈ H¹₀`: values in `[-1, 1)` on interior nodes, exactly `0`

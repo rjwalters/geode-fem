@@ -25,6 +25,9 @@
 //! 1. the `p=2` log-log slope is **strictly better** than `p=1`, and
 //! 2. the `p=2` absolute error is below `p=1` at the coarsest shared mesh.
 
+mod common;
+use common::box_fixtures::fit_slope;
+
 use faer::c64;
 use std::f64::consts::PI;
 
@@ -37,31 +40,9 @@ use geode_core::driven::solve::{
 };
 use geode_core::elements::nedelec_p2::{tet_barycentric_gradients, tet_quad_deg4};
 use geode_core::mesh::{TET_LOCAL_EDGES, cube_tet_mesh};
-use geode_core::testing::TestBackend;
-
-use burn::tensor::backend::BackendTypes;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-/// Least-squares slope of `log(err)` vs `log(h)` — the empirical convergence
-/// order `p` in `err ≈ C h^p` (same estimator as `nedelec2_convergence.rs`).
-fn fit_slope(hs: &[f64], errs: &[f64]) -> f64 {
-    let n = hs.len() as f64;
-    let xs: Vec<f64> = hs.iter().map(|h| h.ln()).collect();
-    let ys: Vec<f64> = errs.iter().map(|e| e.ln()).collect();
-    let mean_x = xs.iter().sum::<f64>() / n;
-    let mean_y = ys.iter().sum::<f64>() / n;
-    let (mut num, mut den) = (0.0, 0.0);
-    for (x, y) in xs.iter().zip(ys.iter()) {
-        num += (x - mean_x) * (y - mean_y);
-        den += (x - mean_x) * (x - mean_x);
-    }
-    num / den
-}
 
 /// Analytic manufactured field `E = (0, 0, sin(πx) sin(πy))`.
 fn e_exact(x: [f64; 3]) -> [f64; 3] {

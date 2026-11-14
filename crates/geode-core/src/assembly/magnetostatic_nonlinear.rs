@@ -151,6 +151,7 @@ use faer::sparse::{SparseColMat, Triplet};
 use crate::analytic::slotless_pm::MU_0;
 use crate::analytic::waveguide::{TRI_QUAD_DEG4, TriMesh, tri_bary_grads};
 use crate::assembly::magnetostatic::assemble_magnetization_rhs;
+use crate::sparse_ops::norm2;
 
 /// Free-space reluctivity `1/μ₀` in m/H.
 pub const NU_0: f64 = 1.0 / MU_0;
@@ -1067,14 +1068,6 @@ impl NonlinearMagnetostaticSolution {
         }
         None
     }
-
-    /// Successive residual ratios `‖R_{k+1}‖/‖R_k‖`.
-    pub fn residual_ratios(&self) -> Vec<f64> {
-        self.residual_norms
-            .windows(2)
-            .map(|w| w[1] / w[0])
-            .collect()
-    }
 }
 
 /// Per-element P1 geometry: barycentric gradients and unsigned area.
@@ -1474,11 +1467,6 @@ impl NonlinearMagnetostaticSystem {
         self.dofs = resolve_dofs(&self.dirichlet_mask, &self.user_dirichlet_values, &all)?;
         self.links = all;
         Ok(self)
-    }
-
-    /// The node links added with [`with_node_links`](Self::with_node_links).
-    pub fn node_links(&self) -> &[NodeLink] {
-        &self.links
     }
 
     /// Number of reduced unknowns (free nodes, or free linked classes).
@@ -2697,11 +2685,6 @@ pub fn load_vector_from_fn(mesh: &TriMesh, f: impl Fn(f64, f64) -> f64) -> Vec<f
         }
     }
     load
-}
-
-#[inline]
-fn norm2(v: &[f64]) -> f64 {
-    v.iter().map(|x| x * x).sum::<f64>().sqrt()
 }
 
 #[cfg(test)]

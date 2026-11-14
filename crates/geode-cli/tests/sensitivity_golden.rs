@@ -49,13 +49,13 @@
 //! Spec validation (unsupported analyses / kinds / combinations) is at the
 //! bottom.
 
+#[path = "support/msh.rs"]
+mod msh;
 #[path = "support/scratch.rs"]
 mod scratch_support;
 
 use scratch_support::{Scratch, ScratchFile};
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
 
 use geode_core::assembly::electrostatic::EPS_0;
 use geode_core::driven::ports::extruded_rect_waveguide_mesh;
@@ -71,12 +71,9 @@ fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::geode;
 
 fn run_ok(sub: &str, spec: &Path) -> Value {
     let out = geode(&[sub, spec.to_str().unwrap()]);
@@ -311,64 +308,14 @@ fn write_msh(
     region_of: &[usize],
     surfaces: &[(i32, &str, &[[u32; 3]])],
 ) -> String {
-    let mut s = String::from("$MeshFormat\n4.1 0 8\n$EndMeshFormat\n$PhysicalNames\n");
-    let _ = writeln!(s, "{}", surfaces.len() + 2);
-    for (tag, name, _) in surfaces {
-        let _ = writeln!(s, "2 {tag} \"{name}\"");
-    }
-    s.push_str("3 1 \"front\"\n3 2 \"back\"\n$EndPhysicalNames\n");
-    let _ = writeln!(s, "$Entities\n0 0 {} 2", surfaces.len());
-    for (i, (tag, _, _)) in surfaces.iter().enumerate() {
-        let _ = writeln!(s, "{} 0 0 0 1 1 1 1 {tag} 0", i + 1);
-    }
-    for vol in 1..=2 {
-        let _ = writeln!(s, "{vol} 0 0 0 1 1 1 1 {vol} 0");
-    }
-    s.push_str("$EndEntities\n");
-    let n = nodes.len();
-    let _ = writeln!(s, "$Nodes\n1 {n} 1 {n}\n3 1 0 {n}");
-    for i in 1..=n {
-        let _ = writeln!(s, "{i}");
-    }
-    for p in nodes {
-        let _ = writeln!(s, "{:.17e} {:.17e} {:.17e}", p[0], p[1], p[2]);
-    }
-    let n_tris: usize = surfaces.iter().map(|(_, _, t)| t.len()).sum();
-    let n_el = n_tris + tets.len();
-    let _ = writeln!(
-        s,
-        "$EndNodes\n$Elements\n{} {n_el} 1 {n_el}",
-        surfaces.len() + 2
-    );
-    let mut id = 1;
-    for (i, (_, _, tris)) in surfaces.iter().enumerate() {
-        let _ = writeln!(s, "2 {} 2 {}", i + 1, tris.len());
-        for t in *tris {
-            let _ = writeln!(s, "{id} {} {} {}", t[0] + 1, t[1] + 1, t[2] + 1);
-            id += 1;
-        }
-    }
-    for vol in 0..2 {
-        let block: Vec<&[u32; 4]> = tets
-            .iter()
+    let block = |vol: usize| -> Vec<[u32; 4]> {
+        tets.iter()
             .zip(region_of)
-            .filter_map(|(t, &r)| (r == vol).then_some(t))
-            .collect();
-        let _ = writeln!(s, "3 {} 4 {}", vol + 1, block.len());
-        for t in block {
-            let _ = writeln!(
-                s,
-                "{id} {} {} {} {}",
-                t[0] + 1,
-                t[1] + 1,
-                t[2] + 1,
-                t[3] + 1
-            );
-            id += 1;
-        }
-    }
-    s.push_str("$EndElements\n");
-    s
+            .filter_map(|(t, &r)| (r == vol).then_some(*t))
+            .collect()
+    };
+    let (front, back) = (block(0), block(1));
+    msh::write_msh_volumes(nodes, &[(1, "front", &front), (2, "back", &back)], surfaces)
 }
 
 /// A closed PEC box cavity `[0,a]×[0,b]×[0,len]` (hex grid `nx×ny×nz`,

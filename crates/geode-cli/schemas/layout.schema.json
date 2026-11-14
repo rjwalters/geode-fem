@@ -227,6 +227,11 @@
       "additionalProperties": false,
       "description": "A simple polygon whose edges are parallel to x or y or at ±45°, with\noptional holes.",
       "properties": {
+        "edge_radius": {
+          "description": "Optional edge radius (`≥ 0`, default `0` = sharp corners): every\n**convex** corner of the outer ring is replaced by a tangent\ncircular arc of this radius (in the layer plane, extruded through\nthe layer thickness). Reflex corners and hole rings stay sharp.\nOnly axis-parallel outer rings can be rounded, and the radius must\nnot exceed half the shortest outer edge.",
+          "format": "double",
+          "type": "number"
+        },
         "holes": {
           "default": [],
           "description": "Interior rings (same rules as `outer`, either orientation): each\nmust lie strictly inside the outer ring and must not touch another\nhole.",
@@ -424,7 +429,7 @@
       "description": "Mesh-size controls."
     },
     "periodic": {
-      "description": "Lateral axes along which the unit cell is periodic (`\"x\"`, `\"y\"`;\nadditive in v1, Epic #837 Phase 4a). Each listed axis replaces its\ntwo PEC walls by the groups `<axis>_lo` / `<axis>_hi`, emitted\nwith a Gmsh `Periodic Surface` constraint so the two faces mesh\nidentically, and the starter spec wires them as\n`boundary_conditions.periodic` pairs of an `eigen.bloch` spec at Γ.\nNeeds `--analysis eigen` (ports are not meshed) and a PEC\n`boundary`.",
+      "description": "Lateral axes along which the unit cell is periodic (`\"x\"`, `\"y\"`;\nadditive in v1, Epic #837 Phase 4a). Each listed axis replaces its\ntwo PEC walls by the groups `<axis>_lo` / `<axis>_hi`, emitted\nwith a Gmsh `Periodic Surface` constraint so the two faces mesh\nidentically, and the starter spec wires them as\n`boundary_conditions.periodic` pairs of an `eigen.bloch` spec at Γ.\nNeeds `--analysis eigen` (ports are not meshed) or, with both axes\nperiodic and no lumped `ports`, `--analysis driven` (the z walls\nbecome the Floquet-port groups `z_lo` / `z_hi`); and a PEC\n`boundary`.",
       "items": {
         "$ref": "#/$defs/Axis"
       },

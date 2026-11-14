@@ -51,9 +51,12 @@
 //! provenance guard"): there is no blanket `cargo test -p geode-core` job,
 //! so a new `#[test]` here is only enforced because that step names it.
 
+mod common;
+use common::repo_root;
+
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Required provenance shape of one committed benchmark artifact.
 #[derive(Debug, Clone, Copy)]
@@ -714,6 +717,20 @@ const MANIFEST: &[Entry] = &[
          <dir>/patch_conformal_L1.msh --radial 8x6 --outline 4 --p2 --wide-step 0 --verify-only --design \
          benchmarks/patch_antenna_conformal/nested_dof/L2_combined_64_warm.toml \
          (issue #1103 gate G2 verification)",
+    ),
+    a(
+        "benchmarks/tcda_baseline/results.toml",
+        "hand-recorded from a release run of the TestBackend (f64) baseline: cargo test --release \
+         -p geode-core --test tcda_baseline -- --include-ignored (issue #1536; the test asserts \
+         the recorded sub-grid points, see benchmarks/tcda_baseline/README.md)",
+    ),
+    a(
+        "benchmarks/tcda_design/results.toml",
+        "written by a release run of the TestBackend (f64) Design A min-max example: \
+         TCDA_DESIGN_MAX_ITER=30 TCDA_DESIGN_BUDGET_S=5400 TCDA_DESIGN_ACTIVE_MARGIN=0.15 \
+         cargo run --release -j2 -p geode-core --example tcda_design_run (issue #1579; the \
+         `the_recorded_design_run_reproduces_its_worst_case` pin in tests/tcda_design.rs \
+         re-solves three of its points, see benchmarks/tcda_design/README.md)",
     ),
     // ---- Bucket B: exempt, no Burn backend in the numeric path ----------
     b(
@@ -1561,13 +1578,6 @@ const MANIFEST: &[Entry] = &[
          #1148); no Burn backend",
     ),
 ];
-
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("repo root resolves")
-}
 
 /// Recursively collect repo-relative `*.toml` paths under `dir`.
 fn collect_tomls(root: &Path, dir: &Path, out: &mut BTreeSet<String>) {

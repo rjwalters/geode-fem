@@ -178,7 +178,9 @@
 //! `--release` is required: the dense assembly readback and the
 //! shift-invert sparse LU are debug-slow.
 
-use burn::tensor::backend::BackendTypes;
+mod common;
+use common::edge_tables;
+
 use faer::c64;
 
 use faer::sparse::{SparseColMat, Triplet};
@@ -193,19 +195,13 @@ use geode_core::driven::scattering::build_matched_upml_materials;
 use geode_core::eigen::complex::SparseComplexShiftInvertLanczos;
 use geode_core::eigen::dense::burn_matrix_to_faer;
 use geode_core::eigen::lanczos::ConvergenceCheck;
-use geode_core::mesh::{
-    PHYS_SPHERE_INTERIOR, R_BUFFER, SphereFixture, TetMesh, read_sphere_fixture,
-};
+use geode_core::mesh::{PHYS_SPHERE_INTERIOR, R_BUFFER, SphereFixture, read_sphere_fixture};
 use geode_core::postproc::mode_character::{
     ClassifiedMode, MultipoleFamily, classify_sphere_modes, select_multiplet,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Refractive index inside the sphere (matches the analytic catalog).
 const N_INSIDE: f64 = 1.5;
@@ -243,20 +239,6 @@ const KRYLOV_DIM: usize = 128;
 /// How many of the modes nearest the root to print and, at σ₀ = 25, to
 /// run the negative identity check on: the full cluster of eight.
 const N_CANDIDATES: usize = 8;
-
-/// Per-tet edge index/sign tables in the form the assemblers take.
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let tet_edges = mesh.tet_edges();
-    let idx = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let sign = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
-    (idx, sign)
-}
 
 /// The open-space TE₁,₁ root, `k = 1.88074 − 0.48181i` (the `b₁` pole).
 /// Before issue #999 the catalog labelled this root `TM_1,1`.

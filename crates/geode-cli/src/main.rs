@@ -9,8 +9,12 @@
 //! geode extract <spec.json|spec.toml> [-o report.json] [--threads N] [--backend ndarray] [--outdir DIR]
 //!                   [--touchstone PATH] [--jobs N] [--progress]
 //! geode capacitance <spec.json|spec.toml> [-o report.json] [--threads N] [--spice PATH [--spice-ret-pin]]
+//! geode conduction <spec.json|spec.toml> [-o report.json] [--threads N] [--outdir DIR]
+//! geode eqs <spec.json|spec.toml> [-o report.json] [--threads N]
 //! geode inductance <spec.json|spec.toml> [-o report.json] [--threads N]
 //!                   [--spice PATH [--spice-ret-pin] [--spice-positive-k]]
+//! geode optimize <spec.json|spec.toml> [-o report.json] [--outdir DIR] [--resume CHECKPOINT]
+//!                   [--threads N] [--backend ndarray] [--jobs N]
 //! geode mesh   <layout.json|layout.toml> [--analysis driven|capacitance|inductance] [--mesh-out mesh.msh] [--spec-out spec.json] [--gmsh PATH] [-o report.json]
 //! geode schema spec|report|layout [-o schema.json]   # JSON Schema (draft 2020-12)
 //! geode --version   # "geode <crate-version> (<git-sha>[-dirty])"
@@ -32,16 +36,20 @@ mod backend;
 mod bloch;
 mod capacitance;
 mod check;
+mod conduction;
 mod dataset;
 mod dispersion;
 mod driven;
 mod eigen;
+mod eqs;
 mod error;
 mod export;
 mod extract;
+mod floquet;
 mod hybrid;
 mod inductance;
 mod mesh_cmd;
+mod optimize;
 mod port_solves;
 mod problem;
 mod progress;
@@ -65,7 +73,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
-use geode_app::{App, Verbosity};
+use geode_app::App;
 use geode_core::eigen::parallel::{NUM_THREADS_ENV, ParallelismGuard};
 use serde::Serialize;
 
@@ -82,9 +90,6 @@ const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GEODE_GIT_S
 struct Cli {
     #[command(subcommand)]
     command: Command,
-
-    #[command(flatten)]
-    verbose: Verbosity,
 }
 
 #[derive(Subcommand)]
@@ -116,6 +121,31 @@ enum Command {
     /// `inductance` section, `boundary_conditions.pec`, and no ports or
     /// frequencies.
     Inductance(InductanceArgs),
+    /// DC terminal conductance matrix (S) between named terminal surfaces:
+    /// one conduction solve (`div(sigma grad phi) = 0`, per-region
+    /// `conductivity_s_m`, insulating elsewhere) per terminal at 1 V with
+    /// every other terminal at 0 V; optional per-terminal series `r_ext`.
+    /// The reported currents / power are for the first terminal at 1 V,
+    /// the rest at 0 V. Needs a spec with a `conduction` section and no
+    /// ports or frequencies.
+    Conduction(ConductionArgs),
+    /// Electro-quasi-static solve (`div(sigma grad phi + d/dt(eps grad phi))
+    /// = 0`) between named terminals with optional floating conductors:
+    /// either a transient under per-terminal waveforms (step / pulse /
+    /// piecewise-linear; terminal currents split into conduction and
+    /// displacement, floating potentials, region-mean E, delivered energy)
+    /// or the small-signal admittance `Y = G + jwC` per frequency. Needs a
+    /// spec with an `eqs` section (exactly one of `transient` /
+    /// `frequencies`), materials with `eps_r` and `conductivity_s_m`, and
+    /// no ports.
+    Eqs(StaticArgs),
+    /// Gradient-based design loop (L-BFGS-B, or MMA with constraints) over
+    /// the spec's `optimize` section: design variables, a weighted objective
+    /// and constraints on the `sensitivity` section's parameters and
+    /// observables. Writes a JSONL history, a resumable checkpoint and the
+    /// best-so-far spec and mesh, and ends with the Phase 5a gradient
+    /// self-check at the best design. Needs a driven spec.
+    Optimize(OptimizeArgs),
     /// Layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged
     /// Gmsh mesh + starter problem spec, via the external `gmsh` binary.
     Mesh(mesh_cmd::MeshArgs),
@@ -135,6 +165,35 @@ struct CheckArgs {
     output: Option<PathBuf>,
 }
 
+/// `geode optimize` arguments.
+#[derive(Args)]
+struct OptimizeArgs {
+    /// Problem spec with an `optimize` section (`.toml` → TOML, else JSON).
+    spec: PathBuf,
+    /// Write the JSON report here instead of stdout.
+    #[arg(short = 'o', long = "output", value_name = "PATH")]
+    output: Option<PathBuf>,
+    /// Directory for `history.jsonl`, `checkpoint.json`, `best_spec.json`
+    /// and `best_mesh.msh` (created if missing; same-named files are
+    /// overwritten). Default: the directory of `-o`, else `./geode-optimize`.
+    #[arg(long, value_name = "DIR")]
+    outdir: Option<PathBuf>,
+    /// Continue from a checkpoint written by an earlier run of this spec
+    /// (the run's `checkpoint.json`). A resumed run reproduces the
+    /// uninterrupted one bit for bit.
+    #[arg(long, value_name = "CHECKPOINT")]
+    resume: Option<PathBuf>,
+    /// Confirm the compute backend (see `geode driven --backend`).
+    #[arg(long, value_enum, value_name = "BACKEND")]
+    backend: Option<BackendChoice>,
+    /// Cap worker threads (sets `GEODE_NUM_THREADS`).
+    #[arg(long, value_name = "N")]
+    threads: Option<NonZeroUsize>,
+    /// Concurrent frequencies of the final FD check's forward sweeps.
+    #[arg(long, value_name = "N")]
+    jobs: Option<NonZeroUsize>,
+}
+
 #[derive(Args)]
 struct StaticArgs {
     /// Problem spec (`.toml` → TOML, anything else → JSON).
@@ -146,6 +205,20 @@ struct StaticArgs {
     /// `GEODE_NUM_THREADS`). Default: the library defaults.
     #[arg(long, value_name = "N")]
     threads: Option<NonZeroUsize>,
+}
+
+/// `geode conduction` arguments: the shared static-solve arguments plus
+/// `--outdir` for the per-element field export.
+#[derive(Args)]
+struct ConductionArgs {
+    #[command(flatten)]
+    base: StaticArgs,
+    /// Write the per-element `J` / Joule density / sigma cell-data `.vtu`
+    /// (`conduction_fields.vtu`) here (created if missing; an existing
+    /// file of that name is overwritten). The report's `fields_file`
+    /// references it. Default: nothing is written.
+    #[arg(long, value_name = "DIR")]
+    outdir: Option<PathBuf>,
 }
 
 /// `geode capacitance` arguments: the shared static-solve arguments plus
@@ -446,6 +519,20 @@ impl App for Cli {
                 let result = capacitance::run(&a.spec, prov.clone(), spice.as_deref(), opts);
                 finish("capacitance", prov, a.output.as_deref(), result)
             }
+            Command::Conduction(ConductionArgs { base: a, outdir }) => {
+                let threads = a.threads.map(NonZeroUsize::get);
+                let prov = Self::provenance(&a.spec, threads);
+                let _par = threads.map(apply_thread_cap);
+                let result = conduction::run(&a.spec, prov.clone(), outdir.as_deref());
+                finish("conduction", prov, a.output.as_deref(), result)
+            }
+            Command::Eqs(a) => {
+                let threads = a.threads.map(NonZeroUsize::get);
+                let prov = Self::provenance(&a.spec, threads);
+                let _par = threads.map(apply_thread_cap);
+                let result = eqs::run(&a.spec, prov.clone());
+                finish("eqs", prov, a.output.as_deref(), result)
+            }
             Command::Inductance(InductanceArgs {
                 base: a,
                 spice,
@@ -462,13 +549,26 @@ impl App for Cli {
                 let result = inductance::run(&a.spec, prov.clone(), spice.as_deref(), opts);
                 finish("inductance", prov, a.output.as_deref(), result)
             }
+            Command::Optimize(a) => {
+                let threads = a.threads.map(NonZeroUsize::get);
+                let prov = Self::provenance(&a.spec, threads);
+                let _par = threads.map(apply_thread_cap);
+                let jobs = a.jobs.map_or(1, NonZeroUsize::get);
+                let result = backend::confirm(a.backend).and_then(|()| {
+                    optimize::run(
+                        &a.spec,
+                        prov.clone(),
+                        a.outdir.as_deref(),
+                        a.output.as_deref(),
+                        a.resume.as_deref(),
+                        jobs,
+                    )
+                });
+                finish("optimize", prov, a.output.as_deref(), result)
+            }
             Command::Mesh(a) => mesh_cmd::dispatch(a),
             Command::Schema(a) => schema::run(a),
         }
-    }
-
-    fn verbosity(&self) -> Verbosity {
-        self.verbose
     }
 }
 

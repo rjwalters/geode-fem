@@ -14,7 +14,6 @@
 //! case the stricter per-tet-face check added in #725/PR #729 exists for,
 //! as opposed to the dangling/missing-edge case above.
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::nedelec::cube_pec_interior_edges;
@@ -31,13 +30,9 @@ use geode_core::driven::solve::{
 };
 use geode_core::eigen::sensitivity::{EigenSensitivity, EigenSensitivityError};
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 struct Fixture {
     mesh: TetMesh,

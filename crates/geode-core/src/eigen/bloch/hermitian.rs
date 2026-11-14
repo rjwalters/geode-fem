@@ -65,36 +65,11 @@ use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 use faer::{Mat, Side};
 
 use super::BlochError;
+use crate::sparse_ops::norm2_c as norm2;
 
 const ZERO: c64 = c64 { re: 0.0, im: 0.0 };
 
-/// `y = A x` for a complex CSC matrix.
-pub(crate) fn spmv_c(a: SparseColMatRef<'_, usize, c64>, x: &[c64]) -> Vec<c64> {
-    let mut y = vec![ZERO; a.nrows()];
-    for (j, &xj) in x.iter().enumerate().take(a.ncols()) {
-        if xj == ZERO {
-            continue;
-        }
-        for (i, &v) in a.row_idx_of_col(j).zip(a.val_of_col(j)) {
-            y[i] += v * xj;
-        }
-    }
-    y
-}
-
-/// `y = A x` for a real CSC matrix and a complex vector.
-pub(crate) fn spmv_rc(a: SparseColMatRef<'_, usize, f64>, x: &[c64]) -> Vec<c64> {
-    let mut y = vec![ZERO; a.nrows()];
-    for (j, &xj) in x.iter().enumerate().take(a.ncols()) {
-        if xj == ZERO {
-            continue;
-        }
-        for (i, &v) in a.row_idx_of_col(j).zip(a.val_of_col(j)) {
-            y[i] += xj * v;
-        }
-    }
-    y
-}
+pub(crate) use crate::sparse_ops::{spmv_c, spmv_rc};
 
 /// `y = Aᴴ x` for a complex CSC matrix.
 fn spmv_c_adjoint(a: SparseColMatRef<'_, usize, c64>, x: &[c64]) -> Vec<c64> {
@@ -116,10 +91,6 @@ pub(crate) fn dotc(u: &[c64], v: &[c64]) -> c64 {
         acc += a.conj() * b;
     }
     acc
-}
-
-fn norm2(u: &[c64]) -> f64 {
-    u.iter().map(|z| z.norm_sqr()).sum::<f64>().sqrt()
 }
 
 /// The realification `[[Re A, −Im A], [Im A, Re A]]` (`2n × 2n`, real) of
@@ -340,17 +311,12 @@ pub(crate) struct HermitianSolve {
     pub basis_dim: usize,
 }
 
-struct Rng(u64);
+struct Rng(crate::rng::Xorshift64Star);
 
 impl Rng {
+    /// Sample uniform in `[-0.5, 0.5)`.
     fn next(&mut self) -> f64 {
-        let mut x = self.0;
-        x ^= x >> 12;
-        x ^= x << 25;
-        x ^= x >> 27;
-        self.0 = x;
-        let u = x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 11;
-        u as f64 / (1u64 << 53) as f64 - 0.5
+        self.0.next_unit() - 0.5
     }
     fn vector(&mut self, n: usize) -> Vec<c64> {
         (0..n).map(|_| c64::new(self.next(), self.next())).collect()
@@ -486,7 +452,7 @@ pub(crate) fn solve_hermitian(
         BlochError::Solve(format!("shifted pencil LU (is σ an eigenvalue?): {e:?}"))
     })?;
 
-    let mut rng = Rng(s.seed.max(1));
+    let mut rng = Rng(crate::rng::Xorshift64Star::new_nonzero(s.seed));
     let mut basis = Basis {
         q: Vec::new(),
         mq: Vec::new(),

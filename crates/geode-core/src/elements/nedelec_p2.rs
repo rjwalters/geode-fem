@@ -107,6 +107,7 @@
 //! (`quadrature_is_exact_to_degree_four`).
 
 use crate::mesh::{TET_LOCAL_EDGES, TET_LOCAL_FACES};
+use crate::vec3::{cross3 as cross, dot3 as dot, sub3 as sub};
 
 /// Number of local DOFs of the second-order Nédélec tet (12 edge + 8 face).
 pub const TET_NEDELEC2_DOFS: usize = 20;
@@ -118,22 +119,6 @@ pub const TET_NEDELEC2_FACE_DOF_BASE: usize = 12;
 // small f64 vector helpers (module-local; the scalar P2 kernel keeps its own)
 // ---------------------------------------------------------------------------
 
-#[inline]
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-#[inline]
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-#[inline]
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
 /// `s·a + t·b`.
 #[inline]
 fn lc(s: f64, a: [f64; 3], t: f64, b: [f64; 3]) -> [f64; 3] {

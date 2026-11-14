@@ -29,7 +29,6 @@ mod fixtures;
 
 use std::f64::consts::PI;
 
-use burn::tensor::backend::BackendTypes;
 use faer::linalg::solvers::Solve;
 use faer::sparse::SparseColMat;
 use faer::{Mat, Side, c64};
@@ -46,15 +45,11 @@ use geode_core::mesh::TetMesh;
 use geode_core::mesh::periodic::{
     PeriodicMap, PeriodicMatchOptions, boundary_triangles_on_plane, box_periodic_pairs,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 use fixtures::{box_tet_mesh, renumber};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// A generic wave vector (not in the reciprocal lattice of the unit cube).
 const K_GENERIC: [f64; 3] = [0.37 * PI, 0.21 * PI, 0.13 * PI];

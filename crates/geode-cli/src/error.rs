@@ -105,6 +105,10 @@ pub enum CliError {
     /// factorization, or the Krylov basis cap (Epic #837 Phase 4a).
     #[error("Bloch eigen solve failed: {0}")]
     BlochSolve(String),
+    /// The Floquet-port solve failed (Epic #837 Phase 4b): assembly,
+    /// factorization, or a Rayleigh / Wood singularity at an order.
+    #[error("Floquet-port solve failed: {0}")]
+    FloquetSolve(String),
     /// The electrostatic (capacitance) solve failed: assembly, or the
     /// sparse LU of the reduced system.
     #[error("electrostatic solve failed: {0}")]
@@ -334,6 +338,7 @@ impl CliError {
             | CliError::EigenSolve(_)
             | CliError::LossyEigenSolve(_)
             | CliError::BlochSolve(_)
+            | CliError::FloquetSolve(_)
             | CliError::Electrostatic(_)
             | CliError::CurrentPath(_)
             | CliError::Magnetostatic(_)
@@ -348,6 +353,76 @@ impl CliError {
             CliError::GmshNotFound { .. } => "gmsh_not_found",
             CliError::GmshFailed(_) => "gmsh_failed",
             CliError::Serialize(_) => "serialize",
+        }
+    }
+}
+
+/// Scale a dense matrix by `scale` and reject any non-finite entry.
+///
+/// The static-matrix commands (`capacitance`, `conduction`, `inductance`,
+/// `eqs`) all integrate in mesh units and multiply one factor of the mesh
+/// length unit back in, then refuse to report a matrix with a `NaN` or `inf`
+/// in it. `what` is the quantity word used in the error text, e.g.
+/// `"capacitance"` for `capacitance row {i} has a non-finite entry {bad}`.
+///
+/// The finiteness check runs **after** the scaling, so an overflow introduced
+/// by the scaling itself is caught too. For a finite positive `scale` this is
+/// equivalent to checking first: `NaN * scale` is `NaN` and `±inf * scale` is
+/// `±inf`.
+pub fn scaled_matrix(m: &[Vec<f64>], scale: f64, what: &str) -> Result<Vec<Vec<f64>>, CliError> {
+    let out: Vec<Vec<f64>> = m
+        .iter()
+        .map(|row| row.iter().map(|x| x * scale).collect())
+        .collect();
+    for (i, row) in out.iter().enumerate() {
+        if let Some(bad) = row.iter().find(|x| !x.is_finite()) {
+            return Err(CliError::NonFinite {
+                index: i,
+                what: format!("{what} row {i} has a non-finite entry {bad}"),
+            });
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scaled_matrix_multiplies_every_entry() {
+        let m = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
+        let out = scaled_matrix(&m, 1e-3, "capacitance").unwrap();
+        assert_eq!(out, vec![vec![1e-3, 2e-3], vec![3e-3, 4e-3]]);
+    }
+
+    /// The quantity word and the row index are both interpolated, so each
+    /// command keeps the exact message it had before the helper was shared.
+    #[test]
+    fn scaled_matrix_reports_the_first_bad_row_with_the_quantity_word() {
+        let m = vec![vec![1.0, 2.0], vec![3.0, f64::NAN]];
+        let err = scaled_matrix(&m, 1.0, "conductance").unwrap_err();
+        match err {
+            CliError::NonFinite { index, what } => {
+                assert_eq!(index, 1);
+                assert_eq!(what, "conductance row 1 has a non-finite entry NaN");
+            }
+            other => panic!("expected NonFinite, got {other:?}"),
+        }
+    }
+
+    /// Checking after the scaling catches an overflow the scaling itself
+    /// introduces — a finite input that is no longer finite once scaled.
+    #[test]
+    fn scaled_matrix_catches_an_overflow_introduced_by_the_scaling() {
+        let m = vec![vec![f64::MAX]];
+        let err = scaled_matrix(&m, 10.0, "inductance").unwrap_err();
+        match err {
+            CliError::NonFinite { index, what } => {
+                assert_eq!(index, 0);
+                assert_eq!(what, "inductance row 0 has a non-finite entry inf");
+            }
+            other => panic!("expected NonFinite, got {other:?}"),
         }
     }
 }
