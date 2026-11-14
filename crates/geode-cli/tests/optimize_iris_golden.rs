@@ -30,7 +30,6 @@ mod scratch_support;
 
 use scratch_support::Scratch;
 use std::path::{Path, PathBuf};
-use std::process::Output;
 
 use geode_core::driven::ports::extruded_rect_waveguide_mesh;
 use serde_json::{Value, json};
@@ -60,18 +59,7 @@ fn k0_hz(k0: f64) -> f64 {
 
 #[path = "support/cli.rs"]
 mod cli_support;
-use cli_support::geode;
-
-fn ok(out: &Output, what: &str) -> Value {
-    assert!(
-        out.status.success(),
-        "{what} failed ({}):\nstderr: {}\nstdout: {}",
-        out.status,
-        String::from_utf8_lossy(&out.stderr),
-        String::from_utf8_lossy(&out.stdout)
-    );
-    serde_json::from_slice(&out.stdout).expect("report JSON")
-}
+use cli_support::{geode, ok};
 
 /// Write the filter mesh into `dir`: air tets (`air`), the two cavities
 /// (`cav1`, `cav2`), septum body / edge faces per iris (`bK` / `eK`), the

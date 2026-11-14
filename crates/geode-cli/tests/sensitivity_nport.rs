@@ -25,18 +25,17 @@
 mod msh;
 #[path = "support/scratch.rs"]
 mod scratch_support;
+#[path = "support/slab_guide.rs"]
+mod slab_guide;
 
 use msh::write_msh_volumes as write_msh;
 use scratch_support::{Scratch, ScratchFile};
+use slab_guide::{A, B_DIM, write_slab_guide};
 use std::path::{Path, PathBuf};
 use std::process::Output;
 
-use geode_core::driven::ports::extruded_rect_waveguide_mesh;
 use serde_json::{Value, json};
 
-const A: f64 = 2.0;
-const B_DIM: f64 = 1.0;
-const LEN: f64 = 1.2;
 /// Metres per mesh unit (a 2 cm × 1 cm guide).
 const LENGTH_UNIT_M: f64 = 1e-2;
 /// The adjoint-vs-FD bar (the `fd_check` default).
@@ -77,34 +76,6 @@ fn err(out: &Output, code: &str) -> String {
 
 fn f(v: &Value) -> f64 {
     v.as_f64().unwrap_or_else(|| panic!("not a number: {v}"))
-}
-
-/// The `2 × 1 × 1.2` guide (8 × 4 × 6 cells) with a dielectric `slab`
-/// filling the middle third (`0.4 < z < 0.8`) between two `guide` (air)
-/// ends; `port_in` / `port_out` are the end caps, `walls` the PEC sides.
-fn write_slab_guide(dir: &Path) -> PathBuf {
-    let g = extruded_rect_waveguide_mesh(8, 4, 6, A, B_DIM, LEN);
-    let (mut slab, mut air) = (Vec::new(), Vec::new());
-    for t in &g.mesh.tets {
-        let z = t.iter().map(|&v| g.mesh.nodes[v as usize][2]).sum::<f64>() / 4.0;
-        if z > 0.4 && z < 0.8 {
-            slab.push(*t);
-        } else {
-            air.push(*t);
-        }
-    }
-    let msh = write_msh(
-        &g.mesh.nodes,
-        &[(1, "guide", &air), (2, "slab", &slab)],
-        &[
-            (11, "port_in", &g.port1_faces),
-            (12, "port_out", &g.port2_faces),
-            (13, "walls", &g.sidewall_faces),
-        ],
-    );
-    let path = dir.join("slab_guide.msh");
-    std::fs::write(&path, msh).unwrap();
-    path
 }
 
 /// The design parameters every slab-guide spec differentiates: the slab's

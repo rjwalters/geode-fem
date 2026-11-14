@@ -24,7 +24,7 @@
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use serde_json::Value;
 
@@ -202,7 +202,10 @@ const EXAMPLES: &[(&str, Option<&str>, Input)] = &[
 
 #[path = "support/cli.rs"]
 mod cli_support;
+#[path = "support/gmsh.rs"]
+mod gmsh;
 use cli_support::{geode, manifest_dir};
+use gmsh::gmsh_or_skip;
 
 fn examples() -> PathBuf {
     manifest_dir().join("examples")
@@ -246,35 +249,6 @@ fn assert_schema_valid(v: &jsonschema::Validator, doc: &Value, what: &str) {
         .map(|e| format!("{e} (at `{}`)", e.instance_path()))
         .collect();
     assert!(errs.is_empty(), "{what}:\n{}", errs.join("\n"));
-}
-
-/// `true` if a Gmsh binary is runnable. Otherwise skip loudly — or fail
-/// when `GEODE_REQUIRE_GMSH=1` (CI).
-fn gmsh_or_skip(test: &str) -> bool {
-    let bin = std::env::var_os("GEODE_GMSH")
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| "gmsh".into());
-    let found = Command::new(&bin)
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success());
-    if found {
-        return true;
-    }
-    let msg = format!(
-        "gmsh ({}) is not runnable: install Gmsh (`apt-get install gmsh` / `brew install gmsh`) \
-         or set GEODE_GMSH",
-        bin.to_string_lossy()
-    );
-    if std::env::var("GEODE_REQUIRE_GMSH").is_ok_and(|v| v == "1") {
-        panic!("GEODE_REQUIRE_GMSH=1 but {msg}");
-    }
-    eprintln!(
-        "\n########################################################################\n\
-         ## SKIPPING {test}: {msg}\n\
-         ########################################################################\n"
-    );
-    false
 }
 
 /// Every `.json` / `.toml` under `dir`, as `/`-separated paths relative to
