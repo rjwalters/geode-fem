@@ -1033,10 +1033,11 @@ pub fn solve_wave_port_sweep_with_mode<B: burn::tensor::backend::Backend>(
 }
 
 /// Dense Gauss-Jordan inversion of a row-major `n × n` complex matrix.
-/// Returns `None` on an exactly singular pivot. For the channel-count
-/// matrices this serves (N = Σ_p K_p — single digits to low tens in
-/// practice) a dense elimination is the right tool — mirrors the
-/// `invert_complex` helper in [`crate::driven::extraction`].
+/// Returns `None` on an exactly singular pivot. The matrices this serves
+/// are tiny — channel counts (N = Σ_p K_p) for the port solvers here,
+/// port counts (n = number of ports) for [`crate::driven::extraction`],
+/// single digits to low tens in practice — so a dense elimination is
+/// the right tool.
 pub(crate) fn invert_complex_dense(m: &[c64], n: usize) -> Option<Vec<c64>> {
     debug_assert_eq!(m.len(), n * n);
     let mut a = m.to_vec();
@@ -1050,6 +1051,7 @@ pub(crate) fn invert_complex_dense(m: &[c64], n: usize) -> Option<Vec<c64>> {
         })
         .collect();
     for col in 0..n {
+        // Partial pivot on the largest |a[r][col]|, r ≥ col.
         let mut piv = col;
         let mut piv_norm = a[col * n + col].norm();
         for r in (col + 1)..n {
