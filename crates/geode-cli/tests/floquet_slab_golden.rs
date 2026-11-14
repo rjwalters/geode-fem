@@ -13,120 +13,23 @@
 //!   non-matching mesh, an inhomogeneous port medium and malformed
 //!   `incidence` / `scan` sections are `invalid_spec`.
 
+#[path = "support/floquet_cell.rs"]
+mod floquet_cell;
+#[path = "support/gmsh.rs"]
+mod gmsh;
 #[path = "support/msh.rs"]
 mod msh;
 #[path = "support/scratch.rs"]
 mod scratch_support;
 
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 
 use faer::c64;
+use floquet_cell::{EPS, K0, L, Z1, Z2, box_msh, spec};
+use gmsh::gmsh_or_skip;
 use scratch_support::Scratch;
 use serde_json::{Value, json};
-
-const A: f64 = 0.1;
-const L: f64 = 1.0;
-const K0: f64 = 2.5;
-const EPS: f64 = 4.0;
-const Z1: f64 = 0.35;
-const Z2: f64 = 0.65;
-
-/// Kuhn-split `n[0] × n[1] × n[2]` box of size `[A, A, L]`, the tets with
-/// centroid in `(Z1, Z2)` tagged `slab`, the rest `air`; the six walls are
-/// tagged `x_lo` … `z_hi`. `x_hi_shift` moves the `x_hi` nodes with odd `j`
-/// along `y` by that fraction of the cell height `h_y` — the `x_hi` face
-/// then no longer is a translate of `x_lo` (non-matching) unless it is
-/// ~1e-9 (snapped).
-fn box_msh(n: [usize; 3], slab: bool, x_hi_shift: f64) -> String {
-    let h = [A / n[0] as f64, A / n[1] as f64, L / n[2] as f64];
-    let id = |i: usize, j: usize, k: usize| ((k * (n[1] + 1) + j) * (n[0] + 1) + i) as u32;
-    let mut nodes = Vec::new();
-    for k in 0..=n[2] {
-        for j in 0..=n[1] {
-            for i in 0..=n[0] {
-                let mut p = [i as f64 * h[0], j as f64 * h[1], k as f64 * h[2]];
-                if i == n[0] && j % 2 == 1 {
-                    p[1] += x_hi_shift * h[1];
-                }
-                nodes.push(p);
-            }
-        }
-    }
-    let perms = [
-        [0, 1, 2],
-        [0, 2, 1],
-        [1, 0, 2],
-        [1, 2, 0],
-        [2, 0, 1],
-        [2, 1, 0],
-    ];
-    let (mut air, mut slab_t): (Vec<[u32; 4]>, Vec<[u32; 4]>) = (Vec::new(), Vec::new());
-    for k in 0..n[2] {
-        for j in 0..n[1] {
-            for i in 0..n[0] {
-                for p in perms {
-                    let mut c = [i, j, k];
-                    let mut t = [id(c[0], c[1], c[2]); 4];
-                    for (s, &axis) in p.iter().enumerate() {
-                        c[axis] += 1;
-                        t[s + 1] = id(c[0], c[1], c[2]);
-                    }
-                    let pt = |v: u32| nodes[v as usize];
-                    let (a, b, c, d) = (pt(t[0]), pt(t[1]), pt(t[2]), pt(t[3]));
-                    let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-                    let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-                    let w = [d[0] - a[0], d[1] - a[1], d[2] - a[2]];
-                    let det = u[0] * (v[1] * w[2] - v[2] * w[1])
-                        - u[1] * (v[0] * w[2] - v[2] * w[0])
-                        + u[2] * (v[0] * w[1] - v[1] * w[0]);
-                    if det < 0.0 {
-                        t.swap(2, 3);
-                    }
-                    let zc = (a[2] + b[2] + c[2] + d[2]) / 4.0;
-                    if slab && zc > Z1 && zc < Z2 {
-                        slab_t.push(t);
-                    } else {
-                        air.push(t);
-                    }
-                }
-            }
-        }
-    }
-    let mut walls: [Vec<[u32; 3]>; 6] = Default::default();
-    let ijk = |v: u32| {
-        let v = v as usize;
-        let i = v % (n[0] + 1);
-        let j = (v / (n[0] + 1)) % (n[1] + 1);
-        let k = v / ((n[0] + 1) * (n[1] + 1));
-        [i, j, k]
-    };
-    for t in air.iter().chain(&slab_t) {
-        for skip in 0..4 {
-            let f: Vec<u32> = (0..4).filter(|&i| i != skip).map(|i| t[i]).collect();
-            let tri = [f[0], f[1], f[2]];
-            for axis in 0..3 {
-                for (side, idx) in [(0, 0), (1, n[axis])] {
-                    if tri.iter().all(|&v| ijk(v)[axis] == idx) {
-                        walls[2 * axis + side].push(tri);
-                    }
-                }
-            }
-        }
-    }
-    let names = ["x_lo", "x_hi", "y_lo", "y_hi", "z_lo", "z_hi"];
-    let surfaces: Vec<(i32, &str, &[[u32; 3]])> = names
-        .iter()
-        .zip(&walls)
-        .enumerate()
-        .map(|(i, (name, tris))| (101 + i as i32, *name, tris.as_slice()))
-        .collect();
-    let mut volumes: Vec<(i32, &str, &[[u32; 4]])> = vec![(1, "air", air.as_slice())];
-    if slab {
-        volumes.push((2, "slab", slab_t.as_slice()));
-    }
-    msh::write_msh_volumes(&nodes, &volumes, &surfaces)
-}
 
 #[path = "support/cli.rs"]
 mod cli_support;
@@ -154,35 +57,6 @@ fn error_of(out: &Output, code: &str) -> String {
     assert_eq!(v["error"]["code"], code, "report: {v:#}");
     v["error"]["message"].as_str().unwrap().to_string()
 }
-
-/// `f` (Hz) of the natural-unit `k₀` for a 1 m length unit.
-fn hz(k0: f64) -> f64 {
-    k0 * geode_core::constants::C_M_PER_S / (2.0 * std::f64::consts::PI)
-}
-
-/// The base spec: slab cell, periodic x / y, Floquet ports on z, `drive`
-/// merged in (`incidence` or `scan`).
-fn spec(drive: Value) -> Value {
-    let mut v = json!({
-        "schema_version": 1,
-        "mesh": {"path": "cell.msh", "length_unit_m": 1.0},
-        "materials": [{"physical_group": "slab", "eps_r": [EPS, 0.0]}],
-        "boundary_conditions": {"periodic": [
-            {"master": "x_lo", "slave": "x_hi"},
-            {"master": "y_lo", "slave": "y_hi"}
-        ]},
-        "floquet_ports": [
-            {"physical_group": "z_lo", "n_evanescent": 1},
-            {"physical_group": "z_hi", "n_evanescent": 1}
-        ],
-        "frequencies": {"unit": "hz", "values": [hz(K0)]}
-    });
-    for (k, x) in drive.as_object().unwrap() {
-        v[k] = x.clone();
-    }
-    v
-}
-
 fn scratch(name: &str, msh_text: String) -> Scratch {
     let dir = Scratch::new("geode-floquet-", name);
     std::fs::write(dir.join("cell.msh"), msh_text).unwrap();
@@ -415,27 +289,6 @@ fn check_rejects_anisotropic_port_medium_and_bad_drives() {
 }
 
 // --- generated periodic driven mesh (issue #1530) ---------------------------
-
-/// `true` if a Gmsh binary is runnable; otherwise skip loudly, or fail when
-/// `GEODE_REQUIRE_GMSH=1` (CI), as `mesh_golden.rs` does.
-fn gmsh_or_skip(test: &str) -> bool {
-    let bin = std::env::var_os("GEODE_GMSH")
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| "gmsh".into());
-    if Command::new(&bin)
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success())
-    {
-        return true;
-    }
-    let msg = format!("gmsh ({}) is not runnable", bin.to_string_lossy());
-    if std::env::var("GEODE_REQUIRE_GMSH").is_ok_and(|v| v == "1") {
-        panic!("GEODE_REQUIRE_GMSH=1 but {msg}");
-    }
-    eprintln!("\n## SKIPPING {test}: {msg}\n");
-    false
-}
 
 /// `geode mesh --periodic --analysis driven` emits `z_lo` / `z_hi` Floquet
 /// port groups and a starter spec with `floquet_ports`; `geode check`

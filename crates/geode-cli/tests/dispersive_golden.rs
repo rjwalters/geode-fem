@@ -53,24 +53,7 @@ const F_HI: f64 = 1e12;
 
 #[path = "support/cli.rs"]
 mod cli_support;
-use cli_support::manifest_dir;
-
-/// `fixture` with its mesh path made absolute and `edit` applied, written
-/// to `dir/name`.
-fn spec_from(fixture: &str, dir: &Path, name: &str, edit: impl FnOnce(&mut Value)) -> PathBuf {
-    let fixtures = manifest_dir().join("tests/fixtures");
-    let raw = std::fs::read_to_string(fixtures.join(fixture)).unwrap();
-    let mut v: Value = serde_json::from_str(&raw).unwrap();
-    let mesh = fixtures
-        .join(v["mesh"]["path"].as_str().unwrap())
-        .canonicalize()
-        .expect("fixture mesh");
-    v["mesh"]["path"] = mesh.display().to_string().into();
-    edit(&mut v);
-    let path = dir.join(name);
-    std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
-    path
-}
+use cli_support::spec_from;
 
 fn run(args: &[&str], spec: &Path) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_geode"))

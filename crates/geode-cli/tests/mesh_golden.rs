@@ -46,7 +46,10 @@ use geode_core::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
 
 #[path = "support/cli.rs"]
 mod cli_support;
-use cli_support::{geode, manifest_dir};
+#[path = "support/gmsh.rs"]
+mod gmsh;
+use cli_support::{geode, json, manifest_dir, ok_status};
+use gmsh::gmsh_or_skip;
 
 fn fixtures() -> PathBuf {
     manifest_dir().join("tests/fixtures")
@@ -60,29 +63,6 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
-fn json(out: &Output) -> serde_json::Value {
-    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
-        panic!(
-            "stdout is not JSON ({e}): {}\nstderr: {}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        )
-    })
-}
-
-fn ok(out: Output, what: &str) -> serde_json::Value {
-    assert!(
-        out.status.success(),
-        "{what} failed ({}):\nstderr: {}\nstdout: {}",
-        out.status,
-        String::from_utf8_lossy(&out.stderr),
-        String::from_utf8_lossy(&out.stdout)
-    );
-    let v = json(&out);
-    assert_eq!(v["status"], "ok");
-    v
-}
-
 fn assert_error(out: &Output, code: &str) -> String {
     assert!(!out.status.success(), "expected failure");
     let v = json(out);
@@ -92,35 +72,6 @@ fn assert_error(out: &Output, code: &str) -> String {
     let msg = v["error"]["message"].as_str().unwrap().to_owned();
     assert!(!msg.contains("  "), "stray whitespace: {msg:?}");
     msg
-}
-
-/// `true` if a Gmsh binary is runnable. Otherwise skip loudly — or fail
-/// when `GEODE_REQUIRE_GMSH=1` (CI).
-fn gmsh_or_skip(test: &str) -> bool {
-    let bin = std::env::var_os("GEODE_GMSH")
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| "gmsh".into());
-    let found = Command::new(&bin)
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success());
-    if found {
-        return true;
-    }
-    let msg = format!(
-        "gmsh ({}) is not runnable: install Gmsh (`apt-get install gmsh` / `brew install gmsh`) \
-         or set GEODE_GMSH",
-        bin.to_string_lossy()
-    );
-    if std::env::var("GEODE_REQUIRE_GMSH").is_ok_and(|v| v == "1") {
-        panic!("GEODE_REQUIRE_GMSH=1 but {msg}");
-    }
-    eprintln!(
-        "\n########################################################################\n\
-         ## SKIPPING {test}: {msg}\n\
-         ########################################################################\n"
-    );
-    false
 }
 
 /// A two-pad (gap-port capacitor) layout, mm units, with a matched UPML.
@@ -398,8 +349,8 @@ fn octagon_ring_with_hole_meshes_and_tags_by_footprint() {
     }
     let dir = scratch("hole45");
     let (mesh, spec) = (dir.join("h.msh"), dir.join("h.spec.json"));
-    let report = ok(
-        geode(&[
+    let report = ok_status(
+        &geode(&[
             "mesh",
             s(&fixtures().join("mesh_hole_45.layout.json")),
             "--mesh-out",
@@ -437,7 +388,7 @@ fn octagon_ring_with_hole_meshes_and_tags_by_footprint() {
     };
     want("m1", (400.0 - 32.0) - (100.0 - 8.0) + 80.0);
     want("core", 16.0);
-    ok(geode(&["check", s(&spec)]), "geode check");
+    ok_status(&geode(&["check", s(&spec)]), "geode check");
 }
 
 /// `edge_radius` (issue #1482): the generated script rounds the plate's
@@ -491,8 +442,8 @@ fn rounded_plate_meshes_with_the_exact_rounded_area() {
     }
     let dir = scratch("rounded-plate");
     let mesh = dir.join("r.msh");
-    ok(
-        geode(&[
+    ok_status(
+        &geode(&[
             "mesh",
             s(&fixtures().join("mesh_rounded_plate.layout.json")),
             "--analysis",
@@ -521,8 +472,8 @@ fn via_stack_on_one_net_meshes_as_one_conductor_group() {
     }
     let dir = scratch("viastack");
     let (mesh, spec) = (dir.join("v.msh"), dir.join("v.spec.json"));
-    let report = ok(
-        geode(&[
+    let report = ok_status(
+        &geode(&[
             "mesh",
             s(&fixtures().join("mesh_via_stack.layout.json")),
             "--analysis",
@@ -557,7 +508,7 @@ fn via_stack_on_one_net_meshes_as_one_conductor_group() {
     assert_eq!(groups, want.map(|(n, r)| (n.to_owned(), r.to_owned())));
     let tagged = geode_core::mesh::read_tagged_tet_mesh(&std::fs::read(&mesh).unwrap()).unwrap();
     assert!(group_area(&tagged, "sig") > 0.0);
-    ok(geode(&["check", s(&spec)]), "geode check");
+    ok_status(&geode(&["check", s(&spec)]), "geode check");
 }
 
 #[test]
@@ -577,7 +528,7 @@ fn tiny_upml_layout_meshes_checks_and_drives_unedited() {
         "--spec-out",
         s(&spec),
     ];
-    let report = ok(geode(&args), "geode mesh");
+    let report = ok_status(&geode(&args), "geode mesh");
     assert_eq!(report["kind"], "mesh");
     assert!(!report["gmsh"]["version"].as_str().unwrap().is_empty());
     assert!(
@@ -618,19 +569,19 @@ fn tiny_upml_layout_meshes_checks_and_drives_unedited() {
 
     // Reproducible: the same layout re-meshes to the same bytes.
     let sha = report["mesh"]["sha256"].as_str().unwrap().to_owned();
-    let again = ok(geode(&args), "geode mesh (re-run)");
+    let again = ok_status(&geode(&args), "geode mesh (re-run)");
     assert_eq!(
         again["mesh"]["sha256"],
         sha.as_str(),
         "mesh is not reproducible"
     );
 
-    let check = ok(geode(&["check", s(&spec)]), "geode check");
+    let check = ok_status(&geode(&["check", s(&spec)]), "geode check");
     assert_eq!(check["ports"][0]["width"], 20.0);
     assert_eq!(check["ports"][0]["length"], 2.0);
     assert_eq!(check["absorbing_regions"].as_array().unwrap().len(), 2);
 
-    let driven = ok(geode(&["driven", s(&spec)]), "geode driven");
+    let driven = ok_status(&geode(&["driven", s(&spec)]), "geode driven");
     let p = &driven["results"][0]["ports"][0];
     let z = [
         p["z_ohm"][0].as_f64().unwrap(),
@@ -686,8 +637,8 @@ fn thick_conductors_are_hollow_without_interface_faces() {
     let layout = dir.join("layout.json");
     write_json(&layout, &hollow_layout());
     let mesh = dir.join("hollow.msh");
-    let report = ok(
-        geode(&["mesh", s(&layout), "--mesh-out", s(&mesh)]),
+    let report = ok_status(
+        &geode(&["mesh", s(&layout), "--mesh-out", s(&mesh)]),
         "geode mesh",
     );
     let geo = std::fs::read_to_string(dir.join("hollow.geo")).unwrap();
@@ -821,8 +772,8 @@ fn mesh_and_drive_pierced(dir: &Path, stem: &str, layout: &serde_json::Value) ->
         dir.join(format!("{stem}.leon.json")),
     );
     write_json(&lp, layout);
-    ok(
-        geode(&[
+    ok_status(
+        &geode(&[
             "mesh",
             s(&lp),
             "--mesh-out",
@@ -833,7 +784,7 @@ fn mesh_and_drive_pierced(dir: &Path, stem: &str, layout: &serde_json::Value) ->
         "geode mesh",
     );
     leontovich_variant_of(&spec, &leon, &["m1", "via"]);
-    let report = ok(geode(&["driven", s(&leon)]), "geode driven (Leontovich)");
+    let report = ok_status(&geode(&["driven", s(&leon)]), "geode driven (Leontovich)");
     let (_, r) = l_r(&report);
     assert!(r.is_finite() && r > 0.0, "R = {r}");
     (mesh, r)
@@ -1043,8 +994,8 @@ fn leontovich_variant_of(spec: &Path, out: &Path, expect: &[&str]) {
 fn mesh_spiral(fixture: &str, tag: &str) -> (serde_json::Value, PathBuf, PathBuf) {
     let dir = scratch(tag);
     let (mesh, spec) = (dir.join("spiral.msh"), dir.join("spiral.spec.json"));
-    let report = ok(
-        geode(&[
+    let report = ok_status(
+        &geode(&[
             "mesh",
             s(&fixtures().join(fixture)),
             "--mesh-out",
@@ -1108,7 +1059,7 @@ fn assert_spiral_structure(report: &serde_json::Value, spec: &Path) {
     assert!(count("m2") > count("m1") && count("m1") > count("via"));
     assert!(count("port") >= 2 && count("outer_boundary") >= 12);
 
-    let check = ok(geode(&["check", s(spec)]), "geode check");
+    let check = ok_status(&geode(&["check", s(spec)]), "geode check");
     assert_eq!(check["analysis"], "driven");
     assert_eq!(check["ports"][0]["physical_group"], "port");
     assert_eq!(check["ports"][0]["width"], 6.0);
@@ -1154,7 +1105,7 @@ fn spiral_smoke_layout_golden() {
     // Coarse physics sanity at 1 GHz with the benchmark's conductor model.
     let leon = dir.join("leontovich.json");
     leontovich_variant(&spec, &leon);
-    let (l, r, q) = l_r_q(&ok(geode(&["driven", s(&leon)]), "geode driven"));
+    let (l, r, q) = l_r_q(&ok_status(&geode(&["driven", s(&leon)]), "geode driven"));
     let (wl, wr, wq) = committed_1ghz("results_smoke.toml");
     eprintln!(
         "smoke layout @ 1 GHz: L {l:.5} nH (committed fixture {wl:.5}, {:+.2}%), \
@@ -1189,7 +1140,7 @@ fn spiral_benchmark_layout_within_oracle_bands() {
     // oracle bands and the committed benchmark sweep.
     let leon = dir.join("leontovich.json");
     leontovich_variant(&spec, &leon);
-    let (l, r, q) = l_r_q(&ok(geode(&["driven", s(&leon)]), "geode driven"));
+    let (l, r, q) = l_r_q(&ok_status(&geode(&["driven", s(&leon)]), "geode driven"));
     let (wl, wr, wq) = committed_1ghz("results.toml");
     let spiral = |n_turns: f64| SquareSpiral {
         n_turns,
@@ -1232,7 +1183,10 @@ fn spiral_benchmark_layout_within_oracle_bands() {
 
     // (b) The unedited (PEC) starter spec vs the same PEC model on the
     // committed benchmark mesh.
-    let (l_pec, _) = l_r(&ok(geode(&["driven", s(&spec)]), "geode driven (PEC)"));
+    let (l_pec, _) = l_r(&ok_status(
+        &geode(&["driven", s(&spec)]),
+        "geode driven (PEC)",
+    ));
     let mut committed: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(fixtures().join("spiral_golden_benchmark.json")).unwrap(),
     )
@@ -1247,8 +1201,8 @@ fn spiral_benchmark_layout_within_oracle_bands() {
     });
     let committed_pec = dir.join("committed_pec.json");
     write_json(&committed_pec, &committed);
-    let (l_ref, _) = l_r(&ok(
-        geode(&["driven", s(&committed_pec)]),
+    let (l_ref, _) = l_r(&ok_status(
+        &geode(&["driven", s(&committed_pec)]),
         "geode driven (committed, PEC)",
     ));
     eprintln!(
@@ -1385,8 +1339,8 @@ fn periodic_layouts_mesh_and_check_with_declared_translations() {
         let layout = dir.join("layout.json");
         write_json(&layout, &periodic_layout(axes));
         let (mesh, spec) = (dir.join("p.msh"), dir.join("p.spec.json"));
-        let report = ok(
-            geode(&[
+        let report = ok_status(
+            &geode(&[
                 "mesh",
                 s(&layout),
                 "--analysis",
@@ -1400,7 +1354,7 @@ fn periodic_layouts_mesh_and_check_with_declared_translations() {
         );
         assert_eq!(report["kind"], "mesh", "{axes:?}");
 
-        let check = ok(geode(&["check", s(&spec)]), "geode check");
+        let check = ok_status(&geode(&["check", s(&spec)]), "geode check");
         assert_eq!(check["kind"], "check", "{axes:?}");
         let periodic = &check["periodic"];
         let pairs = periodic["pairs"].as_array().expect("periodic.pairs");
