@@ -14,46 +14,17 @@
 //! Release tier (`--ignored`): one A2 solve of the committed initial
 //! order-1 mesh reproduces the `initial_h` record.
 
-use std::path::PathBuf;
+mod common;
+use common::repo_root as repo;
 
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
+#[path = "common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::{tarr, tf, tget, tstr};
 
 fn results() -> toml::Value {
     let path = repo().join("benchmarks/transmon_devicelayout_crosscheck/results.toml");
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     toml::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
-}
-
-fn tget<'a>(v: &'a toml::Value, path: &str) -> &'a toml::Value {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur
-}
-
-fn tf(v: &toml::Value, path: &str) -> f64 {
-    let x = tget(v, path);
-    x.as_float()
-        .or_else(|| x.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("{path} is not a number"))
-}
-
-fn tarr(v: &toml::Value, path: &str) -> Vec<f64> {
-    tget(v, path)
-        .as_array()
-        .unwrap_or_else(|| panic!("{path} is not an array"))
-        .iter()
-        .map(|x| {
-            x.as_float()
-                .or_else(|| x.as_integer().map(|i| i as f64))
-                .unwrap()
-        })
-        .collect()
 }
 
 fn tstrs<'a>(v: &'a toml::Value, path: &str) -> Vec<&'a str> {
@@ -63,12 +34,6 @@ fn tstrs<'a>(v: &'a toml::Value, path: &str) -> Vec<&'a str> {
         .iter()
         .map(|x| x.as_str().expect("string"))
         .collect()
-}
-
-fn tstr<'a>(v: &'a toml::Value, path: &str) -> &'a str {
-    tget(v, path)
-        .as_str()
-        .unwrap_or_else(|| panic!("{path} is not a string"))
 }
 
 const TAGS: [&str; 2] = ["initial", "final"];

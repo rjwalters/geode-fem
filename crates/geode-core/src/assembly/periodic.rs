@@ -350,8 +350,7 @@ impl DofAliasMap {
         let mut out = Vec::with_capacity(self.coeffs.len());
         for i in 0..self.n_full() {
             let d = self.shift[i];
-            for k in self.row_ptr[i]..self.row_ptr[i + 1] {
-                let c = self.coeffs[k];
+            for &c in &self.coeffs[self.row_ptr[i]..self.row_ptr[i + 1]] {
                 let mj = c64::new(0.0, -1.0) * c;
                 out.push([mj * d[0], mj * d[1], mj * d[2]]);
             }

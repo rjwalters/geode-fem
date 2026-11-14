@@ -10,10 +10,13 @@
 //! (3) a degenerate pair is a typed error; (4) the lossless limit
 //! reproduces the real-ε [`SpaceEigenSensitivity`] result.
 
-use burn::tensor::backend::BackendTypes;
+mod common;
+use common::box_fixtures::{box_mesh, box_walls, jitter};
+
 use faer::c64;
 
 use geode_core::assembly::hcurl_space::HcurlSpace;
+use geode_core::assembly::nedelec::tet_centroid as centroid;
 use geode_core::eigen::lossy_cavity::{
     FrozenWalls, LossyCavityMaterials, LossyCavitySettings, SpaceLossyCavityModes,
     solve_lossy_cavity_modes_on_space,
@@ -23,130 +26,17 @@ use geode_core::eigen::sensitivity::{
 };
 use geode_core::elements::ElementOrder;
 use geode_core::mesh::TetMesh;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-// --- Meshes (same construction as `eigen_p2_tagged.rs`) -------------------
-
-struct Lcg(u64);
-impl Lcg {
-    fn next(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        ((self.0 >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
-    }
-}
-
-/// Structured box `[0, len]` with `n` cells per axis, 6 tets per hex.
-fn box_mesh(n: [usize; 3], len: [f64; 3]) -> TetMesh {
-    let np = [n[0] + 1, n[1] + 1, n[2] + 1];
-    let idx = |i: usize, j: usize, k: usize| (i + j * np[0] + k * np[0] * np[1]) as u32;
-    let mut nodes = Vec::with_capacity(np[0] * np[1] * np[2]);
-    for k in 0..np[2] {
-        for j in 0..np[1] {
-            for i in 0..np[0] {
-                nodes.push([
-                    len[0] * i as f64 / n[0] as f64,
-                    len[1] * j as f64 / n[1] as f64,
-                    len[2] * k as f64 / n[2] as f64,
-                ]);
-            }
-        }
-    }
-    let mut tets = Vec::new();
-    for k in 0..n[2] {
-        for j in 0..n[1] {
-            for i in 0..n[0] {
-                let q = [
-                    idx(i, j, k),
-                    idx(i + 1, j, k),
-                    idx(i + 1, j + 1, k),
-                    idx(i, j + 1, k),
-                    idx(i, j, k + 1),
-                    idx(i + 1, j, k + 1),
-                    idx(i + 1, j + 1, k + 1),
-                    idx(i, j + 1, k + 1),
-                ];
-                tets.push([q[0], q[1], q[2], q[6]]);
-                tets.push([q[0], q[2], q[3], q[6]]);
-                tets.push([q[0], q[3], q[7], q[6]]);
-                tets.push([q[0], q[7], q[4], q[6]]);
-                tets.push([q[0], q[4], q[5], q[6]]);
-                tets.push([q[0], q[5], q[1], q[6]]);
-            }
-        }
-    }
-    TetMesh {
-        nodes,
-        tets,
-        physical_groups: Default::default(),
-    }
-}
-
-/// Jitter every node strictly inside the box by up to `amp` per axis
-/// (the walls stay flat, and any node on the plane `keep_plane = (axis,
-/// value)` stays on it).
-fn jitter(
-    mesh: &mut TetMesh,
-    len: [f64; 3],
-    amp: f64,
-    seed: u64,
-    keep_plane: Option<(usize, f64)>,
-) {
-    let mut rng = Lcg(seed);
-    for p in mesh.nodes.iter_mut() {
-        let inside = (0..3).all(|d| p[d] > 1e-12 && p[d] < len[d] - 1e-12);
-        let (dx, dy, dz) = (rng.next(), rng.next(), rng.next());
-        if !inside {
-            continue;
-        }
-        let on_plane = keep_plane.is_some_and(|(axis, v)| (p[axis] - v).abs() < 1e-12);
-        for (d, delta) in [dx, dy, dz].into_iter().enumerate() {
-            if on_plane && keep_plane.is_some_and(|(axis, _)| axis == d) {
-                continue;
-            }
-            p[d] += amp * delta;
-        }
-    }
-}
-
-fn plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32; 3]> {
-    mesh.boundary_faces()
-        .into_iter()
-        .filter(|f| {
-            f.iter()
-                .all(|&n| (mesh.nodes[n as usize][axis] - value).abs() < 1e-12)
-        })
-        .collect()
-}
-
-/// The six walls of the box `[0, len]` as separate tagged triangle lists.
-fn box_walls(mesh: &TetMesh, len: [f64; 3]) -> Vec<Vec<[u32; 3]>> {
-    let mut out = Vec::new();
-    for (axis, &l) in len.iter().enumerate() {
-        out.push(plane_faces(mesh, axis, 0.0));
-        out.push(plane_faces(mesh, axis, l));
-    }
-    out
-}
+// --- Meshes (shared with `eigen_p2_tagged.rs` via `common/box_fixtures.rs`) -
 
 fn refs(lists: &[Vec<[u32; 3]>]) -> Vec<&[[u32; 3]]> {
     lists.iter().map(Vec::as_slice).collect()
 }
 
 const BOX: [f64; 3] = [1.0, 0.8, 0.6];
-
-fn centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
-    let tet = mesh.tets[t];
-    std::array::from_fn(|d| tet.iter().map(|&v| mesh.nodes[v as usize][d]).sum::<f64>() / 4.0)
-}
 
 /// `(mesh, region_of)`: two regions split at `x = 0.5`.
 fn setup() -> (TetMesh, Vec<usize>) {

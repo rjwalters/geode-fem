@@ -33,10 +33,12 @@
 //! cargo test -p geode-core --release --test hcurl_error_estimator -- --nocapture
 //! ```
 
+mod common;
+use common::box_fixtures::box_mesh_with;
+
 use std::f64::consts::PI;
 use std::time::Instant;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::adapt::estimator::{
@@ -46,6 +48,7 @@ use geode_core::adapt::estimator::{
 use geode_core::analytic::loaded_guide::{LsFamily, SlabLoadedGuide};
 use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::assembly::nedelec::boundary_pec_interior_edges;
+use geode_core::assembly::nedelec::tet_centroid as centroid;
 use geode_core::driven::ports::LumpedPort;
 use geode_core::driven::solve::{
     DrivenBcs, DrivenMaterials, DrivenOperator, DrivenSource, QuadCurrentSource,
@@ -58,13 +61,9 @@ use geode_core::elements::ElementOrder;
 use geode_core::elements::nedelec_p2::tet_quad_deg4;
 use geode_core::mesh::periodic::{PeriodicMap, PeriodicMatchOptions, box_periodic_pairs};
 use geode_core::mesh::{TetMesh, read_transmon_smoke_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn c(re: f64) -> c64 {
     c64::new(re, 0.0)
@@ -75,89 +74,6 @@ const ZERO: c64 = c64 { re: 0.0, im: 0.0 };
 // ---------------------------------------------------------------------------
 // Test-local meshes
 // ---------------------------------------------------------------------------
-
-/// A structured box `origin + [0, len]` with `n` cells per axis, each hex
-/// split into the 6 tets of `cube_tet_mesh` (so the same diagonal pattern),
-/// keeping only the cells where `keep(i, j, k)`. Unused nodes are dropped
-/// (relative order preserved, so the lower-index-first edge orientation is
-/// unchanged).
-fn box_mesh(
-    n: [usize; 3],
-    len: [f64; 3],
-    origin: [f64; 3],
-    keep: impl Fn(usize, usize, usize) -> bool,
-) -> TetMesh {
-    let np = [n[0] + 1, n[1] + 1, n[2] + 1];
-    let idx = |i: usize, j: usize, k: usize| (i + j * np[0] + k * np[0] * np[1]) as u32;
-    let mut nodes = Vec::with_capacity(np[0] * np[1] * np[2]);
-    for k in 0..np[2] {
-        for j in 0..np[1] {
-            for i in 0..np[0] {
-                nodes.push([
-                    origin[0] + len[0] * i as f64 / n[0] as f64,
-                    origin[1] + len[1] * j as f64 / n[1] as f64,
-                    origin[2] + len[2] * k as f64 / n[2] as f64,
-                ]);
-            }
-        }
-    }
-    let mut tets = Vec::new();
-    for k in 0..n[2] {
-        for j in 0..n[1] {
-            for i in 0..n[0] {
-                if !keep(i, j, k) {
-                    continue;
-                }
-                let q = [
-                    idx(i, j, k),
-                    idx(i + 1, j, k),
-                    idx(i + 1, j + 1, k),
-                    idx(i, j + 1, k),
-                    idx(i, j, k + 1),
-                    idx(i + 1, j, k + 1),
-                    idx(i + 1, j + 1, k + 1),
-                    idx(i, j + 1, k + 1),
-                ];
-                tets.push([q[0], q[1], q[2], q[6]]);
-                tets.push([q[0], q[2], q[3], q[6]]);
-                tets.push([q[0], q[3], q[7], q[6]]);
-                tets.push([q[0], q[7], q[4], q[6]]);
-                tets.push([q[0], q[4], q[5], q[6]]);
-                tets.push([q[0], q[5], q[1], q[6]]);
-            }
-        }
-    }
-    // Compact.
-    let mut used = vec![false; nodes.len()];
-    for t in &tets {
-        for &v in t {
-            used[v as usize] = true;
-        }
-    }
-    let mut remap = vec![u32::MAX; nodes.len()];
-    let mut kept = Vec::new();
-    for (i, p) in nodes.iter().enumerate() {
-        if used[i] {
-            remap[i] = kept.len() as u32;
-            kept.push(*p);
-        }
-    }
-    for t in &mut tets {
-        for v in t.iter_mut() {
-            *v = remap[*v as usize];
-        }
-    }
-    TetMesh {
-        nodes: kept,
-        tets,
-        physical_groups: Default::default(),
-    }
-}
-
-fn centroid(mesh: &TetMesh, t: usize) -> [f64; 3] {
-    let tet = mesh.tets[t];
-    std::array::from_fn(|d| tet.iter().map(|&v| mesh.nodes[v as usize][d]).sum::<f64>() / 4.0)
-}
 
 // ---------------------------------------------------------------------------
 // Analytic helpers
@@ -269,7 +185,7 @@ struct DrivenLevel {
 /// by `s`), driven at `ω = π / s`, with `f = iωJ = (2π² − π²)/s² · E` and the
 /// analytic `f` passed to the estimator.
 fn driven_cube_level(n: usize, s: f64) -> DrivenLevel {
-    let mesh = box_mesh([n; 3], [s; 3], [0.0; 3], |_, _, _| true);
+    let mesh = box_mesh_with([n; 3], [s; 3], [0.0; 3], |_, _, _| true);
     let omega = PI / s;
     let amp = (2.0 * PI * PI - PI * PI) / (s * s);
     let psi = move |x: [f64; 3]| (PI * x[0] / s).sin() * (PI * x[1] / s).sin();
@@ -532,7 +448,7 @@ fn box_lambda(s: f64) -> f64 {
 }
 
 fn box_mesh_level(m: usize, s: f64) -> TetMesh {
-    box_mesh(
+    box_mesh_with(
         [5 * m, 4 * m, 3 * m],
         [BOX[0] * s, BOX[1] * s, BOX[2] * s],
         [0.0; 3],
@@ -753,7 +669,7 @@ fn slab_k0() -> f64 {
 fn slab_level(m: usize) -> EigenLevel {
     // Cells of h = 0.125/m; the interface y = 0.25 is a grid plane.
     let n = [8 * m, 4 * m, 6 * m];
-    let mesh = box_mesh(n, SLAB, [0.0; 3], |_, _, _| true);
+    let mesh = box_mesh_with(n, SLAB, [0.0; 3], |_, _, _| true);
     let eps: Vec<f64> = (0..mesh.n_tets())
         .map(|t| {
             if centroid(&mesh, t)[1] < SLAB_D {
@@ -822,7 +738,7 @@ fn golden3b_normal_jump_is_load_bearing_for_gradient_errors() {
     let mut with = Vec::new();
     let mut without = Vec::new();
     for n in [4usize, 8, 16] {
-        let mesh = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+        let mesh = box_mesh_with([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
         let space = HcurlSpace::build(&mesh, ElementOrder::P1);
         let eps: Vec<c64> = (0..mesh.n_tets())
             .map(|t| {
@@ -927,7 +843,7 @@ fn golden3c_tangential_jump_is_load_bearing_for_curl_errors() {
     let mut without = Vec::new();
     for n in [4usize, 8, 16] {
         let h = 1.0 / n as f64;
-        let mesh = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+        let mesh = box_mesh_with([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
         let space = HcurlSpace::build(&mesh, ElementOrder::P1);
         let eps: Vec<c64> = (0..mesh.n_tets())
             .map(|t| {
@@ -1018,7 +934,7 @@ fn golden3c_tangential_jump_is_load_bearing_for_curl_errors() {
 #[test]
 fn golden4_exactness() {
     let n = 4;
-    let mesh = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+    let mesh = box_mesh_with([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
     let space = HcurlSpace::build(&mesh, ElementOrder::P1);
     let eps: Vec<c64> = (0..mesh.n_tets())
         .map(|t| {
@@ -1175,7 +1091,7 @@ fn golden4b_every_term_and_weight_matches_its_closed_form() {
     use std::collections::BTreeMap;
 
     let n = 4;
-    let mesh = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+    let mesh = box_mesh_with([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
     let space = HcurlSpace::build(&mesh, ElementOrder::P1);
     let n_tets = mesh.n_tets();
     let k2 = c64::new(2.5, -0.4);
@@ -1364,7 +1280,7 @@ fn golden4b_every_term_and_weight_matches_its_closed_form() {
 #[test]
 fn golden6_coverage_counts_uncovered_faces() {
     let n = 4;
-    let mesh = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+    let mesh = box_mesh_with([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
     let space = HcurlSpace::build(&mesh, ElementOrder::P1);
     let x = interpolate(&mesh, |p| [c(p[1]), c(p[2] * p[0]), c(1.0)]);
     let eps = vec![c(1.0); mesh.n_tets()];
@@ -1450,7 +1366,7 @@ fn golden7_thick_l_localisation() {
     let m = 8; // cells per unit length: h = 1/8
     let h = 1.0 / m as f64;
     let n = [2 * m, 2 * m, 2];
-    let mesh = box_mesh(n, [2.0, 2.0, 0.25], [-1.0, -1.0, 0.0], |i, j, _| {
+    let mesh = box_mesh_with(n, [2.0, 2.0, 0.25], [-1.0, -1.0, 0.0], |i, j, _| {
         !(i >= m && j < m)
     });
     let t_top = 0.25;
@@ -1557,7 +1473,7 @@ fn periodic_cube_matches_doubled_cube() {
     let natural = |_: [u32; 3]| BoundaryFaceKind::Natural;
 
     // Torus.
-    let mut torus = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+    let mut torus = box_mesh_with([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
     let pairs = box_periodic_pairs(&torus, &[0]);
     let map = PeriodicMap::build(&mut torus, &pairs, &PeriodicMatchOptions::default())
         .expect("periodic map");
@@ -1602,7 +1518,7 @@ fn periodic_cube_matches_doubled_cube() {
     );
 
     // Doubled cube.
-    let doubled = box_mesh([2 * n, n, n], [2.0, 1.0, 1.0], [0.0; 3], |_, _, _| true);
+    let doubled = box_mesh_with([2 * n, n, n], [2.0, 1.0, 1.0], [0.0; 3], |_, _, _| true);
     let space_d = HcurlSpace::build(&doubled, ElementOrder::P1);
     let x_d = interpolate(&doubled, field);
     let eps_d = vec![c(1.0); doubled.n_tets()];
@@ -1651,7 +1567,7 @@ fn periodic_cube_matches_doubled_cube() {
 #[test]
 fn p1_field_in_p2_space_gives_the_same_estimate() {
     let level = driven_cube_level(4, 1.0);
-    let mesh = box_mesh([4; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+    let mesh = box_mesh_with([4; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
     let s1 = HcurlSpace::build(&mesh, ElementOrder::P1);
     let s2 = HcurlSpace::build(&mesh, ElementOrder::P2);
     // Re-solve to get the p=1 vector on this mesh (identical mesh to the
@@ -1711,7 +1627,7 @@ fn p1_field_in_p2_space_gives_the_same_estimate() {
 #[test]
 fn vtu_export_writes_per_tet_indicators() {
     let level = driven_cube_level(2, 1.0);
-    let mesh = box_mesh([2; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+    let mesh = box_mesh_with([2; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
     let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     let path = dir.join("hcurl_error_estimator_cube2.vtu");
     write_estimate_vtu(&path, &mesh, &level.estimate, None).expect("write vtu");
@@ -1744,7 +1660,7 @@ fn vtu_export_writes_per_tet_indicators() {
         assert!((v - w.sqrt()).abs() <= 1e-12 * w.sqrt().max(1e-300));
     }
     // A mismatched estimate is an error, not a panic.
-    let other = box_mesh([1; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+    let other = box_mesh_with([1; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
     assert!(write_estimate_vtu(&path, &other, &level.estimate, None).is_err());
     let _ = std::fs::remove_file(&path);
 }
@@ -1812,7 +1728,7 @@ fn estimator_wall_time_on_largest_fixture() {
 #[test]
 fn nu_eps_source_coscaling_leaves_eta_rel_unchanged() {
     let n = 4;
-    let mesh = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+    let mesh = box_mesh_with([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
     let space = HcurlSpace::build(&mesh, ElementOrder::P1);
     let x = interpolate(&mesh, |p| {
         [c(p[1] * p[2]), c((p[0] * 3.0).sin()), c(p[0] * p[1] + 0.2)]
@@ -1924,11 +1840,12 @@ impl RobinSolved {
 
 /// The side a boundary face of `[0, s]³` lies on: `(axis, 0 | 1)`.
 fn face_side(mesh: &TetMesh, f: &[u32; 3], s: f64) -> (usize, usize) {
-    for d in 0..3 {
+    for d in 0..3usize {
         for (k, v) in [(0usize, 0.0), (1, s)] {
-            if f.iter()
-                .all(|&i| (mesh.nodes[i as usize][d] - v).abs() <= 1e-9 * s)
-            {
+            if f.iter().all(|&i| {
+                let [x, y, z] = mesh.nodes[i as usize];
+                ([x, y, z].into_iter().nth(d).unwrap() - v).abs() <= 1e-9 * s
+            }) {
                 return (d, k);
             }
         }
@@ -1954,7 +1871,7 @@ fn robin_solve(
     f: impl Fn([f64; 3]) -> [c64; 3] + Sync + 'static,
     div_f: impl Fn([f64; 3]) -> c64 + Sync + 'static,
 ) -> RobinSolved {
-    let mesh = box_mesh([n; 3], [s; 3], [0.0; 3], |_, _, _| true);
+    let mesh = box_mesh_with([n; 3], [s; 3], [0.0; 3], |_, _, _| true);
     let space = HcurlSpace::build(&mesh, ElementOrder::P1);
     let n_s = surfaces.len();
     let mut pec_faces = Vec::new();
@@ -2447,7 +2364,7 @@ fn tet_bary_of_face_point(tet: &[u32; 4], face: &[u32; 3], mu: [f64; 3]) -> [f64
 #[test]
 fn golden8d_every_robin_term_and_weight_matches_its_closed_form() {
     let n = 3;
-    let mesh = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+    let mesh = box_mesh_with([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
     let space = HcurlSpace::build(&mesh, ElementOrder::P1);
     let x: Vec<c64> = (0..space.n_dofs())
         .map(|i| c64::new((0.37 * i as f64).sin(), (0.11 * i as f64 + 0.3).cos()))
@@ -2713,7 +2630,7 @@ fn p2_fit(mesh: &TetMesh, space: &HcurlSpace, e: impl Fn([f64; 3]) -> [c64; 3]) 
 #[test]
 fn golden8e_robin_exactness_p1_and_p2() {
     let n = 2;
-    let mesh = box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
+    let mesh = box_mesh_with([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
     let k2 = c64::new(2.0, 0.3);
     let eps = vec![c(1.0); mesh.n_tets()];
     let nu = vec![1.0; mesh.n_tets()];

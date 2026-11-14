@@ -37,11 +37,14 @@
 //! (override the root with `$PATCH_NTFF_BENCH_DIR`), consumed by
 //! `tests/ntff_fom_shape_gradient.rs`.
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::signed_det6;
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::constants::ETA_0_OHM as ETA_0;
@@ -60,7 +63,7 @@ use geode_core::mesh::{
 };
 use geode_core::postproc::ntff::far_field_covectors;
 use geode_core::shape::{BoundaryMotionDof, FreeformBoundaryMorph};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::fixture::BackendInfo;
 use geode_util::units::omega_to_ghz_mm;
 
@@ -83,18 +86,6 @@ const PLATEAU_TOL: f64 = 1.0e-4;
 const PLATEAU_WINDOW: usize = 4;
 const MAX_BACKTRACKS: usize = 30;
 const DIR_SCALE_FRAC: f64 = 0.5;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
-
-fn signed_det6(v: &[[f64; 3]; 4]) -> f64 {
-    let e1 = [v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]];
-    let e2 = [v[2][0] - v[0][0], v[2][1] - v[0][1], v[2][2] - v[0][2]];
-    let e3 = [v[3][0] - v[0][0], v[3][1] - v[0][1], v[3][2] - v[0][2]];
-    e1[0] * (e2[1] * e3[2] - e2[2] * e3[1]) - e1[1] * (e2[0] * e3[2] - e2[2] * e3[0])
-        + e1[2] * (e2[0] * e3[1] - e2[1] * e3[0])
-}
 
 /// One design evaluation.
 struct Eval {

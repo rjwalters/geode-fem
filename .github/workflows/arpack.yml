@@ -332,11 +332,13 @@ jobs:
     # Cold dependency build + the debug default tier. The release
     # `--ignored` benchmark tiers run in the parallel `geode-cli-release`
     # job below. The apt Gmsh install alone has taken ~11 min on a slow
-    # mirror (15m31s observed, issue #1320). Budget: the default-tier test
-    # step takes ~30-44 min on passing runs, plus up to ~15 min for a slow
-    # Gmsh install (13s normally); 60 min bounds queue-wait (issue #354)
-    # with that headroom.
-    timeout-minutes: 60
+    # mirror (15m31s observed, issue #1320). Budget (measured 2026-11-10,
+    # issue #1485): the default-tier test step takes ~30-58 min depending on
+    # runner load, the example-crates bin-test step adds ~2 min, and the
+    # Gmsh install is 12-20 s normally (up to ~15 min on a slow mirror);
+    # 90 min leaves >=30 min headroom over that worst case while still
+    # bounding queue-wait (issue #354) far below the 24 h ceiling.
+    timeout-minutes: 90
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
@@ -449,6 +451,15 @@ jobs:
               --test roughness_golden --test dispersive_golden \
               --test anisotropic_golden -- --ignored
           cargo test -p geode-cli --release --test spiral_golden -- --ignored
+          # Issue #1514: Floquet-port slab scan golden (Fresnel + per-angle
+          # Touchstone); ignored only under debug_assertions, so it runs in the
+          # default tier of a --release build (no `-- --ignored`, which would
+          # match zero tests here).
+          cargo test -p geode-cli --release --test floquet_slab_golden
+          # Issue #1521: fixed-k_t Floquet PROM adaptive-sweep acceptance tests;
+          # same debug_assertions-only ignore as above, so the default tier of a
+          # --release build runs them.
+          cargo test -p geode-cli --release --test floquet_prom
 
       # Issue #793: the remaining geode-cli benchmark tiers (every one
       # #[ignore]d as heavy in debug). Measured release times on
@@ -470,9 +481,15 @@ jobs:
       # under --check-gradient (dZ0/dw, deps_eff/dw, dS vs the shipped
       # forward on the morphed mesh + the Hammerstad-Jensen oracle; ~1 min
       # in release on an M-series laptop).
+      #
+      # Issue #1261 adds the `geode optimize` golden (i): a microstrip strip
+      # width driven to a 50 ohm target and checked against Hammerstad-Jensen
+      # within the port accuracy (the single #[ignore]d test of
+      # --test optimize_loop; ~5 min in release).
       - name: geode extraction / eigen benchmark tiers (release, --ignored)
         run: |
           cargo test -p geode-cli --release --test mesh_golden \
               --test patch_extract_golden --test slcfet_extract_golden \
               --test sphere_pec_golden --test hybrid_wave_port \
-              --test cookbook --test sensitivity_nport -- --ignored
+              --test cookbook --test sensitivity_nport \
+              --test optimize_loop -- --ignored

@@ -140,9 +140,10 @@ use crate::port_solves::PortSolves;
 use crate::problem::{self, Problem, UpmlRegion};
 use crate::progress::{Progress, SweepOptions, par_map};
 use crate::report::{
-    AdaptiveSweepStats, Complex, DrivenReport, FarFieldResult, FrequencyResult, MaterialEpsResult,
-    PortResult, Provenance, RoughnessKResult, SensitivityReport, SolverStats, WarningResult,
-    WaveChannelResult, WaveModeSummary, WavePortSummary,
+    AdaptiveSweepStats, Complex, DrivenAccuracy, DrivenOrderEstimate, DrivenOrderEstimatePoint,
+    DrivenReport, FarFieldResult, FrequencyResult, MaterialEpsResult, PortResult, Provenance,
+    RoughnessKResult, SensitivityReport, SolverStats, WarningResult, WaveChannelResult,
+    WaveModeSummary, WavePortSummary,
 };
 use crate::spec::{AdaptiveSweepSpec, Analysis, SolverSpec};
 use serde_json::json;
@@ -232,6 +233,18 @@ pub fn run(
         ));
     }
     let p = p;
+    if p.floquet.is_some() {
+        if dataset.is_some() || check_gradient {
+            return Err(CliError::InvalidSpec(
+                "`--dataset` / `--check-gradient` are not supported with `floquet_ports`".into(),
+            ));
+        }
+        if outdir.is_some() {
+            eprintln!("note: --outdir: field export is not supported for Floquet-port specs");
+        }
+        p.print_load_warnings();
+        return crate::floquet::run(&p, provenance, touchstone, opts);
+    }
     if dataset.is_some() {
         validate_dataset(&p)?;
     }
@@ -317,6 +330,17 @@ pub fn run(
             }
         })
         .transpose()?;
+    let accuracy = if p.hcurl_space.is_some() && p.wave_ports.is_empty() {
+        let est = order_estimate(&p, &results, opts)?;
+        if let Some(w) = &est.warning {
+            eprintln!("warning: {w}");
+        }
+        Some(DrivenAccuracy {
+            order_estimate: est,
+        })
+    } else {
+        None
+    };
     Ok(DrivenReport {
         provenance,
         kind: "driven",
@@ -332,7 +356,83 @@ pub fn run(
         sensitivities,
         warnings,
         adaptive_mesh,
+        accuracy,
+        floquet: None,
     })
+}
+
+/// Warning threshold on the same-mesh p=1 vs p=2 S-matrix difference
+/// `max |ΔS|` (`accuracy.order_estimate`, issue #1265).
+const ORDER_ESTIMATE_S_THRESHOLD: f64 = 0.02;
+
+/// Re-solve the lumped-port sweep at order 1 on the same mesh
+/// (`p.pec_mask_p1`) and compare S with the order-2 `results`.
+fn order_estimate(
+    p: &Problem,
+    results: &[FrequencyResult],
+    opts: SweepOptions,
+) -> Result<DrivenOrderEstimate, CliError> {
+    type B = CompiledBackend;
+    let lumped = lumped_ports(p);
+    let surfaces = impedance_walls(p);
+    let bcs = DrivenBcs {
+        pec_interior_mask: &p.pec_mask_p1,
+    };
+    let binding = FrequencyMaterials::constant(p);
+    let device = <B as BackendTypes>::Device::default();
+    let op = s_parameter_operator::<B>(
+        &p.tagged.mesh,
+        binding.materials(),
+        p.sigma(),
+        &bcs,
+        &lumped,
+        &surfaces,
+        &device,
+    )?;
+    let mode = solver_mode(p);
+    let n = p.ports.len();
+    let points = par_map(results.len(), opts.jobs, |index| {
+        let device = <B as BackendTypes>::Device::default();
+        let pt = s_parameter_point::<B>(&op, p.frequencies[index].k0, mode, &device)?;
+        let diff = |i: usize, j: usize| {
+            let [re, im] = results[index].s[i][j];
+            (c64::new(re, im) - pt.s.entry(i, j)).norm()
+        };
+        let delta_s_max = (0..n)
+            .flat_map(|i| (0..n).map(move |j| (i, j)))
+            .map(|(i, j)| diff(i, j))
+            .fold(0.0, f64::max);
+        Ok::<_, CliError>(DrivenOrderEstimatePoint {
+            index,
+            frequency_hz: p.frequencies[index].hz,
+            delta_s_max,
+            delta_s11: diff(0, 0),
+        })
+    })?;
+    Ok(order_estimate_from(points, ORDER_ESTIMATE_S_THRESHOLD))
+}
+
+fn order_estimate_from(
+    points: Vec<DrivenOrderEstimatePoint>,
+    threshold: f64,
+) -> DrivenOrderEstimate {
+    let delta_s_max = points.iter().map(|q| q.delta_s_max).fold(0.0, f64::max);
+    let above_threshold = delta_s_max > threshold;
+    let warning = above_threshold.then(|| {
+        format!(
+            "order-1 and order-2 S-matrices differ by up to {delta_s_max:.4} (> {threshold}) on \
+             this mesh: the order-1 discretization error is large here (the order-2 result is \
+             presumed closer, not certified); refine the mesh to confirm"
+        )
+    });
+    DrivenOrderEstimate {
+        reference_order: 1,
+        points,
+        delta_s_max,
+        threshold,
+        above_threshold,
+        warning,
+    }
 }
 
 /// `--dataset` preconditions, checked before any solve: a `sensitivity`
@@ -1977,6 +2077,22 @@ pub(crate) fn invert(a: &[c64], n: usize) -> Option<Vec<c64>> {
 mod tests {
     use super::*;
     use geode_core::driven::extraction::PortCircuit;
+
+    #[test]
+    fn driven_order_estimate_trips_the_threshold_warning() {
+        let pt = |index, d| DrivenOrderEstimatePoint {
+            index,
+            frequency_hz: 1.0e9,
+            delta_s_max: d,
+            delta_s11: d,
+        };
+        let est = order_estimate_from(vec![pt(0, 0.001), pt(1, 0.05)], 0.02);
+        assert!(est.above_threshold);
+        assert_eq!(est.delta_s_max, 0.05);
+        assert!(est.warning.is_some());
+        let calm = order_estimate_from(vec![pt(0, 0.001)], 0.02);
+        assert!(!calm.above_threshold && calm.warning.is_none());
+    }
 
     fn circuit(v: f64, i: f64) -> PortCircuit {
         let (v, i) = (c64::new(v, 0.0), c64::new(i, 0.0));

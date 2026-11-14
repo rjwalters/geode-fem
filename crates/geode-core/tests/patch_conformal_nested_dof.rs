@@ -34,10 +34,13 @@
 //!   and the crater / guard-site findings. These designs are an idealized
 //!   non-uniform-thickness ablation; the manufacturable design is #1120.
 
+mod common;
+#[path = "common/example_io.rs"]
+mod example_io;
+use common::{repo_root as repo, toml_num as num};
+use example_io::sha256_hex;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-
-use sha2::{Digest, Sha256};
 
 use geode_core::mesh::patch::{
     CONFORMAL_2G4_BEND_RADIUS_MM, CONFORMAL_2G4_SUBSTRATE_H_MM, ISM_2G4_BAND_GHZ, bend_axis_z,
@@ -56,10 +59,6 @@ const PROBE_W: f64 = 1.6;
 const PROBE_INSET: f64 = 7.0;
 const RADIAL_SCALE: f64 = 0.8;
 const OUTLINE_SCALE: f64 = 1.0;
-
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
 
 fn l0() -> PatchFixture {
     read_patch_fixture_path(
@@ -142,16 +141,8 @@ fn build_morph(
 
 /// Deterministic coefficient vector in `[-amp, amp]` (xorshift64*).
 fn coefficients(n: usize, amp: f64, seed: u64) -> Vec<f64> {
-    let mut st = seed;
-    (0..n)
-        .map(|_| {
-            st ^= st >> 12;
-            st ^= st << 25;
-            st ^= st >> 27;
-            let v = st.wrapping_mul(0x2545_F491_4F6C_DD1D);
-            amp * (2.0 * ((v >> 11) as f64 / (1u64 << 53) as f64) - 1.0)
-        })
-        .collect()
+    let mut rng = geode_util::rng::Xorshift64Star(seed);
+    (0..n).map(|_| amp * rng.next_signed()).collect()
 }
 
 fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
@@ -600,19 +591,6 @@ fn same_coefficients_give_the_same_geometry_on_l0_and_l1() {
 }
 
 // ── Artifact pins ───────────────────────────────────────────────────────
-
-fn num(v: &toml::Value) -> f64 {
-    v.as_float()
-        .or_else(|| v.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("expected a number, got {v:?}"))
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
 
 const LABELS: [&str; 6] = [
     "gap_1",

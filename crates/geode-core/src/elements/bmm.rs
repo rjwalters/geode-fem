@@ -71,15 +71,8 @@ mod tests {
 
     /// Deterministic pseudo-random values in [-1, 1) (LCG; no rand dep).
     fn fill(n: usize, seed: u64) -> Vec<f64> {
-        let mut s = seed;
-        (0..n)
-            .map(|_| {
-                s = s
-                    .wrapping_mul(6364136223846793005)
-                    .wrapping_add(1442695040888963407);
-                ((s >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
-            })
-            .collect()
+        let mut rng = geode_util::rng::Lcg(seed);
+        (0..n).map(|_| rng.next()).collect()
     }
 
     fn t3(data: Vec<f64>, shape: [usize; 3]) -> Tensor<B, 3> {

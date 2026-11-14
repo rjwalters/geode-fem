@@ -43,6 +43,10 @@
 //! artifact carries a SUPERSEDED ANCHOR header. The current anchor is
 //! `TransmonAnchor::devicelayout` (`C_Σ` ≈ 93.9537 fF, junction excluded).
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::{floor_fmt, scaled_mesh};
+
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::fs;
@@ -107,26 +111,10 @@ const LU_H4_KILLED_RSS_GB: f64 = 51.63;
 const LU_H4_PEAK_FOOTPRINT_GB: f64 = 75.56;
 const LU_H4_KILLED_AFTER_S: f64 = 300.0;
 
-/// Format `x` floored to `dp` decimals (never rounded up).
-fn floor_fmt(x: f64, dp: usize) -> String {
-    let p = 10f64.powi(dp as i32);
-    format!("{:.dp$}", (x * p).floor() / p)
-}
-
 /// Format `x` rounded **up** to `dp` decimals (for upper bounds).
 fn ceil_fmt(x: f64, dp: usize) -> String {
     let p = 10f64.powi(dp as i32);
     format!("{:.dp$}", (x * p).ceil() / p)
-}
-
-fn scaled_mesh(mesh: &TetMesh, s: f64) -> TetMesh {
-    let mut m = mesh.clone();
-    for n in m.nodes.iter_mut() {
-        n[0] *= s;
-        n[1] *= s;
-        n[2] *= s;
-    }
-    m
 }
 
 fn ff(v: f64) -> f64 {

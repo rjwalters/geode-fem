@@ -49,9 +49,9 @@ type B = burn::backend::NdArray<f64, i32>;
 /// full-tensor vs the scalar-ε one), same operator — round-off only.
 const PARITY_REL_TOL: f64 = 1e-9;
 
-fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::manifest_dir;
 
 fn fixture(name: &str) -> PathBuf {
     manifest_dir().join("tests/fixtures").join(name)

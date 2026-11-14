@@ -46,33 +46,18 @@
 //! `|ΔZ|/|Z| = 1.0e-6` at tolerance 1e-6 (≈ 1.5 × its worst indicator
 //! 6.5e-7). `|ΔS|` is held to the tolerance itself.
 
+#[path = "support/scratch.rs"]
+mod scratch_support;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use scratch_support::Scratch;
 use serde_json::Value;
 
-fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-/// Scratch dir unique to this test process + name, removed on drop.
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn new(name: &str) -> Self {
-        let dir =
-            std::env::temp_dir().join(format!("geode-cli-adaptive-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        Self(dir)
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::manifest_dir;
 
 /// `fixture` with its mesh path made absolute and `edit` applied,
 /// written to `dir/name`.
@@ -198,19 +183,19 @@ const TOL: f64 = 1e-6;
 #[test]
 #[ignore = "heavy in debug (~2 min: 25 spiral factorizations); CI runs it in release with --ignored"]
 fn spiral_smoke_adaptive_sweep_matches_dense_sweep() {
-    let dir = TempDir::new("spiral");
+    let dir = Scratch::new("geode-cli-adaptive-", "spiral");
     let band = serde_json::json!({ "unit": "ghz", "start": 1.0, "stop": 20.0, "count": 16 });
     let dense_spec = spec_from(
         "spiral_golden_smoke.json",
         "spiral_3p5_smoke.msh",
-        &dir.0,
+        &dir,
         "dense.json",
         |v| v["frequencies"] = band.clone(),
     );
     let adaptive_spec = spec_from(
         "spiral_golden_smoke.json",
         "spiral_3p5_smoke.msh",
-        &dir.0,
+        &dir,
         "adaptive.json",
         |v| {
             v["frequencies"] = band.clone();
@@ -220,7 +205,7 @@ fn spiral_smoke_adaptive_sweep_matches_dense_sweep() {
     let (dense, _) = driven(&dense_spec, &["--jobs", "2"]);
     assert_eq!(dense["solver"]["jobs"], 2);
     assert!(dense["solver"].get("adaptive").is_none());
-    let s1p = dir.0.join("spiral.s1p");
+    let s1p = dir.join("spiral.s1p");
     let (adaptive, stderr) = driven(
         &adaptive_spec,
         &["--progress", "--touchstone", s1p.to_str().unwrap()],
@@ -311,8 +296,8 @@ fn patch_spec(dir: &Path, name: &str, count: usize, adaptive: bool) -> PathBuf {
 /// per row (in completion order) between `sweep_start` / `sweep_done`.
 #[test]
 fn patch_smoke_parallel_dense_sweep_is_deterministic_with_progress() {
-    let dir = TempDir::new("patch-jobs");
-    let spec = patch_spec(&dir.0, "dense.json", 4, false);
+    let dir = Scratch::new("geode-cli-adaptive-", "patch-jobs");
+    let spec = patch_spec(&dir, "dense.json", 4, false);
     let (serial, stderr) = driven(&spec, &["--threads", "2"]);
     assert!(events(&stderr).is_empty(), "no progress without --progress");
     let (parallel, stderr) = driven(&spec, &["--jobs", "2", "--threads", "4", "--progress"]);
@@ -338,12 +323,9 @@ fn patch_smoke_parallel_dense_sweep_is_deterministic_with_progress() {
 #[test]
 #[ignore = "heavy in debug (~40 s: 17 patch factorizations); CI runs it in release with --ignored"]
 fn patch_smoke_silver_muller_adaptive_sweep_matches_dense_sweep() {
-    let dir = TempDir::new("patch");
-    let (dense, _) = driven(
-        &patch_spec(&dir.0, "dense.json", 11, false),
-        &["--jobs", "2"],
-    );
-    let (adaptive, _) = driven(&patch_spec(&dir.0, "adaptive.json", 11, true), &[]);
+    let dir = Scratch::new("geode-cli-adaptive-", "patch");
+    let (dense, _) = driven(&patch_spec(&dir, "dense.json", 11, false), &["--jobs", "2"]);
+    let (adaptive, _) = driven(&patch_spec(&dir, "adaptive.json", 11, true), &[]);
     let stats = &adaptive["solver"]["adaptive"];
     let (n_interp, ez, es) = compare(&dense, &adaptive, TOL);
     println!(
@@ -369,13 +351,13 @@ fn patch_smoke_silver_muller_adaptive_sweep_matches_dense_sweep() {
 /// exports fields for exactly the solved rows.
 #[test]
 fn patch_smoke_exhausted_budget_falls_back_to_exact_solves() {
-    let dir = TempDir::new("patch-fallback");
+    let dir = Scratch::new("geode-cli-adaptive-", "patch-fallback");
     let spec = |name: &str, values: &[f64], adaptive: bool| {
         let values = values.to_vec();
         spec_from(
             "patch_extract_smoke.json",
             "patch_2g4_smoke.msh",
-            &dir.0,
+            &dir,
             name,
             move |v| {
                 let o = v.as_object_mut().unwrap();
@@ -394,7 +376,7 @@ fn patch_smoke_exhausted_budget_falls_back_to_exact_solves() {
             },
         )
     };
-    let outdir = dir.0.join("fields");
+    let outdir = dir.join("fields");
     let (adaptive, stderr) = driven(
         &spec("adaptive.json", &[2.0, 2.00001, 3.0], true),
         &["--progress", "--outdir", outdir.to_str().unwrap()],
@@ -602,10 +584,10 @@ fn wave_adaptive_matches_dense_with(
     frequencies: Value,
     edit: impl Fn(&mut Value),
 ) -> Value {
-    let dir = TempDir::new(name);
+    let dir = Scratch::new("geode-cli-adaptive-", name);
     let (dense, _) = driven(
         &guide_spec_with(
-            &dir.0,
+            &dir,
             "dense.json",
             pure_wave,
             frequencies.clone(),
@@ -616,7 +598,7 @@ fn wave_adaptive_matches_dense_with(
     );
     let (adaptive, stderr) = driven(
         &guide_spec_with(
-            &dir.0,
+            &dir,
             "adaptive.json",
             pure_wave,
             frequencies,
@@ -759,10 +741,10 @@ fn waveguide_cutoff_crossing_adaptive_sweep_matches_dense_sweep() {
 /// which fails identically) — it never reports an interpolated value.
 #[test]
 fn waveguide_exactly_at_cutoff_fails_like_the_dense_sweep() {
-    let dir = TempDir::new("wave-at-cutoff");
+    let dir = Scratch::new("geode-cli-adaptive-", "wave-at-cutoff");
     let (probe, _) = driven(
         &guide_spec(
-            &dir.0,
+            &dir,
             "probe.json",
             false,
             serde_json::json!({ "unit": "k0", "values": [2.0] }),
@@ -773,7 +755,7 @@ fn waveguide_exactly_at_cutoff_fails_like_the_dense_sweep() {
     let k_c = probe["wave_ports"][0]["modes"][0]["k_c"].as_f64().unwrap();
     let freqs = serde_json::json!({ "unit": "k0", "values": [1.2, k_c, 2.0, 2.4] });
     let fail = |name: &str, adaptive: Option<Value>| -> (String, String) {
-        let spec = guide_spec(&dir.0, name, false, freqs.clone(), adaptive);
+        let spec = guide_spec(&dir, name, false, freqs.clone(), adaptive);
         let out = Command::new(env!("CARGO_BIN_EXE_geode"))
             .arg("driven")
             .arg(&spec)
@@ -801,10 +783,10 @@ fn waveguide_exactly_at_cutoff_fails_like_the_dense_sweep() {
 /// sweep's row there.
 #[test]
 fn waveguide_mixed_exhausted_budget_falls_back_to_exact_solves() {
-    let dir = TempDir::new("wave-fallback");
+    let dir = Scratch::new("geode-cli-adaptive-", "wave-fallback");
     let (adaptive, _) = driven(
         &guide_spec(
-            &dir.0,
+            &dir,
             "adaptive.json",
             false,
             serde_json::json!({ "unit": "k0", "values": [2.0, 2.0001, 3.0] }),
@@ -833,7 +815,7 @@ fn waveguide_mixed_exhausted_budget_falls_back_to_exact_solves() {
 
     let (dense, _) = driven(
         &guide_spec(
-            &dir.0,
+            &dir,
             "dense.json",
             false,
             serde_json::json!({ "unit": "k0", "values": [3.0] }),
@@ -858,11 +840,11 @@ fn waveguide_mixed_exhausted_budget_falls_back_to_exact_solves() {
 /// dependent.
 #[test]
 fn waveguide_dispersive_fill_with_adaptive_sweep_is_invalid_spec() {
-    let dir = TempDir::new("wave-dispersive");
+    let dir = Scratch::new("geode-cli-adaptive-", "wave-dispersive");
     let spec = spec_from(
         "waveguide_mixed_smoke.json",
         "waveguide_2x1_smoke.msh",
-        &dir.0,
+        &dir,
         "dispersive.json",
         |v| {
             v["materials"] = serde_json::json!([{

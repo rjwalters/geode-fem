@@ -111,6 +111,8 @@ testing = ["dep:regex"]
 # or the first enabled of `cuda`, `metal`, `wgpu`.
 geode-core = { path = ".", default-features = false, features = ["testing", "autodiff"] }
 geode-util = { workspace = true }
+# Epigraph min-max driver (tests/floquet_minmax.rs, #1515); physics-independent.
+geode-optimize = { workspace = true }
 # Read regression-fixture TOML in `tests/cube_convergence_regression.rs`.
 toml = { workspace = true }
 # Performance benchmark harness (issue #50). Each `[[bench]]` below opts
@@ -136,7 +138,7 @@ sha2 = "0.11"
 [target.'cfg(unix)'.dev-dependencies]
 # Benchmark-only safe getrusage wrapper; reuse the version already locked.
 # No unsafe code is added to the evaluator or library (#1202).
-nix = { version = "=0.29.0", default-features = false, features = ["resource"] }
+nix = { version = "=0.31.3", default-features = false, features = ["resource"] }
 
 [[bench]]
 name = "assembly_p1"

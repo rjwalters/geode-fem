@@ -15,9 +15,10 @@ the example models, and the output to expect.
 | `driven` (mixed ports) | [a TE₁₀ wave port feeding a lumped resistive sheet (lumped + wave ports in one spec)](driven/README.md#waveguide-into-a-lumped-sheet-mixed-ports-issue-759) | `driven/waveguide_lumped_sheet.json` | ~1 s |
 | `driven` (microstrip) | [a 50 Ω shielded microstrip line with hybrid wave ports, written to Touchstone](driven/README.md#50--microstrip-line-hybrid-wave-ports-issue-807) | `driven/microstrip_line.json` (+ `driven/microstrip_line.geo`) | minutes / ~25 s (`check` ~4 min / ~7 s) |
 | `extract` | [SLCFET spiral, `L₀` by f → 0 extrapolation](extract/README.md) | `extract/slcfet_spiral.json` | ~30 s / a few s |
-| `eigen` | [PEC-walled dielectric-sphere cavity modes, lossless and lossy (f, Q)](eigen/README.md) | `eigen/sphere_cavity.json`, `eigen/lossy_sphere_cavity.json` | ~12 s / ~1 s (lossy: ~40 s / ~1 s) |
+| `eigen` | [PEC-walled dielectric-sphere cavity modes, lossless and lossy (f, Q)](eigen/README.md) | `eigen/sphere_cavity.json`, `eigen/lossy_sphere_cavity.json`, `eigen/box_cavity_p1.json`, `eigen/box_cavity_p2.json` | ~12 s / ~1 s (lossy: ~40 s / ~1 s) |
 | `capacitance` | [coax and triax Maxwell capacitance matrices](capacitance/README.md) | `capacitance/coax.json`, `capacitance/triax.toml` | < 1 s |
 | `capacitance` (anisotropic) | [the coax filled with c-axis sapphire, `eps_r_diag`](capacitance/README.md#anisotropic-sapphire-coax-eps_r_diag-issue-760) | `capacitance/coax_sapphire.json` | < 1 s |
+| `eqs` | [two-layer leaky capacitor: floating-plate relaxation (Maxwell-Wagner), transient or admittance](eqs/README.md) | `eqs/eqs_two_layer.json` (+ `eqs/two_layer.msh`) | < 1 s |
 | `inductance` | [coax and triax Maxwell inductance matrices](inductance/README.md) | `inductance/coax.json`, `inductance/triax.toml` | ~1 s |
 | `sensitivity` | [material gradients `∂C/∂ε_r`, `∂L/∂ν_r`, `∂\|S11\|²/∂ε_r` with an FD self-check; N-port `∂S`, `∂Z₀`, `∂ε_eff` w.r.t. a strip width](sensitivity/README.md) | `sensitivity/capacitance_coax.json`, `sensitivity/inductance_triax.toml`, `sensitivity/driven_spiral.json`, `sensitivity/microstrip_strip_width.json` | ~8 s each (driven: ~1.5 min) (debug); microstrip ~1 min (release) |
 | `mesh` → solve | [layout → Gmsh mesh → driven / capacitance / inductance](mesh/README.md) | `mesh/*.layout.json` | a few s (needs Gmsh) |

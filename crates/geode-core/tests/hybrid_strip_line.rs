@@ -34,7 +34,6 @@
 //!
 //! Run: `cargo test -p geode-core --release --test hybrid_strip_line -- --nocapture`.
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::analytic::microstrip::{
     ShieldedStripFace, StripFaceMesh, StripMeshOpts, electrostatic_2d, hammerstad_jensen_eps_eff,
@@ -51,15 +50,11 @@ use geode_core::driven::ports::{
 };
 use geode_core::driven::solve::{DrivenBcs, DrivenError, DrivenMaterials, SolverMode};
 use geode_core::mesh::{ExtrudedEdge, extrude_tri_mesh, pec_interior_mask_from_triangles};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
 
 const OMEGAS: [f64; 4] = [0.05, 0.1, 0.15, 0.2];
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn mesh_opts() -> StripMeshOpts {
     StripMeshOpts {

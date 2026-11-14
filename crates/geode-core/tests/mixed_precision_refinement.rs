@@ -65,19 +65,18 @@
 //! smoke test (`refinement_escapes_f32_floor_smoke`, grid=3) guards the
 //! refinement harness in CI without the release-tier cost.
 
+mod common;
+use common::edge_tables;
+
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
 use geode_core::assembly::nedelec::cube_pec_interior_edges;
 use geode_core::assembly::p1::upload_mesh;
-use geode_core::mesh::{TetMesh, cube_tet_mesh};
+use geode_core::mesh::cube_tet_mesh;
 use geode_core::solver::ksp_burn::{ComplexMatrixFreeOperator, SplitComplex};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 // ---------------------------------------------------------------------------
 // f32-rounding primitives — the whole point of the simulation
@@ -435,26 +434,11 @@ fn refine(
 // Fixture: σ-lossy parallel-plate cube (the gpu_driven_scaling family)
 // ---------------------------------------------------------------------------
 
-/// Split `mesh.tet_edges()` into the `(idx, sign)` tables the operator takes.
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter().map(|r| std::array::from_fn(|i| r[i].0)).collect(),
-        te.iter().map(|r| std::array::from_fn(|i| r[i].1)).collect(),
-    )
-}
-
 /// Deterministic pseudo-random complex RHS from a 64-bit LCG (no `rand` dep) —
 /// the same generator style as `cocg_burn_equivalence.rs`.
 fn pseudo_random_c64(n: usize, seed: u64) -> Vec<c64> {
-    let mut state = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-    let mut next = || {
-        state = state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        let u = (state >> 11) as f64 / (1u64 << 53) as f64;
-        2.0 * u - 1.0
-    };
+    let mut rng = geode_util::rng::Lcg(seed.wrapping_mul(6364136223846793005).wrapping_add(1));
+    let mut next = || rng.next();
     (0..n).map(|_| c64::new(next(), 0.3 * next())).collect()
 }
 

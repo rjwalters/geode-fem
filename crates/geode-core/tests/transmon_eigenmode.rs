@@ -39,8 +39,14 @@
 //!   ([`real_transmon_eigenmodes_release`]) with the blog sanity band and
 //!   the committed Palace oracle comparison.
 
+mod common;
+use common::edge_tables;
+
+#[path = "common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::{tarr, tf, tstr};
+
 use burn::tensor::Tensor;
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::nedelec::{
@@ -54,13 +60,9 @@ use geode_core::eigen::transmon::{
 };
 use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
 use geode_core::mesh::{TetMesh, TransmonFixture, cube_tet_mesh, read_transmon_smoke_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// The DeviceLayout transmon mesh is in **micrometres** (substrate
 /// 4 mm ≈ 4000 mesh units; see the provenance file).
@@ -69,18 +71,6 @@ const M_PER_UNIT: f64 = 1e-6;
 /// Read a `[nnz]` Burn value tensor to a host Vec<f64>.
 fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
     t.into_data().iter::<f64>().collect()
-}
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
 }
 
 /// Assemble the REAL transmon pencil value vectors `(k_vals, m_vals)` via
@@ -3958,47 +3948,6 @@ fn coupling_results() -> toml::Value {
     let text =
         std::fs::read_to_string(path).expect("read benchmarks/transmon_coupling/results.toml");
     toml::from_str(&text).expect("parse benchmarks/transmon_coupling/results.toml")
-}
-
-fn tf(v: &toml::Value, path: &str) -> f64 {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur.as_float()
-        .or_else(|| cur.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("{path} is not a number"))
-}
-
-fn tarr(v: &toml::Value, path: &str) -> Vec<f64> {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur.as_array()
-        .unwrap_or_else(|| panic!("{path} is not an array"))
-        .iter()
-        .map(|x| {
-            x.as_float()
-                .or_else(|| x.as_integer().map(|i| i as f64))
-                .unwrap()
-        })
-        .collect()
-}
-
-fn tstr<'a>(v: &'a toml::Value, path: &str) -> &'a str {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur.as_str()
-        .unwrap_or_else(|| panic!("{path} is not a string"))
 }
 
 /// Issue #1078 (default tier): the committed coupling artifact matches the

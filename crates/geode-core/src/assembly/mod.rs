@@ -11,6 +11,23 @@
 //!   extraction (energy method + surface-flux cross-check), `E = −∇φ`
 //!   recovery, and field-energy postprocessing (Epic #475, Palace
 //!   `Electrostatic` parity).
+//! - [`conduction`]: steady DC current conduction `∇·(σ∇φ) = 0` on a
+//!   [`TetMesh`](crate::mesh::TetMesh) — per-tet `σ`, Dirichlet or
+//!   lumped-resistance terminals, the terminal conductance matrix, `J`,
+//!   Joule density and power balance, Jacobi-scaled LU for 12+ decades of
+//!   contrast (issue #1476).
+//! - [`thermal`]: steady heat conduction `∇·(k∇T) = -q` on a tet mesh with
+//!   fixed-T nodes, per-tet flux and energy balance, plus a relaxed Picard
+//!   Joule self-heating loop `σ(T)` ↔ `k(T)` with runaway detection
+//!   (issue #1556).
+//! - [`eqs_transient`]: electro-quasi-static `∇·(σ∇φ + ∂ₜ(ε∇φ)) = 0` —
+//!   θ-method time stepping with driven terminals and floating conductors
+//!   (conduction / displacement current split, region fields, charge
+//!   residual) and the small-signal admittance `Y = G + jωC` (issue #1478).
+//! - [`electrostatic_2d`]: the planar (`TriMesh`, P1) sibling of
+//!   [`electrostatic`] with the same contract — per-triangle `ε_r`/`ρ`,
+//!   electrode node sets, `Result` errors, `E = −∇φ` recovery and the
+//!   per-unit-length Maxwell capacitance matrix (issue #1362).
 //! - [`electrostatic_dual`]: guaranteed **lower** bounds on a capacitance
 //!   from the complementary (flux, `H(div)`) principle — a certificate for
 //!   any piecewise-polynomial flux, Raviart–Thomas patch equilibration of a
@@ -64,15 +81,22 @@
 //! - [`surface_p2`]: the p=2 (second-order Nédélec) tangential-trace
 //!   surface kernel — surface mass and port flux over the 8 trace DOFs of a
 //!   boundary triangle (issue #857, Epic #836 Phase 1b).
+//! - [`thermoelastic`]: linear thermo-elastic stress — vector-P1 isotropic
+//!   elasticity with thermal eigenstrain `α(T − T_ref)I` from a nodal
+//!   temperature field, displacement constraints, per-tet stress and
+//!   hydrostatic stress (issue #1557, piece 2 of #1555).
 //! - [`torque`]: electromagnetic torque extraction from a per-triangle
 //!   air-gap flux density — the Maxwell stress-tensor line integral and
 //!   Arkkio's volume-averaged variant (Epic #448 Phase 3), with the shared
 //!   contour/triangle-location sampler they build on.
 
+pub mod conduction;
 pub mod current_path;
 mod dense_scatter;
 pub mod electrostatic;
+pub mod electrostatic_2d;
 pub mod electrostatic_dual;
+pub mod eqs_transient;
 pub mod fe;
 pub mod hcurl_space;
 pub mod magnetostatic;
@@ -88,4 +112,6 @@ pub mod periodic;
 pub mod sparse;
 pub mod surface;
 pub mod surface_p2;
+pub mod thermal;
+pub mod thermoelastic;
 pub mod torque;

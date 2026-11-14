@@ -60,6 +60,9 @@
 //! is the maximum of `ps -o rss=` samples taken every 50 ms during the
 //! solve (the factorization peak), not a kernel high-water mark.
 
+#[path = "../tests/common/example_io.rs"]
+mod example_io;
+use example_io::sha256_hex;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -68,9 +71,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
-use sha2::{Digest, Sha256};
 
 use geode_core::constants::ETA_0_OHM as ETA_0;
 use geode_core::driven::extraction::{im_z_zero_crossings, s11};
@@ -84,7 +85,7 @@ use geode_core::mesh::patch::{
     read_patch_fixture_path,
 };
 use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 use geode_util::fixture::BackendInfo;
 use geode_util::units::{ghz_to_omega_mm, omega_to_ghz_mm};
 
@@ -99,10 +100,6 @@ const FLUX_SHRINK: f64 = 0.10;
 
 /// RSS sampling period during a solve.
 const RSS_SAMPLE: Duration = Duration::from_millis(50);
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 /// Default sweep grid (GHz): 20 MHz steps over 2.10–2.18 and 2.62–2.70,
 /// 10 MHz steps over 2.20–2.60 (41 points), plus the 2.4835 GHz upper ISM
@@ -162,11 +159,6 @@ fn parse_grid(spec: &str) -> Vec<f64> {
     (0..n)
         .map(|i| v[0] + (v[1] - v[0]) * i as f64 / (n - 1) as f64)
         .collect()
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Max of `ps -o rss=` samples (GiB) while `f` runs.
@@ -457,9 +449,7 @@ fn push_rows(t: &mut String, name: &str, rows: &[Row]) {
     }
 }
 
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
+use geode_util::repo::repo_root;
 
 #[allow(clippy::too_many_lines)]
 fn main() {

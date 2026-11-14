@@ -90,6 +90,7 @@ use crate::assembly::electrostatic::{
 use crate::mesh::TetMesh;
 
 pub mod conformal_basis;
+pub mod floquet_element;
 pub mod refined_capacitance;
 pub mod transmon_morph;
 pub mod transmon_remorph;
@@ -1558,22 +1559,7 @@ impl FreeformBoundaryMorph {
 /// `[n_nodes]`). Used to form the energy observable's cotangent
 /// `∂(½φᵀKφ)/∂φ = Kφ`.
 fn kfull_matvec(k: &SparseColMat<usize, f64>, phi: &[f64]) -> Vec<f64> {
-    let k_ref = k.as_ref();
-    let cp = k_ref.col_ptr();
-    let row_idx = k_ref.row_idx();
-    let vals = k_ref.val();
-    let n = k_ref.ncols();
-    let mut w = vec![0.0_f64; n];
-    for j in 0..n {
-        let pj = phi[j];
-        if pj == 0.0 {
-            continue;
-        }
-        for idx in cp[j]..cp[j + 1] {
-            w[row_idx[idx]] += vals[idx] * pj;
-        }
-    }
-    w
+    crate::sparse_ops::spmv(k.as_ref(), phi)
 }
 
 /// Result of the differentiable **capacitance** shape-gradient evaluation:

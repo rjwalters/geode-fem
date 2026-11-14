@@ -954,11 +954,6 @@ impl WavePortSpec {
             Self::Hybrid(p) => &p.face.projection.faces,
         }
     }
-
-    /// `true` for a hybrid port.
-    pub fn is_hybrid(&self) -> bool {
-        matches!(self, Self::Hybrid(_))
-    }
 }
 
 /// One reported channel of a hybrid port at one frequency.

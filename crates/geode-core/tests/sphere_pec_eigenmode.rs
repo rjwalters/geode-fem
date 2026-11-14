@@ -64,8 +64,6 @@
 //! requested eigenvalues on the 774-node fixture and can take several
 //! minutes even at `opt-level = 3`; it is debug-*safe*, not debug-fast.
 
-use burn::tensor::backend::BackendTypes;
-
 use geode_core::analytic::mie::merged_roots;
 use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_epsilon, build_epsilon_r, sphere_pec_interior_edges,
@@ -76,13 +74,9 @@ use geode_core::eigen::dense::{
     EigenSolver, FaerDenseEigensolver, apply_dirichlet_bc, burn_matrix_to_faer,
 };
 use geode_core::mesh::{R_BUFFER, R_SPHERE, read_sphere_fixture};
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 #[test]
 fn epsilon_r_assignment_matches_physical_groups() {

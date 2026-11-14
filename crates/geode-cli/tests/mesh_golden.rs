@@ -44,19 +44,12 @@ use std::process::{Command, Output};
 
 use geode_core::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
 
-fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::{geode, manifest_dir};
 
 fn fixtures() -> PathBuf {
     manifest_dir().join("tests/fixtures")
-}
-
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
 }
 
 /// Fresh scratch dir for one test.
@@ -445,6 +438,77 @@ fn octagon_ring_with_hole_meshes_and_tags_by_footprint() {
     want("m1", (400.0 - 32.0) - (100.0 - 8.0) + 80.0);
     want("core", 16.0);
     ok(geode(&["check", s(&spec)]), "geode check");
+}
+
+/// `edge_radius` (issue #1482): the generated script rounds the plate's
+/// four convex corners with tangent arcs (no Gmsh needed), and a radius
+/// too large for the feature is rejected before Gmsh runs.
+#[cfg(unix)]
+#[test]
+fn edge_radius_emits_arcs_and_rejects_oversized_radius() {
+    let geo = geo_script_of(
+        &fixtures().join("mesh_rounded_plate.layout.json"),
+        "capacitance",
+        "rounded-plate-geo",
+    );
+    assert_eq!(geo.matches("Circle(").count(), 4, "{geo}");
+    assert!(geo.contains("Plane Surface(s_c1_0)"), "{geo}");
+
+    let dir = scratch("rounded-too-big");
+    let mut layout: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(fixtures().join("mesh_rounded_plate.layout.json")).unwrap(),
+    )
+    .unwrap();
+    // Shortest plate edge is 4: radius 2.5 > 2 is too large.
+    layout["conductors"][1]["polygons"][0]["edge_radius"] = serde_json::json!(2.5);
+    let path = dir.join("big.layout.json");
+    write_json(&path, &layout);
+    let out = geode(&[
+        "mesh",
+        s(&path),
+        "--analysis",
+        "capacitance",
+        "--mesh-out",
+        s(&dir.join("m.msh")),
+    ]);
+    let msg = assert_error(&out, "invalid_spec");
+    assert!(
+        msg.contains("edge_radius") && msg.contains("too large"),
+        "{msg}"
+    );
+}
+
+/// The rounded plate meshes and its tagged sheet area matches the exact
+/// rounded-rectangle area `w h - (4 - pi) r^2` (linear elements inscribe the
+/// arcs, so the mesh area sits just below it).
+///
+/// NOT a peak-field check: the `E_max / E_ref` enhancement needs the
+/// peak-field observable of #1477 (children A/B), which is not on `main`.
+#[test]
+fn rounded_plate_meshes_with_the_exact_rounded_area() {
+    if !gmsh_or_skip("rounded_plate_meshes_with_the_exact_rounded_area") {
+        return;
+    }
+    let dir = scratch("rounded-plate");
+    let mesh = dir.join("r.msh");
+    ok(
+        geode(&[
+            "mesh",
+            s(&fixtures().join("mesh_rounded_plate.layout.json")),
+            "--analysis",
+            "capacitance",
+            "--mesh-out",
+            s(&mesh),
+        ]),
+        "geode mesh",
+    );
+    let tagged = geode_core::mesh::read_tagged_tet_mesh(&std::fs::read(&mesh).unwrap()).unwrap();
+    let exact = 10.0 * 4.0 - (4.0 - std::f64::consts::PI);
+    let got = group_area(&tagged, "plate");
+    assert!(
+        got <= exact * (1.0 + 1e-9) && got > exact * 0.995,
+        "plate area {got} vs exact {exact}"
+    );
 }
 
 /// Two conductor layers joined by a via on one net mesh as one conductor
@@ -1273,4 +1337,86 @@ fn gds_script_emits_a_layout_geode_mesh_accepts() {
         .output()
         .unwrap();
     assert_error(&out, "gmsh_not_found");
+}
+
+/// A small substrate + sheet cell for the periodic layout option
+/// (Epic #837 Phase 4a, issue #1315).
+fn periodic_layout(axes: &[&str]) -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": 1,
+        "length_unit_m": 1e-6,
+        "dielectrics": [
+            {"name": "substrate", "z_bottom": -10, "thickness": 10, "eps_r": [11.9, 0]},
+            {"name": "air", "z_bottom": 0, "thickness": 20}
+        ],
+        "conductors": [{"name": "m1", "z_bottom": 1, "polygons": [
+            {"name": "a", "outer": [[0, 0], [10, 0], [10, 4], [0, 4]]}]}],
+        "margin": 5,
+        "periodic": axes,
+        "mesh": {"size_max": 5, "size_conductor": 1}
+    })
+}
+
+/// Real-Gmsh check of the `Periodic Surface ... Translate` convention the
+/// `.geo` goldens cannot exercise (issue #1315): `geode mesh --analysis
+/// eigen` then `geode check` must pair every periodic wall with the
+/// *declared* translation (`translation_inferred = false`), without
+/// snapping any node. A wrong sign or axis fails `check` loudly.
+#[test]
+fn periodic_layouts_mesh_and_check_with_declared_translations() {
+    if !gmsh_or_skip("periodic_layouts_mesh_and_check_with_declared_translations") {
+        return;
+    }
+    // (axes, expected (master, slave, translation) per pair; cell = 20 x 14)
+    type ExpectedPair = (&'static str, &'static str, [f64; 3]);
+    let cases: [(&[&str], &[ExpectedPair]); 2] = [
+        (&["x"], &[("x_lo", "x_hi", [20.0, 0.0, 0.0])]),
+        (
+            &["x", "y"],
+            &[
+                ("x_lo", "x_hi", [20.0, 0.0, 0.0]),
+                ("y_lo", "y_hi", [0.0, 14.0, 0.0]),
+            ],
+        ),
+    ];
+    for (axes, expect) in cases {
+        let tag = format!("periodic-{}", axes.join(""));
+        let dir = scratch(&tag);
+        let layout = dir.join("layout.json");
+        write_json(&layout, &periodic_layout(axes));
+        let (mesh, spec) = (dir.join("p.msh"), dir.join("p.spec.json"));
+        let report = ok(
+            geode(&[
+                "mesh",
+                s(&layout),
+                "--analysis",
+                "eigen",
+                "--mesh-out",
+                s(&mesh),
+                "--spec-out",
+                s(&spec),
+            ]),
+            "geode mesh --analysis eigen",
+        );
+        assert_eq!(report["kind"], "mesh", "{axes:?}");
+
+        let check = ok(geode(&["check", s(&spec)]), "geode check");
+        assert_eq!(check["kind"], "check", "{axes:?}");
+        let periodic = &check["periodic"];
+        let pairs = periodic["pairs"].as_array().expect("periodic.pairs");
+        assert_eq!(pairs.len(), expect.len(), "{axes:?}: {periodic:#}");
+        for (pair, (master, slave, t)) in pairs.iter().zip(expect) {
+            assert_eq!(pair["master"], *master, "{axes:?}");
+            assert_eq!(pair["slave"], *slave, "{axes:?}");
+            assert_eq!(pair["translation_inferred"], false, "{axes:?}: {pair:#}");
+            assert_eq!(pair["n_snapped"], 0, "{axes:?}: {pair:#}");
+            for (got, want) in pair["translation"].as_array().unwrap().iter().zip(t) {
+                assert_eq!(got.as_f64().unwrap(), *want, "{axes:?}: {pair:#}");
+            }
+        }
+        assert!(
+            periodic["warnings"].as_array().unwrap().is_empty(),
+            "{axes:?}: {periodic:#}"
+        );
+    }
 }

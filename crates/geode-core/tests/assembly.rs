@@ -20,7 +20,7 @@ use burn::tensor::{Int, Tensor, TensorData};
 
 use geode_core::assembly::p1::{assemble_global_p1, gather_tet_coords, upload_mesh};
 use geode_core::mesh::cube_tet_mesh;
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 mod common;
 use common::readback_f64;
@@ -29,10 +29,6 @@ type B = TestBackend;
 type Ad = Autodiff<B>;
 
 const F32_TOL: f64 = 1e-4;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 fn ad_device() -> <Ad as BackendTypes>::Device {
     <Ad as BackendTypes>::Device::default()

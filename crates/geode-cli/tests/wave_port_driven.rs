@@ -15,15 +15,16 @@
 //! [`geode_core::driven::ports::wave_port_from_faces`] ports to round-off,
 //! and report the TE₁₀ cutoff consistently in `k₀` and Hz.
 
+#[path = "support/msh.rs"]
+mod msh;
 #[path = "support/scratch.rs"]
 mod scratch_support;
 #[path = "support/touchstone.rs"]
 mod touchstone_support;
 
 use scratch_support::{Scratch, ScratchFile};
-use std::fmt::Write as _;
 use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::process::Output;
 
 use geode_core::driven::ports::{ExtrudedWaveguideMesh, extruded_rect_waveguide_mesh};
 
@@ -33,12 +34,9 @@ const LEN: f64 = 1.2;
 /// Metres per mesh unit: a 2 cm × 1 cm guide (TE₁₀ cutoff ≈ 7.49 GHz).
 const LENGTH_UNIT_M: f64 = 1e-2;
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::{f64_at, geode};
 
 /// Fresh scratch dir for one test, removed on drop (also on panic).
 fn scratch(name: &str) -> Scratch {
@@ -52,78 +50,7 @@ fn write_msh(
     tets: &[[u32; 4]],
     surfaces: &[(i32, &str, &[[u32; 3]])],
 ) -> String {
-    write_msh_volumes(nodes, &[(1, "guide", tets)], surfaces)
-}
-
-/// [`write_msh`] with several named volume groups (one entity each).
-fn write_msh_volumes(
-    nodes: &[[f64; 3]],
-    volumes: &[(i32, &str, &[[u32; 4]])],
-    surfaces: &[(i32, &str, &[[u32; 3]])],
-) -> String {
-    let mut s = String::from("$MeshFormat\n4.1 0 8\n$EndMeshFormat\n$PhysicalNames\n");
-    let _ = writeln!(s, "{}", surfaces.len() + volumes.len());
-    for (tag, name, _) in surfaces {
-        let _ = writeln!(s, "2 {tag} \"{name}\"");
-    }
-    for (tag, name, _) in volumes {
-        let _ = writeln!(s, "3 {tag} \"{name}\"");
-    }
-    s.push_str("$EndPhysicalNames\n");
-    let _ = writeln!(s, "$Entities\n0 0 {} {}", surfaces.len(), volumes.len());
-    for (i, (tag, _, _)) in surfaces.iter().enumerate() {
-        let _ = writeln!(s, "{} 0 0 0 1 1 1 1 {tag} 0", i + 1);
-    }
-    let bound: Vec<String> = (1..=surfaces.len()).map(|i| i.to_string()).collect();
-    for (i, (tag, _, _)) in volumes.iter().enumerate() {
-        let _ = writeln!(
-            s,
-            "{} 0 0 0 1 1 1 1 {tag} {} {}",
-            i + 1,
-            surfaces.len(),
-            bound.join(" ")
-        );
-    }
-    s.push_str("$EndEntities\n");
-    let n = nodes.len();
-    let _ = writeln!(s, "$Nodes\n1 {n} 1 {n}\n3 1 0 {n}");
-    for i in 1..=n {
-        let _ = writeln!(s, "{i}");
-    }
-    for p in nodes {
-        let _ = writeln!(s, "{:.17e} {:.17e} {:.17e}", p[0], p[1], p[2]);
-    }
-    let n_tris: usize = surfaces.iter().map(|(_, _, t)| t.len()).sum();
-    let n_el = n_tris + volumes.iter().map(|(_, _, t)| t.len()).sum::<usize>();
-    let _ = writeln!(
-        s,
-        "$EndNodes\n$Elements\n{} {n_el} 1 {n_el}",
-        surfaces.len() + volumes.len()
-    );
-    let mut id = 1;
-    for (i, (_, _, tris)) in surfaces.iter().enumerate() {
-        let _ = writeln!(s, "2 {} 2 {}", i + 1, tris.len());
-        for t in *tris {
-            let _ = writeln!(s, "{id} {} {} {}", t[0] + 1, t[1] + 1, t[2] + 1);
-            id += 1;
-        }
-    }
-    for (i, (_, _, tets)) in volumes.iter().enumerate() {
-        let _ = writeln!(s, "3 {} 4 {}", i + 1, tets.len());
-        for t in *tets {
-            let _ = writeln!(
-                s,
-                "{id} {} {} {} {}",
-                t[0] + 1,
-                t[1] + 1,
-                t[2] + 1,
-                t[3] + 1
-            );
-            id += 1;
-        }
-    }
-    s.push_str("$EndElements\n");
-    s
+    msh::write_msh_volumes(nodes, &[(1, "guide", tets)], surfaces)
 }
 
 /// Write the tagged waveguide mesh (plus a `bent` group = port face + one
@@ -174,10 +101,6 @@ fn json(out: &Output) -> serde_json::Value {
         String::from_utf8_lossy(&out.stdout)
     );
     serde_json::from_slice(&out.stdout).expect("report is JSON")
-}
-
-fn f64_at(v: &serde_json::Value) -> f64 {
-    v.as_f64().unwrap_or_else(|| panic!("not a number: {v}"))
 }
 
 fn error_message(out: &Output, cmd: &str, code: &str) -> String {
@@ -1096,7 +1019,7 @@ fn split_spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> ScratchF
         g.mesh.tets.iter().partition(|t| {
             t.iter().map(|&n| g.mesh.nodes[n as usize][0]).sum::<f64>() / 4.0 < A / 2.0
         });
-    let msh = write_msh_volumes(
+    let msh = msh::write_msh_volumes(
         &g.mesh.nodes,
         &[(1, "left", &left), (2, "right", &right)],
         &[

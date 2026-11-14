@@ -568,20 +568,7 @@ pub fn capacitance_adjoint_gradient_p2(
 
 /// Full-length sparse matrix-vector product `K · u` (column-walk).
 fn sparse_matvec(k: &SparseColMat<usize, f64>, u: &[f64]) -> Vec<f64> {
-    let k_ref = k.as_ref();
-    let cp = k_ref.col_ptr();
-    let row_idx = k_ref.row_idx();
-    let vals = k_ref.val();
-    let mut out = vec![0.0_f64; k_ref.nrows()];
-    for (j, &uj) in u.iter().enumerate().take(k_ref.ncols()) {
-        if uj == 0.0 {
-            continue;
-        }
-        for k in cp[j]..cp[j + 1] {
-            out[row_idx[k]] += vals[k] * uj;
-        }
-    }
-    out
+    crate::sparse_ops::spmv(k.as_ref(), u)
 }
 
 /// Expand a per-region relative-permittivity table into the per-tet `ε_r`

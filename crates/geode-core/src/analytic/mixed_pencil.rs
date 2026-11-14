@@ -86,12 +86,11 @@
 //! `couple` flag exposing this.
 
 use faer::Mat;
-use faer::linalg::solvers::Solve;
-use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
 use crate::eigen::dense::EigenError;
 use crate::eigen::lanczos::negligible;
+use crate::sparse_ops::lu_solve;
 
 use super::waveguide::{
     TRI_NEDELEC2_DOF_FLIPS, TRI_QUAD_DEG4, TriMesh, n_dof_2d_nedelec2, tri_nedelec2_local,
@@ -721,22 +720,7 @@ fn assemble_mixed_pencil_sparse(
     Ok((a, b))
 }
 
-/// Sparse matvec `y = A x` (overwrite) for a CSC matrix.
-pub(crate) fn sp_matvec(a: SparseColMatRef<'_, usize, f64>, x: &[f64], y: &mut [f64]) {
-    y.iter_mut().for_each(|v| *v = 0.0);
-    let col_ptr = a.col_ptr();
-    let row_idx = a.row_idx();
-    let val = a.val();
-    for j in 0..a.ncols() {
-        let xj = x[j];
-        if xj == 0.0 {
-            continue;
-        }
-        for k in col_ptr[j]..col_ptr[j + 1] {
-            y[row_idx[k]] += val[k] * xj;
-        }
-    }
-}
+pub(crate) use crate::sparse_ops::spmv_into as sp_matvec;
 
 /// `A − σ B` as a fresh sparse matrix (union of both patterns).
 fn shifted_mixed_pencil(
@@ -759,16 +743,6 @@ fn shifted_mixed_pencil(
     }
     SparseColMat::try_new_from_triplets(n, n, &trips)
         .map_err(|e| EigenError::FaerGevd(format!("shifted mixed pencil: {e:?}")))
-}
-
-/// Solve `(A − σB) y = rhs` via a precomputed sparse LU.
-fn lu_solve(lu: &Lu<usize, f64>, rhs: &[f64], out: &mut [f64]) {
-    let n = rhs.len();
-    let mut work: Mat<f64> = Mat::from_fn(n, 1, |i, _| rhs[i]);
-    lu.solve_in_place(work.as_mut());
-    for i in 0..n {
-        out[i] = work[(i, 0)];
-    }
 }
 
 /// Arnoldi breakdown threshold: `h_{j+1,j} ≤ this · max |h_ik|` (issue #828).

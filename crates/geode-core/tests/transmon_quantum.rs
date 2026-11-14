@@ -18,8 +18,14 @@
 //! `transmon_quantum` example writes; run it with
 //! `cargo test -p geode-core --release --test transmon_quantum -- --ignored`.
 
+mod common;
+#[path = "common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::scaled_mesh;
+
+use common::edge_tables;
+
 use burn::tensor::Tensor;
-use burn::tensor::backend::BackendTypes;
 use faer::c64;
 
 use geode_core::assembly::electrostatic::{
@@ -34,18 +40,14 @@ use geode_core::eigen::transmon::{
 };
 use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
 use geode_core::mesh::transmon::{JUNCTION_CAPACITANCE_F, JUNCTION_INDUCTANCE_H, sapphire_eps_lab};
-use geode_core::mesh::{MetalRole, TetMesh, cube_tet_mesh, read_transmon_smoke_fixture};
+use geode_core::mesh::{MetalRole, cube_tet_mesh, read_transmon_smoke_fixture};
 use geode_core::quantum::transmon::{
     TransmonAnchor, duffing_kerr_from_epr, e_c_hz_from_c_sigma, e_j_hz_from_inductance,
     harmonic_frequency_hz, minev_participation, self_kerr_from_epr, transmon_spectrum,
 };
-use geode_core::testing::TestBackend;
+use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-fn device() -> <B as BackendTypes>::Device {
-    <B as BackendTypes>::Device::default()
-}
 
 const M_PER_UNIT: f64 = 1e-6;
 
@@ -102,18 +104,6 @@ fn analytic_quantum_layer_end_to_end() {
 // -------------------------------------------------------------------------
 // CI-fast: Minev p_m ≡ Phase-B participation identity (synthetic).
 // -------------------------------------------------------------------------
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
-}
 
 fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
     t.into_data().iter::<f64>().collect()
@@ -221,16 +211,6 @@ fn minev_participation_equals_phase_b_participation() {
 // -------------------------------------------------------------------------
 // Release / #[ignore]: E_C extraction on the real fixture.
 // -------------------------------------------------------------------------
-
-fn scaled_mesh(mesh: &TetMesh, s: f64) -> TetMesh {
-    let mut m = mesh.clone();
-    for n in m.nodes.iter_mut() {
-        n[0] *= s;
-        n[1] *= s;
-        n[2] *= s;
-    }
-    m
-}
 
 /// Full E_C extraction on the real DeviceLayout mesh, pinning the committed
 /// benchmark numbers and the honest-negative finding.

@@ -23,12 +23,9 @@ mod touchstone_support;
 
 use scratch_support::{Scratch, ScratchFile};
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::geode;
 
 fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -542,6 +539,114 @@ fn element_order_two_rejects_unsupported_combinations() {
     });
     let out = geode(&["check", spec.to_str().unwrap()]);
     assert!(!out.status.success());
+    let msg = json(&out)["error"]["message"].as_str().unwrap().to_string();
+    assert!(
+        msg.contains("sensitivity") && msg.contains("Phase 4"),
+        "{msg}"
+    );
+
+    // Hybrid wave ports name Phase 3b.
+    let spec = edited_spec("p2-reject-hybrid-ports", |v| {
+        v["element_order"] = serde_json::json!(2);
+        v["wave_ports"] = serde_json::json!([{"physical_group": "port"}]);
+    });
+    let out = geode(&["check", spec.to_str().unwrap()]);
+    assert!(!out.status.success());
+    let msg = json(&out)["error"]["message"].as_str().unwrap().to_string();
+    assert!(
+        msg.contains("wave_ports") && msg.contains("Phase 3b"),
+        "{msg}"
+    );
+}
+
+/// Library parity (issue #1265): the CLI's order-2 eigen result is exactly
+/// what `solve_pec_cavity_modes_on_space` returns on the same mesh, PEC mask
+/// and settings, so the CLI adds no numerics of its own at p=2.
+#[test]
+fn eigen_at_order_two_matches_the_library_on_space_solver() {
+    use burn::tensor::backend::BackendTypes;
+    use geode_core::assembly::hcurl_space::HcurlSpace;
+    use geode_core::eigen::pec_cavity::{
+        PecCavityMaterials, PecCavitySettings, solve_pec_cavity_modes_on_space,
+    };
+    use geode_core::elements::ElementOrder;
+    use geode_core::mesh::read_tagged_tet_mesh;
+
+    type B = burn::backend::NdArray<f64, i32>;
+    let (n_modes, max_iters, tol) = (4usize, 160usize, 1e-9);
+
+    let mesh_path = fixtures().join("../../../geode-core/tests/fixtures/sphere.msh");
+    let mut spec: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(fixtures().join("sphere_pec_golden.json")).unwrap(),
+    )
+    .unwrap();
+    spec["mesh"]["path"] = mesh_path
+        .canonicalize()
+        .unwrap()
+        .display()
+        .to_string()
+        .into();
+    spec["element_order"] = serde_json::json!(2);
+    spec["eigen"]["n_modes"] = serde_json::json!(n_modes);
+    spec["eigen"]["max_iters"] = serde_json::json!(max_iters);
+    spec["eigen"]["tol"] = serde_json::json!(tol);
+    let dir = scratch("p2-library-parity");
+    let path = dir.join("spec.json");
+    std::fs::write(&path, serde_json::to_string(&spec).unwrap()).unwrap();
+    let out = geode(&["eigen", path.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let report = json(&out);
+
+    let bytes = std::fs::read(&mesh_path).unwrap();
+    let tagged = read_tagged_tet_mesh(&bytes).unwrap();
+    let interior = tagged.physical_group_tag(3, "sphere_interior").unwrap();
+    let outer = tagged.physical_group_tag(2, "outer_boundary").unwrap();
+    let eps: Vec<f64> = tagged
+        .tet_physical_tags
+        .iter()
+        .map(|&t| if t == interior { 2.25 } else { 1.0 })
+        .collect();
+    let outer_tris = tagged.triangles_with_tag(outer);
+    let space = HcurlSpace::build(&tagged.mesh, ElementOrder::P2);
+    let mask = space
+        .pec_interior_mask(&tagged.mesh, &[outer_tris.as_slice()])
+        .unwrap();
+    let settings = PecCavitySettings {
+        max_iters,
+        tol,
+        ..PecCavitySettings::new(1.0, n_modes)
+    };
+    let device = <B as BackendTypes>::Device::default();
+    let lib = solve_pec_cavity_modes_on_space::<B>(
+        &space,
+        &tagged.mesh,
+        &PecCavityMaterials::Isotropic(&eps),
+        &mask,
+        &[],
+        &settings,
+        &device,
+    )
+    .expect("library p=2 solve");
+
+    let cli_modes = report["modes"].as_array().unwrap();
+    assert_eq!(cli_modes.len(), lib.modes.modes.len());
+    assert_eq!(
+        report["mesh"]["n_interior"].as_u64().unwrap() as usize,
+        lib.modes.n_interior
+    );
+    for (i, (c, l)) in cli_modes.iter().zip(&lib.modes.modes).enumerate() {
+        let got = c["lambda"].as_f64().unwrap();
+        let rel = (got - l.lambda).abs() / l.lambda;
+        assert!(
+            rel < 1e-9,
+            "mode {i}: CLI {got} vs library {} (rel {rel:e})",
+            l.lambda
+        );
+    }
 }
 
 /// An order-2 eigen run goes through the order-2 solver: same mesh and
