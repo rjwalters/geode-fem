@@ -40,6 +40,11 @@ sha2 = "0.11"
 schemars = { workspace = true }
 
 [dev-dependencies]
+# `geode_core::testing::mesh` — the shared structured-box tet mesher used by
+# tests/sensitivity_wall.rs (issue #1607). Dev-only: `cargo build` does not
+# activate dev-dependencies, so the shipped binary is unaffected by the
+# `testing` feature.
+geode-core = { workspace = true, features = ["testing"] }
 # Validates committed fixtures and emitted reports against the committed
 # schemas (tests/schema.rs). Dev-only: not in the binary's dependency tree.
 jsonschema = { workspace = true }

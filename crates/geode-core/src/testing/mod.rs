@@ -10,6 +10,12 @@
 //! The tolerance *cases* deliberately live in the individual validation /
 //! regression tests — each suite has its own tolerance shape and its own
 //! documented numbers. Core owns only the selection mechanic.
+//!
+//! [`mesh`] holds the other kind of test-only seam: structured box tet-mesh
+//! fixtures shared by integration tests in this crate *and* in `geode-cli`,
+//! which cannot reach `geode-core/tests/common/`.
+
+pub mod mesh;
 
 use burn::Tensor;
 use burn::prelude::Backend;
