@@ -98,6 +98,10 @@ use crate::vec3::{cross3 as cross, dot3 as dot, scale3 as scale, sub3 as sub};
 use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
+/// The four barycentric gradients `∇λ_p` of a P1 tet (constant per element),
+/// re-exported from [`crate::assembly::electrostatic`] so existing
+/// `magnetostatic3d::tet_bary_grads` paths keep resolving.
+pub use crate::assembly::electrostatic::tet_bary_grads;
 pub use crate::assembly::p1::SparsityPattern;
 use crate::eigen::gauge::TreeCotreeGauge;
 use crate::mesh::{TET_LOCAL_EDGES, TetMesh};
@@ -784,30 +788,6 @@ pub fn extract_inductance(
 // Host-side Nédélec tet element geometry (f64), mirroring the closed forms
 // of `crate::elements::nedelec` without the Burn backend.
 // ─────────────────────────────────────────────────────────────────────────
-
-/// The four barycentric gradients `∇λ_p` of a P1 tet (constant per element).
-/// Identical arithmetic to
-/// [`crate::assembly::electrostatic::tet_bary_grads`].
-pub fn tet_bary_grads(coords: &[[f64; 3]; 4]) -> [[f64; 3]; 4] {
-    let v0 = coords[0];
-    let e1 = sub(coords[1], v0);
-    let e2 = sub(coords[2], v0);
-    let e3 = sub(coords[3], v0);
-    let g1 = cross(e2, e3);
-    let g2 = cross(e3, e1);
-    let g3 = cross(e1, e2);
-    let det = dot(e1, g1); // = 6V (signed)
-    let inv = 1.0 / det;
-    let gl1 = scale(g1, inv);
-    let gl2 = scale(g2, inv);
-    let gl3 = scale(g3, inv);
-    let gl0 = [
-        -(gl1[0] + gl2[0] + gl3[0]),
-        -(gl1[1] + gl2[1] + gl3[1]),
-        -(gl1[2] + gl2[2] + gl3[2]),
-    ];
-    [gl0, gl1, gl2, gl3]
-}
 
 /// Sign-unaware local 6×6 Nédélec curl-curl `K_ij = 4V(G_ac G_bd − G_ad G_bc)`
 /// (`i=(a,b)`, `j=(c,d)`, `G_pq = ∇λ_p·∇λ_q`, `V = |det|/6`). The per-tet

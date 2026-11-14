@@ -47,7 +47,7 @@
 use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
-use crate::assembly::electrostatic::{ElectrostaticError, tet_bary_grads, tet_p1_local};
+use crate::assembly::electrostatic::{ElectrostaticError, coords_of, tet_bary_grads, tet_p1_local};
 use crate::mesh::TetMesh;
 use crate::sparse_ops::{norm2, spmv};
 
@@ -179,15 +179,6 @@ pub struct ConductionSolution {
 
 fn shape(msg: String) -> ElectrostaticError {
     ElectrostaticError::ShapeMismatch(msg)
-}
-
-fn coords_of(mesh: &TetMesh, tet: &[u32; 4]) -> [[f64; 3]; 4] {
-    [
-        mesh.nodes[tet[0] as usize],
-        mesh.nodes[tet[1] as usize],
-        mesh.nodes[tet[2] as usize],
-        mesh.nodes[tet[3] as usize],
-    ]
 }
 
 /// Assemble and factor the conduction problem.
