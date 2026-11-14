@@ -15,6 +15,7 @@
 
 mod common;
 use common::boundary_plane_faces;
+use common::box_fixtures::fit_slope;
 use common::zero_source;
 
 use std::collections::HashMap;
@@ -66,19 +67,6 @@ fn tagged_walls(mesh: &TetMesh) -> Vec<Vec<[u32; 3]>> {
         }
     }
     out
-}
-
-fn fit_slope(hs: &[f64], errs: &[f64]) -> f64 {
-    let n = hs.len() as f64;
-    let xs: Vec<f64> = hs.iter().map(|h| h.ln()).collect();
-    let ys: Vec<f64> = errs.iter().map(|e| e.ln()).collect();
-    let (mx, my) = (xs.iter().sum::<f64>() / n, ys.iter().sum::<f64>() / n);
-    let (mut num, mut den) = (0.0, 0.0);
-    for (x, y) in xs.iter().zip(&ys) {
-        num += (x - mx) * (y - my);
-        den += (x - mx) * (x - mx);
-    }
-    num / den
 }
 
 // ---------------------------------------------------------------------------

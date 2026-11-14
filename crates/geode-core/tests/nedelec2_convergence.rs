@@ -21,27 +21,13 @@
 //! cargo test -p geode-core --test nedelec2_convergence
 //! ```
 
+mod common;
+use common::box_fixtures::fit_slope;
+
 use geode_core::analytic::waveguide::{
     rect_pec_interior_dofs2, rect_pec_interior_edges, rect_tri_mesh, rect_waveguide_cutoff,
     solve_rect_waveguide_modes, solve_rect_waveguide_modes2_cutoffs,
 };
-
-/// Least-squares slope of `log(err)` vs `log(h)` (the empirical
-/// convergence order `p` in `err ≈ C · h^p`).
-fn fit_slope(hs: &[f64], errs: &[f64]) -> f64 {
-    let n = hs.len() as f64;
-    let xs: Vec<f64> = hs.iter().map(|h| h.ln()).collect();
-    let ys: Vec<f64> = errs.iter().map(|e| e.ln()).collect();
-    let mean_x = xs.iter().sum::<f64>() / n;
-    let mean_y = ys.iter().sum::<f64>() / n;
-    let mut num = 0.0;
-    let mut den = 0.0;
-    for (x, y) in xs.iter().zip(ys.iter()) {
-        num += (x - mean_x) * (y - mean_y);
-        den += (x - mean_x) * (x - mean_x);
-    }
-    num / den
-}
 
 /// p=2 vs p=1 manufactured order-of-convergence on the TE₁₀ cavity cutoff.
 #[test]

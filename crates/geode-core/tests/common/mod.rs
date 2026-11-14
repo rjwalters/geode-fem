@@ -5,6 +5,7 @@
 //! become test binaries. Consumers pull it in with `mod common;` at
 //! the top of each test file.
 
+pub mod box_fixtures;
 pub mod wave_port;
 
 use burn::tensor::backend::Backend;

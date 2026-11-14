@@ -12,6 +12,7 @@
 
 mod common;
 use common::boundary_plane_faces;
+use common::box_fixtures::box_mesh_with;
 
 use faer::c64;
 use geode_core::adapt::driver::{
@@ -489,80 +490,6 @@ mod wave_port_golden {
 // Step 4: goal-adaptive marking (Golden 2)
 // ---------------------------------------------------------------------------
 
-/// A structured box `origin + [0, len]` with `n` cells per axis, each hex
-/// split into 6 tets, keeping the cells where `keep(i, j, k)`.
-fn box_mesh(
-    n: [usize; 3],
-    len: [f64; 3],
-    origin: [f64; 3],
-    keep: impl Fn(usize, usize, usize) -> bool,
-) -> TetMesh {
-    let np = [n[0] + 1, n[1] + 1, n[2] + 1];
-    let idx = |i: usize, j: usize, k: usize| (i + j * np[0] + k * np[0] * np[1]) as u32;
-    let mut nodes = Vec::new();
-    for k in 0..np[2] {
-        for j in 0..np[1] {
-            for i in 0..np[0] {
-                nodes.push([
-                    origin[0] + len[0] * i as f64 / n[0] as f64,
-                    origin[1] + len[1] * j as f64 / n[1] as f64,
-                    origin[2] + len[2] * k as f64 / n[2] as f64,
-                ]);
-            }
-        }
-    }
-    let mut tets = Vec::new();
-    for k in 0..n[2] {
-        for j in 0..n[1] {
-            for i in 0..n[0] {
-                if !keep(i, j, k) {
-                    continue;
-                }
-                let q = [
-                    idx(i, j, k),
-                    idx(i + 1, j, k),
-                    idx(i + 1, j + 1, k),
-                    idx(i, j + 1, k),
-                    idx(i, j, k + 1),
-                    idx(i + 1, j, k + 1),
-                    idx(i + 1, j + 1, k + 1),
-                    idx(i, j + 1, k + 1),
-                ];
-                tets.push([q[0], q[1], q[2], q[6]]);
-                tets.push([q[0], q[2], q[3], q[6]]);
-                tets.push([q[0], q[3], q[7], q[6]]);
-                tets.push([q[0], q[7], q[4], q[6]]);
-                tets.push([q[0], q[4], q[5], q[6]]);
-                tets.push([q[0], q[5], q[1], q[6]]);
-            }
-        }
-    }
-    let mut used = vec![false; nodes.len()];
-    for t in &tets {
-        for &v in t {
-            used[v as usize] = true;
-        }
-    }
-    let mut remap = vec![u32::MAX; nodes.len()];
-    let mut kept = Vec::new();
-    for (i, p) in nodes.iter().enumerate() {
-        if used[i] {
-            remap[i] = kept.len() as u32;
-            kept.push(*p);
-        }
-    }
-    for t in &mut tets {
-        for v in t.iter_mut() {
-            *v = remap[*v as usize];
-        }
-    }
-    TetMesh {
-        nodes: kept,
-        tets,
-        physical_groups: Default::default(),
-    }
-}
-
 /// A plate waveguide (`x ∈ (−1, 1)`, `y ∈ (0, 1)`, thickness `1/4`) with a
 /// closed resonant pocket below it (`x ∈ (−1/2, 1/2)`, `y ∈ (−1, −1/4)`)
 /// joined by a slit of `2 * hw` cells centred on `x = 0` (`hw = m / 4`:
@@ -573,7 +500,7 @@ fn box_mesh(
 /// [`golden2_narrow_slit_measurement`] for why that did not pan out).
 fn stub_guide_with(m: usize, hw: usize) -> TaggedTetMesh {
     let q = m / 4; // cells per quarter unit
-    let mesh = box_mesh(
+    let mesh = box_mesh_with(
         [2 * m, 2 * m, 1],
         [2.0, 2.0, 0.25],
         [-1.0, -1.0, 0.0],
@@ -1108,7 +1035,7 @@ const THICK: f64 = 0.25;
 /// The thick-L prism `((−1,1)² \ [0,1]×[−1,0]) × (0, THICK)`, `m` cells per
 /// unit length in-plane, `nz` layers (the `adapt_loop.rs` Golden 1 mesh).
 fn thick_l(m: usize, nz: usize) -> TaggedTetMesh {
-    let mesh = box_mesh(
+    let mesh = box_mesh_with(
         [2 * m, 2 * m, nz],
         [2.0, 2.0, THICK],
         [-1.0, -1.0, 0.0],
