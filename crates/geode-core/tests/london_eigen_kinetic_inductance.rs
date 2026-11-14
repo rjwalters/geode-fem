@@ -43,6 +43,7 @@ use burn::tensor::Tensor;
 use faer::c64;
 use std::collections::BTreeMap;
 
+use geode_core::assembly::electrostatic::tet_bary_grads;
 use geode_core::assembly::nedelec::{
     NedelecScatterMap, assemble_global_nedelec_with_full_tensors_sparse,
 };
@@ -191,37 +192,11 @@ fn scatter_full(mask: &[bool], reduced: &[f64]) -> Vec<f64> {
     xf
 }
 
-/// Barycentric gradients `∇λ_0..3` of a tet.
-fn tet_grad_lambda(p: &[[f64; 3]; 4]) -> [[f64; 3]; 4] {
-    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-    let cross = |a: [f64; 3], b: [f64; 3]| {
-        [
-            a[1] * b[2] - a[2] * b[1],
-            a[2] * b[0] - a[0] * b[2],
-            a[0] * b[1] - a[1] * b[0],
-        ]
-    };
-    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-    let e1 = sub(p[1], p[0]);
-    let e2 = sub(p[2], p[0]);
-    let e3 = sub(p[3], p[0]);
-    let v6 = dot(e1, cross(e2, e3));
-    let g1 = cross(e2, e3).map(|x| x / v6);
-    let g2 = cross(e3, e1).map(|x| x / v6);
-    let g3 = cross(e1, e2).map(|x| x / v6);
-    let g0 = [
-        -(g1[0] + g2[0] + g3[0]),
-        -(g1[1] + g2[1] + g3[1]),
-        -(g1[2] + g2[2] + g3[2]),
-    ];
-    [g0, g1, g2, g3]
-}
-
 /// Element-constant `∇×E` of the real Whitney edge field on tet `ti`.
 fn tet_curl(mesh: &TetMesh, tet_edge_rows: &[[(u32, i8); 6]], ti: usize, xf: &[f64]) -> [f64; 3] {
     let tet = mesh.tets[ti];
     let p: [[f64; 3]; 4] = std::array::from_fn(|v| mesh.nodes[tet[v] as usize]);
-    let g = tet_grad_lambda(&p);
+    let g = tet_bary_grads(&p);
     let mut curl = [0.0_f64; 3];
     for (k, &(la, lb)) in TET_LOCAL_EDGES.iter().enumerate() {
         let (gidx, sign) = tet_edge_rows[ti][k];
