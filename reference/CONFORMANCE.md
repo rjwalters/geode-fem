@@ -139,7 +139,8 @@ and committed baselines; none are new measurements.
   ([PR #120](https://github.com/rjwalters/geode-fem/pull/120)).
 - **JAX** — [`jax/sphere_pec.py`](jax/sphere_pec.py); fixture
   [`fixtures/sphere_pec/jax_baseline.json`](fixtures/sphere_pec/jax_baseline.json);
-  test `sphere_pec_jax_reference.rs`
+  test `sphere_pec_jax_reference.rs`; drift gate
+  [`.github/workflows/jax-sphere-pec.yml`](../.github/workflows/jax-sphere-pec.yml)
   ([PR #131](https://github.com/rjwalters/geode-fem/pull/131)).
 - **TF-Java** — [`tf_java/sphere_pec/src/main/java/dev/geodefem/refspherepec/NedelecAssemblyGraph.java`](tf_java/sphere_pec/src/main/java/dev/geodefem/refspherepec/NedelecAssemblyGraph.java);
   fixture [`fixtures/sphere_pec/tfjava_sidecar.json`](fixtures/sphere_pec/tfjava_sidecar.json);
@@ -433,6 +434,7 @@ This anchoring is enforced mechanically, per slice, in CI:
 - **Drift-gate workflows** — generator re-runs that strictly diff fresh
   backend output against the committed snapshots:
   [`jax-sphere-mie.yml`](../.github/workflows/jax-sphere-mie.yml),
+  [`jax-sphere-pec.yml`](../.github/workflows/jax-sphere-pec.yml),
   [`jax-sphere-pml.yml`](../.github/workflows/jax-sphere-pml.yml),
   [`julia-cube-cavity.yml`](../.github/workflows/julia-cube-cavity.yml),
   [`onnx-cube-cavity.yml`](../.github/workflows/onnx-cube-cavity.yml),
