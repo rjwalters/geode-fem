@@ -84,13 +84,13 @@ pub use mode_gauge::{
     relative_gap,
 };
 pub use strip_line::{StripLineSection, strip_line_section};
-pub(crate) use wave::assemble_modal_flux;
 pub use wave::{
     ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, PortMedium, PortMode, WavePort,
     WavePortSweepPoint, extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
     map_mode_profile_to_full_mesh, solve_wave_port_sweep, solve_wave_port_sweep_with_mode,
     waveguide_mode_reduce,
 };
+pub(crate) use wave::{assemble_modal_flux, invert_complex_dense};
 pub use wave_face::{
     CandidateConfirmation, DegenerateCandidate, FaceSolveCounts, GuideAxialMesh, GuideScan,
     PLANARITY_REL_TOL, PortFaceError, PortFaceProjection, TM_GUARD_AXIAL_COEFF,
