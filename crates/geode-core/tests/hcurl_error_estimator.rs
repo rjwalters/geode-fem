@@ -36,6 +36,10 @@
 mod common;
 use common::box_fixtures::box_mesh_with;
 
+#[path = "common/edge_interp.rs"]
+mod edge_interp;
+use edge_interp::edge_interpolant;
+
 use std::f64::consts::PI;
 use std::time::Instant;
 
@@ -78,33 +82,6 @@ const ZERO: c64 = c64 { re: 0.0, im: 0.0 };
 // ---------------------------------------------------------------------------
 // Analytic helpers
 // ---------------------------------------------------------------------------
-
-/// 4-point Gauss–Legendre on [0, 1].
-const GL4: [(f64, f64); 4] = [
-    (0.5 - 0.430_568_155_797_026, 0.173_927_422_568_727),
-    (0.5 - 0.169_990_521_792_428, 0.326_072_577_431_273),
-    (0.5 + 0.169_990_521_792_428, 0.326_072_577_431_273),
-    (0.5 + 0.430_568_155_797_026, 0.173_927_422_568_727),
-];
-
-/// Edge interpolant `∫_e E · dl`, lower → higher global node.
-fn interpolate(mesh: &TetMesh, e: impl Fn([f64; 3]) -> [c64; 3]) -> Vec<c64> {
-    mesh.edges()
-        .iter()
-        .map(|ed| {
-            let p = mesh.nodes[ed[0] as usize];
-            let q = mesh.nodes[ed[1] as usize];
-            let dl = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
-            let mut acc = ZERO;
-            for &(s, w) in &GL4 {
-                let x = [p[0] + s * dl[0], p[1] + s * dl[1], p[2] + s * dl[2]];
-                let v = e(x);
-                acc += (v[0] * dl[0] + v[1] * dl[1] + v[2] * dl[2]) * w;
-            }
-            acc
-        })
-        .collect()
-}
 
 /// The exact energy-norm error `‖E − E_h‖_E` by degree-4 (64-point)
 /// quadrature, with the same weights as the estimator's energy norm.
@@ -756,7 +733,7 @@ fn golden3b_normal_jump_is_load_bearing_for_gradient_errors() {
             .position(|p| p.iter().all(|&q| (q - 0.5).abs() < 1e-12))
             .expect("centre node") as u32;
         let delta = 0.05;
-        let mut x = interpolate(&mesh, |_| a);
+        let mut x = edge_interpolant(&mesh, |_| a);
         for (xi, e) in x.iter_mut().zip(mesh.edges()) {
             // ∫_e ∇φ_v · dl = φ_v(e[1]) − φ_v(e[0]).
             if e[1] == v {
@@ -868,7 +845,7 @@ fn golden3c_tangential_jump_is_load_bearing_for_curl_errors() {
             .position(|e| (e[0] == v && e[1] == w) || (e[0] == w && e[1] == v))
             .expect("centre edge");
         let delta = 0.05;
-        let mut x = interpolate(&mesh, |_| a);
+        let mut x = edge_interpolant(&mesh, |_| a);
         x[edge] += c(delta);
         let eps_ref = &eps;
         let f = move |t: usize, _: [f64; 3]| a.map(|ad| -k2 * eps_ref[t] * ad);
@@ -960,7 +937,7 @@ fn golden4_exactness() {
                 a[2] + c(bb[0] * x[1] - bb[1] * x[0]),
             ]
         };
-        let x = interpolate(&mesh, field);
+        let x = edge_interpolant(&mesh, field);
         let eps_ref = &eps;
         let f = move |t: usize, p: [f64; 3]| {
             let e = field(p);
@@ -1143,7 +1120,7 @@ fn golden4b_every_term_and_weight_matches_its_closed_form() {
         ]
     };
     let g = move |x: [f64; 3]| -> [c64; 3] { [gamma * x[0], c(0.5 * x[2]), c(-0.7 * x[1])] };
-    let x = interpolate(&mesh, field);
+    let x = edge_interpolant(&mesh, field);
     let f = move |_: usize, p: [f64; 3]| {
         let (e, gp) = (field(p), g(p));
         [-k2 * e[0] + gp[0], -k2 * e[1] + gp[1], -k2 * e[2] + gp[2]]
@@ -1282,7 +1259,7 @@ fn golden6_coverage_counts_uncovered_faces() {
     let n = 4;
     let mesh = box_mesh_with([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
     let space = HcurlSpace::build(&mesh, ElementOrder::P1);
-    let x = interpolate(&mesh, |p| [c(p[1]), c(p[2] * p[0]), c(1.0)]);
+    let x = edge_interpolant(&mesh, |p| [c(p[1]), c(p[2] * p[0]), c(1.0)]);
     let eps = vec![c(1.0); mesh.n_tets()];
     let nu = vec![1.0; mesh.n_tets()];
     let bf = mesh.boundary_faces();
@@ -1498,7 +1475,7 @@ fn periodic_cube_matches_doubled_cube() {
         }
     };
     let space_t = HcurlSpace::build(&torus, ElementOrder::P1);
-    let x_t = interpolate(&torus, field);
+    let x_t = edge_interpolant(&torus, field);
     let eps_t = vec![c(1.0); torus.n_tets()];
     let nu_t = vec![1.0; torus.n_tets()];
     let src = VolumeSource {
@@ -1520,7 +1497,7 @@ fn periodic_cube_matches_doubled_cube() {
     // Doubled cube.
     let doubled = box_mesh_with([2 * n, n, n], [2.0, 1.0, 1.0], [0.0; 3], |_, _, _| true);
     let space_d = HcurlSpace::build(&doubled, ElementOrder::P1);
-    let x_d = interpolate(&doubled, field);
+    let x_d = edge_interpolant(&doubled, field);
     let eps_d = vec![c(1.0); doubled.n_tets()];
     let nu_d = vec![1.0; doubled.n_tets()];
     let est_d = estimate_hcurl(
@@ -1730,7 +1707,7 @@ fn nu_eps_source_coscaling_leaves_eta_rel_unchanged() {
     let n = 4;
     let mesh = box_mesh_with([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true);
     let space = HcurlSpace::build(&mesh, ElementOrder::P1);
-    let x = interpolate(&mesh, |p| {
+    let x = edge_interpolant(&mesh, |p| {
         [c(p[1] * p[2]), c((p[0] * 3.0).sin()), c(p[0] * p[1] + 0.2)]
     });
     let nu0: Vec<f64> = (0..mesh.n_tets())
@@ -2645,7 +2622,7 @@ fn golden8e_robin_exactness_p1_and_p2() {
 
     // p=1.
     let space1 = HcurlSpace::build(&mesh, ElementOrder::P1);
-    let x1 = interpolate(&mesh, |_| [c(1.0), ZERO, ZERO]);
+    let x1 = edge_interpolant(&mesh, |_| [c(1.0), ZERO, ZERO]);
     let f1 = move |_: usize, _: [f64; 3]| [-k2, ZERO, ZERO];
     let div0 = |_: usize, _: [f64; 3]| ZERO;
     let run1 = |r: RobinBoundary| {
