@@ -41,29 +41,53 @@
 #![allow(dead_code)] // each binary uses a subset
 
 use std::f64::consts::PI;
+use std::ops::IndexMut;
 use std::time::Instant;
 
 use geode_core::assembly::magnetostatic_nonlinear::NewtonConfig;
 use geode_core::assembly::magnetostatic_sector::{CouplingMode, SectorError};
 use geode_core::assembly::magnetostatic_shape::{
-    AngleSetGradient, OperatingPoint, SectorShapeProblem, ShapeSolve, ShapeTorque,
+    AngleSetGradient, OperatingPoint, SectorShapeProblem, ShapeSolve, ShapeTorque, directional,
     mean_std_parameter_gradient,
 };
-use geode_core::mesh::icem_parametric::{IcemDesign, IcemShapeMap, N_PARAMS, PARAM_NAMES};
+use geode_core::mesh::TaggedTriMesh;
+use geode_core::mesh::icem_parametric::{
+    IcemDesign, IcemParamError, IcemShapeMap, N_PARAMS, PARAM_NAMES,
+};
 use serde_json::Value;
 
 use crate::icem::{self, AreaMode, IcemModel, IronLaw, POLE_PAIRS, TURNS, WINDING_GROUPS};
 use crate::icem_shape::{self, OPT_DEGREES, shape_problem};
 
+/// The non-geometric components every design space appends to its
+/// geometry: `LENGTH`, `OPERATING_ANGLE`, `ScaleR`, in that order.
+pub const N_NON_GEOM: usize = 3;
+
+/// Index of `LENGTH` in a space with `n_geom` geometric components.
+pub const fn k_length(n_geom: usize) -> usize {
+    n_geom
+}
+
+/// Index of `OPERATING_ANGLE` in a space with `n_geom` geometric
+/// components.
+pub const fn k_angle(n_geom: usize) -> usize {
+    n_geom + 1
+}
+
+/// Index of `ScaleR` in a space with `n_geom` geometric components.
+pub const fn k_scale(n_geom: usize) -> usize {
+    n_geom + 2
+}
+
 /// Number of design parameters: 9 geometric, `LENGTH`, `OPERATING_ANGLE`,
 /// `ScaleR`.
-pub const N_DESIGN: usize = N_PARAMS + 3;
+pub const N_DESIGN: usize = N_PARAMS + N_NON_GEOM;
 /// Index of `LENGTH`.
-pub const K_LENGTH: usize = N_PARAMS;
+pub const K_LENGTH: usize = k_length(N_PARAMS);
 /// Index of `OPERATING_ANGLE`.
-pub const K_ANGLE: usize = N_PARAMS + 1;
+pub const K_ANGLE: usize = k_angle(N_PARAMS);
 /// Index of `ScaleR`.
-pub const K_SCALE: usize = N_PARAMS + 2;
+pub const K_SCALE: usize = k_scale(N_PARAMS);
 
 /// Parameter names, [`PARAM_NAMES`] then the three non-geometric ones.
 pub fn design_names() -> [&'static str; N_DESIGN] {
@@ -84,17 +108,175 @@ pub fn design_unit(k: usize) -> &'static str {
     }
 }
 
-/// A full design point (reference units: metres, degrees).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DesignPoint {
-    /// The 9 geometric parameters.
-    pub geo: IcemDesign,
+/// A design space of the ICEM sector torque: a geometry vector, the shape
+/// map that moves the mesh with it, and the component count.
+///
+/// The space is the only thing the gradient machinery below
+/// ([`SpacePoint`], [`SpaceSetup`], [`SpaceGradient`], [`evaluate`],
+/// [`design_gradient_from`], [`objectives_at`], [`step_sweep`]) differs on,
+/// so each space supplies it once and shares one implementation. The 9
+/// scalar parameters are [`ParametricSpace`]; the 19 control-point
+/// components are `icem_cp_design::ControlPointSpace`.
+///
+/// Component `k` is geometric for `k < N_GEOM`; the three past it are
+/// `LENGTH`, `OPERATING_ANGLE` and `ScaleR` ([`k_length`], [`k_angle`],
+/// [`k_scale`]).
+pub trait DesignSpace {
+    /// The geometry vector (`IcemDesign`, `IcemCpDesign`).
+    type Geo: Copy + std::fmt::Debug + PartialEq;
+    /// Its shape map (`IcemShapeMap`, `IcemCpShapeMap`).
+    type Map;
+    /// `[f64; N_GEOM + N_NON_GEOM]`, per-component design derivatives.
+    type DesignArray: Copy + std::fmt::Debug + IndexMut<usize, Output = f64>;
+    /// `[f64; N_GEOM]`, per-geometric-component derivatives.
+    type GeomArray: Copy + std::fmt::Debug + IndexMut<usize, Output = f64>;
+
+    /// Number of geometric components (9 scalars, or 19 with the offsets).
+    const N_GEOM: usize;
+
+    /// Geometric component `k`.
+    fn geo_get(geo: &Self::Geo, k: usize) -> f64;
+    /// Set geometric component `k`.
+    fn geo_set(geo: &mut Self::Geo, k: usize, v: f64);
+
+    /// A zeroed [`Self::DesignArray`].
+    fn design_zeros() -> Self::DesignArray;
+    /// A zeroed [`Self::GeomArray`].
+    fn geom_zeros() -> Self::GeomArray;
+
+    /// Attach and factorize the shape map on `tagged`, meshed at `theta0`.
+    fn map_new(tagged: &TaggedTriMesh, theta0: Self::Geo) -> Result<Self::Map, IcemParamError>;
+    /// Node positions `X(geo)`.
+    fn positions(map: &Self::Map, geo: &Self::Geo) -> Result<Vec<[f64; 2]>, IcemParamError>;
+    /// Node velocities `∂X/∂θ_k` at `geo`, one per geometric component.
+    fn jacobian(map: &Self::Map, geo: &Self::Geo) -> Result<Vec<Vec<[f64; 2]>>, IcemParamError>;
+}
+
+/// The 9-parameter space of [`IcemShapeMap`] (#1173).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParametricSpace;
+
+impl DesignSpace for ParametricSpace {
+    type Geo = IcemDesign;
+    type Map = IcemShapeMap;
+    type DesignArray = [f64; N_DESIGN];
+    type GeomArray = [f64; N_PARAMS];
+
+    const N_GEOM: usize = N_PARAMS;
+
+    fn geo_get(geo: &IcemDesign, k: usize) -> f64 {
+        geo.values[k]
+    }
+
+    fn geo_set(geo: &mut IcemDesign, k: usize, v: f64) {
+        geo.values[k] = v;
+    }
+
+    fn design_zeros() -> [f64; N_DESIGN] {
+        [0.0; N_DESIGN]
+    }
+
+    fn geom_zeros() -> [f64; N_PARAMS] {
+        [0.0; N_PARAMS]
+    }
+
+    fn map_new(tagged: &TaggedTriMesh, theta0: IcemDesign) -> Result<IcemShapeMap, IcemParamError> {
+        IcemShapeMap::new(tagged, theta0)
+    }
+
+    fn positions(map: &IcemShapeMap, geo: &IcemDesign) -> Result<Vec<[f64; 2]>, IcemParamError> {
+        map.positions(geo)
+    }
+
+    fn jacobian(
+        map: &IcemShapeMap,
+        geo: &IcemDesign,
+    ) -> Result<Vec<Vec<[f64; 2]>>, IcemParamError> {
+        map.jacobian(geo)
+    }
+}
+
+/// A full design point of `S` (reference units: metres, degrees).
+pub struct SpacePoint<S: DesignSpace> {
+    /// The geometric components.
+    pub geo: S::Geo,
     /// Axial length (m).
     pub length: f64,
     /// Load angle `OPERATING_ANGLE` (degrees).
     pub phi0_deg: f64,
     /// `ScaleR`.
     pub scale_r: f64,
+}
+
+/// A full design point of the 9-parameter space.
+pub type DesignPoint = SpacePoint<ParametricSpace>;
+
+// `Clone`/`Copy`/`Debug`/`PartialEq` are written out rather than derived:
+// `derive` would add a spurious `S: Clone + Copy + Debug + PartialEq` bound
+// on the space marker, and the generic methods below (`moved` copies
+// `*self`) cannot satisfy it. The real requirement is on the geometry
+// vector, which `DesignSpace::Geo` already states.
+impl<S: DesignSpace> Clone for SpacePoint<S> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<S: DesignSpace> Copy for SpacePoint<S> {}
+
+impl<S: DesignSpace> std::fmt::Debug for SpacePoint<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SpacePoint")
+            .field("geo", &self.geo)
+            .field("length", &self.length)
+            .field("phi0_deg", &self.phi0_deg)
+            .field("scale_r", &self.scale_r)
+            .finish()
+    }
+}
+
+impl<S: DesignSpace> PartialEq for SpacePoint<S> {
+    fn eq(&self, other: &Self) -> bool {
+        self.geo == other.geo
+            && self.length == other.length
+            && self.phi0_deg == other.phi0_deg
+            && self.scale_r == other.scale_r
+    }
+}
+
+impl<S: DesignSpace> SpacePoint<S> {
+    /// Component `k`.
+    pub fn get(&self, k: usize) -> f64 {
+        if k == k_length(S::N_GEOM) {
+            self.length
+        } else if k == k_angle(S::N_GEOM) {
+            self.phi0_deg
+        } else if k == k_scale(S::N_GEOM) {
+            self.scale_r
+        } else {
+            S::geo_get(&self.geo, k)
+        }
+    }
+
+    /// Set component `k`.
+    pub fn set(&mut self, k: usize, v: f64) {
+        if k == k_length(S::N_GEOM) {
+            self.length = v;
+        } else if k == k_angle(S::N_GEOM) {
+            self.phi0_deg = v;
+        } else if k == k_scale(S::N_GEOM) {
+            self.scale_r = v;
+        } else {
+            S::geo_set(&mut self.geo, k, v);
+        }
+    }
+
+    /// The design with component `k` moved by `h`.
+    pub fn moved(&self, k: usize, h: f64) -> Self {
+        let mut d = *self;
+        d.set(k, self.get(k) + h);
+        d
+    }
 }
 
 impl DesignPoint {
@@ -115,39 +297,14 @@ impl DesignPoint {
     }
 
     /// `self + t (other − self)`, parameter by parameter.
+    ///
+    /// Scalar-space only: the control-point space has no counterpart.
     pub fn lerp(&self, other: &Self, t: f64) -> Self {
         let mut out = *self;
         for k in 0..N_DESIGN {
             out.set(k, self.get(k) + t * (other.get(k) - self.get(k)));
         }
         out
-    }
-
-    /// Parameter `k`.
-    pub fn get(&self, k: usize) -> f64 {
-        match k {
-            K_LENGTH => self.length,
-            K_ANGLE => self.phi0_deg,
-            K_SCALE => self.scale_r,
-            _ => self.geo.values[k],
-        }
-    }
-
-    /// Set parameter `k`.
-    pub fn set(&mut self, k: usize, v: f64) {
-        match k {
-            K_LENGTH => self.length = v,
-            K_ANGLE => self.phi0_deg = v,
-            K_SCALE => self.scale_r = v,
-            _ => self.geo.values[k] = v,
-        }
-    }
-
-    /// The design with parameter `k` moved by `h`.
-    pub fn moved(&self, k: usize, h: f64) -> Self {
-        let mut d = *self;
-        d.set(k, self.get(k) + h);
-        d
     }
 }
 
@@ -255,10 +412,10 @@ impl Mode {
     }
 }
 
-/// The model on one mesh, its shape problem and the parametrization.
-pub struct DesignSetup {
+/// The model on one mesh, its shape problem and the parametrization of `S`.
+pub struct SpaceSetup<S: DesignSpace> {
     pub model: IcemModel,
-    pub map: IcemShapeMap,
+    pub map: S::Map,
     /// The shape problem at the mesh's own node positions (`θ0`).
     pub problem0: SectorShapeProblem,
     pub mode: Mode,
@@ -270,20 +427,23 @@ pub struct DesignSetup {
     pub map_seconds: f64,
 }
 
-impl DesignSetup {
+/// The model, map and shape problem of the 9-parameter space.
+pub type DesignSetup = SpaceSetup<ParametricSpace>;
+
+impl<S: DesignSpace> SpaceSetup<S> {
     /// Build from MSH bytes meshed at `theta0`.
     pub fn new(
         level: usize,
         msh: &[u8],
         reference: &Value,
         mode: Mode,
-        theta0: IcemDesign,
+        theta0: S::Geo,
     ) -> Result<Self, SectorError> {
         let mut model =
             IcemModel::new(level, msh, reference, IronLaw::Table, AreaMode::Mesh, None)?;
         model.coupling = mode.coupling();
         let t0 = Instant::now();
-        let map = IcemShapeMap::new(&model.tagged, theta0)
+        let map = S::map_new(&model.tagged, theta0)
             .map_err(|e| SectorError::InvalidInput(format!("shape map: {e}")))?;
         let map_seconds = t0.elapsed().as_secs_f64();
         let problem0 = shape_problem(&model)?;
@@ -302,21 +462,17 @@ impl DesignSetup {
     /// # Errors
     ///
     /// No geometry at `geo`, or an inverted triangle.
-    pub fn problem_at(&self, geo: &IcemDesign) -> Result<SectorShapeProblem, SectorError> {
-        let x = self
-            .map
-            .positions(geo)
+    pub fn problem_at(&self, geo: &S::Geo) -> Result<SectorShapeProblem, SectorError> {
+        let x = S::positions(&self.map, geo)
             .map_err(|e| SectorError::InvalidInput(format!("positions: {e}")))?;
         self.problem0
             .with_node_positions(self.model.band.expand_nodal(&x))
     }
 
-    /// Split-mesh velocities `∂X/∂θ_k` at `geo`, `k` in [`PARAM_NAMES`]
-    /// order.
-    pub fn velocities(&self, geo: &IcemDesign) -> Result<Vec<Vec<[f64; 2]>>, SectorError> {
-        let jac = self
-            .map
-            .jacobian(geo)
+    /// Split-mesh velocities `∂X/∂θ_k` at `geo`, `k` in the geometric
+    /// components' own order ([`PARAM_NAMES`], or `cp_param_names`).
+    pub fn velocities(&self, geo: &S::Geo) -> Result<Vec<Vec<[f64; 2]>>, SectorError> {
+        let jac = S::jacobian(&self.map, geo)
             .map_err(|e| SectorError::InvalidInput(format!("jacobian: {e}")))?;
         Ok(jac
             .iter()
@@ -326,7 +482,7 @@ impl DesignSetup {
 
     /// The operating points of the optimization grid at `dp`, peak current
     /// `i_peak`.
-    pub fn operating_points(&self, dp: &DesignPoint, i_peak: f64) -> Vec<OperatingPoint> {
+    pub fn operating_points(&self, dp: &SpacePoint<S>, i_peak: f64) -> Vec<OperatingPoint> {
         icem_shape::operating_points(&self.model, i_peak, dp.phi0_deg * PI / 180.0, &self.degrees)
     }
 }
@@ -389,9 +545,9 @@ pub struct CurrentBase {
 }
 
 /// Solve the angle set at `dp` under `rule` (warm start from `initials`).
-pub fn evaluate(
-    setup: &DesignSetup,
-    dp: &DesignPoint,
+pub fn evaluate<S: DesignSpace>(
+    setup: &SpaceSetup<S>,
+    dp: &SpacePoint<S>,
     rule: CurrentRule,
     cb: &CurrentBase,
     cfg: &NewtonConfig,
@@ -416,21 +572,21 @@ pub fn evaluate(
 
 /// The design gradient of both objectives at one design and current.
 #[derive(Debug, Clone)]
-pub struct DesignGradient {
+pub struct SpaceGradient<S: DesignSpace> {
     pub mean: f64,
     pub std: f64,
     pub torques: Vec<f64>,
     /// `d mean / dθ_k`, prescribed current.
-    pub d_mean: [f64; N_DESIGN],
+    pub d_mean: S::DesignArray,
     /// `d std / dθ_k`, prescribed current.
-    pub d_std: [f64; N_DESIGN],
+    pub d_std: S::DesignArray,
     /// The same under [`CurrentRule::Jinit`].
-    pub d_mean_jinit: [f64; N_DESIGN],
-    pub d_std_jinit: [f64; N_DESIGN],
+    pub d_mean_jinit: S::DesignArray,
+    pub d_std_jinit: S::DesignArray,
     /// `d mean / dI_peak`, `d std / dI_peak` (N m / A).
     pub d_ipeak: [f64; 2],
-    /// `dA_1/dθ_k / A_1` (1/m) for the geometric parameters.
-    pub d_log_a1: [f64; N_PARAMS],
+    /// `dA_1/dθ_k / A_1` (1/m) for the geometric components.
+    pub d_log_a1: S::GeomArray,
     /// Wall times (s): forward sweep, adjoints, velocities (`∂X/∂θ`, split),
     /// contractions and current terms.
     pub forward_seconds: f64,
@@ -439,6 +595,10 @@ pub struct DesignGradient {
     pub contract_seconds: f64,
     pub newton_iterations: usize,
 }
+
+/// The design gradient over the 9 parameters and the three non-geometric
+/// components.
+pub type DesignGradient = SpaceGradient<ParametricSpace>;
 
 /// `dI_g/dφ0` (A·turns per rad) at an operating angle `beta` (rad).
 pub fn d_current_d_phi0(i_peak: f64, phi0: f64, beta: f64) -> Vec<f64> {
@@ -456,25 +616,26 @@ pub fn objective_pair(t: &[f64], dt: &[f64]) -> [f64; 2] {
 
 /// Both objectives' gradients at `dp` (prescribed current `i_peak`), and
 /// the base evaluation.
-pub fn design_gradient(
-    setup: &DesignSetup,
-    dp: &DesignPoint,
+pub fn design_gradient<S: DesignSpace>(
+    setup: &SpaceSetup<S>,
+    dp: &SpacePoint<S>,
     i_peak: f64,
     cfg: &NewtonConfig,
-) -> Result<(DesignGradient, Evaluation), SectorError> {
+) -> Result<(SpaceGradient<S>, Evaluation), SectorError> {
     design_gradient_from(setup, dp, i_peak, cfg, None)
 }
 
 /// [`design_gradient`] with the forward solves warm-started from
 /// `initials` (one `A_z` per operating point; `None` is the cold start of
 /// [`design_gradient`]).
-pub fn design_gradient_from(
-    setup: &DesignSetup,
-    dp: &DesignPoint,
+pub fn design_gradient_from<S: DesignSpace>(
+    setup: &SpaceSetup<S>,
+    dp: &SpacePoint<S>,
     i_peak: f64,
     cfg: &NewtonConfig,
     initials: Option<&[Vec<f64>]>,
-) -> Result<(DesignGradient, Evaluation), SectorError> {
+) -> Result<(SpaceGradient<S>, Evaluation), SectorError> {
+    let (k_len, k_ang, k_scl) = (k_length(S::N_GEOM), k_angle(S::N_GEOM), k_scale(S::N_GEOM));
     let cb = CurrentBase {
         i_base: i_peak,
         a1_base: 1.0,
@@ -492,11 +653,11 @@ pub fn design_gradient_from(
     let velocity_seconds = t1.elapsed().as_secs_f64();
 
     let t2 = Instant::now();
-    let mut d_mean = [0.0; N_DESIGN];
-    let mut d_std = [0.0; N_DESIGN];
+    let mut d_mean = S::design_zeros();
+    let mut d_std = S::design_zeros();
     let dm = p.design_gradient(&g.mean_grad, &vel)?;
     let ds = p.design_gradient(&g.std_grad, &vel)?;
-    for k in 0..N_PARAMS {
+    for k in 0..S::N_GEOM {
         d_mean[k] = s2 * dm[k];
         d_std[k] = s2 * ds[k];
     }
@@ -504,26 +665,29 @@ pub fn design_gradient_from(
     let std = s2 * g.std;
     let torques: Vec<f64> = g.torques.iter().map(|t| s2 * t).collect();
     // LENGTH: T is linear in L.
-    d_mean[K_LENGTH] = mean / dp.length;
-    d_std[K_LENGTH] = std / dp.length;
+    d_mean[k_len] = mean / dp.length;
+    d_std[k_len] = std / dp.length;
     // OPERATING_ANGLE (degrees): adjoint of the current right-hand side.
+    // One term per angle of the set: `group_current_grads` and `degrees` are
+    // the same length as `operating_points`, which is built by mapping over
+    // `degrees`.
     let phi0 = dp.phi0_deg * PI / 180.0;
     let ops = setup.operating_points(dp, i_peak);
-    let dt_dphi: Vec<f64> = ops
+    let dt_dphi: Vec<f64> = g
+        .group_current_grads
         .iter()
-        .zip(&g.group_current_grads)
         .zip(&setup.degrees)
-        .map(|((_, gcg), &deg)| {
+        .map(|(gcg, &deg)| {
             let di = d_current_d_phi0(i_peak, phi0, deg as f64 * PI / 180.0);
             s2 * gcg.iter().zip(&di).map(|(a, b)| a * b).sum::<f64>()
         })
         .collect();
     let [am, as_] = objective_pair(&torques, &dt_dphi);
-    d_mean[K_ANGLE] = am * PI / 180.0;
-    d_std[K_ANGLE] = as_ * PI / 180.0;
+    d_mean[k_ang] = am * PI / 180.0;
+    d_std[k_ang] = as_ * PI / 180.0;
     // ScaleR: J = s² J_u.
-    d_mean[K_SCALE] = 2.0 * mean / dp.scale_r;
-    d_std[K_SCALE] = 2.0 * std / dp.scale_r;
+    d_mean[k_scl] = 2.0 * mean / dp.scale_r;
+    d_std[k_scl] = 2.0 * std / dp.scale_r;
 
     // Jinit rule: + (dJ/dI_peak) I_peak d(log A_1)/dθ.
     let d_ipeak = if i_peak != 0.0 {
@@ -544,18 +708,18 @@ pub fn design_gradient_from(
     };
     let a1 = group1_area(p);
     let da1 = &p.group_area_gradients()[0];
-    let mut d_log_a1 = [0.0; N_PARAMS];
-    for k in 0..N_PARAMS {
-        d_log_a1[k] = geode_core::assembly::magnetostatic_shape::directional(da1, &vel[k]) / a1;
+    let mut d_log_a1 = S::geom_zeros();
+    for k in 0..S::N_GEOM {
+        d_log_a1[k] = directional(da1, &vel[k]) / a1;
     }
     let mut d_mean_jinit = d_mean;
     let mut d_std_jinit = d_std;
-    for k in 0..N_PARAMS {
+    for k in 0..S::N_GEOM {
         d_mean_jinit[k] += d_ipeak[0] * i_peak * d_log_a1[k];
         d_std_jinit[k] += d_ipeak[1] * i_peak * d_log_a1[k];
     }
-    d_mean_jinit[K_SCALE] += d_ipeak[0] * i_peak / dp.scale_r;
-    d_std_jinit[K_SCALE] += d_ipeak[1] * i_peak / dp.scale_r;
+    d_mean_jinit[k_scl] += d_ipeak[0] * i_peak / dp.scale_r;
+    d_std_jinit[k_scl] += d_ipeak[1] * i_peak / dp.scale_r;
     let contract_seconds = t2.elapsed().as_secs_f64();
 
     let newton_iterations = ev
@@ -565,7 +729,7 @@ pub fn design_gradient_from(
         .sum();
     let forward_seconds = ev.solves.iter().map(|s| s.forward_seconds).sum();
     Ok((
-        DesignGradient {
+        SpaceGradient {
             mean,
             std,
             torques,
@@ -589,9 +753,9 @@ pub fn design_gradient_from(
 /// (mesh re-moved through `X(θ ± h)` for a geometric parameter), warm
 /// started from `base`.
 #[allow(clippy::too_many_arguments)]
-pub fn objectives_at(
-    setup: &DesignSetup,
-    dp: &DesignPoint,
+pub fn objectives_at<S: DesignSpace>(
+    setup: &SpaceSetup<S>,
+    dp: &SpacePoint<S>,
     k: usize,
     h: f64,
     rule: CurrentRule,
@@ -631,9 +795,9 @@ pub type StepSweep = (Vec<StepRow>, Vec<(f64, String)>);
 /// `J(θ ± h e_k)` for each `h` in `hs`; steps where either side has no
 /// valid mesh are returned separately (with the error).
 #[allow(clippy::too_many_arguments)]
-pub fn step_sweep(
-    setup: &DesignSetup,
-    dp: &DesignPoint,
+pub fn step_sweep<S: DesignSpace>(
+    setup: &SpaceSetup<S>,
+    dp: &SpacePoint<S>,
     k: usize,
     hs: &[f64],
     rule: CurrentRule,
@@ -645,7 +809,7 @@ pub fn step_sweep(
     let mut rejected = Vec::new();
     for &h in hs {
         let valid = |s: f64| -> Result<(), String> {
-            if k < N_PARAMS {
+            if k < S::N_GEOM {
                 setup
                     .problem_at(&dp.moved(k, s).geo)
                     .map(|_| ())
