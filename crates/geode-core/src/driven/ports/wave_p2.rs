@@ -75,7 +75,8 @@ use std::collections::HashMap;
 use faer::c64;
 use faer::sparse::{SparseColMat, Triplet};
 
-use super::hybrid::{MixedPortSpecSweep, WavePortSpec, WavePortSpecSweep};
+use super::hybrid::WavePortSpec;
+use super::hybrid_report::{MixedPortSpecSweep, WavePortSpecSweep};
 use super::lumped::LumpedPort;
 use super::mixed::{MixedPortSweepPoint, ModalChannel, mixed_sweep_points, modal_channels_with};
 use super::mode_gauge::{GaugeQuadrature, canonical_modes};
