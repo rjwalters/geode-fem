@@ -505,7 +505,7 @@ fn amg_pcg_true_residual_gate_rejects_drift_1065() {
     let n = 40;
     let (k, b, b_norm) = chain_problem(n);
     let opts = AmgPcgOptions::default();
-    let amg = crate::eigen::ams::ScalarAmg::new(k.as_ref(), opts.cycles).unwrap();
+    let amg = crate::eigen::amg::ScalarAmg::new(k.as_ref(), opts.cycles).unwrap();
     let (_, it, true_rel) = pcg_solve(
         &k,
         &b,

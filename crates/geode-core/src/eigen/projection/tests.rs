@@ -1,5 +1,6 @@
 use super::*;
 use crate::assembly::nedelec::{rank_via_svd, restrict_gradient_dense};
+use crate::eigen::transmon::assemble_reduced_real;
 use crate::mesh::{TetMesh, cube_tet_mesh};
 use faer::sparse::Triplet;
 
@@ -831,7 +832,7 @@ fn port_subspace_entry_point_returns_nearest_nonzero_modes() {
     };
 
     // Dense reference on the same reduced pencil.
-    let red = reduced_transmon_system(&pencil).unwrap();
+    let red = reduced_transmon_system(&pencil, JunctionPortModel::DistributedSurface).unwrap();
     let all = FaerDenseEigensolver
         .smallest_eigenpairs(
             to_dense(&red.k_red).as_ref(),

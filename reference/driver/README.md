@@ -116,18 +116,3 @@ eigenvalues.
 
 See `reference/tf_java/README.md` and `reference/onnx/README.md`
 for the per-backend workflows.
-
-## Deprecated shims
-
-The following scripts are thin wrappers that inject the right
-`--backend` / `--problem` flags and delegate to
-`eigensolve_from_sidecar.py`. They are preserved so existing CI
-workflows and external callers continue to work without
-invocation-line changes; prefer the consolidated entry point for
-new callers.
-
-| Shim | Consolidated equivalent |
-|---|---|
-| `eigensolve_from_tfjava.py` | `eigensolve_from_sidecar.py --backend tfjava --problem cube-cavity` |
-| `eigensolve_from_onnx.py` | `eigensolve_from_sidecar.py --backend onnx --problem cube-cavity` |
-| `eigensolve_sphere_pec_sidecar.py` | `eigensolve_from_sidecar.py --backend tfjava --problem sphere-pec` (default backend; pass `--backend onnx` to override) |

@@ -4,6 +4,12 @@
 //! (PR #97 / issue #93) onto the canonical `geode-validation` harness as
 //! part of issue #101.
 //!
+//! Since issue #1656 the harness body (backend tolerance table, schema
+//! smoke test, Burn-vs-baseline comparison) lives in `tests/common/mod.rs`,
+//! shared verbatim with `cube_cavity_onnx_reference.rs`; this file keeps
+//! only its fixture path, its expected `fixture_id`, and thin `#[test]`
+//! wrappers.
+//!
 //! Loads `reference/fixtures/cube_cavity/jax_baseline.json` (canonical
 //! schema v1, single fixture, single set of outputs: lowest-5
 //! eigenvalues, `trace(K_int)`, `trace(M_int)`) and runs the Burn
@@ -20,189 +26,23 @@
 //! cargo test -p geode-validation --test cube_cavity_jax_reference
 //! ```
 
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-
-use burn::prelude::Backend;
-use burn::tensor::DType;
-use burn::tensor::backend::BackendTypes;
-use geode_core::testing::{TestBackend, device_tolerances};
-use geode_validation::{Fixture, FixtureFormat};
+use std::path::PathBuf;
 
 mod common;
-use common::burn_cube_cavity;
+use common::{assert_cube_cavity_baseline_fixture_schema, compare_burn_cube_cavity_to_baseline};
 
-type B = TestBackend;
-
-#[derive(Debug, Clone, Copy)]
-struct BackendTolerances {
-    /// Absolute tolerance on lowest-5 eigenvalues (~5e-5 relative at the
-    /// lowest mode), above f32 accumulation, tight enough to catch a real
-    /// regression.
-    eigvals_abs: f64,
-    /// Absolute tolerance on trace(K_int) / trace(M_int) — pure assembly
-    /// readbacks (Burn upload_mesh f32-truncation, whiteroom #5).
-    trace_abs: f64,
-}
-
-const NDARRAY_F64_TOLERANCES: BackendTolerances = BackendTolerances {
-    eigvals_abs: 5.0e-5,
-    trace_abs: 1.0e-5,
-};
-
-const GPU_F32_TOLERANCES: BackendTolerances = BackendTolerances {
-    eigvals_abs: 5.0e-3,
-    trace_abs: 1.0e-3,
-};
-
-impl BackendTolerances {
-    /// Tolerance envelope for the active backend device, selected by the
-    /// device's float dtype.
-    fn for_device<B: Backend>(device: &B::Device) -> Self {
-        device_tolerances::<B, BackendTolerances>(
-            device,
-            &[
-                ("", DType::F64, NDARRAY_F64_TOLERANCES),
-                ("", DType::F32, GPU_F32_TOLERANCES),
-            ],
-        )
-        .expect("a tolerance case must match the active backend dtype")
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Fixture path
-// ---------------------------------------------------------------------------
+const EXPECTED_FIXTURE_ID: &str = "cube_cavity/n4_first_five_modes";
 
 fn fixture_path() -> PathBuf {
     geode_validation::fixture_path("cube_cavity/jax_baseline.json")
 }
 
-// ---------------------------------------------------------------------------
-// Burn pipeline
-// ---------------------------------------------------------------------------
-
-// Scalar input accessors (`fixture.input_i64` / `fixture.input_f64`) and the
-// recursive JSON numeric flatten live in the shared staging crate.
-use geode_util::fixture::flatten_numeric;
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[test]
 fn jax_baseline_fixture_loads_with_canonical_schema() {
-    // Pure load-time smoke test — no Burn pipeline, no faer. Confirms
-    // the canonical loader is happy with the JAX baseline shape.
-    let fixture = Fixture::load_from(&fixture_path(), FixtureFormat::Json)
-        .expect("jax_baseline.json should load");
-    assert_eq!(fixture.schema_version, "1");
-    assert_eq!(fixture.fixture_id, "cube_cavity/n4_first_five_modes");
-    for field in ["eigenvalues", "k_diag_sum", "m_diag_sum"] {
-        assert!(
-            fixture.outputs.contains_key(field),
-            "JAX baseline fixture missing output `{field}`"
-        );
-    }
-    for field in ["n", "side"] {
-        assert!(
-            fixture.inputs.contains_key(field),
-            "JAX baseline fixture missing input `{field}`"
-        );
-    }
-
-    let eigvals = fixture
-        .output_f64("eigenvalues")
-        .expect("eigenvalues field");
-    assert_eq!(eigvals.shape, &[5]);
-    assert_eq!(eigvals.numel(), 5);
+    assert_cube_cavity_baseline_fixture_schema(&fixture_path(), EXPECTED_FIXTURE_ID, "JAX");
 }
 
 #[test]
 fn burn_cube_cavity_agrees_with_jax_baseline() {
-    let fixture =
-        Fixture::load_from(&fixture_path(), FixtureFormat::Json).expect("load jax_baseline.json");
-
-    let n = fixture.input_i64("n") as usize;
-    let side = fixture.input_f64("side");
-    eprintln!(
-        "JAX baseline fixture id = {}, n = {n}, side = {side}",
-        fixture.fixture_id
-    );
-
-    let expected_eigvals = fixture
-        .output_f64("eigenvalues")
-        .expect("eigenvalues field");
-    let n_eigs = expected_eigvals.numel();
-
-    let (eigvals, trk, trm) = burn_cube_cavity(n, side, n_eigs);
-
-    // Build the actual-outputs map for the canonical comparator. We
-    // also relax the fixture's per-field `tolerance_abs` to our
-    // backend-aware override before calling `compare_against` so the
-    // diff artifact reflects the actually-enforced bound (the original
-    // fixture tolerances target the JAX/NumPy in-tree cross-check at
-    // ~1e-13, which Burn cannot honor through its f32 upload path).
-    let mut actual = BTreeMap::new();
-    actual.insert("eigenvalues".to_string(), eigvals.clone());
-    actual.insert("k_diag_sum".to_string(), vec![trk]);
-    actual.insert("m_diag_sum".to_string(), vec![trm]);
-
-    let device = <B as BackendTypes>::Device::default();
-    let tol = BackendTolerances::for_device::<B>(&device);
-    eprintln!(
-        "backend = {}, eigvals_abs_tol = {:.0e}, trace_abs_tol = {:.0e}",
-        B::name(&device),
-        tol.eigvals_abs,
-        tol.trace_abs
-    );
-
-    let mut relaxed = fixture.clone();
-    if let Some(field) = relaxed.outputs.get_mut("eigenvalues") {
-        field.tolerance_abs = tol.eigvals_abs;
-    }
-    if let Some(field) = relaxed.outputs.get_mut("k_diag_sum") {
-        field.tolerance_abs = tol.trace_abs;
-    }
-    if let Some(field) = relaxed.outputs.get_mut("m_diag_sum") {
-        field.tolerance_abs = tol.trace_abs;
-    }
-
-    let report = geode_validation::compare_against(&relaxed, &actual);
-
-    // Always write the diff artifact (pass or fail) so the
-    // friction-mining loop has the artifact even on green runs.
-    let artifact_path = Path::new(env!("CARGO_TARGET_TMPDIR")).join("cube_cavity_jax_diff.json");
-    let _ = report.write_diff_artifact(&artifact_path);
-
-    // Pretty-print eigenvalues for the green-run log.
-    eprintln!(
-        "trace(K_int): expected = {:.6e}, got = {:.6e}",
-        flatten_numeric(&fixture.outputs["k_diag_sum"].data)[0],
-        trk,
-    );
-    eprintln!(
-        "trace(M_int): expected = {:.6e}, got = {:.6e}",
-        flatten_numeric(&fixture.outputs["m_diag_sum"].data)[0],
-        trm,
-    );
-    eprintln!("Eigenvalue comparison (lowest {n_eigs}):");
-    for (i, (got, expected)) in eigvals.iter().zip(expected_eigvals.data.iter()).enumerate() {
-        let abs_err = (got - expected).abs();
-        let rel_err = abs_err / expected.abs().max(1.0);
-        eprintln!(
-            "  λ[{i}]  expected = {expected:.6e}  got = {got:.6e}  abs = {abs_err:.3e}  rel = {rel_err:.3e}"
-        );
-    }
-
-    if !report.passed {
-        panic!(
-            "Burn cube-cavity disagrees with JAX baseline; \
-             diff artifact at {} (n_failures = {}); \
-             per-field report = {:#?}",
-            artifact_path.display(),
-            report.n_failures(),
-            report.fields
-        );
-    }
+    compare_burn_cube_cavity_to_baseline(&fixture_path(), "JAX", "cube_cavity_jax_diff.json");
 }
