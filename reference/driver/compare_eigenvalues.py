@@ -1,6 +1,7 @@
 """Cross-IR eigenvalue comparison for the cube-cavity reference (Epic #88 / #93 / #115).
 
-Given a primary eigenresult JSON (TF-Java via `eigensolve_from_tfjava.py`,
+Given a primary eigenresult JSON (TF-Java via `eigensolve_from_sidecar.py
+--backend tfjava`,
 or Julia via `reference/julia/cube_cavity.jl --out ...`, or both) and
 the in-tree JAX baseline JSON (`reference/fixtures/cube_cavity/jax_baseline.json`),
 plus an optional NumPy result computed in-process from
@@ -95,11 +96,11 @@ def _max_rel(a: np.ndarray, b: np.ndarray) -> float:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--tfjava", type=Path, default=None,
-                        help="Path to the TF-Java eigenresult JSON (from eigensolve_from_tfjava.py).")
+                        help="Path to the TF-Java eigenresult JSON (from eigensolve_from_sidecar.py --backend tfjava).")
     parser.add_argument("--julia", type=Path, default=None,
                         help="Path to the Julia eigenresult JSON (from reference/julia/cube_cavity.jl).")
     parser.add_argument("--onnx", type=Path, default=None,
-                        help="Path to the ONNX eigenresult JSON (from eigensolve_from_onnx.py).")
+                        help="Path to the ONNX eigenresult JSON (from eigensolve_from_sidecar.py --backend onnx).")
     parser.add_argument("--jax", required=True, type=Path,
                         help="Path to the JAX baseline JSON.")
     parser.add_argument("--numpy", type=Path, default=None,

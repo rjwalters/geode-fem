@@ -25,7 +25,7 @@
 //!
 //! The full matrix cross-check (K_int / M_int Frobenius norm comparison to
 //! the ONNX assembly output) runs in CI via the Python eigensolve driver
-//! (`reference/driver/eigensolve_sphere_pec_sidecar.py`) which consumes
+//! (`reference/driver/eigensolve_from_sidecar.py --problem sphere-pec`) which consumes
 //! the assembly-time sidecar at CI run time.
 //!
 //! # Edge-index note
