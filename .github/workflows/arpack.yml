@@ -459,6 +459,12 @@ jobs:
       # Issue #760 adds the anisotropic-materials AMS golden (spiral smoke
       # with a uniaxial substrate and diagonal mu, AMS-COCG vs direct LU;
       # ~4 s in release).
+      #
+      # Issue #1627 adds the `sweep.adaptive` + `sensitivity` bypass golden
+      # to `adaptive_sweep_golden` (Epic #841 Phase 4: adaptive vs dense
+      # gradients on the spiral sensitivity smoke fixture, ROM parity
+      # diagnostic, `--check-gradient`; ~2.5 min in release, picked up by
+      # the `-- --ignored` run below).
       - name: geode static-extraction benchmark tiers (release, --ignored)
         run: |
           cargo test -p geode-cli --release --test inductance_golden \
