@@ -3,6 +3,22 @@
 Chronological record of merged pull requests and closed issues, newest first.
 Maintained automatically by the Loom Guide role; entries are appended, never edited.
 
+### 2026-11-14
+
+- **PR #1618**: ci: compile-gate geode-core example targets
+- **PR #1615**: feat(benchmarks): record the Design A min-max run and its kill-criterion verdict
+- **PR #1614**: ci: add jax-sphere-pec drift gate for the sphere-PEC JAX snapshot
+- **PR #1606**: refactor: keep one definition of eight helpers duplicated across geode-core
+- **PR #1605**: refactor: merge the two duplicated port shape-adjoint cores in driven/shape.rs
+- **PR #1603**: refactor(tests): share the box tet mesher and slope fit via common/box_fixtures
+- **Issue #1639** (closed): Consolidate duplicated MSH writer: optimize_loop/optimize_remesh carry a verbatim copy of support/msh.rs
+- **Issue #1617** (closed): CI never compiles the ~40 crates/geode-core/examples/ binaries
+- **Issue #1602** (closed): Add a CI drift gate for the sphere_pec JAX fixture (sibling of jax-sphere-pml.yml)
+- **Issue #1599** (closed): Consolidate six copies of the box_mesh tet mesher (and jitter/box_walls/fit_slope) in geode-core tests into a shared module
+- **Issue #1596** (closed): Consolidate duplicated port shape-adjoint cores in driven/shape.rs: matched_upml_ports_core is a ~330-line copy of driven_shape_gradient_ports_complex_core
+- **Issue #1588** (closed): Consolidate eight byte-identical helper functions duplicated across geode-core src modules
+- **Issue #1579** (closed): [#1537 P4c-2] Design A adjoint min-max run and kill-criterion verdict
+
 ### 2026-11-13
 
 - **PR #1601**: feat: regenerate sphere_pec JAX fixture with real JAX, drop --stub writer
