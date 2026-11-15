@@ -44,6 +44,7 @@ use geode_core::driven::floquet::{
     FloquetPolarization, FloquetPortSpec, FloquetSettings, FloquetSolution, SPECULAR_FLOOR_COEFF,
     SPECULAR_FLOOR_WARN,
 };
+use geode_core::elements::ElementOrder;
 use geode_core::mesh::TetMesh;
 use geode_core::mesh::periodic::{
     PeriodicMap, PeriodicMatchOptions, boundary_triangles_on_plane, box_periodic_pairs,
@@ -86,6 +87,16 @@ fn cell(n: [usize; 3], size: [f64; 3], seed: u64) -> Cell {
 }
 
 fn floquet(c: &Cell, eps: &[c64], settings: FloquetSettings) -> FloquetCell {
+    floquet_at(c, eps, settings, ElementOrder::P1)
+}
+
+/// [`floquet`] at an explicit element order (issue #1628).
+fn floquet_at(
+    c: &Cell,
+    eps: &[c64],
+    settings: FloquetSettings,
+    order: ElementOrder,
+) -> FloquetCell {
     let spec = FloquetCellSpec {
         eps_r: eps,
         sigma: None,
@@ -101,6 +112,7 @@ fn floquet(c: &Cell, eps: &[c64], settings: FloquetSettings) -> FloquetCell {
             },
         ],
         settings,
+        element_order: order,
     };
     FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).unwrap()
 }
@@ -461,6 +473,8 @@ fn specular_floor_estimate_uses_the_port_medium_and_skips_a_cut_off_port() {
             },
         ],
         settings: FloquetSettings::default(),
+
+        element_order: ElementOrder::P1,
     };
     let fc = FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).unwrap();
     let h = 0.05 * 2.0_f64.sqrt();
@@ -604,6 +618,7 @@ fn vacuum_glass_interface_normalizes_by_admittance_and_handles_total_internal_re
             },
         ],
         settings: FloquetSettings::default(),
+        element_order: ElementOrder::P1,
     };
     let fc = FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).unwrap();
     let up = [(1.0, 0.5), (EPS_G, 0.5)];
@@ -1159,6 +1174,7 @@ fn propagating_higher_orders_and_bad_specs_are_typed_errors() {
                 },
             ],
             settings: FloquetSettings::default(),
+            element_order: ElementOrder::P1,
         };
         FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).err()
     };
@@ -1643,6 +1659,7 @@ fn strip_reactance(n: [usize; 3], a: f64, w: f64, k0: f64) -> (f64, f64) {
             },
         ],
         settings: FloquetSettings::default(),
+        element_order: ElementOrder::P1,
     };
     let fc = FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).unwrap();
     let sol = fc
@@ -1842,4 +1859,95 @@ fn fixed_label_s_has_the_same_shape_when_orders_switch_on() {
         .position(|l| *l == (0, FloquetOrder::SPECULAR, Te))
         .unwrap();
     assert_eq!(s_lo[spec][inn], lo.s_specular(1, Te, 0, Te).unwrap());
+}
+
+// --- Golden 9: the p=2 cell (issue #1628) ------------------------------------
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "direct solves are slow in debug; runs in release CI"
+)]
+fn p2_cell_beats_p1_on_the_slab_against_fresnel() {
+    let c = cell([2, 2, 40], [A_CELL, A_CELL, L_CELL], 13);
+    let eps = slab_eps(&c);
+    let p1 = floquet(&c, &eps, FloquetSettings::default());
+    let p2 = floquet_at(&c, &eps, FloquetSettings::default(), ElementOrder::P2);
+    // The p=2 port face carries the (W, Q) and (φ0, φ1) DOFs, not just the
+    // edges.
+    assert!(
+        p2.port_dofs(0).len() > p1.port_dofs(0).len(),
+        "p=2 port {} vs p=1 port {} DOFs",
+        p2.port_dofs(0).len(),
+        p1.port_dofs(0).len()
+    );
+    eprintln!(
+        "p=2 slab (same mesh as p=1): ε = {EPS_SLAB}, z ∈ [{Z1}, {Z2}], k₀ = {K0}, \
+         DOFs {} vs {}",
+        p2.operator().n_dofs(),
+        p1.operator().n_dofs()
+    );
+    eprintln!(
+        "  θ°   pol      |S11| err p1     p2        |S21| err p1     p2       Σ|S|²-1 p1     p2"
+    );
+    let (mut mag1, mut mag2) = (0.0_f64, 0.0_f64);
+    let (mut en1, mut en2) = (0.0_f64, 0.0_f64);
+    for &(theta, pol) in &[(0.0, Te), (0.0, Tm), (30.0, Te), (30.0, Tm)] {
+        for (tag, fc) in [("p1", &p1), ("p2", &p2)] {
+            let sol = fc
+                .solve_incidence(K0, &FloquetIncidence::degrees(theta, 0.0, 0))
+                .unwrap();
+            assert!(
+                sol.residual_rel < 1e-10,
+                "{tag} residual {}",
+                sol.residual_rel
+            );
+            let kt = K0 * theta.to_radians().sin();
+            let (r, t) = tmm(K0, kt, &slab_layers(), pol);
+            let s11 = s_spec(&sol, 0, pol, pol);
+            let s21 = s_spec(&sol, 1, pol, pol);
+            let j = sol.specular_index(0, pol).unwrap();
+            let e = (sol.column_power(j) - 1.0).abs();
+            let e11 = (s11 - r).norm();
+            let e21 = (s21 - t).norm();
+            eprintln!("{theta:>4}  {pol:?}  {tag}:  {e11:.3e}   {e21:.3e}   {e:.1e}");
+            if tag == "p1" {
+                mag1 = mag1.max(e11).max(e21);
+                en1 = en1.max(e);
+            } else {
+                mag2 = mag2.max(e11).max(e21);
+                en2 = en2.max(e);
+            }
+        }
+    }
+    eprintln!(
+        "worst |ΔS| p1 {mag1:.3e}, p2 {mag2:.3e}; worst |Σ|S|²−1| p1 {en1:.1e}, p2 {en2:.1e}"
+    );
+    // Lossless power balance to the p=1 tolerance (do not loosen).
+    assert!(en2 < 1e-9, "p=2 energy balance {en2:.1e}");
+    // Same mesh, same slab: the p=2 S sits strictly below the p=1 error
+    // (both numbers printed above).
+    assert!(
+        mag1 > 0.0 && mag2 < mag1,
+        "p=2 {mag2:.3e} vs p=1 {mag1:.3e}"
+    );
+    // And both are actually close to the analytic slab.
+    assert!(mag2 < 1e-3, "p=2 |ΔS| {mag2:.3e}");
+}
+
+#[test]
+fn p2_cell_rejects_the_delta_gap_feed_with_a_typed_error() {
+    let c = cell([2, 2, 4], [A_CELL, A_CELL, 0.2], 3);
+    let eps = vec![ONE; c.mesh.n_tets()];
+    let p2 = floquet_at(&c, &eps, FloquetSettings::default(), ElementOrder::P2);
+    let f = p2.factor(K0, [0.0; 3], 0.0).unwrap();
+    assert!(matches!(
+        f.edge_current_rhs(0),
+        Err(FloquetError::UnsupportedAtOrder { .. })
+    ));
+    let x = vec![c64::new(0.0, 0.0); f.n_reduced()];
+    assert!(matches!(
+        f.edge_voltage(&x, 0),
+        Err(FloquetError::UnsupportedAtOrder { .. })
+    ));
 }

@@ -34,7 +34,7 @@ use faer::sparse::SparseColMat;
 use faer::{Mat, Side, c64};
 
 use geode_core::assembly::hcurl_space::HcurlSpace;
-use geode_core::assembly::periodic::{PeriodicConstraint, PeriodicError};
+use geode_core::assembly::periodic::PeriodicConstraint;
 use geode_core::driven::periodic::PeriodicDrivenOperator;
 use geode_core::driven::solve::{CurrentSource, DrivenBcs, DrivenMaterials, DrivenOperator};
 use geode_core::eigen::bloch::{BlochCell, BlochError, BlochSettings, realify_hermitian};
@@ -402,10 +402,19 @@ fn bloch_refusals_are_typed_and_loud() {
     let mut mesh2 = box_tet_mesh([2, 2, 2], [1.0, 1.0, 1.0]);
     let pairs = box_periodic_pairs(&mesh2, &[0, 1, 2]);
     let map = PeriodicMap::build(&mut mesh2, &pairs, &PeriodicMatchOptions::default()).unwrap();
+    // The p=2 constraint itself builds since #1628 (the Floquet cell uses
+    // it); the Bloch eigen cell stays p=1 and rejects it.
     let p2 = HcurlSpace::build(&mesh2, ElementOrder::P2);
+    let c2 = PeriodicConstraint::build(&p2, &map, None).unwrap();
+    let eps2 = vec![1.0; mesh2.n_tets()];
     assert!(matches!(
-        PeriodicConstraint::build(&p2, &map, None),
-        Err(PeriodicError::Unsupported { .. })
+        BlochCell::new::<B>(
+            &mesh2,
+            &PecCavityMaterials::Isotropic(&eps2),
+            &c2,
+            &device()
+        ),
+        Err(BlochError::Unsupported { .. })
     ));
 
     // A cell with no periodic pair has no lattice: refused.

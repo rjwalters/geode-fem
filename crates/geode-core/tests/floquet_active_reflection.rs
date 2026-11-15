@@ -22,6 +22,7 @@ use geode_core::driven::floquet::{
     ActiveReflection, FloquetArraySpec, FloquetCell, FloquetOrder, FloquetPortSpec,
     FloquetSettings, ModalFeedSpec, find_blind_scans,
 };
+use geode_core::elements::ElementOrder;
 use geode_core::mesh::TetMesh;
 use geode_core::mesh::periodic::{
     PeriodicMap, PeriodicMatchOptions, boundary_triangles_on_plane, box_periodic_pairs,
@@ -87,6 +88,8 @@ fn ppw_cell(n: [usize; 3], d_over_lambda: f64) -> Array {
             m: 1,
         },
         settings: FloquetSettings::default(),
+
+        element_order: ElementOrder::P1,
     };
     let cell = FloquetCell::assemble_array::<B>(&mesh, &map, &spec, &device()).unwrap();
     Array {
