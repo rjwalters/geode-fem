@@ -31,16 +31,9 @@ the multi-backend reference set:
   of the pencil, agreed on by LAPACK ZGGEV and faer QZ — see the J.2
   fixture description in ``reference/fixtures/sphere_mie_small/``).
 
-This script consolidates four legacy entry points:
-
-* ``eigensolve_from_tfjava.py`` — now a shim that injects
-  ``--backend tfjava`` and delegates here.
-* ``eigensolve_from_onnx.py`` — likewise ``--backend onnx``.
-* ``eigensolve_sphere_pec_sidecar.py`` — now a shim that injects
-  ``--problem sphere-pec`` and delegates here.
-
-The legacy shims are preserved so existing CI workflows and external
-callers continue to work without invocation-line changes.
+This script is the single consolidated eigensolve entry point for all
+problems and backends (issues #127, #144): callers state their intent
+on the invocation line with ``--backend`` and ``--problem``.
 
 Usage
 =====

@@ -5,6 +5,8 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-13
 
+- **PR #1601**: feat: regenerate sphere_pec JAX fixture with real JAX, drop --stub writer
+- **Issue #1592** (closed): Regenerate sphere_pec JAX baseline: committed fixture is a stub copied from NumPy, and remove the --stub path
 - **PR #1600**: chore: drop unused onnxscript pin from ONNX reference requirements
 - **PR #1604**: refactor: delete four uncalled items and the docs that referenced them
 - **PR #1598**: refactor(geode-cli): hand resolve_* helpers resolved i32 tags

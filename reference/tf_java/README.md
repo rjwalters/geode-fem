@@ -13,7 +13,7 @@ typechecking + IDE tooling against an L4-shaped object graph
   explicit symbolic-graph surface").
 - Assembly closes inside the graph; the eigensolve falls out to SciPy
   via the JSON sidecar produced by `CubeCavityMain` (see
-  `reference/driver/eigensolve_from_tfjava.py`). This is the
+  `reference/driver/eigensolve_from_sidecar.py`). This is the
   documented "TF-Java cannot natively close the spine" L4 friction
   artifact (TF-Java has no native sparse generalized eigensolver).
 
@@ -31,8 +31,9 @@ mvn -Pmacos-arm64 exec:java \
     -Dexec.args="--n 4 --out target/reduced_kM.json"
 
 # Close the eigenproblem at the SciPy boundary
-python3 ../../driver/eigensolve_from_tfjava.py \
+python3 ../../driver/eigensolve_from_sidecar.py \
     target/reduced_kM.json \
+    --backend tfjava --problem cube-cavity \
     --out target/eigenresult.json
 ```
 
@@ -65,7 +66,7 @@ table goes here. The harness path is:
 1. `reference/numpy/cube_cavity_minimal.py` → NumPy baseline.
 2. `reference/jax/gen_cube_cavity_fixture.py` →
    `reference/fixtures/cube_cavity/jax_baseline.json` (JAX baseline).
-3. `mvn exec:java` + `python3 .../eigensolve_from_tfjava.py` →
+3. `mvn exec:java` + `python3 .../eigensolve_from_sidecar.py --backend tfjava` →
    TF-Java path eigenvalues.
 4. `crates/geode-validation/tests/cube_cavity_jax_reference.rs` → Burn
    path eigenvalues vs JAX baseline.
@@ -113,7 +114,7 @@ The CI job:
 2. Runs `mvn -Plinux-x86_64 -DskipTests package` in
    `reference/tf_java/cube_cavity/`.
 3. Runs `mvn exec:java` to produce `reduced_kM.json`.
-4. Runs `reference/driver/eigensolve_from_tfjava.py` over the sidecar
+4. Runs `reference/driver/eigensolve_from_sidecar.py --backend tfjava` over the sidecar
    to compute the TF-Java row of eigenvalues.
 5. Runs `reference/driver/emit_numpy_eigenvalues.py` to produce a NumPy
    row on the same mesh (no JAX dependency in CI — the JAX row is read
