@@ -225,8 +225,9 @@
 //! direct LU only, with scalar per-tet `ε_r` (complex allowed inside the
 //! cell, not on the port faces), optional `σ`, and optional PEC (e.g. a
 //! metal FSS patch) off the port faces. Still p=1 only: the lumped
-//! delta-gap feed ([`Self::edge_current_rhs`] / [`Self::edge_voltage`],
-//! hence [`Self::edge_scan_impedance`] and the radiator cell) and the
+//! delta-gap feed ([`FactoredFloquetCell::edge_current_rhs`] /
+//! [`FactoredFloquetCell::edge_voltage`], hence
+//! [`FloquetCell::edge_scan_impedance`] and the radiator cell) and the
 //! Floquet-port sensitivities — both fail with
 //! [`FloquetError::UnsupportedAtOrder`] on a p=2 cell.
 //!
@@ -355,9 +356,10 @@ pub enum FloquetError {
     Solve(String),
     /// A piece of the cell is still p=1-only: the remaining pieces of
     /// issue #1628 (the lumped delta-gap feed
-    /// ([`FloquetCell::edge_current_rhs`] / [`FloquetCell::edge_voltage`],
-    /// hence the scan-impedance radiator path) and the Floquet-port
-    /// sensitivities). Build the cell at [`ElementOrder::P1`] for it.
+    /// ([`FactoredFloquetCell::edge_current_rhs`] /
+    /// [`FactoredFloquetCell::edge_voltage`], hence the scan-impedance
+    /// radiator path) and the Floquet-port sensitivities; tracked for p=2
+    /// in issue #1660). Build the cell at [`ElementOrder::P1`] for it.
     #[error(
         "{feature} is p=1 only for now: it lands with the remaining pieces of issue #1628; build the cell at ElementOrder::P1"
     )]
