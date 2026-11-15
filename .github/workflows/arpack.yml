@@ -328,7 +328,16 @@ jobs:
     # Gmsh-dependent tests' local skip-if-absent into a hard failure:
     # `tests/mesh_golden.rs` must actually run in CI.
     name: cargo test -p geode-cli (linux)
-    runs-on: ubuntu-latest
+    # Issue #1632: the apt Gmsh install below is unpinned, so its version
+    # tracks whatever suite `ubuntu-latest` points at. When that image rolled
+    # noble → resolute (2026-11-13/14) it swapped apt Gmsh 4.12.1 → 4.14.0
+    # (OCC 7.9), and gmsh's OCC boolean kernel began rejecting the emitted
+    # `Difference` (`BOPAlgo_AlertTooFewArguments`, spiral_inductor.geo
+    # line 54). Pin to ubuntu-24.04 (= noble, Gmsh 4.12.x — the measured
+    # green pairing) instead of pinning the apt package: the 4.12.1 build is
+    # absent from the resolute archive, so a version pin cannot resolve on
+    # the rolled image.
+    runs-on: ubuntu-24.04
     # Cold dependency build + the debug default tier. The release
     # `--ignored` benchmark tiers run in the parallel `geode-cli-release`
     # job below. The apt Gmsh install alone has taken ~11 min on a slow
@@ -389,7 +398,13 @@ jobs:
     # benchmark build run in parallel. Together they had outgrown the
     # 30-minute bound, and main runs were being cancelled.
     name: cargo test -p geode-cli --release --ignored (linux)
-    runs-on: ubuntu-latest
+    # Issue #1632: same pin as the `geode-cli` job above — the unpinned apt
+    # Gmsh tracks the `ubuntu-latest` apt suite, and the noble → resolute
+    # roll (Gmsh 4.12.1 → 4.14.0, OCC 7.9) made the OCC boolean kernel
+    # reject the emitted `Difference` (`BOPAlgo_AlertTooFewArguments`,
+    # ms0.geo line 38, the microstrip-convergence tier). ubuntu-24.04 is
+    # noble — the measured green Gmsh 4.12.x pairing.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
