@@ -37,7 +37,7 @@ import org.tensorflow.types.TInt64;
  * has no native sparse generalized eigensolver. We materialize the
  * reduced K, M (after Dirichlet boundary elimination) on the JVM side
  * and emit them for downstream SciPy consumption. See the {@code
- * CubeCavityMain} driver and {@code reference/driver/eigensolve_from_tfjava.py}.
+ * CubeCavityMain} driver and {@code reference/driver/eigensolve_from_sidecar.py}.
  */
 public final class AssemblyGraph implements AutoCloseable {
 
