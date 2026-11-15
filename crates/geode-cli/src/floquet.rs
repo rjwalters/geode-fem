@@ -19,6 +19,7 @@ use geode_core::driven::floquet::{
     FloquetPolarization, FloquetPortSpec, FloquetProm, FloquetSettings, FloquetSolution,
 };
 use geode_core::driven::rom::RomSettings;
+use geode_core::elements::ElementOrder;
 
 use crate::backend::CompiledBackend;
 use crate::check::mesh_summary;
@@ -72,6 +73,7 @@ pub fn assemble(p: &Problem, setup: &FloquetSetup) -> Result<FloquetCell, CliErr
             n_evanescent: setup.ports[0].n_evanescent.max(setup.ports[1].n_evanescent),
             ..FloquetSettings::default()
         },
+        element_order: ElementOrder::P1,
     };
     FloquetCell::assemble::<B>(&p.tagged.mesh, &periodic.map, &spec, &device).map_err(map_err)
 }

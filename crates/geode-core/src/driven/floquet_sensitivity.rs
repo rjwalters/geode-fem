@@ -115,6 +115,7 @@ use crate::driven::floquet::{
 };
 use crate::driven::s_sensitivity::{MaterialDesign, SParam, ShapeDesign};
 use crate::driven::shape::{Dual, nedelec_local_dual};
+use crate::elements::ElementOrder;
 use crate::mesh::TetMesh;
 use crate::mesh::periodic::PeriodicMap;
 
@@ -607,6 +608,13 @@ impl<'a> Prepared<'a> {
         let mesh = geo.mesh;
         let n_tets = mesh.n_tets();
         let edges = mesh.edges();
+        if cell.operator().order() == ElementOrder::P2 {
+            return Err(invalid(
+                "Floquet-port sensitivities at p=2 are not implemented yet: they land with the \
+                 remaining pieces of issue #1628; build the cell at ElementOrder::P1"
+                    .into(),
+            ));
+        }
         if cell.operator().n_dofs() != edges.len() {
             return Err(invalid(format!(
                 "the cell has {} edge DOFs, the mesh {} edges: it was assembled on another mesh",
@@ -774,13 +782,13 @@ impl<'a> Prepared<'a> {
         let k_t = self.cell.k_t_of(omega, &inc)?;
         let fac: FactoredFloquetCell<'_> = self.cell.factor(omega, k_t, phi)?;
         let b = fac
-            .edge_current_rhs(edge)
+            .edge_current_rhs(edge)?
             .ok_or_else(|| invalid(format!("feed edge {edge} is PEC-eliminated")))?;
         let n = fac.n_reduced();
         let zero = c64::new(0.0, 0.0);
         let mut x = vec![zero; n];
         fac.back_solve(&b, &mut x)?;
-        let z = -fac.edge_voltage(&x, edge);
+        let z = -fac.edge_voltage(&x, edge)?;
         // A_rᵀ μ = Pᵀ e_feed, and b = −iω Pᴴ e_feed gives
         // Pᵀ e_feed = conj(b)/(iω) = conj(b) · (−i/ω) with no new assembly.
         let w = c64::new(0.0, -1.0 / omega);
