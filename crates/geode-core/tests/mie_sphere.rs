@@ -137,15 +137,7 @@ fn mie_sphere_ground_mode_within_5_percent_of_analytic() {
 
     let edges = f.mesh.edges();
     let n_edges = edges.len();
-    let tet_edges_idx = f.mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges_idx
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges_idx
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = f.mesh.tet_edge_tables();
 
     let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device);
     let sys = assemble_global_nedelec_with_anisotropic_epsilon(
@@ -268,15 +260,7 @@ fn mie_sphere_tm11_triplet_q_above_band() {
 
     let edges = f.mesh.edges();
     let n_edges = edges.len();
-    let tet_edges_idx = f.mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges_idx
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges_idx
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = f.mesh.tet_edge_tables();
 
     let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device);
     let sys = assemble_global_nedelec_with_anisotropic_epsilon(
@@ -454,15 +438,7 @@ fn mie_sphere_ground_mode_matches_open_space_wgm() {
 
     let edges = f.mesh.edges();
     let n_edges = edges.len();
-    let tet_edges_idx = f.mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges_idx
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges_idx
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = f.mesh.tet_edge_tables();
 
     let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device);
     let sys = assemble_global_nedelec_with_anisotropic_epsilon(

@@ -106,15 +106,7 @@ pub fn run_burn_pipeline() -> BurnPipeline {
 
     let edges = fixture.mesh.edges();
     let n_edges = edges.len();
-    let tet_edges = fixture.mesh.tet_edges();
-    let tet_edge_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_edge_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_edge_idx, tet_edge_sign) = fixture.mesh.tet_edge_tables();
 
     let (mask_edges, interior_mask) = sphere_pec_interior_edges(&fixture.mesh, R_BUFFER);
     assert_eq!(mask_edges.len(), n_edges, "Burn-side edge mask shape");
@@ -188,15 +180,7 @@ pub fn run_burn_mie_pipeline(
 
     let edges = fixture.mesh.edges();
     let n_edges = edges.len();
-    let tet_edges = fixture.mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = fixture.mesh.tet_edge_tables();
 
     let (mask_edges, interior_mask) = sphere_pec_interior_edges(&fixture.mesh, R_BUFFER);
     assert_eq!(mask_edges.len(), n_edges, "Burn-side edge mask shape");

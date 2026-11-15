@@ -24,7 +24,6 @@
 //! the benchmark in `tests/mie_driven_scattering.rs`.
 
 mod common;
-use common::edge_tables;
 
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Int, Tensor, TensorData};
@@ -107,7 +106,7 @@ fn radial_tags(mesh: &TetMesh) -> Vec<i32> {
 fn full_tensor_assembly_reduces_to_scalar_path_for_identity_weights() {
     let mesh = cube_tet_mesh(2, 1.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let dev = device();
     let (nodes_t, tets_t) = upload_mesh::<B>(&mesh, &dev);
 
@@ -184,7 +183,7 @@ fn full_tensor_assembly_reduces_to_scalar_path_for_identity_weights() {
 fn full_tensor_mass_reduces_to_diag_kernel_for_diagonal_weight() {
     let mesh = cube_tet_mesh(2, 1.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let dev = device();
     let (nodes_t, tets_t) = upload_mesh::<B>(&mesh, &dev);
 
@@ -254,7 +253,7 @@ fn lambda_weighted_pencil_stays_complex_symmetric() {
     // full (off-diagonal) Λ stretch.
     let mesh = cube_tet_mesh(2, 2.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let dev = device();
     let (nodes_t, tets_t) = upload_mesh::<B>(&mesh, &dev);
 
@@ -348,7 +347,7 @@ fn full_tensor_assembly_preserves_autodiff() {
 
     let mesh = cube_tet_mesh(2, 2.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let tags = radial_tags(&mesh);
     let (eps_tensor, nu_tensor) =
         build_matched_upml_materials(&mesh, &tags, PHYS_SPHERE_INTERIOR, 1.5, 25.0, 1.7);

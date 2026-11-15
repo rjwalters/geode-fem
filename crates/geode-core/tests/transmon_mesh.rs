@@ -306,15 +306,7 @@ fn smoke_eigenmode_solve_runs() {
     // 2. Edge tables + sign convention — scales linearly.
     let edges = f.mesh.edges();
     let n_edges = edges.len();
-    let tet_edges = f.mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = f.mesh.tet_edge_tables();
     eprintln!("global edges (Nédélec DOFs): {n_edges}");
 
     // 3. PEC edge mask: metal + exterior boundary are PEC (Phase A) —
