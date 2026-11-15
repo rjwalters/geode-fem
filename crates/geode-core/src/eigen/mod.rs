@@ -12,6 +12,11 @@
 //!   for the matrix-free inner CG of the shift-invert solve: an edge Jacobi
 //!   smoother plus a gradient-space nodal coarse correction that damps the
 //!   H(curl) curl-curl gradient near-kernel Jacobi is blind to (issue #526).
+//! - `amg` — the general-purpose smoothed-aggregation **algebraic multigrid**
+//!   (issue #565) that [`ams`] uses as its `CoarseSolve::Amg` coarse solver and
+//!   that the electrostatic capacitance extraction uses directly through the
+//!   `ScalarAmg` facade (issue #1051). Crate-internal; split out of [`ams`] by
+//!   issue #1595.
 //! - [`parallel`] — process-global faer parallelism control (a panic-safe
 //!   RAII guard + `GEODE_NUM_THREADS` knob) scoped to the sparse LU
 //!   factorization that fronts the shift-invert eigensolves (issue #518).
@@ -69,6 +74,7 @@
 //!   `k = √λ` ([`wavenumber::principal_sqrt`]) behind every `λ → k → Q`
 //!   conversion, accurate to a few ulps at any `Q` (issue #830).
 
+pub(crate) mod amg;
 pub mod ams;
 pub mod bloch;
 pub mod cavity;
