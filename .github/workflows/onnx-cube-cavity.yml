@@ -45,9 +45,7 @@ on:
     branches: [main]
     paths:
       - 'reference/onnx/**'
-      - 'reference/driver/eigensolve_from_onnx.py'
       - 'reference/driver/eigensolve_from_sidecar.py'
-      - 'reference/driver/eigensolve_sphere_pec_sidecar.py'
       - 'reference/driver/compare_eigenvalues.py'
       - 'reference/driver/emit_numpy_eigenvalues.py'
       - 'reference/numpy/cube_cavity.py'
@@ -68,9 +66,7 @@ on:
     branches: [main]
     paths:
       - 'reference/onnx/**'
-      - 'reference/driver/eigensolve_from_onnx.py'
       - 'reference/driver/eigensolve_from_sidecar.py'
-      - 'reference/driver/eigensolve_sphere_pec_sidecar.py'
       - 'reference/driver/compare_eigenvalues.py'
       - 'reference/driver/emit_numpy_eigenvalues.py'
       - 'reference/numpy/cube_cavity.py'
@@ -163,8 +159,10 @@ jobs:
 
       - name: Run SciPy eigensolve over the ONNX sidecar
         run: |
-          python3 reference/driver/eigensolve_from_onnx.py \
+          python3 reference/driver/eigensolve_from_sidecar.py \
               target/out/reduced_kM.json \
+              --backend onnx \
+              --problem cube-cavity \
               --k 5 \
               --out target/out/eigenresult_onnx.json
           cat target/out/eigenresult_onnx.json
@@ -331,15 +329,16 @@ jobs:
           ls -lh target/out/
 
       - name: Run SciPy shift-and-invert eigensolve over the ONNX sphere-PEC sidecar
-        # eigensolve_sphere_pec_sidecar.py: ARPACK shift-and-invert at
-        # sigma=0 (essential for the large Nédélec gradient nullspace),
-        # spurious-mode filter (d⁰-rank, hard-coded fallback 368 for the
-        # 774-node fixture or read from baseline.json), cross-backend
-        # comparison gate at --rtol.
+        # eigensolve_from_sidecar.py --problem sphere-pec: ARPACK
+        # shift-and-invert at sigma=0 (essential for the large Nédélec
+        # gradient nullspace), spurious-mode filter (d⁰-rank, hard-coded
+        # fallback 368 for the 774-node fixture or read from baseline.json),
+        # cross-backend comparison gate at --rtol.
         run: |
-          python3 reference/driver/eigensolve_sphere_pec_sidecar.py \
+          python3 reference/driver/eigensolve_from_sidecar.py \
               target/out/reduced_kM_sphere_pec_onnx.json \
               --backend onnx \
+              --problem sphere-pec \
               --baseline reference/fixtures/sphere_pec/baseline.json \
               --rtol "${SPHERE_RTOL}" \
               --k 5 \

@@ -23,7 +23,8 @@ Per the audit:
     shape; the audit's recommended design hosts it).
 
 The resulting sidecar is consumed by the existing sphere-PEC eigensolve
-driver ``reference/driver/eigensolve_sphere_pec_sidecar.py``, which
+driver ``reference/driver/eigensolve_from_sidecar.py
+--problem sphere-pec``, which
 applies the shift-and-invert ARPACK eigensolve + spurious filter (the
 shared L4 friction across every backend — there is no sparse generalized
 eigensolver in ONNX).
@@ -104,7 +105,7 @@ def main() -> int:
             "ONNX sphere-PEC Nédélec partial-assembly driver. Builds the "
             "ONNX graph, runs onnxruntime with host-computed topology, "
             "emits a schema-v1 sidecar consumed by "
-            "reference/driver/eigensolve_sphere_pec_sidecar.py."
+            "reference/driver/eigensolve_from_sidecar.py --problem sphere-pec."
         )
     )
     default_mesh = (
@@ -246,7 +247,7 @@ def main() -> int:
             "and interior_idx are all host-computed (build_edges is the "
             "secretly-imperative L4 escape), then fed in as graph inputs. "
             "The eigensolve is delegated to SciPy via "
-            "reference/driver/eigensolve_sphere_pec_sidecar.py (ONNX has "
+            "reference/driver/eigensolve_from_sidecar.py --problem sphere-pec (ONNX has "
             "no sparse generalized eigensolver — shared L4 friction "
             "across all backends)."
         ),
@@ -278,7 +279,8 @@ def main() -> int:
                 "dependent-shape, so the recommended design hosts the "
                 "idx derivation.",
             ),
-            # eigensolve_sphere_pec_sidecar.py reads `n` / `side` aliases.
+            # eigensolve_from_sidecar.py --problem sphere-pec reads
+            # `n` / `side` aliases.
             "n": _input_field(
                 [n_int], [1], "i64",
                 "Interior DOF count (= n_int). Alias for sidecar driver "
