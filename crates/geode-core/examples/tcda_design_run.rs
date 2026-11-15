@@ -503,14 +503,34 @@ fn main() {
         .collect();
 
     let mut toml = String::new();
+    let (header_tag, description) = if grid_kind == "phase4" {
+        (
+            "(issue #1579, Epic #1252 Phase 4c)",
+            "Epic #1252 Phase 4c child 2 (#1579): MMA epigraph min-max run of the Design A \
+             element on the recorded Phase-4 grid, from the #1536 baseline at equal \
+             footprint, with the #1578 lumped-feed adjoint and the #1535 manufacturability \
+             constraints."
+                .to_string(),
+        )
+    } else {
+        (
+            "for the #1580 CMA-ES comparison",
+            "Issue #1580 (Epic #1252 Phase 4c child 3): the adjoint row of the MMA-vs-CMA-ES \
+             comparison — the same #1579 run on the reduced comparison grid ([grid].source \
+             below, validated in one evaluation against the recorded full-grid design), same \
+             start theta0 = 0, same +-1 mm box, same #1535 manufacturability constraints and \
+             #1578 lumped-feed adjoint."
+                .to_string(),
+        )
+    };
     let _ = write!(
         toml,
-        r#"# Design A adjoint min-max run (issue #1579, Epic #1252 Phase 4c).
+        r#"# Design A adjoint min-max run {header_tag}.
 # Written by `cargo run --release -j2 -p geode-core --example tcda_design_run`.
 # Re-run and the regression pin: see README.md.
 
 [meta]
-description = "Epic #1252 Phase 4c child 2 (#1579): MMA epigraph min-max run of the Design A element on the recorded Phase-4 grid, from the #1536 baseline at equal footprint, with the #1578 lumped-feed adjoint and the #1535 manufacturability constraints."
+description = "{description}"
 backend = "{backend}"
 float_dtype = "{dtype}"
 generated_at_commit = "{head}"
