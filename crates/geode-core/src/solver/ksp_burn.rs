@@ -1035,9 +1035,7 @@ mod tests {
         // DOFs out, and just assert the solve converges to low residual.
         let mesh = cube_tet_mesh(2, 1.0);
         let n_edges = mesh.edges().len();
-        let te = mesh.tet_edges();
-        let tet_idx: Vec<[u32; 6]> = te.iter().map(|r| std::array::from_fn(|i| r[i].0)).collect();
-        let tet_sign: Vec<[i8; 6]> = te.iter().map(|r| std::array::from_fn(|i| r[i].1)).collect();
+        let (tet_idx, tet_sign) = mesh.tet_edge_tables();
         let eps = vec![1.0_f64; mesh.n_tets()];
         let sigma = vec![0.5_f64; mesh.n_tets()];
         let mask = vec![true; n_edges];

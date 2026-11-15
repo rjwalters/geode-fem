@@ -634,15 +634,7 @@ impl<'a> Prepared<'a> {
         if design.material.is_none() && design.shape.is_none() {
             return Err(invalid("the design has no parameters".into()));
         }
-        let tet_edges = mesh.tet_edges();
-        let tet_idx: Vec<[u32; 6]> = tet_edges
-            .iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect();
-        let tet_sign: Vec<[i8; 6]> = tet_edges
-            .iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect();
+        let (tet_idx, tet_sign) = mesh.tet_edge_tables();
 
         let mut params = Vec::new();
         if let Some(m) = &design.material {

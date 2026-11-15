@@ -186,15 +186,7 @@ fn fe_assemble_nedelec<B: Backend>(
     // Build edge tables from the mesh: global edge count, per-tet edge
     // indices, and per-tet edge orientation signs.
     let n_edges = mesh.edges().len();
-    let tet_edges = mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
 
     // Upload mesh to device and assemble with ε-scaled mass.
     let (nodes, tets) = upload_mesh::<B>(mesh, device);
