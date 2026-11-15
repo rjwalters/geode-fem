@@ -11,7 +11,7 @@ The graph closes the assembly spine at the Dirichlet boundary — i.e. it
 emits ``K_int`` and ``M_int`` (interior-DOF restricted) and stops. The
 eigensolve is the host-side sidecar boundary, identical convention to
 JAX (`scipy.linalg.eigh` outside the jit) and TF-Java
-(`eigensolve_from_tfjava.py` over a JSON sidecar).
+(`eigensolve_from_sidecar.py` over a JSON sidecar).
 
 Authoring tool
 ==============

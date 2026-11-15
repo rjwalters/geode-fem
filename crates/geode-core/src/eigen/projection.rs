@@ -65,7 +65,7 @@ use crate::eigen::lanczos::{HISTORICAL_BREAKDOWN_REL, krylov_breakdown, tridiag_
 use crate::eigen::shift_guard::{
     DEGENERATE_SHIFT_REL_TOL, check_degenerate_shift, check_gradient_probe, median_diag_ratio,
 };
-use crate::eigen::transmon::{assemble_reduced_real, junction_participation};
+use crate::eigen::transmon::{JunctionPortModel, junction_participation, reduced_transmon_system};
 use crate::sparse_ops::{lu_solve, spmv, spmv_into, spmv_transpose_into};
 
 /// The sparse interior-restricted discrete gradient `G = d⁰_interior` plus
@@ -1425,61 +1425,17 @@ fn projected_transmon_impl(
 > {
     use crate::eigen::transmon::{ModeReport, TransmonMode, frequency_hz_from_lambda};
 
-    let n_edges = pencil.edges.len();
-    assert_eq!(
-        pencil.interior_mask.len(),
-        n_edges,
-        "interior mask length must equal edge count"
-    );
-
-    // Plain PEC interior reindex (drop excluded edges, compact the rest).
-    let mut interior_index = vec![None; n_edges];
-    let mut dim = 0usize;
-    for (e, &keep) in pencil.interior_mask.iter().enumerate() {
-        if keep {
-            interior_index[e] = Some(dim);
-            dim += 1;
-        }
-    }
-    if dim == 0 {
-        return Err(EigenError::FaerGevd(
-            "no interior DOFs after PEC reduction".into(),
-        ));
-    }
-
-    let pattern = pencil.scatter.pattern();
-    assert_eq!(pencil.k_vals.len(), pattern.nnz(), "k_vals length mismatch");
-    assert_eq!(pencil.m_vals.len(), pattern.nnz(), "m_vals length mismatch");
-
-    let (k_port, m_port) = port_model.port_triplets(&pencil.shunt, pencil.mesh, pencil.edges);
-
-    let k_red = assemble_reduced_real(
-        &pattern.rows,
-        &pattern.cols,
-        pencil.k_vals,
-        &k_port,
-        &interior_index,
-        dim,
-    )?;
-    let m_red = assemble_reduced_real(
-        &pattern.rows,
-        &pattern.cols,
-        pencil.m_vals,
-        &m_port,
-        &interior_index,
-        dim,
-    )?;
-    let k_port_red = assemble_reduced_real(&[], &[], &[], &k_port, &interior_index, dim)?;
+    let sys = reduced_transmon_system(pencil, port_model)?;
 
     // G = d⁰_interior and the M-orthogonal divergence-free projector.
     let gradient = InteriorGradient::build(
         pencil.edges,
         pencil.interior_mask,
-        &interior_index,
+        &sys.interior_index,
         pencil.mesh.n_nodes(),
-        dim,
+        sys.dim,
     );
-    let projector = MOrthogonalGradientProjector::build(&gradient, m_red.as_ref())?;
+    let projector = MOrthogonalGradientProjector::build(&gradient, sys.m_red.as_ref())?;
 
     let solver = ProjectedShiftInvertLanczos {
         sigma,
@@ -1488,9 +1444,14 @@ fn projected_transmon_impl(
         reproject_threshold: 1e-8,
     };
     let (pairs, diag) = if drop_null {
-        solver.smallest_nonnull_eigenpairs(k_red.as_ref(), m_red.as_ref(), &projector, n_modes)?
+        solver.smallest_nonnull_eigenpairs(
+            sys.k_red.as_ref(),
+            sys.m_red.as_ref(),
+            &projector,
+            n_modes,
+        )?
     } else {
-        solver.smallest_eigenpairs(k_red.as_ref(), m_red.as_ref(), &projector, n_modes)?
+        solver.smallest_eigenpairs(sys.k_red.as_ref(), sys.m_red.as_ref(), &projector, n_modes)?
     };
 
     let modes = pairs
@@ -1499,7 +1460,7 @@ fn projected_transmon_impl(
             report: ModeReport {
                 lambda: pair.lambda,
                 frequency_hz: frequency_hz_from_lambda(pair.lambda, m_per_unit),
-                participation: junction_participation(&k_red, &k_port_red, &pair.vector),
+                participation: junction_participation(&sys.k_red, &sys.k_port_red, &pair.vector),
             },
             vector: pair.vector,
         })
@@ -1573,63 +1534,17 @@ pub fn solve_transmon_eigenmodes_port_aware(
     use crate::eigen::lanczos::SparseShiftInvertLanczos;
     use crate::eigen::transmon::{ModeReport, frequency_hz_from_lambda};
 
-    let n_edges = pencil.edges.len();
-    assert_eq!(
-        pencil.interior_mask.len(),
-        n_edges,
-        "interior mask length must equal edge count"
-    );
-
-    // Plain PEC interior reindex (identical to the ungauged / bulk-projected
-    // paths — this is a projection, not a DOF elimination).
-    let mut interior_index = vec![None; n_edges];
-    let mut dim = 0usize;
-    for (e, &keep) in pencil.interior_mask.iter().enumerate() {
-        if keep {
-            interior_index[e] = Some(dim);
-            dim += 1;
-        }
-    }
-    if dim == 0 {
-        return Err(EigenError::FaerGevd(
-            "no interior DOFs after PEC reduction".into(),
-        ));
-    }
-
-    let pattern = pencil.scatter.pattern();
-    assert_eq!(pencil.k_vals.len(), pattern.nnz(), "k_vals length mismatch");
-    assert_eq!(pencil.m_vals.len(), pattern.nnz(), "m_vals length mismatch");
-
-    let k_port = pencil.shunt.k_port_triplets(pencil.mesh, pencil.edges);
-    let m_port = pencil.shunt.m_port_triplets(pencil.mesh, pencil.edges);
-
-    let k_red = assemble_reduced_real(
-        &pattern.rows,
-        &pattern.cols,
-        pencil.k_vals,
-        &k_port,
-        &interior_index,
-        dim,
-    )?;
-    let m_red = assemble_reduced_real(
-        &pattern.rows,
-        &pattern.cols,
-        pencil.m_vals,
-        &m_port,
-        &interior_index,
-        dim,
-    )?;
-    let k_port_red = assemble_reduced_real(&[], &[], &[], &k_port, &interior_index, dim)?;
+    let sys = reduced_transmon_system(pencil, JunctionPortModel::DistributedSurface)?;
 
     // G = d⁰_interior and the BULK M-orthogonal divergence-free projector.
     let gradient = InteriorGradient::build(
         pencil.edges,
         pencil.interior_mask,
-        &interior_index,
+        &sys.interior_index,
         pencil.mesh.n_nodes(),
-        dim,
+        sys.dim,
     );
-    let bulk = MOrthogonalGradientProjector::build(&gradient, m_red.as_ref())?;
+    let bulk = MOrthogonalGradientProjector::build(&gradient, sys.m_red.as_ref())?;
 
     // --- Step 1: extract the ungauged junction eigenvector near junction_sigma.
     // Run a small ungauged shift-invert solve and pick the eigenvector with the
@@ -1642,12 +1557,16 @@ pub fn solve_transmon_eigenmodes_port_aware(
         inner: crate::eigen::lanczos::InnerSolver::Direct,
         precond: crate::eigen::lanczos::InnerPreconditioner::Jacobi,
     };
-    let jpairs = ung.smallest_eigenpairs(k_red.as_ref(), m_red.as_ref(), 6)?;
+    let jpairs = ung.smallest_eigenpairs(sys.k_red.as_ref(), sys.m_red.as_ref(), 6)?;
     let x_junction = jpairs
         .iter()
         .max_by(|a, b| {
-            junction_participation(&k_red, &k_port_red, &a.vector)
-                .partial_cmp(&junction_participation(&k_red, &k_port_red, &b.vector))
+            junction_participation(&sys.k_red, &sys.k_port_red, &a.vector)
+                .partial_cmp(&junction_participation(
+                    &sys.k_red,
+                    &sys.k_port_red,
+                    &b.vector,
+                ))
                 .unwrap_or(core::cmp::Ordering::Equal)
         })
         .ok_or_else(|| {
@@ -1670,8 +1589,12 @@ pub fn solve_transmon_eigenmodes_port_aware(
     };
     // Issue #950: drop exact null modes of K (|λ| at round-off) before the
     // n_modes cut, so the returned slots hold nonzero modes.
-    let (pairs, mut diag) =
-        solver.smallest_nonnull_eigenpairs(k_red.as_ref(), m_red.as_ref(), &port_aware, n_modes)?;
+    let (pairs, mut diag) = solver.smallest_nonnull_eigenpairs(
+        sys.k_red.as_ref(),
+        sys.m_red.as_ref(),
+        &port_aware,
+        n_modes,
+    )?;
     // The junction extract factored K − σ_j M; the band solve factored K − σM.
     diag.shifted_factorizations += 1;
     diag.readmitted_gradient_directions = 1;
@@ -1681,7 +1604,7 @@ pub fn solve_transmon_eigenmodes_port_aware(
         .map(|pair| ModeReport {
             lambda: pair.lambda,
             frequency_hz: frequency_hz_from_lambda(pair.lambda, m_per_unit),
-            participation: junction_participation(&k_red, &k_port_red, &pair.vector),
+            participation: junction_participation(&sys.k_red, &sys.k_port_red, &pair.vector),
         })
         .collect();
     Ok((modes, diag))
@@ -1734,7 +1657,7 @@ pub fn solve_transmon_eigenmodes_port_subspace(
 > {
     use crate::eigen::transmon::{ModeReport, frequency_hz_from_lambda};
 
-    let sys = reduced_transmon_system(pencil)?;
+    let sys = reduced_transmon_system(pencil, JunctionPortModel::DistributedSurface)?;
     let gradient = InteriorGradient::build(
         pencil.edges,
         pencil.interior_mask,
@@ -1772,70 +1695,6 @@ pub fn solve_transmon_eigenmodes_port_subspace(
         })
         .collect();
     Ok((modes, diag))
-}
-
-/// The reduced real transmon system shared by the projected entry points.
-struct ReducedTransmonSystem {
-    interior_index: Vec<Option<usize>>,
-    dim: usize,
-    k_red: SparseColMat<usize, f64>,
-    m_red: SparseColMat<usize, f64>,
-    k_port_red: SparseColMat<usize, f64>,
-}
-
-/// Plain PEC interior reindex plus the reduced `K + K_port`, `M + M_port`
-/// and `K_port` (the same reduction as the ungauged path).
-fn reduced_transmon_system(
-    pencil: &crate::eigen::transmon::TransmonPencil<'_>,
-) -> Result<ReducedTransmonSystem, EigenError> {
-    let n_edges = pencil.edges.len();
-    assert_eq!(
-        pencil.interior_mask.len(),
-        n_edges,
-        "interior mask length must equal edge count"
-    );
-    let mut interior_index = vec![None; n_edges];
-    let mut dim = 0usize;
-    for (e, &keep) in pencil.interior_mask.iter().enumerate() {
-        if keep {
-            interior_index[e] = Some(dim);
-            dim += 1;
-        }
-    }
-    if dim == 0 {
-        return Err(EigenError::FaerGevd(
-            "no interior DOFs after PEC reduction".into(),
-        ));
-    }
-    let pattern = pencil.scatter.pattern();
-    assert_eq!(pencil.k_vals.len(), pattern.nnz(), "k_vals length mismatch");
-    assert_eq!(pencil.m_vals.len(), pattern.nnz(), "m_vals length mismatch");
-    let k_port = pencil.shunt.k_port_triplets(pencil.mesh, pencil.edges);
-    let m_port = pencil.shunt.m_port_triplets(pencil.mesh, pencil.edges);
-    let k_red = assemble_reduced_real(
-        &pattern.rows,
-        &pattern.cols,
-        pencil.k_vals,
-        &k_port,
-        &interior_index,
-        dim,
-    )?;
-    let m_red = assemble_reduced_real(
-        &pattern.rows,
-        &pattern.cols,
-        pencil.m_vals,
-        &m_port,
-        &interior_index,
-        dim,
-    )?;
-    let k_port_red = assemble_reduced_real(&[], &[], &[], &k_port, &interior_index, dim)?;
-    Ok(ReducedTransmonSystem {
-        interior_index,
-        dim,
-        k_red,
-        m_red,
-        k_port_red,
-    })
 }
 
 /// A single UNGAUGED eigenpair with its divergence diagnostics against the
@@ -1897,63 +1756,17 @@ pub fn ungauged_mode_divergences(
     use crate::eigen::lanczos::SparseShiftInvertLanczos;
     use crate::eigen::transmon::frequency_hz_from_lambda;
 
-    let n_edges = pencil.edges.len();
-    assert_eq!(
-        pencil.interior_mask.len(),
-        n_edges,
-        "interior mask length must equal edge count"
-    );
-
-    // Plain PEC interior reindex — the exact reduction the ungauged committed
-    // path (`solve_transmon_eigenmodes`) uses.
-    let mut interior_index = vec![None; n_edges];
-    let mut dim = 0usize;
-    for (e, &keep) in pencil.interior_mask.iter().enumerate() {
-        if keep {
-            interior_index[e] = Some(dim);
-            dim += 1;
-        }
-    }
-    if dim == 0 {
-        return Err(EigenError::FaerGevd(
-            "no interior DOFs after PEC reduction".into(),
-        ));
-    }
-
-    let pattern = pencil.scatter.pattern();
-    assert_eq!(pencil.k_vals.len(), pattern.nnz(), "k_vals length mismatch");
-    assert_eq!(pencil.m_vals.len(), pattern.nnz(), "m_vals length mismatch");
-
-    let k_port = pencil.shunt.k_port_triplets(pencil.mesh, pencil.edges);
-    let m_port = pencil.shunt.m_port_triplets(pencil.mesh, pencil.edges);
-
-    let k_red = assemble_reduced_real(
-        &pattern.rows,
-        &pattern.cols,
-        pencil.k_vals,
-        &k_port,
-        &interior_index,
-        dim,
-    )?;
-    let m_red = assemble_reduced_real(
-        &pattern.rows,
-        &pattern.cols,
-        pencil.m_vals,
-        &m_port,
-        &interior_index,
-        dim,
-    )?;
-    let k_port_red = assemble_reduced_real(&[], &[], &[], &k_port, &interior_index, dim)?;
+    let sys = reduced_transmon_system(pencil, JunctionPortModel::DistributedSurface)?;
 
     // The SAME projector the projected solve builds (bulk d⁰).
     let gradient = InteriorGradient::build(
         pencil.edges,
         pencil.interior_mask,
-        &interior_index,
+        &sys.interior_index,
         pencil.mesh.n_nodes(),
-        dim,
+        sys.dim,
     );
-    let projector = MOrthogonalGradientProjector::build(&gradient, m_red.as_ref())?;
+    let projector = MOrthogonalGradientProjector::build(&gradient, sys.m_red.as_ref())?;
 
     // Run the UNGAUGED core: it returns EigenPair.vector (which the
     // ModeReport path drops) so we can measure the raw eigenvector directly.
@@ -1964,13 +1777,13 @@ pub fn ungauged_mode_divergences(
         inner: crate::eigen::lanczos::InnerSolver::Direct,
         precond: crate::eigen::lanczos::InnerPreconditioner::Jacobi,
     };
-    let pairs = solver.smallest_eigenpairs(k_red.as_ref(), m_red.as_ref(), n_modes)?;
+    let pairs = solver.smallest_eigenpairs(sys.k_red.as_ref(), sys.m_red.as_ref(), n_modes)?;
 
     let mut out = Vec::with_capacity(pairs.len());
     for pair in &pairs {
         let x = &pair.vector;
         // M-norm ‖x‖_M = √(xᵀ M x).
-        let mx = spmv(m_red.as_ref(), x);
+        let mx = spmv(sys.m_red.as_ref(), x);
         let m_norm = x
             .iter()
             .zip(mx.iter())
@@ -1981,7 +1794,7 @@ pub fn ungauged_mode_divergences(
         // ‖P x‖_M / ‖x‖_M.
         let mut px = x.clone();
         projector.project_in_place(&mut px)?;
-        let mpx = spmv(m_red.as_ref(), &px);
+        let mpx = spmv(sys.m_red.as_ref(), &px);
         let px_norm = px
             .iter()
             .zip(mpx.iter())
@@ -1992,7 +1805,7 @@ pub fn ungauged_mode_divergences(
         let projected_norm_ratio = if m_norm > 0.0 { px_norm / m_norm } else { 0.0 };
         out.push(UngaugedModeDivergence {
             frequency_hz: frequency_hz_from_lambda(pair.lambda, m_per_unit),
-            participation: junction_participation(&k_red, &k_port_red, x),
+            participation: junction_participation(&sys.k_red, &sys.k_port_red, x),
             divergence_ratio: projector.divergence_ratio(x),
             projected_norm_ratio,
         });
@@ -2004,6 +1817,7 @@ pub fn ungauged_mode_divergences(
 mod tests {
     use super::*;
     use crate::assembly::nedelec::{rank_via_svd, restrict_gradient_dense};
+    use crate::eigen::transmon::assemble_reduced_real;
     use crate::mesh::{TetMesh, cube_tet_mesh};
     use faer::sparse::Triplet;
 
@@ -2836,7 +2650,7 @@ mod tests {
         };
 
         // Dense reference on the same reduced pencil.
-        let red = reduced_transmon_system(&pencil).unwrap();
+        let red = reduced_transmon_system(&pencil, JunctionPortModel::DistributedSurface).unwrap();
         let all = FaerDenseEigensolver
             .smallest_eigenpairs(
                 to_dense(&red.k_red).as_ref(),
