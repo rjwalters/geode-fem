@@ -41,7 +41,6 @@
 //! backing PEC wall).
 
 mod common;
-use common::edge_tables;
 use common::vacuum_eps as vacuum;
 
 use burn::tensor::Tensor;
@@ -311,7 +310,7 @@ fn complex_symmetry_preserved_with_leontovich_term() {
     let slab = truncated_slab(4, 0.5);
     let mesh = &slab.mesh;
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let dev = device();
     let (nodes_t, tets_t) = upload_mesh::<B>(mesh, &dev);
 
@@ -393,7 +392,7 @@ fn fixed_eta0_recovers_silver_muller_system() {
     let mesh = &slab.mesh;
     let edges = mesh.edges();
     let n_edges = edges.len();
-    let (tet_idx, tet_sign) = edge_tables(mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let dev = device();
 
     let omega = 1.3;
@@ -611,7 +610,7 @@ fn leontovich_loss_matches_volumetric_sigma_oracle() {
 
     // P_vol = ½ ∫ σ|E|² dV = ½ eᴴ C(σ) e.
     let n_edges_full = full.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&full);
+    let (tet_idx, tet_sign) = full.tet_edge_tables();
     let dev = device();
     let (nodes_t, tets_t) = upload_mesh::<B>(&full, &dev);
     let c_mat = assemble_nedelec_sigma_damping::<B>(

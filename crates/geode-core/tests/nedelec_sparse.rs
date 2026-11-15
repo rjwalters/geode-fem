@@ -22,7 +22,6 @@
 //!    test at `tests/sigma_conductivity.rs`).
 
 mod common;
-use common::edge_tables;
 
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Int, Tensor, TensorData};
@@ -83,7 +82,7 @@ fn varying_eps(mesh: &TetMesh) -> Vec<c64> {
 fn sparse_complex_epsilon_matches_dense_bitwise() {
     let mesh = cube_tet_mesh(2, 1.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let eps = varying_eps(&mesh);
     let dev = device();
 
@@ -131,7 +130,7 @@ fn sparse_complex_epsilon_matches_dense_bitwise() {
 fn sparse_anisotropic_epsilon_matches_dense_bitwise() {
     let mesh = cube_tet_mesh(2, 1.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let eps_diag: Vec<[c64; 3]> = (0..mesh.n_tets())
         .map(|t| {
             [
@@ -186,7 +185,7 @@ fn sparse_anisotropic_epsilon_matches_dense_bitwise() {
 fn sparse_full_tensors_matches_dense_bitwise() {
     let mesh = cube_tet_mesh(2, 1.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     // Symmetric complex 3×3 tensors with off-diagonal coupling.
     let eps_t: Vec<[[c64; 3]; 3]> = (0..mesh.n_tets())
         .map(|t| {
@@ -253,7 +252,7 @@ fn sparse_full_tensors_matches_dense_bitwise() {
 fn sparse_sigma_damping_matches_dense_bitwise() {
     let mesh = cube_tet_mesh(2, 1.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let sigma: Vec<f64> = (0..mesh.n_tets()).map(|t| 0.5 + 0.11 * t as f64).collect();
     let dev = device();
 
@@ -285,7 +284,7 @@ fn sparse_sigma_damping_matches_dense_bitwise() {
 #[test]
 fn scatter_map_slot_lookup_is_consistent() {
     let mesh = cube_tet_mesh(2, 1.0);
-    let (tet_idx, _) = edge_tables(&mesh);
+    let (tet_idx, _) = mesh.tet_edge_tables();
     let scatter = NedelecScatterMap::new(&tet_idx);
     let pattern = scatter.pattern();
 
@@ -319,7 +318,7 @@ fn sparse_assembly_preserves_autodiff() {
     type Ad = Autodiff<B>;
 
     let mesh = cube_tet_mesh(2, 1.0);
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let sigma: Vec<f64> = (0..mesh.n_tets()).map(|t| 0.5 + 0.11 * t as f64).collect();
     let scatter = NedelecScatterMap::new(&tet_idx);
 

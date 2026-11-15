@@ -374,17 +374,7 @@ fn reciprocity_holds_with_port_present() {
 
     // Raw RHS vectors b_i ∝ ∫ N_i · J dV (the iω scale cancels in the
     // bilinear identity).
-    let (tet_idx, tet_sign): (Vec<[u32; 6]>, Vec<[i8; 6]>) = {
-        let te = mesh.tet_edges();
-        (
-            te.iter()
-                .map(|row| std::array::from_fn(|i| row[i].0))
-                .collect(),
-            te.iter()
-                .map(|row| std::array::from_fn(|i| row[i].1))
-                .collect(),
-        )
-    };
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let (nodes_t, tets_t) = upload_mesh::<B>(&mesh, &device());
     let rhs_of = |src: &CurrentSource| -> Vec<f64> {
         let j_re: Vec<[f64; 3]> = src

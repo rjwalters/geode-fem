@@ -17,7 +17,6 @@
 //! on an f64 backend — on an f32-only backend (CUDA) the test is skipped.
 
 mod common;
-use common::edge_tables;
 
 use burn::tensor::backend::Backend;
 use burn::tensor::{Tensor, TensorData};
@@ -85,7 +84,7 @@ fn material_weights_upload_at_backend_precision() {
     let mesh = cube_tet_mesh(2, 1.0);
     let n_edges = mesh.edges().len();
     let n_tets = mesh.n_tets();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let dev = device();
     let (nodes, tets) = upload_mesh::<B>(&mesh, &dev);
     let scatter = NedelecScatterMap::new(&tet_idx);
