@@ -158,6 +158,7 @@ use faer::sparse::linalg::solvers::Lu;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
 use crate::eigen::dense::EigenError;
+use crate::eigen::lanczos::csc_diagonal;
 use crate::eigen::projection::InteriorGradient;
 use crate::sparse_ops::{spmv_into, spmv_transpose_into};
 
@@ -2562,21 +2563,6 @@ fn accumulate_gtag(
                 for &(q, sq) in gj {
                     trips.push(Triplet::new(p, q, vsp * sq));
                 }
-            }
-        }
-    }
-}
-
-/// Extract the main diagonal of a CSC matrix into `out` (length `n`).
-fn csc_diagonal(a: SparseColMatRef<'_, usize, f64>, out: &mut [f64]) {
-    let col_ptr = a.col_ptr();
-    let row_idx = a.row_idx();
-    let val = a.val();
-    out.iter_mut().for_each(|v| *v = 0.0);
-    for j in 0..a.ncols() {
-        for kk in col_ptr[j]..col_ptr[j + 1] {
-            if row_idx[kk] == j {
-                out[j] += val[kk];
             }
         }
     }

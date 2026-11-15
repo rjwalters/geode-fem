@@ -363,7 +363,7 @@ fn spmv_add(a: SparseColMatRef<'_, usize, f64>, x: &[f64], y: &mut [f64], alpha:
 /// Iterates the union of both patterns. K and M share identical sparsity
 /// in this crate's assembler (same P1 stencil), so the union is just
 /// `K`'s pattern — but we don't assume that, to keep the routine generic.
-fn shifted_pencil(
+pub(crate) fn shifted_pencil(
     k: SparseColMatRef<'_, usize, f64>,
     m: SparseColMatRef<'_, usize, f64>,
     sigma: f64,
@@ -453,7 +453,7 @@ struct ShiftedMatrixFreeOp<'a> {
 }
 
 /// Extract the main diagonal of a CSC matrix into `out` (length `n`).
-fn csc_diagonal(a: SparseColMatRef<'_, usize, f64>, out: &mut [f64]) {
+pub(crate) fn csc_diagonal(a: SparseColMatRef<'_, usize, f64>, out: &mut [f64]) {
     let col_ptr = a.col_ptr();
     let row_idx = a.row_idx();
     let val = a.val();

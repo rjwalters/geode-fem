@@ -30,28 +30,14 @@
 //! cargo test -p geode-core --test nedelec_cavity_p2_convergence
 //! ```
 
+mod common;
+use common::box_fixtures::fit_slope;
+
 use geode_core::eigen::cavity::{ElementOrder, solve_pec_cube_cavity_modes};
 use geode_core::mesh::cube_tet_mesh;
 use geode_core::testing::{TestBackend, test_device as device};
 
 type B = TestBackend;
-
-/// Least-squares slope of `log(err)` vs `log(h)` (the empirical
-/// convergence order `p` in `err ≈ C · h^p`).
-fn fit_slope(hs: &[f64], errs: &[f64]) -> f64 {
-    let n = hs.len() as f64;
-    let xs: Vec<f64> = hs.iter().map(|h| h.ln()).collect();
-    let ys: Vec<f64> = errs.iter().map(|e| e.ln()).collect();
-    let mean_x = xs.iter().sum::<f64>() / n;
-    let mean_y = ys.iter().sum::<f64>() / n;
-    let mut num = 0.0;
-    let mut den = 0.0;
-    for (x, y) in xs.iter().zip(ys.iter()) {
-        num += (x - mean_x) * (y - mean_y);
-        den += (x - mean_x) * (x - mean_x);
-    }
-    num / den
-}
 
 /// `p=2` vs `p=1` order-of-convergence on the PEC-cube first cavity mode.
 #[test]

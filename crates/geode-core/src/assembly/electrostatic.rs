@@ -2137,6 +2137,16 @@ fn maxwell_p2_lu(
 // `crate::elements::p1::batched_p1_local_matrices` without the Burn backend.
 // ─────────────────────────────────────────────────────────────────────────
 
+/// The four vertex coordinates of `tet`, gathered from `mesh.nodes`.
+pub(crate) fn coords_of(mesh: &TetMesh, tet: &[u32; 4]) -> [[f64; 3]; 4] {
+    [
+        mesh.nodes[tet[0] as usize],
+        mesh.nodes[tet[1] as usize],
+        mesh.nodes[tet[2] as usize],
+        mesh.nodes[tet[3] as usize],
+    ]
+}
+
 /// The four barycentric gradients `∇λ_p` of a P1 tet, constant per element.
 ///
 /// With edge vectors `e_i = v_i − v₀` and cofactors `g₁ = e₂×e₃`,

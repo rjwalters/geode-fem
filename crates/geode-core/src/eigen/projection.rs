@@ -65,7 +65,8 @@ use crate::eigen::lanczos::{HISTORICAL_BREAKDOWN_REL, krylov_breakdown, tridiag_
 use crate::eigen::shift_guard::{
     DEGENERATE_SHIFT_REL_TOL, check_degenerate_shift, check_gradient_probe, median_diag_ratio,
 };
-use crate::sparse_ops::{lu_solve, quad_form, spmv, spmv_into, spmv_transpose_into};
+use crate::eigen::transmon::{assemble_reduced_real, junction_participation};
+use crate::sparse_ops::{lu_solve, spmv, spmv_into, spmv_transpose_into};
 
 /// The sparse interior-restricted discrete gradient `G = d⁰_interior` plus
 /// the reduced dimensions it maps between.
@@ -1997,53 +1998,6 @@ pub fn ungauged_mode_divergences(
         });
     }
     Ok(out)
-}
-
-/// Build a real reduced sparse matrix from a `[nnz]` value slice aligned to
-/// the volume sparsity pattern, restricted to the interior DOFs, with extra
-/// surface triplets summed on top. Mirrors the private helper in
-/// [`crate::eigen::transmon`] (the projected entry point reuses the exact
-/// same reduction so `K_red`/`M_red` match the ungauged path bit-for-bit).
-fn assemble_reduced_real(
-    pattern_rows: &[u32],
-    pattern_cols: &[u32],
-    vals: &[f64],
-    extra: &[(usize, usize, f64)],
-    interior_index: &[Option<usize>],
-    dim: usize,
-) -> Result<SparseColMat<usize, f64>, EigenError> {
-    let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(vals.len() + extra.len());
-    for ((&r, &c), &v) in pattern_rows
-        .iter()
-        .zip(pattern_cols.iter())
-        .zip(vals.iter())
-    {
-        if let (Some(ri), Some(ci)) = (interior_index[r as usize], interior_index[c as usize]) {
-            trips.push(Triplet::new(ri, ci, v));
-        }
-    }
-    for &(r, c, v) in extra {
-        if let (Some(ri), Some(ci)) = (interior_index[r], interior_index[c]) {
-            trips.push(Triplet::new(ri, ci, v));
-        }
-    }
-    SparseColMat::<usize, f64>::try_new_from_triplets(dim, dim, &trips)
-        .map_err(|e| EigenError::FaerGevd(format!("reduced sparse assembly: {e:?}")))
-}
-
-/// Junction participation `p = (xᵀ K_port x) / (xᵀ (K + K_port) x)`, clamped
-/// to `[0, 1]`. Mirrors the private metric in [`crate::eigen::transmon`].
-fn junction_participation(
-    k_total: &SparseColMat<usize, f64>,
-    k_port: &SparseColMat<usize, f64>,
-    x: &[f64],
-) -> f64 {
-    let num = quad_form(k_port.as_ref(), x);
-    let den = quad_form(k_total.as_ref(), x);
-    if den <= 0.0 {
-        return 0.0;
-    }
-    (num / den).clamp(0.0, 1.0)
 }
 
 #[cfg(test)]

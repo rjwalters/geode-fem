@@ -442,14 +442,41 @@ impl ConstrainedEpigraph {
     ///
     /// A stringified `FloquetElementParam::constraints` failure at `θ₀`.
     pub fn new(points: TcdaDesign) -> Result<Self, String> {
+        Self::build(points, None)
+    }
+
+    /// As [`Self::new`], but the epigraph computes a gradient only for the
+    /// points with `a_k ≥ max(t, max_j a_j) − margin`
+    /// ([`Epigraph::with_active_margin`]). The manufacturability rows are
+    /// unaffected: they are analytic and cost no solve.
+    ///
+    /// This is the cost knob #1579's run record names. It is a **trade**,
+    /// not a free saving — see the `Epigraph` module docs: a skipped point
+    /// is linearized as constant in `θ` for that iteration, so a step can
+    /// raise it above the band, and the optimizer only sees that at the
+    /// next evaluation. The default ([`Self::new`]) is exact.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::new`].
+    pub fn with_active_margin(points: TcdaDesign, margin: f64) -> Result<Self, String> {
+        Self::build(points, Some(margin))
+    }
+
+    fn build(points: TcdaDesign, margin: Option<f64>) -> Result<Self, String> {
         let param = points.param().clone();
         let n_element = param
             .constraints(&param.initial_theta())
             .map_err(|e| e.to_string())?
             .g
             .len();
+        let inner = Epigraph::new(points);
+        let inner = match margin {
+            Some(m) => inner.with_active_margin(m),
+            None => inner,
+        };
         Ok(Self {
-            inner: Epigraph::new(points),
+            inner,
             param,
             n_element,
         })
