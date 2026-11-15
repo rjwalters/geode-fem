@@ -105,8 +105,12 @@ fn parse_cli() -> Cli {
         match args[i].as_str() {
             "--grid" => cli.grid = next(&mut i),
             "--n-edge" => cli.n_edge = next(&mut i).parse().expect("--n-edge N"),
-            other => panic!("unknown flag {other:?} (expected --grid, --n-edge)"),
+            // The driver script appends this unconditionally; serving is all
+            // this example does.
+            "--eval-server" => {}
+            other => panic!("unknown flag {other} (expected --grid, --n-edge)"),
         }
+        i += 1;
     }
     cli
 }
