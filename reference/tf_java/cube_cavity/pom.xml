@@ -27,7 +27,7 @@
   Run:
       mvn exec:java -Dexec.mainClass=dev.geodefem.refcubecavity.CubeCavityMain
       (pass CLI flags via -Dexec.args; see README for examples).
-      python3 ../../driver/eigensolve_from_sidecar.py --backend tfjava reduced_kM.json
+      python3 ../../driver/eigensolve_from_sidecar.py reduced_kM.json   (backend: tfjava)
 
   CI gating:
       This is gated behind a slow CI job (TF-Java pulls ~200MB of
