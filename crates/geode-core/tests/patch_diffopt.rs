@@ -7,7 +7,8 @@
 //!   validation of the driven **shape** gradient `∂|S₁₁(f₀)|²/∂θ` on the
 //!   coarse `patch_2g4_smoke.msh` fixture — one forward + one adjoint solve
 //!   ([`driven_shape_gradient`]) with the [`s11_sq_objective`] closure vs a
-//!   full-pipeline central difference through the public [`driven_solve`]
+//!   full-pipeline central difference through the public
+//!   [`geode_core::driven::solve::driven_solve`]
 //!   path. This is the load-bearing gate: a wrong sign, a dropped `∂b/∂X`,
 //!   or a conjugation error in the `|S₁₁|²` cotangent fails it. Also asserts
 //!   a two-step descent monotonically decreases the objective.
@@ -20,233 +21,33 @@
 //! The full benchmark-fixture regeneration (`patch_2g4.msh`, ~30.6k edges)
 //! is driven by `cargo run -p geode-core --release --example patch_diffopt`.
 
+#[path = "common/patch_diffopt_model.rs"]
+mod patch_model;
+
 use std::path::PathBuf;
 
 use faer::c64;
 
-use geode_core::constants::{C_MM_PER_S, ETA_0_OHM as ETA_0};
-use geode_core::driven::extraction::{s11_sq_and_dg_dv, s11_sq_objective};
-use geode_core::driven::ports::assemble_port_flux;
+use geode_core::driven::extraction::s11_sq_objective;
 use geode_core::driven::shape::driven_shape_gradient;
-use geode_core::driven::solve::{CurrentSource, DrivenBcs, DrivenMaterials, driven_solve};
-use geode_core::mesh::{
-    PatchFixture, TetMesh, pec_interior_mask_from_triangles, read_patch_smoke_fixture,
-};
+use geode_core::driven::solve::DrivenBcs;
+use geode_core::mesh::read_patch_smoke_fixture;
 use geode_core::shape::chain_node_motion;
 use geode_core::testing::{TestBackend, test_device as device};
 
+use patch_model::{F0_GHZ, build_model};
+
 type B = TestBackend;
-
-const R_PORT_OHM: f64 = 50.0;
-const F0_GHZ: f64 = 2.0;
-
-fn omega_natural(f_ghz: f64) -> f64 {
-    2.0 * std::f64::consts::PI * f_ghz * 1e9 / C_MM_PER_S
-}
-
-/// The self-contained driven-`|S₁₁|²` shape-adjoint fixture, mirroring the
-/// `patch_diffopt` example's `build_model` on the smoke fixture: lossless
-/// real-ε_r PEC pencil, a localized probe current along the port gap
-/// direction, a pinned-port in-plane length-scale velocity field, and the
-/// geometry-constant port-flux covector.
-struct Model {
-    base_nodes: Vec<[f64; 3]>,
-    mesh: TetMesh,
-    eps_r: Vec<f64>,
-    mask: Vec<bool>,
-    source: CurrentSource,
-    velocity: Vec<[f64; 3]>,
-    flux: Vec<f64>,
-    inv_width: f64,
-    v_inc: c64,
-    r_nat: f64,
-    z0: f64,
-    omega: f64,
-}
-
-fn build_model(base: &PatchFixture) -> Model {
-    let edges = base.mesh.edges();
-    let patch = base.patch_triangles();
-    let ground = base.ground_triangles();
-    let outer = base.outer_boundary_triangles();
-    let mask = pec_interior_mask_from_triangles(
-        &edges,
-        &[patch.as_slice(), ground.as_slice(), outer.as_slice()],
-    );
-    let eps_r: Vec<f64> = base.epsilon_r_default().iter().map(|c| c.re).collect();
-
-    let port = base.port();
-    let r_nat = R_PORT_OHM / ETA_0;
-    let flux = assemble_port_flux(&base.mesh, &port.faces, port.e_hat, &edges);
-    let inv_width = 1.0 / port.width;
-
-    // Patch bounding box → in-plane length axis (shorter horizontal extent).
-    let mut lo = [f64::INFINITY; 3];
-    let mut hi = [f64::NEG_INFINITY; 3];
-    for tri in &patch {
-        for &n in tri {
-            let p = base.mesh.nodes[n as usize];
-            for k in 0..3 {
-                lo[k] = lo[k].min(p[k]);
-                hi[k] = hi[k].max(p[k]);
-            }
-        }
-    }
-    let ext = [hi[0] - lo[0], hi[1] - lo[1]];
-    let length_axis = if ext[0] <= ext[1] { 0 } else { 1 };
-    let center_len = 0.5 * (lo[length_axis] + hi[length_axis]);
-
-    let mut port_node = vec![false; base.mesh.n_nodes()];
-    for tri in &port.faces {
-        for &n in tri {
-            port_node[n as usize] = true;
-        }
-    }
-    let velocity: Vec<[f64; 3]> = base
-        .mesh
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            if port_node[i] {
-                [0.0, 0.0, 0.0]
-            } else {
-                let mut v = [0.0, 0.0, 0.0];
-                v[length_axis] = p[length_axis] - center_len;
-                v
-            }
-        })
-        .collect();
-
-    let mut port_ctr = [0.0; 3];
-    let mut nf = 0.0;
-    for tri in &port.faces {
-        for &n in tri {
-            let p = base.mesh.nodes[n as usize];
-            for k in 0..3 {
-                port_ctr[k] += p[k];
-            }
-            nf += 1.0;
-        }
-    }
-    for c in &mut port_ctr {
-        *c /= nf;
-    }
-    let src_radius = 0.20 * ext[length_axis].max(ext[1 - length_axis]);
-    let e_hat = port.e_hat;
-    let source = CurrentSource::from_centroids(&base.mesh, |c| {
-        let d2: f64 = (0..3).map(|k| (c[k] - port_ctr[k]).powi(2)).sum();
-        if d2 <= src_radius * src_radius {
-            // Complex current amplitude (0.6 + i) along ê — a genuinely
-            // complex drive so the field and objective are complex-valued.
-            [
-                c64::new(0.6 * e_hat[0], e_hat[0]),
-                c64::new(0.6 * e_hat[1], e_hat[1]),
-                c64::new(0.6 * e_hat[2], e_hat[2]),
-            ]
-        } else {
-            [c64::new(0.0, 0.0); 3]
-        }
-    });
-
-    Model {
-        base_nodes: base.mesh.nodes.clone(),
-        mesh: base.mesh.clone(),
-        eps_r,
-        mask,
-        source,
-        velocity,
-        flux,
-        inv_width,
-        v_inc: c64::new(1.0, 0.0),
-        r_nat,
-        z0: r_nat,
-        omega: omega_natural(F0_GHZ),
-    }
-}
-
-impl Model {
-    fn moved(&self, theta: f64) -> TetMesh {
-        let mut mesh = self.mesh.clone();
-        for (node, (x0, v)) in mesh
-            .nodes
-            .iter_mut()
-            .zip(self.base_nodes.iter().zip(self.velocity.iter()))
-        {
-            for k in 0..3 {
-                node[k] = x0[k] + theta * v[k];
-            }
-        }
-        mesh
-    }
-
-    fn objective(&self) -> impl Fn(&[c64]) -> (f64, Vec<c64>) {
-        s11_sq_objective(
-            self.flux.clone(),
-            self.inv_width,
-            self.v_inc,
-            self.r_nat,
-            self.z0,
-        )
-    }
-
-    /// `(g, ∂g/∂θ, residual)` via one forward + one adjoint solve.
-    fn grad_g(&self, theta: f64) -> (f64, f64, f64) {
-        let mesh = self.moved(theta);
-        let bcs = DrivenBcs {
-            pec_interior_mask: &self.mask,
-        };
-        let sg = driven_shape_gradient::<B, _>(
-            &mesh,
-            &self.eps_r,
-            &bcs,
-            self.omega,
-            &self.source,
-            self.objective(),
-            &device(),
-        )
-        .expect("driven shape gradient");
-        assert_eq!(sg.n_factorizations, 1);
-        (
-            sg.objective,
-            chain_node_motion(&sg.grad_node, &self.velocity),
-            sg.residual_rel,
-        )
-    }
-
-    /// Fresh forward-only `g(θ)` through the public [`driven_solve`] path.
-    fn forward_g(&self, theta: f64) -> f64 {
-        let mesh = self.moved(theta);
-        let eps_c: Vec<c64> = self.eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
-        let bcs = DrivenBcs {
-            pec_interior_mask: &self.mask,
-        };
-        let sol = driven_solve::<B>(
-            &mesh,
-            DrivenMaterials::Scalar(&eps_c),
-            &bcs,
-            self.omega,
-            &self.source,
-            &device(),
-        )
-        .expect("fresh forward driven solve");
-        let mut v = c64::new(0.0, 0.0);
-        for (f, e) in self.flux.iter().zip(sol.e_edges.iter()) {
-            v += *e * *f;
-        }
-        v *= self.inv_width;
-        s11_sq_and_dg_dv(v, self.v_inc, self.r_nat, self.z0).0
-    }
-}
 
 /// The load-bearing gate: the driven **shape** gradient of `|S₁₁(f₀)|²` on
 /// the smoke patch mesh must match a full-pipeline central finite difference
-/// through the public [`driven_solve`] path, and a two-step descent must
-/// monotonically decrease the objective.
+/// through the public
+/// [`geode_core::driven::solve::driven_solve`]
+/// path, and a two-step descent must monotonically decrease the objective.
 #[test]
 fn driven_s11_shape_gradient_matches_central_fd_on_smoke_patch() {
     let base = read_patch_smoke_fixture().expect("bundled smoke patch fixture");
-    let model = build_model(&base);
+    let model = build_model(base);
 
     let (g0, dg0, res0) = model.grad_g(0.0);
     assert!(
@@ -260,7 +61,7 @@ fn driven_s11_shape_gradient_matches_central_fd_on_smoke_patch() {
 
     // Central FD of the whole pipeline (independent forward path).
     let h = 1e-6;
-    let fd = (model.forward_g(h) - model.forward_g(-h)) / (2.0 * h);
+    let fd = (model.forward_g(h).0 - model.forward_g(-h).0) / (2.0 * h);
     assert!(
         fd.abs() > 1e-10,
         "FD gradient ~0 — length scale does not couple to S11"
@@ -295,7 +96,7 @@ fn driven_s11_shape_gradient_matches_central_fd_on_smoke_patch() {
 #[test]
 fn conjugated_s11_cotangent_is_rejected_by_fd() {
     let base = read_patch_smoke_fixture().expect("bundled smoke patch fixture");
-    let model = build_model(&base);
+    let model = build_model(base);
 
     // Wrong objective: conjugate the closure's cotangent (∂g/∂x̄).
     let flux = model.flux.clone();
@@ -309,7 +110,7 @@ fn conjugated_s11_cotangent_is_rejected_by_fd() {
         (g, cot.into_iter().map(|c| c.conj()).collect::<Vec<_>>())
     };
 
-    let mesh = model.moved(0.0);
+    let mesh = model.moved_mesh(0.0);
     let bcs = DrivenBcs {
         pec_interior_mask: &model.mask,
     };
@@ -326,7 +127,7 @@ fn conjugated_s11_cotangent_is_rejected_by_fd() {
     let ana_wrong = chain_node_motion(&sg.grad_node, &model.velocity);
 
     let h = 1e-6;
-    let fd = (model.forward_g(h) - model.forward_g(-h)) / (2.0 * h);
+    let fd = (model.forward_g(h).0 - model.forward_g(-h).0) / (2.0 * h);
     let rel = (ana_wrong - fd).abs() / fd.abs();
     assert!(
         rel > 1e-2,
