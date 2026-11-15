@@ -1,0 +1,126 @@
+name: ci-example-compile
+
+# Issue #1617 — compile-gate the crates/geode-core/examples/ targets.
+#
+# Nothing in CI used to select an example target. `cargo clippy --workspace
+# --tests` does not include examples, `cargo build -p geode-core` carries no
+# `--examples`, and every integration-test job names its targets with an
+# explicit `--test <name>` — which also excludes examples. So all of
+# geode-core's examples were compiled by nothing.
+#
+# That matters because several of them are the *generators* of committed
+# benchmark records that tests then pin. `crates/geode-core/tests/
+# benchmark_provenance.rs` records the exact
+# `cargo run -p geode-core --release --example <name>` command line for 12 of
+# them. The record stays pinned by its regression test, but the ability to
+# **regenerate** it depended on an example that nothing built — so a rotted
+# generator was only discovered when someone tried to re-run it.
+#
+# Scope notes, so this lane stays the narrow thing it is:
+#
+#   * `cargo check`, not `cargo build` — compile coverage is the ask; no
+#     codegen or linking is needed to prove a generator still compiles.
+#   * `cargo check`, not `cargo clippy -- -D warnings`. These examples have
+#     never been lint-gated, so routing them through clippy would turn every
+#     pre-existing warning into a CI failure — that is a larger, separate
+#     change (lint-gating the examples) and is deliberately not done here.
+#   * `--examples`, not `--all-targets`. `--all-targets` would additionally
+#     compile geode-core's 5 `harness = false` criterion benches, which is
+#     work beyond this gate's purpose.
+#   * `-p geode-core` is the exact scope. `crates/geode-optimize/examples/
+#     s_matrix_vjp_adapter.rs` declares `test = true`, so the existing
+#     workspace clippy line already selects it; the `examples/*` workspace
+#     members are bins already covered by `--tests`; and
+#     `crates/geode-cli/examples/` holds only `.json`/`.toml`/`.geo`/`.msh`
+#     fixtures, so cargo auto-discovers no example target there.
+#   * Nothing is **executed**. #1579 deliberately put hours-long design runs
+#     behind example targets precisely so that no `cargo test` invocation —
+#     not even `--include-ignored` — can pull one into CI. `cargo check`
+#     cannot run them, so that exclusion is preserved by construction.
+#   * `crates/geode-core/examples/flex_precision_spike.rs` is **excluded, and
+#     stays excluded**. It declares `required-features = ["flex"]`, and
+#     `flex = ["burn/flex"]` is documented in `crates/geode-core/Cargo.toml`
+#     as SPIKE-ONLY wiring for issue #451 — "not a supported solver backend
+#     and not exercised by any production code path or CI lane" — that pulls
+#     in a whole additional burn backend. A plain `--examples` run skips a
+#     target whose `required-features` are not enabled, so it is skipped
+#     automatically. **Do not add `--features flex` to make it build.**
+#   * No `libarpack2-dev` / `pkg-config` install. `arpack` is an opt-in
+#     feature and is not enabled here, so the system ARPACK library is not
+#     needed. Keeping it out is what makes this lane cheap.
+#
+# This is a separate single-purpose workflow rather than a flag added to
+# `arpack.yml`'s clippy line on purpose. That job runs ~34 min against a
+# 40-min cap and has a logged incident (#873, #354) where a cold run blew a
+# cap, was cancelled, never saved its cache, and so repeated the miss on
+# every retry. Loading the repo's longest, most timeout-sensitive job with
+# ~38 more targets attacks exactly that margin. A narrow lane matches the
+# established `doc-lint.yml` / `ci-test-coverage.yml` pattern instead.
+#
+# Cache note: this job uses its **own** cache namespace
+# (`-cargo-example-check-`), the way `doc-lint.yml` uses `-cargo-doc-`, rather
+# than sharing `arpack.yml`'s `-cargo-arpack-` key. Sharing that key would let
+# whichever job finished first save its `target/` under it — this lane's
+# `cargo check` metadata in place of arpack's release artifacts — which is a
+# way to poison the cache of the very job the issue set out not to disturb.
+#
+# Like rustfmt.yml and doc-lint.yml, this is a repo-wide gate (no path
+# filter): an example can break from a change to geode-core's own API, not
+# just from an edit under examples/.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Issue #899: a newer push to a PR cancels that PR's older run. On main a
+# started run is never cancelled, and at most one run waits: a newer one
+# replaces the waiting one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  example-compile:
+    name: cargo check -p geode-core --examples
+    runs-on: ubuntu-latest
+    # The cap is sized for the **cold** path: a Cargo.lock change misses the
+    # cache and pays a full `cargo check` of geode-core's dependency tree
+    # (burn, faer, nalgebra). Measured locally at `-j 2` on a shared 16-core
+    # worker (2026-11-13): 124 s cold from an empty target dir including all
+    # 38 examples, 13 s to recompile all 38 examples against a warm
+    # dependency tree, and ~1 s for a fully cached no-op re-run. The cap is
+    # set an order of magnitude above the measured cold figure on purpose:
+    # issues #873 / #354 record that a cap which cancels a cold run also
+    # loses the cache save, so the miss then repeats on every retry. Erring
+    # generous costs only late failure detection; erring tight poisons the
+    # cache. Still well under `arpack.yml`'s 40 min, since this lane does no
+    # codegen and installs no system libraries.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-example-check-${{ hashFiles('**/Cargo.lock') }}
+
+      # The runner is headless ubuntu-latest — no Vulkan/CUDA adapter — so
+      # this builds against the default CPU (`ndarray`) backend, matching
+      # arpack.yml and doc-lint.yml. `cargo check` compiles every
+      # auto-discovered example target in crates/geode-core/examples/ and
+      # runs none of them.
+      - name: Compile-check geode-core examples (no execution)
+        run: |
+          cargo check -p geode-core --examples
