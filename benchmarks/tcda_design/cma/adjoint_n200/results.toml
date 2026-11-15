@@ -1,0 +1,92 @@
+# Design A adjoint min-max run (issue #1579, Epic #1252 Phase 4c).
+# Written by `cargo run --release -j2 -p geode-core --example tcda_design_run`.
+# Re-run and the regression pin: see README.md.
+
+[meta]
+description = "Epic #1252 Phase 4c child 2 (#1579): MMA epigraph min-max run of the Design A element on the recorded Phase-4 grid, from the #1536 baseline at equal footprint, with the #1578 lumped-feed adjoint and the #1535 manufacturability constraints."
+backend = "ndarray"
+float_dtype = "F64"
+generated_at_commit = "dece2aba"
+driver = "crates/geode-core/tests/common/tcda_design.rs (#1578)"
+baseline = "benchmarks/tcda_baseline (#1536)"
+
+[design]
+n_edge = 50
+n_params = 200
+parameterization = "outline-only: 4*n_edge spline coefficients (right, left, top, bottom), millimetres"
+superstrate = "fixed at the baseline eps_r = 2.0 (layers = []), so theta0 IS the recorded baseline"
+bound_mm = 1
+z_ref = 0.15
+mm_per_unit = 14.9896229
+mesh = "10080 tets, 2160 nodes (the #1536 baseline mesh, scaled)"
+
+[grid]
+omega_over_pi = [0.9, 1.0, 1.1]
+theta_deg = [0, 30, 60]
+phi_deg = [0, 90]
+n_points = 18
+source = "ScanGrid::reduced_comparison(PI), the 18-point comparison grid of #1580"
+
+[cost]
+# Measured on this host before the budget was fixed (the run always probes
+# first; see the example's module docs).
+build_s = 0.1
+forward_pass_s = 199.45          # one assembly + 18 factorizations
+adjoint_pass_s = 10.32          # one point: assembly + factorization + transpose back-solve
+projected_s_per_iteration = 385.3
+wall_clock_s = 1264.0
+iterations = 4
+evaluations = 5
+failed_evaluations = 0
+adjoint_passes = 44       # ConstrainedEpigraph::n_gradients()
+active_margin = 0.15
+
+[run]
+stop_reason = "wall_clock_budget (1200 s); optimizer status Running"
+best_iteration = 4   # the recorded design is the best feasible iterate, not the last
+max_iter_budget = 8
+wall_clock_budget_s = 1200
+initial_worst_db = -3.50
+final_worst_db = -6.23
+final_worst_point = { omega_over_pi = 1.10, theta_deg = 60, phi_deg = 0 }
+worst_e_plane_db = -6.23
+worst_h_plane_db = -6.24
+passive = true                  # all |Gamma| <= 1 + 1e-6
+min_tet_volume_ratio = 0.241881   # > 0: no tet inverted at the final design
+manufacturable = true    # ElementConstraints::is_violated() == false (sampled, #1535)
+max_constraint_violation_mm = -6.708e-1
+
+# Per-point |Gamma| (dB) at the final design, rows omega ascending;
+# columns theta ascending. Same layout as benchmarks/tcda_baseline.
+table_e_plane_db = [
+  [-7.81, -9.85, -6.24],
+  [-10.18, -12.41, -7.24],
+  [-14.53, -17.34, -6.23],
+]
+table_h_plane_db = [
+  [-7.81, -8.36, -6.24],
+  [-10.18, -11.39, -8.01],
+  [-14.53, -18.30, -7.36],
+]
+
+# The final design vector, in the parameterization's own order
+# (right, left, top, bottom edges, n_edge coefficients each), millimetres.
+final_theta_mm = [-0.661948, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, -0.162637, -0.535271, -0.535271, -0.162637, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, -0.700829, -0.676350, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, -0.127197, -0.499147, -0.499147, -0.127197, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, -0.674539, -0.515075, 0.000000, 0.000000, 0.174879, 0.387934, 0.422116, 0.245261, 0.551945, 0.839811, 0.724392, 0.159906, 0.833505, 0.991756, 0.701251, 0.407108, 0.771203, 0.754214, 0.361404, 0.069538, 0.283133, 0.116550, -0.062528, 0.031766, 0.095031, -0.082471, -0.280668, -0.320185, -0.306245, -0.210353, 0.042321, 0.206209, -0.003140, 0.338773, 0.722367, 0.739291, 0.381950, 0.760908, 1.000000, 0.896489, 0.175726, 0.793866, 0.910892, 0.613810, 0.268109, 0.459450, 0.423700, 0.186479, 0.000000, 0.000000, -0.550548, -0.490184, 0.000000, 0.000000, 0.188036, 0.417424, 0.451901, 0.268515, 0.607068, 0.898764, 0.782918, 0.177097, 0.900468, 1.000000, 0.765462, 0.398957, 0.760040, 0.743098, 0.353866, 0.010395, 0.219785, 0.055865, -0.172983, -0.189862, -0.161006, -0.226453, -0.133249, 0.009736, -0.044461, -0.097852, 0.083988, 0.248494, 0.038152, 0.341090, 0.724063, 0.740968, 0.384398, 0.714616, 1.000000, 0.846918, 0.166715, 0.751211, 0.866867, 0.576780, 0.263548, 0.440016, 0.406116, 0.189588, 0.000000, 0.000000, -0.555932]
+
+[verdict]
+baseline_worst_db = -3.50
+kill_floor_db = -4.50
+epic_target_db = -10.00
+improvement_db = 2.73
+distance_to_epic_db = 3.77
+kill_criterion = "pass"
+
+[history]
+# One row per MMA iteration (0 = the starting point).
+iterations = [
+  { iter = 0, t = 0.44666406, t_db = -3.500, max_violation = 0.000e0, step_norm = 0.000e0, n_evals = 1 },
+  { iter = 1, t = 0.31400973, t_db = -5.031, max_violation = 0.000e0, step_norm = 6.012e-1, n_evals = 2 },
+  { iter = 2, t = 0.25558399, t_db = -5.925, max_violation = 0.000e0, step_norm = 3.722e-1, n_evals = 3 },
+  { iter = 3, t = 0.24098929, t_db = -6.180, max_violation = 0.000e0, step_norm = 2.328e-1, n_evals = 4 },
+  { iter = 4, t = 0.23874135, t_db = -6.221, max_violation = 0.000e0, step_norm = 1.743e-1, n_evals = 5 },
+]

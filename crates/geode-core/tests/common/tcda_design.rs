@@ -267,6 +267,35 @@ impl TcdaDesign {
     /// [`EvalError`] on a wrong `θ` length or an inverted tet (module docs:
     /// the honesty clause).
     pub fn morph(&self, theta: &[f64]) -> Result<(Vec<[f64; 3]>, Vec<c64>), EvalError> {
+        let nodes = self.morphed_nodes(theta)?;
+        // The guard of #589: an inverted tet is an evaluation error, never a
+        // number (`min_tet_volume_ratio` keeps the base orientation).
+        let mut moved = self.parts.mesh.clone();
+        moved.nodes.copy_from_slice(&nodes);
+        let ratio = min_tet_volume_ratio(&self.parts.mesh, &moved);
+        if ratio <= 0.0 || !ratio.is_finite() {
+            return Err(EvalError::new(format!(
+                "the morphed mesh has an inverted or degenerate tet: min signed-volume ratio \
+                 {ratio:.3e} ≤ 0"
+            )));
+        }
+        let eps: Vec<c64> = if self.n_layers == 0 {
+            self.parts.eps.clone()
+        } else {
+            self.parts
+                .superstrate
+                .iter()
+                .map(|&inside| c64::new(if inside { theta[0] } else { 1.0 }, 0.0))
+                .collect()
+        };
+        Ok((nodes, eps))
+    }
+
+    /// The mesh morphed to `theta`: length and finiteness checked, the
+    /// outline columns applied — **no** inversion check. [`Self::morph`]
+    /// adds the #589 honesty clause on top; [`Self::min_vol_ratio`] reads
+    /// the raw ratio a caller needs to report an infeasible design.
+    fn morphed_nodes(&self, theta: &[f64]) -> Result<Vec<[f64; 3]>, EvalError> {
         if theta.len() != self.param.n_params() {
             return Err(EvalError::new(format!(
                 "θ has {} entries, the parameterization has {}",
@@ -295,27 +324,20 @@ impl TcdaDesign {
                 }
             }
         }
-        // The guard of #589: an inverted tet is an evaluation error, never a
-        // number (`min_tet_volume_ratio` keeps the base orientation).
+        Ok(nodes)
+    }
+
+    /// The minimum signed-tet-volume ratio of the mesh morphed to `theta`,
+    /// **without** the [`EvalError`] [`Self::morph`] raises on a non-positive
+    /// one: `≤ 0` means an inverted or degenerate tet, and a caller that
+    /// answers *infeasible* designs over a protocol (the #1580 eval server)
+    /// needs the quantity, not a panic. Length and finiteness of `theta`
+    /// remain errors.
+    pub fn min_vol_ratio(&self, theta: &[f64]) -> Result<f64, EvalError> {
+        let nodes = self.morphed_nodes(theta)?;
         let mut moved = self.parts.mesh.clone();
         moved.nodes.copy_from_slice(&nodes);
-        let ratio = min_tet_volume_ratio(&self.parts.mesh, &moved);
-        if ratio <= 0.0 || !ratio.is_finite() {
-            return Err(EvalError::new(format!(
-                "the morphed mesh has an inverted or degenerate tet: min signed-volume ratio \
-                 {ratio:.3e} ≤ 0"
-            )));
-        }
-        let eps: Vec<c64> = if self.n_layers == 0 {
-            self.parts.eps.clone()
-        } else {
-            self.parts
-                .superstrate
-                .iter()
-                .map(|&inside| c64::new(if inside { theta[0] } else { 1.0 }, 0.0))
-                .collect()
-        };
-        Ok((nodes, eps))
+        Ok(min_tet_volume_ratio(&self.parts.mesh, &moved))
     }
 
     /// The cell at `theta` together with the mesh it was assembled on (the
@@ -543,4 +565,173 @@ impl Objective for ConstrainedEpigraph {
 /// a layer's allowed `ε′` range.
 pub fn standard(material: usize) -> &'static StandardMaterial {
     &geode_core::shape::floquet_element::STANDARD_STACK[material]
+}
+
+// ---------------------------------------------------------- the eval server
+
+/// **Design A eval server** (issue #1580): the JSON-lines protocol
+/// `patch_conformal_nested_dof --eval-server` introduced (#1130), answered
+/// from a [`TcdaDesign`] so
+/// `benchmarks/patch_antenna_conformal/scripts/cma_loop.py` can drive this
+/// problem unmodified. Each stdin line is `f x1 … xn` (forward: feasibility,
+/// objective, worst case) or `v x1 … xn` (the whole grid with per-point
+/// complex `Γ_active`, the verification sweep); each answer is one JSON line
+/// on `out`. `q` quits.
+///
+/// Feasibility is the Design A rule, decided here before any solve: no
+/// inverted tet ([`TcdaDesign::min_vol_ratio`] `> 0`) and the sampled #1535
+/// manufacturability rows not violated. An infeasible design is answered
+/// without a solve, exactly like the paper-1 volume guard. `solves` is the
+/// cumulative count of factorizations on the `cma_loop.py` rule: one per
+/// grid point of every forward or verification sweep (a mid-sweep solver
+/// error is answered `feasible: false` with its reason and counts nothing —
+/// the exact partial count is not observable from outside the driver).
+///
+/// The objective of a feasible design is `max_k |Γ_active(k)|²` — the true
+/// min-max value, the same quantity the #1579 epigraph's worst-case rows
+/// minimize — so a CMA-ES run on it is directly comparable with the adjoint
+/// run at equal solves. A `v` sweep is answered for any *meshable* design
+/// (manufacturability aside), the paper-1 semantics; an inverted mesh has no
+/// sweep to answer with.
+///
+/// # Errors
+///
+/// Propagates [`std::io::Error`] from `input`/`out`; malformed protocol
+/// lines and designs panic, like the paper-1 server.
+pub fn run_eval_server(
+    drv: &mut TcdaDesign,
+    input: &mut dyn std::io::BufRead,
+    out: &mut dyn std::io::Write,
+) -> std::io::Result<()> {
+    use std::f64::consts::PI;
+    use std::fmt::Write as _;
+    use std::time::Instant;
+
+    use geode_core::testing::{TestBackend, test_device};
+    use geode_util::fixture::BackendInfo;
+
+    let n = drv.dim();
+    let pts: Vec<ScanPoint> = drv.points().to_vec();
+    let k = pts.len();
+    let backend = BackendInfo::of::<TestBackend>(&test_device());
+    let list = |vs: &[f64]| {
+        vs.iter()
+            .map(|v| format!("{v:.9}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let _ = writeln!(
+        out,
+        "{{\"ready\": true, \"n_dofs\": {n}, \"grid\": {{\"omega_over_pi\": [{}], \
+         \"theta_deg\": [{}], \"phi_deg\": [{}]}}, \"external\": false, \
+         \"backend\": \"{}\", \"float_dtype\": \"{}\", \"generated_at_commit\": \"{}\"}}",
+        list(&pts.iter().map(|p| p.omega / PI).collect::<Vec<_>>()),
+        list(&pts.iter().map(|p| p.theta.to_degrees()).collect::<Vec<_>>()),
+        list(&pts.iter().map(|p| p.phi.to_degrees()).collect::<Vec<_>>()),
+        backend.name,
+        backend.float_dtype,
+        geode_util::repo::current_commit(),
+    );
+    out.flush()?;
+    let num = |v: f64| {
+        if v.is_finite() {
+            format!("{v:.12e}")
+        } else {
+            "null".to_string()
+        }
+    };
+    let mut solves = 0usize;
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if input.read_line(&mut line)? == 0 {
+            break;
+        }
+        let mut it = line.split_whitespace();
+        let Some(kind) = it.next() else { continue };
+        if kind == "q" {
+            break;
+        }
+        assert!(
+            matches!(kind, "f" | "v"),
+            "tcda eval-server: line must start with f, v or q"
+        );
+        let x: Vec<f64> = it.map(|v| v.parse().expect("design value")).collect();
+        assert_eq!(x.len(), n, "eval-server: expected {n} design values");
+        let t0 = Instant::now();
+        // Feasibility first — neither check costs a solve. The ratio is
+        // clamped finite for the JSON (no NaN in JSON); a non-finite ratio
+        // is an inverted mesh a fortiori and -1.0 ranks it last.
+        let vr_raw = drv.min_vol_ratio(&x).expect("a checked design vector");
+        let vr = if vr_raw.is_finite() { vr_raw } else { -1.0 };
+        let meshable = vr > 0.0;
+        let mut t = format!("{{\"min_vol_ratio\": {}", num(vr));
+        if !meshable {
+            let _ = write!(t, ", \"feasible\": false, \"reason\": \"inverted tet\"");
+        } else if kind == "v" {
+            // Verification sweep: the whole grid, per-point complex Γ,
+            // manufacturability aside (the paper-1 semantics).
+            let (cell, _, _) = drv
+                .assemble(&x)
+                .map_err(|e| std::io::Error::other(e.message))?;
+            let mut point = Vec::with_capacity(k);
+            let mut g = Vec::with_capacity(k);
+            let mut gamma = Vec::with_capacity(k);
+            for pt in &pts {
+                let gam = drv.gamma_at(&cell, *pt).expect("a meshable sweep");
+                point.push(format!(
+                    "[{:.9}, {:.9}, {:.9}]",
+                    pt.omega / PI,
+                    pt.theta.to_degrees(),
+                    pt.phi.to_degrees()
+                ));
+                g.push(num(gam.norm_sqr()));
+                gamma.push(format!("[{}, {}]", num(gam.re), num(gam.im)));
+            }
+            solves += k;
+            let _ = write!(
+                t,
+                ", \"point\": [{}], \"g\": [{}], \"gamma\": [{}]",
+                point.join(", "),
+                g.join(", "),
+                gamma.join(", ")
+            );
+        } else {
+            let cons = drv
+                .param()
+                .constraints_sampled(&x)
+                .expect("a checked design vector");
+            if cons.is_violated() {
+                let _ = write!(
+                    t,
+                    ", \"feasible\": false, \"reason\": \"manufacturability\", \
+                     \"constraint_violation_mm\": {}",
+                    num(cons.max_violation())
+                );
+            } else {
+                let a = drv
+                    .values(&x)
+                    .map_err(|e| std::io::Error::other(e.message))?;
+                assert_eq!(a.len(), k);
+                let worst = a.iter().fold(f64::NEG_INFINITY, |m, &v| m.max(v));
+                solves += k;
+                let _ = write!(
+                    t,
+                    ", \"feasible\": true, \"objective\": {}, \"worst_db\": {}, \"a\": [{}]",
+                    num(worst),
+                    num(10.0 * worst.max(f64::MIN_POSITIVE).log10()),
+                    a.iter().map(|&v| num(v)).collect::<Vec<_>>().join(", ")
+                );
+            }
+        }
+        let _ = writeln!(
+            t,
+            ", \"solves\": {}, \"wall_s\": {:.3}}}",
+            solves,
+            t0.elapsed().as_secs_f64()
+        );
+        out.write_all(t.as_bytes())?;
+        out.flush()?;
+    }
+    Ok(())
 }
