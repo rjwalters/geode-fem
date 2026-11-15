@@ -724,6 +724,14 @@ const MANIFEST: &[Entry] = &[
          -p geode-core --test tcda_baseline -- --include-ignored (issue #1536; the test asserts \
          the recorded sub-grid points, see benchmarks/tcda_baseline/README.md)",
     ),
+    a(
+        "benchmarks/tcda_design/results.toml",
+        "written by a release run of the TestBackend (f64) Design A min-max example: \
+         TCDA_DESIGN_MAX_ITER=30 TCDA_DESIGN_BUDGET_S=5400 TCDA_DESIGN_ACTIVE_MARGIN=0.15 \
+         cargo run --release -j2 -p geode-core --example tcda_design_run (issue #1579; the \
+         `the_recorded_design_run_reproduces_its_worst_case` pin in tests/tcda_design.rs \
+         re-solves three of its points, see benchmarks/tcda_design/README.md)",
+    ),
     // ---- Bucket B: exempt, no Burn backend in the numeric path ----------
     b(
         "benchmarks/soi_waveguide/results.toml",
