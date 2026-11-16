@@ -2229,6 +2229,120 @@ fn p2_pec_mask_rejects_an_edge_whose_w_and_q_disagree() {
 }
 
 #[test]
+fn p2_pec_mask_rejects_a_face_whose_phis_disagree() {
+    use geode_core::assembly::hcurl_space::HcurlSpace;
+    // Issue #1705: the p=2 `pec_interior_mask` parameter carries a face
+    // `(φ0, φ1)` pair per mesh face, exactly as it carries an edge `(W, Q)`
+    // pair (issue #1699). A mask eliminating a lone φ assembled fine and
+    // singularized the reduction far away, at `factor`, as
+    // `FloquetError::Solve("sparse LU of the Floquet system:
+    // SymbolicSingular { index: 607 }")` (measured 2026-11-16, face 194 of
+    // this cell, lone φ1; a lone φ0 factored fine — the same asymmetry the
+    // #1699 edge measurement saw between lone W and lone Q). Both are
+    // malformed PEC shapes: the shared assemble pre-check rejects a
+    // `(φ0, φ1)` pair whose mask values disagree, naming the face, before
+    // any port work.
+    let c = cell([2, 2, 4], [A_CELL, A_CELL, 0.2], 3);
+    let eps = vec![ONE; c.mesh.n_tets()];
+    let space = HcurlSpace::build(&c.mesh, ElementOrder::P2);
+    let coords = |f: &[u32; 3], k: usize| {
+        f.iter()
+            .map(|&v| c.mesh.nodes[v as usize][k])
+            .collect::<Vec<_>>()
+    };
+    // Library-built mask over an interior PEC plate (all mesh faces lying
+    // in the z = 0.1 mid-plane): the ports stay dielectric, and the centre
+    // face below — off the plate — is fully kept in the mask.
+    let tol = 1e-9;
+    let mid_wall: Vec<[u32; 3]> = space
+        .faces()
+        .iter()
+        .copied()
+        .filter(|f| coords(f, 2).iter().all(|&z| (z - 0.1).abs() < tol))
+        .collect();
+    assert!(!mid_wall.is_empty(), "the mid-plane carries mesh faces");
+    let mask0 = space.pec_interior_mask(&c.mesh, &[&mid_wall]).unwrap();
+    // An interior face near the cell centre: not paired by the periodic map
+    // (its phi DOFs are their own, not a slave copy), strictly off the two
+    // port planes, and not on the PEC mid-plane itself.
+    let centre = [A_CELL / 2.0, A_CELL / 2.0, 0.1];
+    let (face, _) = space
+        .faces()
+        .iter()
+        .enumerate()
+        .filter(|(gf, f)| {
+            c.map.face_alias(*gf).is_none()
+                && coords(f, 2).iter().all(|&z| z > tol && z < 0.2 - tol)
+                && !coords(f, 2).iter().all(|&z| (z - 0.1).abs() < tol)
+        })
+        .map(|(i, f)| {
+            let cen: [f64; 3] = std::array::from_fn(|k| coords(f, k).iter().sum::<f64>() / 3.0);
+            let d = ((cen[0] - centre[0]).powi(2)
+                + (cen[1] - centre[1]).powi(2)
+                + (cen[2] - centre[2]).powi(2))
+            .sqrt();
+            (i, d)
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .expect("an interior face");
+    let phi = space.face_dofs(face);
+    assert_eq!(phi.len(), 2, "p=2 face carries a DOF pair");
+    let (p0, p1) = (phi[0] as usize, phi[1] as usize);
+    assert!(
+        mask0[p0] && mask0[p1],
+        "centre face fully kept in the library mask"
+    );
+    let assemble_with = |mask: &[bool]| {
+        let spec = FloquetCellSpec {
+            eps_r: &eps,
+            sigma: None,
+            pec_interior_mask: Some(mask),
+            ports: [
+                FloquetPortSpec {
+                    triangles: &c.bottom,
+                    eps_r: 1.0,
+                },
+                FloquetPortSpec {
+                    triangles: &c.top,
+                    eps_r: 1.0,
+                },
+            ],
+            settings: FloquetSettings::default(),
+            element_order: ElementOrder::P2,
+        };
+        FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device())
+    };
+    // Lone φ0: rejected as a typed spec error naming the face.
+    let mut lone0 = mask0.clone();
+    lone0[p0] = false;
+    match assemble_with(&lone0) {
+        Err(FloquetError::InvalidSpec(m)) => {
+            assert!(
+                m.contains(&format!("face {face}")),
+                "the error names the malformed face {face}: {m}"
+            );
+        }
+        Err(e) => panic!("a lone-φ0 mask must be an InvalidSpec, got {e:?}"),
+        Ok(_) => panic!("a lone-φ0 mask assembled: the shape check did not fire"),
+    }
+    // Lone φ1: the shape check is symmetric.
+    let mut lone1 = mask0.clone();
+    lone1[p1] = false;
+    assert!(
+        matches!(assemble_with(&lone1), Err(FloquetError::InvalidSpec(_))),
+        "a lone-φ1 mask is rejected by the same check"
+    );
+    // The consistent (φ0, φ1) pair elimination still assembles and factors.
+    let mut pair = mask0.clone();
+    pair[p0] = false;
+    pair[p1] = false;
+    assemble_with(&pair)
+        .unwrap_or_else(|e| panic!("a pair-eliminated mask assembles: {e:?}"))
+        .factor(K0, [0.0; 3], 0.0)
+        .unwrap_or_else(|e| panic!("and factors: {e:?}"));
+}
+
+#[test]
 fn p2_radiator_scan_impedance_scans_through_the_rayleigh_anomaly() {
     use geode_core::assembly::hcurl_space::HcurlSpace;
     // Ground-plane radiator at p=2 (issue #1513 AC2 on the #1682 path):
