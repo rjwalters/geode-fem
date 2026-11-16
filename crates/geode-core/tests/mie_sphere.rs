@@ -93,38 +93,18 @@ const K0_REF: f64 = 2.0;
 
 type B = TestBackend;
 
-#[test]
-#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build; no panic observed within the cap; the faier fix is #920); runs in the release --ignored tier: cargo test -p geode-core --release --test mie_sphere -- --ignored"]
-fn mie_sphere_ground_mode_within_5_percent_of_analytic() {
+/// Shared FEM pipeline for the three acceptance tests in this file:
+/// load the sphere fixture, build the anisotropic UPML epsilon (issue
+/// #54 defaults: n = 1.5, σ₀ = 5.0, k₀_ref = `K0_REF`), assemble the
+/// Nédélec system, apply the PEC interior mask, and run the dense
+/// complex eigensolve for `spurious_dim + 10` eigenvalues. Returns the
+/// raw eigenvalue vector — spurious near-zero roots first; each caller
+/// applies the `1e-3 · max|λ|` filter downstream.
+fn solve_sphere_pml_pencil() -> Vec<faer::c64> {
     let device = <B as BackendTypes>::Device::default();
-
     let n_inside = 1.5;
     let sigma_0 = 5.0;
 
-    // 1. Analytic side: lowest TM/TE roots for l ∈ {1, 2, 3}.
-    let analytic = merged_roots(n_inside, &[1, 2, 3], R_SPHERE, R_BUFFER, 3);
-    assert!(!analytic.is_empty(), "analytic side produced no roots");
-
-    let ground = analytic
-        .iter()
-        .min_by(|a, b| a.k.partial_cmp(&b.k).unwrap())
-        .expect("at least one analytic root");
-    assert_eq!(ground.pol, MiePolarisation::TM);
-    assert_eq!(ground.l, 1);
-    assert_eq!(ground.n, 1);
-    assert!(
-        (ground.k - 1.18710).abs() < 1e-4,
-        "analytic TM_1,1 ground k = {} (expected ≈ 1.18710, issue #986)",
-        ground.k
-    );
-    eprintln!(
-        "analytic ground mode: TM_1,1 k = {:.5}, k² = {:.5}",
-        ground.k,
-        ground.k * ground.k
-    );
-
-    // 2. FEM side: assemble + reduce + complex eigensolve, using
-    //    the anisotropic UPML default (issue #54).
     let f = read_sphere_fixture().expect("fixture load");
     let centroids = tet_centroids(&f.mesh);
     let eps_aniso = build_anisotropic_pml_tensor_diag(
@@ -166,14 +146,45 @@ fn mie_sphere_ground_mode_within_5_percent_of_analytic() {
     let spurious_dim = sphere_n_interior_nodes(&f.mesh, R_BUFFER);
     let n_request = spurious_dim + 10;
 
-    let solver = FaerComplexEigensolver;
-    let lambdas = solver
+    FaerComplexEigensolver
         .smallest_complex_pencil_eigenvalues(
             k_int_complex.as_ref(),
             m_int_complex.as_ref(),
             n_request,
         )
-        .expect("complex eigensolve");
+        .expect("complex eigensolve")
+}
+
+#[test]
+#[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build; no panic observed within the cap; the faier fix is #920); runs in the release --ignored tier: cargo test -p geode-core --release --test mie_sphere -- --ignored"]
+fn mie_sphere_ground_mode_within_5_percent_of_analytic() {
+    let n_inside = 1.5;
+
+    // 1. Analytic side: lowest TM/TE roots for l ∈ {1, 2, 3}.
+    let analytic = merged_roots(n_inside, &[1, 2, 3], R_SPHERE, R_BUFFER, 3);
+    assert!(!analytic.is_empty(), "analytic side produced no roots");
+
+    let ground = analytic
+        .iter()
+        .min_by(|a, b| a.k.partial_cmp(&b.k).unwrap())
+        .expect("at least one analytic root");
+    assert_eq!(ground.pol, MiePolarisation::TM);
+    assert_eq!(ground.l, 1);
+    assert_eq!(ground.n, 1);
+    assert!(
+        (ground.k - 1.18710).abs() < 1e-4,
+        "analytic TM_1,1 ground k = {} (expected ≈ 1.18710, issue #986)",
+        ground.k
+    );
+    eprintln!(
+        "analytic ground mode: TM_1,1 k = {:.5}, k² = {:.5}",
+        ground.k,
+        ground.k * ground.k
+    );
+
+    // 2. FEM side: assemble + reduce + complex eigensolve, using
+    //    the anisotropic UPML default (issue #54).
+    let lambdas = solve_sphere_pml_pencil();
 
     // 3. Spurious filter and pick lowest physical mode.
     let max_abs = lambdas
@@ -243,60 +254,9 @@ fn mie_sphere_tm11_triplet_q_above_band() {
     // We use the median (not the mean) so a single outlier from
     // mesh asymmetry does not drag the assertion below the band.
 
-    let device = <B as BackendTypes>::Device::default();
-
     let n_inside = 1.5;
-    let sigma_0 = 5.0;
 
-    let f = read_sphere_fixture().expect("fixture load");
-    let centroids = tet_centroids(&f.mesh);
-    let eps_aniso = build_anisotropic_pml_tensor_diag(
-        &f.tet_physical_tags,
-        &centroids,
-        n_inside,
-        sigma_0,
-        K0_REF,
-    );
-
-    let edges = f.mesh.edges();
-    let n_edges = edges.len();
-    let (tet_idx, tet_sign) = f.mesh.tet_edge_tables();
-
-    let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device);
-    let sys = assemble_global_nedelec_with_anisotropic_epsilon(
-        nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &eps_aniso,
-    );
-
-    let (_mask_edges, interior_mask) = sphere_pec_interior_edges(&f.mesh, R_BUFFER);
-
-    let k_full = burn_matrix_to_faer(sys.k);
-    let m_complex_full = burn_complex_mass_to_faer(sys.m_re, sys.m_im);
-    let dummy_zero = faer::Mat::<f64>::zeros(k_full.nrows(), k_full.ncols());
-    let (k_int, _) = apply_dirichlet_bc(k_full.as_ref(), dummy_zero.as_ref(), &interior_mask)
-        .expect("BC reduction K");
-    let interior_idx: Vec<usize> = interior_mask
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &b)| if b { Some(i) } else { None })
-        .collect();
-    let dim = interior_idx.len();
-    let m_int_complex = faer::Mat::<faer::c64>::from_fn(dim, dim, |i, j| {
-        m_complex_full[(interior_idx[i], interior_idx[j])]
-    });
-    let k_int_complex =
-        faer::Mat::<faer::c64>::from_fn(dim, dim, |i, j| faer::c64::new(k_int[(i, j)], 0.0));
-
-    let spurious_dim = sphere_n_interior_nodes(&f.mesh, R_BUFFER);
-    let n_request = spurious_dim + 10;
-
-    let solver = FaerComplexEigensolver;
-    let lambdas = solver
-        .smallest_complex_pencil_eigenvalues(
-            k_int_complex.as_ref(),
-            m_int_complex.as_ref(),
-            n_request,
-        )
-        .expect("complex eigensolve");
+    let lambdas = solve_sphere_pml_pencil();
 
     // Spurious filter — same threshold as the other test.
     let max_abs = lambdas
@@ -405,11 +365,6 @@ fn mie_sphere_tm11_triplet_q_above_band() {
 #[test]
 #[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build; no panic observed within the cap; the faier fix is #920); runs in the release --ignored tier: cargo test -p geode-core --release --test mie_sphere -- --ignored"]
 fn mie_sphere_ground_mode_matches_open_space_wgm() {
-    let device = <B as BackendTypes>::Device::default();
-
-    let n_inside = 1.5;
-    let sigma_0 = 5.0;
-
     // 1. Open-space analytic ground truth: TM_1,1, the a_1 electric-dipole
     //    pole and the lowest root in the catalog — the same polarisation
     //    as the PEC-cavity TM_1,1 the FEM ground triplet pairs with above.
@@ -426,53 +381,7 @@ fn mie_sphere_ground_mode_matches_open_space_wgm() {
     );
 
     // 2. FEM eigensolve — identical machinery to the PEC test above.
-    let f = read_sphere_fixture().expect("fixture load");
-    let centroids = tet_centroids(&f.mesh);
-    let eps_aniso = build_anisotropic_pml_tensor_diag(
-        &f.tet_physical_tags,
-        &centroids,
-        n_inside,
-        sigma_0,
-        K0_REF,
-    );
-
-    let edges = f.mesh.edges();
-    let n_edges = edges.len();
-    let (tet_idx, tet_sign) = f.mesh.tet_edge_tables();
-
-    let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device);
-    let sys = assemble_global_nedelec_with_anisotropic_epsilon(
-        nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &eps_aniso,
-    );
-
-    let (_mask_edges, interior_mask) = sphere_pec_interior_edges(&f.mesh, R_BUFFER);
-    let k_full = burn_matrix_to_faer(sys.k);
-    let m_complex_full = burn_complex_mass_to_faer(sys.m_re, sys.m_im);
-    let dummy_zero = faer::Mat::<f64>::zeros(k_full.nrows(), k_full.ncols());
-    let (k_int, _) = apply_dirichlet_bc(k_full.as_ref(), dummy_zero.as_ref(), &interior_mask)
-        .expect("BC reduction K");
-    let interior_idx: Vec<usize> = interior_mask
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &b)| if b { Some(i) } else { None })
-        .collect();
-    let dim = interior_idx.len();
-    let m_int_complex = faer::Mat::<faer::c64>::from_fn(dim, dim, |i, j| {
-        m_complex_full[(interior_idx[i], interior_idx[j])]
-    });
-    let k_int_complex =
-        faer::Mat::<faer::c64>::from_fn(dim, dim, |i, j| faer::c64::new(k_int[(i, j)], 0.0));
-
-    let spurious_dim = sphere_n_interior_nodes(&f.mesh, R_BUFFER);
-    let n_request = spurious_dim + 10;
-
-    let lambdas = FaerComplexEigensolver
-        .smallest_complex_pencil_eigenvalues(
-            k_int_complex.as_ref(),
-            m_int_complex.as_ref(),
-            n_request,
-        )
-        .expect("complex eigensolve");
+    let lambdas = solve_sphere_pml_pencil();
 
     // Spurious filter + λ → k on principal branch.
     let max_abs = lambdas
