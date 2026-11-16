@@ -189,6 +189,7 @@ impl BaselineParts {
                 eps_r: 1.0,
             },
             FloquetSettings::default(),
+            ElementOrder::P1,
             &test_device(),
         )
         .map_err(|e| e.to_string())
