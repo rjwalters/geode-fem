@@ -21,7 +21,6 @@ mod scratch_support;
 
 use std::f64::consts::PI;
 use std::path::Path;
-use std::process::Output;
 
 use geode_core::constants::C_M_PER_S;
 use scratch_support::Scratch;
@@ -107,17 +106,7 @@ fn cube_msh(n: usize) -> String {
 
 #[path = "support/cli.rs"]
 mod cli_support;
-use cli_support::geode;
-
-fn json_of(out: &Output) -> Value {
-    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
-        panic!(
-            "not JSON ({e}): {}\nstderr: {}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        )
-    })
-}
+use cli_support::{error_of, geode, json};
 
 /// A scratch directory holding `cell.msh` (the unit cube, `n` cells a side).
 fn cell_dir(name: &str, n: usize) -> Scratch {
@@ -145,16 +134,7 @@ fn spec(bloch: Value) -> Value {
 }
 
 fn write_spec(dir: &Path, file: &str, v: &Value) -> String {
-    let path = dir.join(file);
-    std::fs::write(&path, serde_json::to_vec_pretty(v).unwrap()).unwrap();
-    path.display().to_string()
-}
-
-fn error_of(out: &Output, code: &str) -> String {
-    let v = json_of(out);
-    assert!(!out.status.success(), "expected failure: {v:#}");
-    assert_eq!(v["error"]["code"], code, "report: {v:#}");
-    v["error"]["message"].as_str().unwrap().to_string()
+    cli_support::write_spec(dir, file, v).display().to_string()
 }
 
 /// `f = k₀ c / (2π L)` for a unit length.
@@ -167,7 +147,7 @@ fn bloch_point_matches_the_empty_cell_light_line() {
     let dir = cell_dir("point", 6);
     let s = write_spec(&dir, "s.json", &spec(json!({"k": [PI, 0.0, 0.0]})));
     let out = geode(&["eigen", &s]);
-    let v = json_of(&out);
+    let v = json(&out);
     assert!(out.status.success(), "{v:#}");
     assert_eq!(v["kind"], "eigen");
     assert_eq!(v["modes"].as_array().unwrap().len(), 0);
@@ -220,9 +200,9 @@ fn given_and_inferred_translations_agree_and_one_axis_works() {
         "pec": ["y_lo", "y_hi", "z_lo", "z_hi"],
         "periodic": pairs(&["x"])
     });
-    let inferred = json_of(&geode(&["eigen", &write_spec(&dir, "a.json", &v)]));
+    let inferred = json(&geode(&["eigen", &write_spec(&dir, "a.json", &v)]));
     v["boundary_conditions"]["periodic"][0]["translation"] = json!([1.0, 0.0, 0.0]);
-    let given = json_of(&geode(&["eigen", &write_spec(&dir, "b.json", &v)]));
+    let given = json(&geode(&["eigen", &write_spec(&dir, "b.json", &v)]));
     assert_eq!(given["status"], "ok", "{given:#}");
     assert_eq!(given["periodic"]["pairs"][0]["translation_inferred"], false);
     assert_eq!(
@@ -245,7 +225,7 @@ fn gamma_point_returns_the_harmonic_fields_as_static_bands() {
     // (the three Γ harmonic fields sit at 0).
     v["eigen"]["shift"] = json!(0.5);
     let out = geode(&["eigen", &write_spec(&dir, "g.json", &v)]);
-    let r = json_of(&out);
+    let r = json(&out);
     assert!(out.status.success(), "{r:#}");
     let f = r["bands"]["rows"][0]["frequency_hz"].as_array().unwrap();
     assert_eq!(f.len(), 4);
@@ -269,7 +249,7 @@ fn bloch_path_reports_tracked_bands_with_group_velocity() {
         })),
     );
     let out = geode(&["eigen", &s]);
-    let v = json_of(&out);
+    let v = json(&out);
     assert!(out.status.success(), "{v:#}");
     let bands = &v["bands"];
     assert_eq!(bands["mode"], "path");
@@ -296,7 +276,7 @@ fn check_reports_the_pairing_before_solving() {
     let dir = cell_dir("check", 4);
     let s = write_spec(&dir, "c.json", &spec(json!({"k": [PI, 0.0, 0.0]})));
     let out = geode(&["check", &s]);
-    let v = json_of(&out);
+    let v = json(&out);
     assert!(out.status.success(), "{v:#}");
     assert_eq!(v["kind"], "check");
     assert_eq!(v["analysis"], "eigen");
@@ -442,7 +422,7 @@ fn specs_without_periodic_keys_are_unchanged() {
         "eigen": {"n_modes": 2, "unit": "k0", "shift": 3.0}
     });
     let out = geode(&["check", &write_spec(&dir, "plain.json", &v)]);
-    let r = json_of(&out);
+    let r = json(&out);
     assert!(out.status.success(), "{r:#}");
     assert!(r.get("periodic").is_none(), "{r:#}");
     assert!(r["eigen"].get("bloch").is_none(), "{r:#}");

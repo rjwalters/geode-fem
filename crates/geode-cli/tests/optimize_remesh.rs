@@ -32,7 +32,7 @@ const SLAB_EPS: [f64; 2] = [2.5, -0.05];
 
 #[path = "support/cli.rs"]
 mod cli_support;
-use cli_support::{geode, ok};
+use cli_support::{geode, ok, write_spec};
 
 /// The stderr of a failed run, asserting the error report's `code`.
 fn err(out: &Output, code: &str) -> String {
@@ -98,12 +98,6 @@ fn spec_on(mesh: &Path, edit: impl FnOnce(&mut Value)) -> Value {
     });
     edit(&mut v);
     v
-}
-
-fn write_spec(dir: &Path, name: &str, v: &Value) -> PathBuf {
-    let path = dir.join(name);
-    std::fs::write(&path, serde_json::to_string_pretty(v).unwrap()).unwrap();
-    path
 }
 
 /// The ladder: rung 0 (`spec.json`, slab 0.004 m on 6 cells) and three finer
