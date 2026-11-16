@@ -9,7 +9,6 @@ Everything between the markers below is regenerated; do not edit it by hand.
 Judge-approved PRs under a hold (`loom:blocked` or `loom:operator`) — only a human merge decision is missing.
 
 - **#1376**: feat: add default-on tensor feature so geode-core builds without burn/bunsen
-- **#1622**: refactor(tests): move the shared box tet mesher into geode_core::testing
 
 ## Very Important
 
@@ -22,6 +21,7 @@ Judge-approved PRs under a hold (`loom:blocked` or `loom:operator`) — only a h
 `loom:important`; taken before unlabelled work.
 
 - **#1683**: Floquet at p=2: port sensitivities and the p=2 shape-derivative dual (child 2/3 of #1660)
+- **#1713**: CI: integration a-m default-tier test step jumped 16min to >44min and now times out the 60-min job (2 consecutive runs)
 
 ## Ready
 
@@ -36,7 +36,7 @@ Human-approved issues ready for implementation (`loom:issue`).
 - **#1626**: Bring CHANGELOG [Unreleased] up to date with features merged since v0.9.0
 - **#1683**: Floquet at p=2: port sensitivities and the p=2 shape-derivative dual (child 2/3 of #1660)
 - **#1703**: CI: investigate the integration a-m build-step variance (17-23 min swing drives the job's 8-min spread)
-- **#1705**: p=2 Floquet: a caller-supplied PEC mask eliminating a lone face (bubble) DOF is still unvalidated
+- **#1713**: CI: integration a-m default-tier test step jumped 16min to >44min and now times out the 60-min job (2 consecutive runs)
 
 ## In Progress
 
@@ -44,11 +44,9 @@ Issues currently being built (`loom:building`).
 
 - **#1391**: Remove flex_precision_spike example and flex feature: spike #451/#374 closed
 - **#1546**: Remove complex_slice_to_vec: trivial to_vec wrapper in geode-util
-- **#1607**: Consolidate 7 duplicated box_mesh test meshers into one shared helper
 - **#1623**: Consolidate four copies of the Gauss-Legendre edge interpolant and its hand-typed quadrature table in geode-core tests
 - **#1634**: Consolidate the duplicated ICEM design-gradient machinery: 280 of icem_cp_design.rs's 429 lines are icem_design.rs renamed
-- **#1664**: Share the ICEM sweep report helpers between the icem_cp_gradient and icem_design_gradient examples (~100 lines)
-- **#1701**: Consolidate duplicated ok()/write_spec() CLI test helpers into tests/support/cli.rs
+- **#1705**: p=2 Floquet: a caller-supplied PEC mask eliminating a lone face (bubble) DOF is still unvalidated
 
 ## PRs Awaiting Review
 
@@ -59,14 +57,13 @@ PRs waiting on Judge (`loom:review-requested`).
 - **#1395**: test: share onnx/tfjava sphere-PEC harness body in common module
 - **#1489**: docs(papers): add GEODE-vs-Palace measured-performance section (transmon-benchmark.26)
 - **#1648**: docs: cover every feature merged since v0.9.0 in CHANGELOG [Unreleased]
-- **#1708**: test(geode-cli): hoist the remaining ok/write_spec copies onto support/cli.rs
+- **#1717**: feat(floquet): reject a PEC mask eliminating a lone face-DOF half at p=2
 
 ## Approved (Awaiting Merge)
 
 PRs that passed review and are queued for Champion auto-merge (`loom:pr`).
 
 - **#1376**: feat: add default-on tensor feature so geode-core builds without burn/bunsen
-- **#1622**: refactor(tests): move the shared box tet mesher into geode_core::testing
 
 ## Proposed
 
@@ -96,6 +93,7 @@ Issues carrying `loom:curated`.
 - **#1683**: Floquet at p=2: port sensitivities and the p=2 shape-derivative dual (child 2/3 of #1660) *(curated)*
 - **#1703**: CI: investigate the integration a-m build-step variance (17-23 min swing drives the job's 8-min spread) *(curated)*
 - **#1705**: p=2 Floquet: a caller-supplied PEC mask eliminating a lone face (bubble) DOF is still unvalidated *(curated)*
+- **#1713**: CI: integration a-m default-tier test step jumped 16min to >44min and now times out the 60-min job (2 consecutive runs) *(curated)*
 
 ## Proposed (Architect / Hermit)
 
@@ -122,14 +120,14 @@ Issues carrying `loom:curated`.
 
 | Bucket | Count |
 |------|-------|
-| Operator merge-risk holds | 2 |
+| Operator merge-risk holds | 1 |
 | Very important | 1 |
-| Important | 1 |
+| Important | 2 |
 | Ready (`loom:issue`) | 10 |
-| In Progress (`loom:building`) | 7 |
+| In Progress (`loom:building`) | 5 |
 | PRs awaiting review | 6 |
-| Approved PRs awaiting merge | 2 |
-| Curated | 24 |
+| Approved PRs awaiting merge | 1 |
+| Curated | 25 |
 | Architect / Hermit proposals | 9 |
 | Active epics | 6 |
 <!-- guide:plan-body:end -->
