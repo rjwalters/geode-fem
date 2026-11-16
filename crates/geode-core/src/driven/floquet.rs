@@ -1066,6 +1066,27 @@ impl FloquetCell {
                 order.degree()
             )));
         }
+        // A p=2 PEC edge is a `{W, Q}` pair (issue #1699): a mask that
+        // eliminates only one half leaves the edge's constraint split and
+        // singularizes the reduction far from the bad input, at `factor`,
+        // as a sparse-LU `SymbolicSingular`. The library-built
+        // [`HcurlSpace::pec_interior_mask`] always eliminates the pair
+        // together; a caller hand-building a mask gets a typed rejection
+        // naming the edge instead. p=1 edge DOFs are singletons and pass.
+        for e in 0..space.n_edges() {
+            let d = space.edge_dofs(e);
+            if let [w, q] = d
+                && mask[*w as usize] != mask[*q as usize]
+            {
+                let state = |kept: bool| if kept { "kept" } else { "eliminated" };
+                return Err(FloquetError::InvalidSpec(format!(
+                    "PEC mask treats edge {e}'s (W, Q) DOFs differently (W {}, Q {}): a p=2 \
+                     PEC edge must keep or eliminate both",
+                    state(mask[*w as usize]),
+                    state(mask[*q as usize])
+                )));
+            }
+        }
 
         let inputs = CellInputs { eps_r, sigma, mask };
         let ports: Vec<PortFace> = port_specs

@@ -2063,15 +2063,18 @@ fn p2_scan_impedance_rejects_an_out_of_range_feed_edge() {
 }
 
 #[test]
-fn p2_pec_eliminated_feed_edge_answers_none_regardless_of_the_q_dof() {
+fn p2_pec_eliminated_feed_edge_answers_none() {
     use geode_core::assembly::hcurl_space::HcurlSpace;
-    // Only W enters the feed (issue #1682), so a PEC-eliminated W answers
-    // `None` exactly as at p=1, whatever the state of the edge's Q DOF.
+    // Only W enters the feed (issue #1682), so a PEC-eliminated feed edge
+    // answers `None` exactly as at p=1. (Issue #1699: the edge's `{W, Q}`
+    // pair is eliminated together — a lone-half mask is a typed
+    // `InvalidSpec` at assemble, see
+    // `p2_pec_mask_rejects_an_edge_whose_w_and_q_disagree`.)
     let c = cell([2, 2, 4], [A_CELL, A_CELL, 0.2], 3);
     let eps = vec![ONE; c.mesh.n_tets()];
     let space = HcurlSpace::build(&c.mesh, ElementOrder::P2);
     // An interior feed edge through the cell centre: off the ports and the
-    // periodic boundary, so eliminating one of its DOFs is a plain local
+    // periodic boundary, so eliminating its `{W, Q}` pair is a plain local
     // constraint (eliminating a boundary-paired DOF on its own would
     // strand its periodic partner and singularize the reduction — that is
     // a property of the constraint, not of the feed).
@@ -2122,23 +2125,18 @@ fn p2_pec_eliminated_feed_edge_answers_none_regardless_of_the_q_dof() {
     };
     let mut w_pec = vec![true; space.n_dofs()];
     w_pec[w] = false;
-    assert_eq!(
-        drive(&w_pec),
-        None,
-        "a PEC-eliminated W answers None, Q free"
-    );
     w_pec[q] = false;
     assert_eq!(
         drive(&w_pec),
         None,
-        "Q's elimination state does not change it"
+        "a PEC-eliminated feed edge (both of the edge's DOFs) answers None"
     );
-    // Observed, out of scope (2026-11-16): eliminating a lone Q DOF while
-    // its edge's W stays free singularizes the p=2 reduction
-    // (`SymbolicSingular`) — a property of the periodic constraint on the
-    // gradient DOFs, not of the feed. The shipped
-    // [`HcurlSpace::pec_interior_mask`] always eliminates `{W, Q}` together,
-    // so no real path constructs that mask.
+    // Issue #1699: a mask eliminating only one of an edge's `{W, Q}` pair
+    // used to assemble fine and singularize the p=2 reduction at `factor`
+    // as a sparse-LU `SymbolicSingular`. The shared assemble pre-check now
+    // rejects it with `FloquetError::InvalidSpec` naming the edge, so a
+    // PEC feed edge is always pair-eliminated, as
+    // [`HcurlSpace::pec_interior_mask`] builds it.
 }
 
 #[test]
