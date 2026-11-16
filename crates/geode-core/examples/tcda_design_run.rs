@@ -84,24 +84,8 @@ use geode_core::testing::{TestBackend, test_device};
 use geode_optimize::{Bounds, Control, MinMaxPoints, Mma, MmaOptions, Optimizer, StopCriteria};
 use geode_util::fixture::BackendInfo;
 
-use tcda_baseline::{BaselineParams, GridPoint, ScanGrid, WorstCase, max_gamma_active};
+use tcda_baseline::{GridPoint, RECORDED as P, ScanGrid, WorstCase, Z_REF, max_gamma_active};
 use tcda_design::{ConstrainedEpigraph, MM_PER_UNIT, ParamSpec, ScanPoint, TcdaDesign};
-
-/// The recorded baseline element (identical to `tcda_baseline.rs`'s `P`).
-const P: BaselineParams = BaselineParams {
-    pitch: 0.9,
-    half_len: 0.39,
-    strip_cells: 2,
-    n: 14,
-    dz: 0.125,
-    l_dip: 4,
-    l_sub: 2,
-    l_air: 2,
-    eps_sub: 2.0,
-};
-
-/// Feed-line reference impedance of the recorded baseline.
-const Z_REF: f64 = 0.15;
 
 /// The recorded baseline worst case (`benchmarks/tcda_baseline/README.md`).
 const BASELINE_WORST_DB: f64 = -3.50;
