@@ -5,6 +5,10 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-16
 
+- **PR #1707**: test(geode-core): tie mie_sphere FEM and analytic indices to a shared N_INSIDE const
+- **PR #1704**: fix: reject a lone-half p=2 Floquet PEC mask as InvalidSpec naming the edge
+- **Issue #1699** (closed): p=2 Floquet: a caller-supplied PEC mask that eliminates a lone Q DOF fails as SymbolicSingular, not a typed error
+- **Issue #1696** (closed): Promote mie_sphere.rs n_inside to a module const (helper/caller literal split)
 - **PR #1702**: ci: raise integration a-m job timeout 45 to 60 with measured-range comment
 - **PR #1698**: test(geode-cli): consolidate json_of/error_of/write_spec onto support/cli.rs
 - **PR #1697**: refactor: hoist duplicated tcda baseline P and Z_REF consts into the shared module
