@@ -5,6 +5,8 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-16
 
+- **Issue #1701** (closed): Consolidate duplicated ok()/write_spec() CLI test helpers into tests/support/cli.rs
+- **PR #1708**: test(geode-cli): hoist the remaining ok/write_spec copies onto support/cli.rs
 - **PR #1707**: test(geode-core): tie mie_sphere FEM and analytic indices to a shared N_INSIDE const
 - **PR #1704**: fix: reject a lone-half p=2 Floquet PEC mask as InvalidSpec naming the edge
 - **Issue #1699** (closed): p=2 Floquet: a caller-supplied PEC mask that eliminates a lone Q DOF fails as SymbolicSingular, not a typed error
