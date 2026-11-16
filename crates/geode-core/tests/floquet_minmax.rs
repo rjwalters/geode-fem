@@ -237,6 +237,8 @@ impl Ppw {
                 m: 1,
             },
             settings: FloquetSettings::default(),
+
+            element_order: ElementOrder::P1,
         };
         FloquetCell::assemble_array::<B>(&self.mesh, &self.map, &spec, &device()).unwrap()
     }

@@ -36,6 +36,7 @@ use geode_core::eigen::sensitivity::{
 };
 use geode_core::elements::ElementOrder;
 use geode_core::mesh::TetMesh;
+use geode_core::testing::mesh::box_mesh;
 
 type B = NdArray<f64, i32>;
 
@@ -43,52 +44,6 @@ const BOX: [f64; 3] = [1.0, 0.8, 0.6];
 
 fn device() -> <B as BackendTypes>::Device {
     <B as BackendTypes>::Device::default()
-}
-
-/// Structured box `[0, len]` with `n` cells per axis, 6 tets per hex.
-fn box_mesh(n: [usize; 3], len: [f64; 3]) -> TetMesh {
-    let np = [n[0] + 1, n[1] + 1, n[2] + 1];
-    let idx = |i: usize, j: usize, k: usize| (i + j * np[0] + k * np[0] * np[1]) as u32;
-    let mut nodes = Vec::new();
-    for k in 0..np[2] {
-        for j in 0..np[1] {
-            for i in 0..np[0] {
-                nodes.push([
-                    len[0] * i as f64 / n[0] as f64,
-                    len[1] * j as f64 / n[1] as f64,
-                    len[2] * k as f64 / n[2] as f64,
-                ]);
-            }
-        }
-    }
-    let mut tets = Vec::new();
-    for k in 0..n[2] {
-        for j in 0..n[1] {
-            for i in 0..n[0] {
-                let q = [
-                    idx(i, j, k),
-                    idx(i + 1, j, k),
-                    idx(i + 1, j + 1, k),
-                    idx(i, j + 1, k),
-                    idx(i, j, k + 1),
-                    idx(i + 1, j, k + 1),
-                    idx(i + 1, j + 1, k + 1),
-                    idx(i, j + 1, k + 1),
-                ];
-                tets.push([q[0], q[1], q[2], q[6]]);
-                tets.push([q[0], q[2], q[3], q[6]]);
-                tets.push([q[0], q[3], q[7], q[6]]);
-                tets.push([q[0], q[7], q[4], q[6]]);
-                tets.push([q[0], q[4], q[5], q[6]]);
-                tets.push([q[0], q[5], q[1], q[6]]);
-            }
-        }
-    }
-    TetMesh {
-        nodes,
-        tets,
-        physical_groups: Default::default(),
-    }
 }
 
 fn box_faces(mesh: &TetMesh, len: [f64; 3]) -> Vec<[u32; 3]> {

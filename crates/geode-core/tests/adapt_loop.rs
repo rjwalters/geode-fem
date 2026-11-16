@@ -32,7 +32,7 @@
 //!     estimator carries its sheet term.
 
 mod common;
-use common::box_fixtures::box_mesh_with;
+use common::box_fixtures::{box_mesh_with, fit_slope};
 
 use std::sync::Mutex;
 use std::time::Instant;
@@ -119,18 +119,6 @@ fn tet_volume(v: &[[f64; 3]; 4]) -> f64 {
 // ---------------------------------------------------------------------------
 // Convergence helpers
 // ---------------------------------------------------------------------------
-
-/// Least-squares slope of `ln y` against `ln x`.
-fn loglog_slope(x: &[f64], y: &[f64]) -> f64 {
-    let lx: Vec<f64> = x.iter().map(|v| v.ln()).collect();
-    let ly: Vec<f64> = y.iter().map(|v| v.ln()).collect();
-    let n = lx.len() as f64;
-    let mx = lx.iter().sum::<f64>() / n;
-    let my = ly.iter().sum::<f64>() / n;
-    let sxx: f64 = lx.iter().map(|v| (v - mx) * (v - mx)).sum();
-    let sxy: f64 = lx.iter().zip(&ly).map(|(a, b)| (a - mx) * (b - my)).sum();
-    sxy / sxx
-}
 
 /// DOFs at which the curve `(n, err)` first reaches `target`, by log-log
 /// interpolation between the bracketing levels.
@@ -270,12 +258,12 @@ fn golden1_thick_l_eigen_adaptive_beats_uniform() {
         .iter()
         .position(|&n| n >= 2000.0)
         .expect("adaptive passes 2000 DOFs");
-    let rate_a = -loglog_slope(&na[a0..], &ea[a0..]);
-    let rate_u = -loglog_slope(&nu[2..], &eu[2..]);
+    let rate_a = -fit_slope(&na[a0..], &ea[a0..]);
+    let rate_u = -fit_slope(&nu[2..], &eu[2..]);
     let eta_a: Vec<f64> = ad.history.iter().map(|h| h.eta_rel).collect();
     let eta_u: Vec<f64> = un.history.iter().map(|h| h.eta_rel).collect();
-    let eta_rate_a = -loglog_slope(&na[a0..], &eta_a[a0..]);
-    let eta_rate_u = -loglog_slope(&nu[2..], &eta_u[2..]);
+    let eta_rate_a = -fit_slope(&na[a0..], &eta_a[a0..]);
+    let eta_rate_u = -fit_slope(&nu[2..], &eta_u[2..]);
     let fine_u = *eu.last().unwrap();
     let n_u = *nu.last().unwrap();
     let n_a = dofs_to_reach(&na, &ea, fine_u).expect("adaptive reaches the uniform error");
@@ -589,8 +577,8 @@ fn golden2_thick_l_driven_singular_adaptive_beats_uniform() {
         .iter()
         .position(|&n| n >= 2000.0)
         .expect("adaptive passes 2000 DOFs");
-    let rate_a = -loglog_slope(&na[a0..], &ea2[a0..]);
-    let rate_u = -loglog_slope(&nu[2..], &eu2[2..]);
+    let rate_a = -fit_slope(&na[a0..], &ea2[a0..]);
+    let rate_u = -fit_slope(&nu[2..], &eu2[2..]);
     let fine_u = *eu2.last().unwrap();
     let n_u = *nu.last().unwrap();
     let n_a = dofs_to_reach(&na, &ea2, fine_u).expect("adaptive reaches the uniform error");
@@ -748,8 +736,8 @@ fn golden3_smooth_cube_adaptive_not_worse_than_uniform() {
         eprintln!("  level {i}: {n} DOFs, rel energy error {e:.4e}");
     }
     let u0 = nu.iter().position(|&n| n >= 1000.0).unwrap();
-    let rate_a = -loglog_slope(&na, &ea);
-    let rate_u = -loglog_slope(&nu[u0..], &eu[u0..]);
+    let rate_a = -fit_slope(&na, &ea);
+    let rate_u = -fit_slope(&nu[u0..], &eu[u0..]);
     eprintln!(
         "golden3: worst adaptive/uniform error ratio at matched DOFs {worst:.3}; rates over \
          [1000, {n_max}] DOFs adaptive {rate_a:.3}, uniform {rate_u:.3} (theory 1/3)"

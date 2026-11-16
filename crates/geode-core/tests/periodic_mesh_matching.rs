@@ -375,20 +375,18 @@ fn renumbering_exercises_reversed_orientations() {
     );
 }
 
-/// p=2 + periodic is a typed `Unsupported` error (constraint and driven
-/// operator), never a silently wrong p=1 map applied to p=2 DOFs.
+/// p=2 + periodic is a typed `Unsupported` error for the **driven
+/// operator** (issue #1628 wires only the constraint and the Floquet cell),
+/// never a silently wrong p=1 map applied to p=2 DOFs. The constraint
+/// itself builds at p=2 (its own golden follows).
 #[test]
-fn p2_periodic_is_unsupported() {
+fn p2_periodic_driven_operator_is_unsupported() {
     let mut mesh = cube_tet_mesh(2, 1.0);
     let pairs = box_periodic_pairs(&mesh, &[0]);
     let map = PeriodicMap::build(&mut mesh, &pairs, &opts()).unwrap();
     let p2 = HcurlSpace::build(&mesh, ElementOrder::P2);
-    assert!(matches!(
-        PeriodicConstraint::build(&p2, &map, None),
-        Err(PeriodicError::Unsupported { .. })
-    ));
 
-    // A p=2 driven operator under a (p=1) constraint is rejected as well.
+    // A p=2 driven operator under a (p=1) constraint is rejected.
     let p1 = HcurlSpace::build(&mesh, ElementOrder::P1);
     let c = PeriodicConstraint::build(&p1, &map, None).unwrap();
     let mask = p2.pec_interior_mask(&mesh, &[]).unwrap();
@@ -413,6 +411,159 @@ fn p2_periodic_is_unsupported() {
         .err()
         .expect("p=2 must be rejected");
     assert!(matches!(err, PeriodicError::Unsupported { .. }), "{err:?}");
+}
+
+/// The p=2 constraint (issue #1628): the edge `(W, Q)` 2-diagonal and the
+/// face `(φ0, φ1)` 2×2 blocks pair every periodic DOF onto its master's
+/// pair, `check_gradient_commutes` holds (including the P2-scalar gradient
+/// columns), and expand/reduce round-trips Bloch-phased vectors.
+#[test]
+fn p2_constraint_pairs_blocks_and_gradient_commutes() {
+    // A renumbered mesh: the orientation-reversed edge aliases (σ = −1) and
+    // the non-identity face relabellings are live.
+    let mut mesh = renumber(&cube_tet_mesh(2, 1.0), 11);
+    let pairs = box_periodic_pairs(&mesh, &[0, 1]);
+    let map = PeriodicMap::build(&mut mesh, &pairs, &opts()).unwrap();
+    let space = HcurlSpace::build(&mesh, ElementOrder::P2);
+    let c = PeriodicConstraint::build(&space, &map, None).unwrap();
+
+    let n_e = space.n_edges();
+    let n_f = space.n_faces();
+    assert_eq!(c.order(), ElementOrder::P2);
+    assert_eq!(c.n_full(), 2 * n_e + 2 * n_f);
+    assert_eq!(c.report().n_eliminated, 0);
+    assert_eq!(c.report().n_one_sided_pec, 0);
+    // Reduced H(curl) DOFs: every master keeps both slots, every aliased
+    // DOF maps onto its master's slot.
+    assert_eq!(
+        c.n_reduced(),
+        c.n_full() - c.report().n_aliased,
+        "two DOFs per aliased class member"
+    );
+    // The scalar map covers nodes + edge bubbles.
+    assert_eq!(c.nodes().n_full(), space.n_nodes() + n_e);
+
+    // The gradient: `G P_node = P_edge G_r` exactly, zero phase and Bloch.
+    assert_eq!(c.check_gradient_commutes(), 0.0, "zero phase");
+    for k in [[0.3, 0.4, 0.0], [1.0, 0.0, 0.0]] {
+        let ck = c.with_bloch_phase(k);
+        assert!(ck.has_complex_phase(), "k = {k:?}");
+        let worst = ck.check_gradient_commutes();
+        assert!(worst < 1e-12, "Bloch k = {k:?}: {worst}");
+    }
+
+    // Round trip: expanding a known reduced vector produces a field that
+    // satisfies the periodic class relations of the map on every DOF —
+    // master copy, aliased copy, Bloch phase and all (`PᴴP` itself is not
+    // the identity when a class has two members, so the honest check is
+    // the field relation, not expand∘reduce = id). This fixture has no
+    // eliminated DOFs; the eliminated-DOFs-stay-zero check lives where
+    // they exist, in `p2_one_sided_pec_counts_classes_not_dofs`.
+    let k = [0.7, 1.3, 0.0];
+    let ck = c.with_bloch_phase(k);
+    let mut hits = 0usize;
+    for col in 0..c.n_reduced() {
+        let mut x_r = vec![c64::new(0.0, 0.0); c.n_reduced()];
+        x_r[col] = c64::new(1.0, 0.0);
+        let full = c.expand(&x_r);
+        let fullk = ck.expand(&x_r);
+        let phase = |d: [f64; 3]| {
+            let th = k[0] * d[0] + k[1] * d[1] + k[2] * d[2];
+            c64::new(th.cos(), -th.sin())
+        };
+        for ge in 0..n_e {
+            if let Some(a) = map.edge_alias(ge) {
+                let ph = phase(a.shift);
+                assert_eq!(fullk[2 * ge], ph * f64::from(a.sign) * full[2 * a.master]);
+                assert_eq!(fullk[2 * ge + 1], ph * full[2 * a.master + 1]);
+                hits += 1;
+            }
+        }
+        for gf in 0..n_f {
+            if let Some(a) = map.face_alias(gf)
+                && a.master != gf
+            {
+                let ph = phase(a.shift);
+                let t = geode_core::assembly::hcurl_space::HcurlSpace::face_dof_transform(
+                    a.master_vertex,
+                );
+                let det = t[0][0] * t[1][1] - t[0][1] * t[1][0];
+                let s = [
+                    [t[1][1] / det, -t[1][0] / det],
+                    [-t[0][1] / det, t[0][0] / det],
+                ];
+                let m0 = 2 * n_e + 2 * a.master;
+                for slot in 0..2 {
+                    let want = ph * (s[slot][0] * full[m0] + s[slot][1] * full[m0 + 1]);
+                    assert_eq!(fullk[2 * n_e + 2 * gf + slot], want);
+                    hits += 1;
+                }
+            }
+        }
+    }
+    assert!(hits > 0, "the renumbered mesh has aliased classes");
+
+    // The real reduced gradient exists at the p=2 shapes.
+    let gr = c.reduced_gradient();
+    assert_eq!(gr.nrows(), c.n_reduced());
+    assert_eq!(gr.ncols(), c.nodes().n_reduced());
+}
+
+/// One-sided PEC at p=2 (issue #1628 edge case): a wall on one master-face
+/// triangle only eliminates both copies of the triangle's three edge
+/// classes (counted **once** each, not once per `(W, Q)` DOF) and of the
+/// face class, with the warning.
+#[test]
+fn p2_one_sided_pec_counts_classes_not_dofs() {
+    let mut mesh = cube_tet_mesh(2, 1.0);
+    let pairs = box_periodic_pairs(&mesh, &[0]);
+    let map = PeriodicMap::build(&mut mesh, &pairs, &opts()).unwrap();
+    let space = HcurlSpace::build(&mesh, ElementOrder::P2);
+    // PEC on one master-face triangle only.
+    let wall = [pairs[0].master[0]];
+    let mask = space.pec_interior_mask(&mesh, &[&wall]).unwrap();
+    let c = PeriodicConstraint::build(&space, &map, Some(&mask)).unwrap();
+    assert_eq!(
+        c.report().n_one_sided_pec,
+        4,
+        "3 edge classes + the face class"
+    );
+    let w = c.warnings();
+    assert_eq!(w.len(), 1, "{w:?}");
+    // Both DOFs of every PEC-class member are gone: the 3 wall edges and
+    // their slaves (W + Q each) and the wall face + its slave (φ0 + φ1).
+    let n_wall_edges = (0..space.n_edges()).filter(|&ge| !mask[2 * ge]).count();
+    assert_eq!(n_wall_edges, 3);
+    assert_eq!(
+        c.report().n_eliminated,
+        2 * (2 * n_wall_edges) + 2 * 2,
+        "6 edge DOFs per copy pair, 2 face DOFs per copy pair"
+    );
+    // And the p=2 gradient still commutes with PEC eliminations in place.
+    assert_eq!(c.check_gradient_commutes(), 0.0);
+
+    // The eliminated DOFs are forced to exactly zero: expand an arbitrary
+    // reduced vector and check every DOF the constraint reports as
+    // eliminated comes back zero — and that the aliases account for the
+    // whole report.
+    let mut x_r = vec![c64::new(0.0, 0.0); c.n_reduced()];
+    for (i, x) in x_r.iter_mut().enumerate() {
+        let t = i as f64;
+        *x = c64::new(0.5 * t + 1.0, -0.25 * t - 0.5);
+    }
+    let full = c.expand(&x_r);
+    let mut n_eliminated = 0usize;
+    for (i, &v) in full.iter().enumerate() {
+        if matches!(c.alias(i), DofAlias::Eliminated) {
+            assert_eq!(v, c64::new(0.0, 0.0), "eliminated DOF {i} not zero");
+            n_eliminated += 1;
+        }
+    }
+    assert_eq!(
+        n_eliminated,
+        c.report().n_eliminated,
+        "every eliminated DOF is covered by an alias"
+    );
 }
 
 /// One-sided PEC (a master edge PEC, its slave not): both copies are

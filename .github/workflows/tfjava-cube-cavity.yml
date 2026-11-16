@@ -52,9 +52,7 @@ on:
     branches: [main]
     paths:
       - 'reference/tf_java/**'
-      - 'reference/driver/eigensolve_from_tfjava.py'
       - 'reference/driver/eigensolve_from_sidecar.py'
-      - 'reference/driver/eigensolve_sphere_pec_sidecar.py'
       - 'reference/driver/compare_eigenvalues.py'
       - 'reference/driver/emit_numpy_eigenvalues.py'
       - 'reference/numpy/cube_cavity_minimal.py'
@@ -79,9 +77,7 @@ on:
     branches: [main]
     paths:
       - 'reference/tf_java/**'
-      - 'reference/driver/eigensolve_from_tfjava.py'
       - 'reference/driver/eigensolve_from_sidecar.py'
-      - 'reference/driver/eigensolve_sphere_pec_sidecar.py'
       - 'reference/driver/compare_eigenvalues.py'
       - 'reference/driver/emit_numpy_eigenvalues.py'
       - 'reference/numpy/cube_cavity_minimal.py'
@@ -197,8 +193,10 @@ jobs:
       - name: Run SciPy eigensolve over the TF-Java sidecar
         working-directory: reference/tf_java/cube_cavity
         run: |
-          python3 ../../driver/eigensolve_from_tfjava.py \
+          python3 ../../driver/eigensolve_from_sidecar.py \
               target/out/reduced_kM.json \
+              --backend tfjava \
+              --problem cube-cavity \
               --k 5 \
               --out target/out/eigenresult_tfjava.json
           cat target/out/eigenresult_tfjava.json
@@ -326,8 +324,10 @@ jobs:
         # applies the d⁰-rank spurious filter (n_spurious=368 from baseline.json),
         # and compares to reference/fixtures/sphere_pec/baseline.json.
         run: |
-          python3 reference/driver/eigensolve_sphere_pec_sidecar.py \
+          python3 reference/driver/eigensolve_from_sidecar.py \
               reference/tf_java/sphere_pec/target/out/reduced_kM_sphere_pec.json \
+              --backend tfjava \
+              --problem sphere-pec \
               --k 5 \
               --baseline reference/fixtures/sphere_pec/baseline.json \
               --rtol "${SPHERE_RTOL}" \

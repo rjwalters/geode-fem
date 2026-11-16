@@ -3,6 +3,98 @@
 Chronological record of merged pull requests and closed issues, newest first.
 Maintained automatically by the Loom Guide role; entries are appended, never edited.
 
+### 2026-11-16
+
+- **Issue #1701** (closed): Consolidate duplicated ok()/write_spec() CLI test helpers into tests/support/cli.rs
+- **PR #1708**: test(geode-cli): hoist the remaining ok/write_spec copies onto support/cli.rs
+- **PR #1707**: test(geode-core): tie mie_sphere FEM and analytic indices to a shared N_INSIDE const
+- **PR #1704**: fix: reject a lone-half p=2 Floquet PEC mask as InvalidSpec naming the edge
+- **Issue #1699** (closed): p=2 Floquet: a caller-supplied PEC mask that eliminates a lone Q DOF fails as SymbolicSingular, not a typed error
+- **Issue #1696** (closed): Promote mie_sphere.rs n_inside to a module const (helper/caller literal split)
+- **PR #1702**: ci: raise integration a-m job timeout 45 to 60 with measured-range comment
+- **PR #1698**: test(geode-cli): consolidate json_of/error_of/write_spec onto support/cli.rs
+- **PR #1697**: refactor: hoist duplicated tcda baseline P and Z_REF consts into the shared module
+- **PR #1695**: feat(geode-core): make the Floquet delta-gap feed and radiator cell order-generic
+- **PR #1693**: test: extract shared sphere PML eigensolve helper in mie_sphere tests
+- **PR #1691**: test: tighten the p=2 Floquet golden bound from a measurement; assert eliminated DOFs expand to zero
+- **PR #1690**: docs: fix tcda_design eval-server error contract and README budget arithmetic
+- **PR #1688**: test: run the PPW array H-plane scan golden at p=1 and p=2
+- **PR #1680**: ci: assert apt Gmsh is 4.12.x in both arpack geode-cli install steps
+- **PR #1675**: feat: run driven sensitivities under sweep.adaptive with full-order bypass gradients
+- **PR #1671**: refactor: share derham julia/numpy harness body via tests/common/derham_ref.rs
+- **PR #1663**: test: share the truncated-slab fixture via tests/common/slab_fixture.rs
+- **PR #1661**: test: point geode-core convergence tests at the shared fit_slope
+- **PR #1624**: refactor: move inline test modules of five large geode-core files into tests.rs children
+- **Issue #1700** (closed): CI: integration targets a-m job is approaching its 45-minute cap
+- **Issue #1689** (closed): Hoist duplicated tcda baseline P and Z_REF constants into the shared tcda_baseline common module
+- **Issue #1687** (closed): Consolidate triplicated FEM pipeline in mie_sphere.rs tests (~100 LOC)
+- **Issue #1685** (closed): Consolidate six duplicated tet barycentric-gradient helpers
+- **Issue #1684** (closed): Floquet at p=2: an array / active-reflection golden at p=2 (child 3/3 of #1660)
+- **Issue #1682** (closed): Floquet at p=2: the lumped delta-gap feed and the radiator cell element order (child 1/3 of #1660)
+- **Issue #1681** (closed): Harden the p=2 Floquet/periodic tests: defend the quoted golden accuracy and fix a vacuous assertion
+- **Issue #1677** (closed): benchmarks/tcda_design docs: eval-server error contract contradicts the code, and two README budget-arithmetic claims contradict their cited numbers
+- **Issue #1672** (closed): CI: fail fast when the apt Gmsh version drifts off the measured-green 4.12.x on the arpack geode-cli jobs
+- **Issue #1667** (closed): Consolidate derham julia/numpy reference harness bodies into a shared module
+- **Issue #1650** (closed): Consolidate the truncated-slab fixture copied between london_surface_impedance.rs and leontovich_surface_impedance.rs (~85 lines)
+- **Issue #1642** (closed): Consolidate json_of/error_of/write_spec in geode-cli tests: the helpers #1610 did not enumerate (~89 lines)
+- **Issue #1627** (closed): [#841 P4] Sensitivities with sweep.adaptive: full-order bypass at named frequencies
+- **Issue #1616** (closed): Point four differently named log-log slope fits in geode-core tests at the shared fit_slope
+- **Issue #1613** (closed): Move inline test modules out of five 3,000+-line geode-core source files into tests.rs child modules (5,655 lines)
+- **PR #1659**: refactor: share the p=1/p=2 dielectric raw-candidate post-assembly tail
+- **PR #1631**: test(geode-cli): move duplicated integration-test helpers onto support/
+- **Issue #1655** (closed): Consolidate the p=1/p=2 dielectric raw-candidate solvers: 70 identical lines differ only in the assembler call (~55 lines)
+- **Issue #1610** (closed): Dedupe byte-identical test helpers in geode-cli integration tests onto the shared support modules (~395 lines)
+
+### 2026-11-15
+
+- **PR #1679**: refactor: add TetMesh::tet_edge_tables, replace the inlined tet_edges idx/sign splits (~390 lines)
+- **PR #1678**: test: dedupe composed UPML+port FD gradient gate into shared helper
+- **PR #1674**: feat: MMA-vs-CMA-ES comparison at 52/100/200 params on the Design A element
+- **PR #1638**: refactor(tests): share the PML fiber-benchmark harness via common/fiber_pml_benchmark
+- **PR #1673**: refactor: consolidate the patch_diffopt driven-S11 model into tests/common
+- **PR #1669**: refactor: share cube-cavity jax/onnx baseline harness body in tests/common
+- **PR #1668**: refactor: share patch-antenna sweep helper, committed-TOML loader and constants across patch_antenna tests
+- **PR #1665**: refactor(reference): retire eigensolve shim wrappers, call eigensolve_from_sidecar.py directly
+- **PR #1658**: feat: assemble the Floquet cell on the order-generic H(curl) space (p=2)
+- **PR #1657**: ci: pin geode-cli arpack jobs to ubuntu-24.04 for the measured-green Gmsh 4.12.x
+- **PR #1643**: refactor: route five tet barycentric-gradient copies through one definition
+- **PR #1641**: refactor: route four transmon solves through reduced_transmon_system
+- **PR #1640**: refactor(geode-core): move hybrid port report model and state machine to sibling modules
+- **PR #1637**: refactor: drop extraction.rs's duplicate dense complex inverse for the shared one
+- **PR #1608**: refactor: split eigen/ams.rs into ams.rs, ams/tests.rs and eigen/amg.rs
+- **Issue #1676** (closed): benchmarks/tcda_design/README.md: two budget-arithmetic claims in the #1580 comparison contradict their own cited numbers
+- **Issue #1670** (closed): Consolidate the composed UPML+port FD gradient gate duplicated between shape.rs and mesh/patch.rs tests (~170 lines)
+- **Issue #1654** (closed): Add TetMesh::tet_edge_tables and replace ~57 inlined idx/sign splits of tet_edges() (~350 lines)
+- **Issue #1635** (closed): Consolidate the duplicated PML fiber-benchmark harness: high_contrast_fiber_benchmark.rs is a git-recorded copy of step_index_fiber_benchmark.rs (174 of 192 lines)
+- **Issue #1580** (closed): [#1537 P4c-3] Design A: adjoint vs CMA-ES at three parameter counts
+- **Issue #1656** (closed): Consolidate duplicated jax/onnx cube-cavity reference harnesses: cube_cavity_onnx_reference.rs mirrors the jax one (~120 lines)
+- **Issue #1653** (closed): Consolidate the driven-S11 shape-adjoint Model/build_model copied between patch_diffopt example and test
+- **Issue #1652** (closed): Share the patch_antenna sweep helper, committed-TOML loader and constants across patch_antenna tests (~140 lines)
+- **Issue #1646** (closed): Finish the eigensolve-shim deprecation: retire the three reference/driver wrappers and call eigensolve_from_sidecar.py directly
+- **Issue #1636** (closed): Split driven/ports/hybrid.rs (4,292 lines): move the report/warning data model and the mode-tracking state machine into sibling modules
+- **Issue #1633** (closed): Consolidate the duplicated dense complex inverse: extraction.rs invert_complex is byte-identical to ports::wave::invert_complex_dense
+- **Issue #1632** (closed): CI: geode-cli cookbook + mesh_static gmsh boolean failures red on main (BOPAlgo_AlertTooFewArguments)
+- **Issue #1628** (closed): Floquet cell at p=2: build FloquetCell on the order-generic H(curl) space
+- **Issue #1612** (closed): Consolidate six copies of the tet barycentric-gradient formula onto tet_barycentric_gradients
+- **Issue #1609** (closed): Consolidate 4 inlined copies of the transmon reduced-system preamble onto the existing reduced_transmon_system helper
+- **Issue #1595** (closed): Split eigen/ams.rs (4,218 lines): move inline tests to ams/tests.rs and the scalar AMG to eigen/amg.rs
+
+### 2026-11-14
+
+- **PR #1618**: ci: compile-gate geode-core example targets
+- **PR #1615**: feat(benchmarks): record the Design A min-max run and its kill-criterion verdict
+- **PR #1614**: ci: add jax-sphere-pec drift gate for the sphere-PEC JAX snapshot
+- **PR #1606**: refactor: keep one definition of eight helpers duplicated across geode-core
+- **PR #1605**: refactor: merge the two duplicated port shape-adjoint cores in driven/shape.rs
+- **PR #1603**: refactor(tests): share the box tet mesher and slope fit via common/box_fixtures
+- **Issue #1639** (closed): Consolidate duplicated MSH writer: optimize_loop/optimize_remesh carry a verbatim copy of support/msh.rs
+- **Issue #1617** (closed): CI never compiles the ~40 crates/geode-core/examples/ binaries
+- **Issue #1602** (closed): Add a CI drift gate for the sphere_pec JAX fixture (sibling of jax-sphere-pml.yml)
+- **Issue #1599** (closed): Consolidate six copies of the box_mesh tet mesher (and jitter/box_walls/fit_slope) in geode-core tests into a shared module
+- **Issue #1596** (closed): Consolidate duplicated port shape-adjoint cores in driven/shape.rs: matched_upml_ports_core is a ~330-line copy of driven_shape_gradient_ports_complex_core
+- **Issue #1588** (closed): Consolidate eight byte-identical helper functions duplicated across geode-core src modules
+- **Issue #1579** (closed): [#1537 P4c-2] Design A adjoint min-max run and kill-criterion verdict
+
 ### 2026-11-13
 
 - **PR #1601**: feat: regenerate sphere_pec JAX fixture with real JAX, drop --stub writer

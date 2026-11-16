@@ -44,6 +44,7 @@ use geode_core::driven::floquet::{
     FloquetPolarization, FloquetPortSpec, FloquetSettings, FloquetSolution, SPECULAR_FLOOR_COEFF,
     SPECULAR_FLOOR_WARN,
 };
+use geode_core::elements::ElementOrder;
 use geode_core::mesh::TetMesh;
 use geode_core::mesh::periodic::{
     PeriodicMap, PeriodicMatchOptions, boundary_triangles_on_plane, box_periodic_pairs,
@@ -86,6 +87,16 @@ fn cell(n: [usize; 3], size: [f64; 3], seed: u64) -> Cell {
 }
 
 fn floquet(c: &Cell, eps: &[c64], settings: FloquetSettings) -> FloquetCell {
+    floquet_at(c, eps, settings, ElementOrder::P1)
+}
+
+/// [`floquet`] at an explicit element order (issue #1628).
+fn floquet_at(
+    c: &Cell,
+    eps: &[c64],
+    settings: FloquetSettings,
+    order: ElementOrder,
+) -> FloquetCell {
     let spec = FloquetCellSpec {
         eps_r: eps,
         sigma: None,
@@ -101,6 +112,7 @@ fn floquet(c: &Cell, eps: &[c64], settings: FloquetSettings) -> FloquetCell {
             },
         ],
         settings,
+        element_order: order,
     };
     FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).unwrap()
 }
@@ -461,6 +473,8 @@ fn specular_floor_estimate_uses_the_port_medium_and_skips_a_cut_off_port() {
             },
         ],
         settings: FloquetSettings::default(),
+
+        element_order: ElementOrder::P1,
     };
     let fc = FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).unwrap();
     let h = 0.05 * 2.0_f64.sqrt();
@@ -604,6 +618,7 @@ fn vacuum_glass_interface_normalizes_by_admittance_and_handles_total_internal_re
             },
         ],
         settings: FloquetSettings::default(),
+        element_order: ElementOrder::P1,
     };
     let fc = FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).unwrap();
     let up = [(1.0, 0.5), (EPS_G, 0.5)];
@@ -1159,6 +1174,7 @@ fn propagating_higher_orders_and_bad_specs_are_typed_errors() {
                 },
             ],
             settings: FloquetSettings::default(),
+            element_order: ElementOrder::P1,
         };
         FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).err()
     };
@@ -1643,6 +1659,7 @@ fn strip_reactance(n: [usize; 3], a: f64, w: f64, k0: f64) -> (f64, f64) {
             },
         ],
         settings: FloquetSettings::default(),
+        element_order: ElementOrder::P1,
     };
     let fc = FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).unwrap();
     let sol = fc
@@ -1842,4 +1859,437 @@ fn fixed_label_s_has_the_same_shape_when_orders_switch_on() {
         .position(|l| *l == (0, FloquetOrder::SPECULAR, Te))
         .unwrap();
     assert_eq!(s_lo[spec][inn], lo.s_specular(1, Te, 0, Te).unwrap());
+}
+
+// --- Golden 9: the p=2 cell (issue #1628) ------------------------------------
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "direct solves are slow in debug; runs in release CI"
+)]
+fn p2_cell_beats_p1_on_the_slab_against_fresnel() {
+    let c = cell([2, 2, 40], [A_CELL, A_CELL, L_CELL], 13);
+    let eps = slab_eps(&c);
+    let p1 = floquet(&c, &eps, FloquetSettings::default());
+    let p2 = floquet_at(&c, &eps, FloquetSettings::default(), ElementOrder::P2);
+    // The p=2 port face carries the (W, Q) and (φ0, φ1) DOFs, not just the
+    // edges.
+    assert!(
+        p2.port_dofs(0).len() > p1.port_dofs(0).len(),
+        "p=2 port {} vs p=1 port {} DOFs",
+        p2.port_dofs(0).len(),
+        p1.port_dofs(0).len()
+    );
+    eprintln!(
+        "p=2 slab (same mesh as p=1): ε = {EPS_SLAB}, z ∈ [{Z1}, {Z2}], k₀ = {K0}, \
+         DOFs {} vs {}",
+        p2.operator().n_dofs(),
+        p1.operator().n_dofs()
+    );
+    eprintln!(
+        "  θ°   pol      |S11| err p1     p2        |S21| err p1     p2       Σ|S|²-1 p1     p2"
+    );
+    let (mut mag1, mut mag2) = (0.0_f64, 0.0_f64);
+    let (mut en1, mut en2) = (0.0_f64, 0.0_f64);
+    for &(theta, pol) in &[(0.0, Te), (0.0, Tm), (30.0, Te), (30.0, Tm)] {
+        for (tag, fc) in [("p1", &p1), ("p2", &p2)] {
+            let sol = fc
+                .solve_incidence(K0, &FloquetIncidence::degrees(theta, 0.0, 0))
+                .unwrap();
+            assert!(
+                sol.residual_rel < 1e-10,
+                "{tag} residual {}",
+                sol.residual_rel
+            );
+            let kt = K0 * theta.to_radians().sin();
+            let (r, t) = tmm(K0, kt, &slab_layers(), pol);
+            let s11 = s_spec(&sol, 0, pol, pol);
+            let s21 = s_spec(&sol, 1, pol, pol);
+            let j = sol.specular_index(0, pol).unwrap();
+            let e = (sol.column_power(j) - 1.0).abs();
+            let e11 = (s11 - r).norm();
+            let e21 = (s21 - t).norm();
+            eprintln!("{theta:>4}  {pol:?}  {tag}:  {e11:.3e}   {e21:.3e}   {e:.1e}");
+            if tag == "p1" {
+                mag1 = mag1.max(e11).max(e21);
+                en1 = en1.max(e);
+            } else {
+                mag2 = mag2.max(e11).max(e21);
+                en2 = en2.max(e);
+            }
+        }
+    }
+    eprintln!(
+        "worst |ΔS| p1 {mag1:.3e}, p2 {mag2:.3e}; worst |Σ|S|²−1| p1 {en1:.1e}, p2 {en2:.1e}"
+    );
+    // Lossless power balance to the p=1 tolerance (do not loosen).
+    assert!(en2 < 1e-9, "p=2 energy balance {en2:.1e}");
+    // Same mesh, same slab: the p=2 S sits strictly below the p=1 error
+    // (both numbers printed above).
+    assert!(
+        mag1 > 0.0 && mag2 < mag1,
+        "p=2 {mag2:.3e} vs p=1 {mag1:.3e}"
+    );
+    // And both are actually close to the analytic slab. The p=2 bound is
+    // measured, not quoted from the module doc: worst |ΔS| p2 = 2.821e-7
+    // in release with --nocapture (2026-11-16), so 1e-5 leaves ~1.5 orders
+    // of runner-to-runner slack and still fails a 1e-4-grade regression.
+    assert!(mag2 < 1e-5, "p=2 |ΔS| {mag2:.3e}");
+}
+
+#[test]
+fn p2_cell_drives_the_delta_gap_feed() {
+    // Inverse of the pre-#1682 refusal test: the feed resolves the edge to
+    // its Whitney DOF (`edge_dofs(e)[0]`) and answers on a p=2 cell.
+    let c = cell([2, 2, 4], [A_CELL, A_CELL, 0.2], 3);
+    let eps = vec![ONE; c.mesh.n_tets()];
+    let p2 = floquet_at(&c, &eps, FloquetSettings::default(), ElementOrder::P2);
+    let f = p2.factor(K0, [0.0; 3], 0.0).unwrap();
+    let b = f
+        .edge_current_rhs(0)
+        .unwrap()
+        .expect("edge 0 is free (no PEC mask)");
+    assert!(
+        b.iter().any(|v| v.norm() > 0.0),
+        "a unit current must source"
+    );
+    let mut x = vec![c64::new(0.0, 0.0); f.n_reduced()];
+    f.back_solve(&b, &mut x).unwrap();
+    let v = f.edge_voltage(&x, 0).unwrap();
+    assert!(v.norm() > 0.0 && v.norm().is_finite());
+    // The scan impedance is the same read-out: Z = −V/I at I = 1.
+    let z = p2.edge_scan_impedance(K0, 0.0, 0.0, 0).unwrap();
+    assert!(
+        (-v - z).norm() < 1e-9 * z.norm().max(1.0),
+        "−V {v} vs Z {z}"
+    );
+}
+
+#[test]
+fn p2_delta_gap_feed_agrees_with_p1_where_both_converge() {
+    // The p=2 gap voltage is the W coefficient alone: Q = ∇(λ_aλ_b) has a
+    // vanishing line integral along the edge, and the face functions have no
+    // tangential trace on it (issue #1682). Reading the (W, Q) pair instead
+    // — or a wrong DOF — breaks the agreement with p=1 outright. The
+    // delta-gap reactance is bound to the feed singularity, so the same-mesh
+    // p=1/p=2 gap shrinks as the mesh resolves the feed edge (h ↓ at a
+    // fixed DOF count below); both orders converge to the same continuum
+    // answer, p=2 faster.
+    let feed = |c: &Cell, eps: &[c64]| -> (c64, c64) {
+        let fc_p1 = floquet(c, eps, FloquetSettings::default());
+        let fc_p2 = floquet_at(c, eps, FloquetSettings::default(), ElementOrder::P2);
+        // A mid-height feed edge (the mesh-edge table is the same at both
+        // orders).
+        let feed = c
+            .mesh
+            .edges()
+            .iter()
+            .position(|e| {
+                let z = |v: u32| c.mesh.nodes[v as usize][2];
+                ((z(e[0]) + z(e[1])) / 2.0 - L_CELL / 2.0).abs() < 1e-12
+            })
+            .expect("a mid-height edge");
+        let drive = |fc: &FloquetCell| -> c64 {
+            let f = fc.factor(K0, [0.0; 3], 0.0).unwrap();
+            let b = f.edge_current_rhs(feed).unwrap().expect("free feed edge");
+            let mut x = vec![c64::new(0.0, 0.0); f.n_reduced()];
+            f.back_solve(&b, &mut x).unwrap();
+            let v = f.edge_voltage(&x, feed).unwrap();
+            let z = fc.edge_scan_impedance(K0, 0.0, 0.0, feed).unwrap();
+            assert!(
+                (-v - z).norm() < 1e-9 * z.norm().max(1.0),
+                "−V {v} vs Z {z}"
+            );
+            z
+        };
+        let z1 = drive(&fc_p1);
+        let z2 = drive(&fc_p2);
+        (z1, z2)
+    };
+    let mut prev: Option<(c64, c64, f64)> = None;
+    for a in [0.1, 0.05, 0.025] {
+        let c = cell([2, 2, 40], [a, a, L_CELL], 13);
+        let eps = vec![ONE; c.mesh.n_tets()];
+        let (z1, z2) = feed(&c, &eps);
+        let (dz, dre) = (
+            (z2 - z1).norm() / z1.norm(),
+            (z2.re - z1.re).abs() / z1.re.abs(),
+        );
+        eprintln!(
+            "h = {a:.3}/2: Z p1 {z1:.4} p2 {z2:.4} | rel |ΔZ| = {dz:.3e}, rel |ΔRe| = {dre:.3e}"
+        );
+        if let Some((_, _, prev_dre)) = prev {
+            assert!(
+                dre < prev_dre,
+                "the p=1/p=2 radiation-resistance gap must shrink as the feed edge is refined"
+            );
+        }
+        prev = Some((z1, z2, dre));
+    }
+    let (z1, z2, _) = prev.unwrap();
+    // At the finest feed edge both orders' radiation resistance agrees to a
+    // percent (measured 2026-11-16; the reactance is singularity-bound and
+    // only converges under further refinement — the table above shows the
+    // trend).
+    assert!(
+        (z2.re - z1.re).abs() / z1.re.abs() < 1e-2,
+        "p=2 Re Z {} vs p=1 {}",
+        z2.re,
+        z1.re
+    );
+}
+
+#[test]
+fn p2_scan_impedance_rejects_an_out_of_range_feed_edge() {
+    use geode_core::assembly::hcurl_space::HcurlSpace;
+    let c = cell([2, 2, 4], [A_CELL, A_CELL, 0.2], 3);
+    let eps = vec![ONE; c.mesh.n_tets()];
+    let p2 = floquet_at(&c, &eps, FloquetSettings::default(), ElementOrder::P2);
+    let space = HcurlSpace::build(&c.mesh, ElementOrder::P2);
+    let n_edges = space.n_edges();
+    let n_dofs = p2.operator().n_dofs();
+    assert!(n_dofs > n_edges, "a p=2 space has more DOFs than edges");
+    // An index in n_edges..n_dofs is a DOF id, not an edge: the pre-#1682
+    // bound compared against n_dofs() and accepted it, silently aliasing a
+    // gradient or face DOF (`interior_index` never panics below n_dofs).
+    let bad = n_edges + (n_dofs - n_edges) / 2;
+    assert!(matches!(
+        p2.edge_scan_impedance(K0, 0.0, 0.0, bad),
+        Err(FloquetError::InvalidSpec(_))
+    ));
+    // The last valid edge still answers.
+    assert!(p2.edge_scan_impedance(K0, 0.0, 0.0, n_edges - 1).is_ok());
+}
+
+#[test]
+fn p2_pec_eliminated_feed_edge_answers_none() {
+    use geode_core::assembly::hcurl_space::HcurlSpace;
+    // Only W enters the feed (issue #1682), so a PEC-eliminated feed edge
+    // answers `None` exactly as at p=1. (Issue #1699: the edge's `{W, Q}`
+    // pair is eliminated together — a lone-half mask is a typed
+    // `InvalidSpec` at assemble, see
+    // `p2_pec_mask_rejects_an_edge_whose_w_and_q_disagree`.)
+    let c = cell([2, 2, 4], [A_CELL, A_CELL, 0.2], 3);
+    let eps = vec![ONE; c.mesh.n_tets()];
+    let space = HcurlSpace::build(&c.mesh, ElementOrder::P2);
+    // An interior feed edge through the cell centre: off the ports and the
+    // periodic boundary, so eliminating its `{W, Q}` pair is a plain local
+    // constraint (eliminating a boundary-paired DOF on its own would
+    // strand its periodic partner and singularize the reduction — that is
+    // a property of the constraint, not of the feed).
+    let centre = [A_CELL / 2.0, A_CELL / 2.0, 0.1];
+    let feed = c
+        .mesh
+        .edges()
+        .iter()
+        .position(|e| {
+            let near = |q: [f64; 3], p: [f64; 3]| {
+                (q[0] - p[0]).abs() < 1e-12
+                    && (q[1] - p[1]).abs() < 1e-12
+                    && (q[2] - p[2]).abs() < 1e-12
+            };
+            let a = c.mesh.nodes[e[0] as usize];
+            let b = c.mesh.nodes[e[1] as usize];
+            (near(a, centre) && near(b, [centre[0] + A_CELL / 2.0, centre[1], centre[2]]))
+                || (near(b, centre) && near(a, [centre[0] + A_CELL / 2.0, centre[1], centre[2]]))
+        })
+        .expect("an interior feed edge through the cell centre");
+    let (w, q) = {
+        let d = space.edge_dofs(feed);
+        (d[0] as usize, d[1] as usize)
+    };
+    let drive = |mask: &[bool]| -> Option<Vec<c64>> {
+        let spec = FloquetCellSpec {
+            eps_r: &eps,
+            sigma: None,
+            pec_interior_mask: Some(mask),
+            ports: [
+                FloquetPortSpec {
+                    triangles: &c.bottom,
+                    eps_r: 1.0,
+                },
+                FloquetPortSpec {
+                    triangles: &c.top,
+                    eps_r: 1.0,
+                },
+            ],
+            settings: FloquetSettings::default(),
+            element_order: ElementOrder::P2,
+        };
+        let fc = FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).unwrap();
+        fc.factor(K0, [0.0; 3], 0.0)
+            .unwrap()
+            .edge_current_rhs(feed)
+            .unwrap()
+    };
+    let mut w_pec = vec![true; space.n_dofs()];
+    w_pec[w] = false;
+    w_pec[q] = false;
+    assert_eq!(
+        drive(&w_pec),
+        None,
+        "a PEC-eliminated feed edge (both of the edge's DOFs) answers None"
+    );
+    // Issue #1699: a mask eliminating only one of an edge's `{W, Q}` pair
+    // used to assemble fine and singularize the p=2 reduction at `factor`
+    // as a sparse-LU `SymbolicSingular`. The shared assemble pre-check now
+    // rejects it with `FloquetError::InvalidSpec` naming the edge, so a
+    // PEC feed edge is always pair-eliminated, as
+    // [`HcurlSpace::pec_interior_mask`] builds it.
+}
+
+#[test]
+fn p2_pec_mask_rejects_an_edge_whose_w_and_q_disagree() {
+    use geode_core::assembly::hcurl_space::HcurlSpace;
+    // Issue #1699: the public `pec_interior_mask` parameter of the p=2
+    // Floquet assembles is an arbitrary caller-supplied mask, and one that
+    // eliminates a lone Q (its edge's W still free) used to assemble fine
+    // and singularize the reduction far away, at `factor`, as
+    // `FloquetError::Solve("sparse LU of the Floquet system:
+    // SymbolicSingular { .. }")` (measured 2026-11-16, edge 130 of this
+    // cell). A lone W elimination factored fine. Both are malformed PEC
+    // shapes: the shared assemble pre-check rejects a `{W, Q}` pair whose
+    // mask values disagree, naming the edge, before any port work.
+    let c = cell([2, 2, 4], [A_CELL, A_CELL, 0.2], 3);
+    let eps = vec![ONE; c.mesh.n_tets()];
+    let space = HcurlSpace::build(&c.mesh, ElementOrder::P2);
+    // An interior edge through the cell centre (same pick as the feed test
+    // above): off the ports and the periodic boundary, so the consistent
+    // control mask below keeps the reduction regular.
+    let centre = [A_CELL / 2.0, A_CELL / 2.0, 0.1];
+    let feed = c
+        .mesh
+        .edges()
+        .iter()
+        .position(|e| {
+            let near = |q: [f64; 3], p: [f64; 3]| {
+                (q[0] - p[0]).abs() < 1e-12
+                    && (q[1] - p[1]).abs() < 1e-12
+                    && (q[2] - p[2]).abs() < 1e-12
+            };
+            let a = c.mesh.nodes[e[0] as usize];
+            let b = c.mesh.nodes[e[1] as usize];
+            (near(a, centre) && near(b, [centre[0] + A_CELL / 2.0, centre[1], centre[2]]))
+                || (near(b, centre) && near(a, [centre[0] + A_CELL / 2.0, centre[1], centre[2]]))
+        })
+        .expect("an interior feed edge through the cell centre");
+    let (w, q) = {
+        let d = space.edge_dofs(feed);
+        (d[0] as usize, d[1] as usize)
+    };
+    let assemble_with = |mask: &[bool]| {
+        let spec = FloquetCellSpec {
+            eps_r: &eps,
+            sigma: None,
+            pec_interior_mask: Some(mask),
+            ports: [
+                FloquetPortSpec {
+                    triangles: &c.bottom,
+                    eps_r: 1.0,
+                },
+                FloquetPortSpec {
+                    triangles: &c.top,
+                    eps_r: 1.0,
+                },
+            ],
+            settings: FloquetSettings::default(),
+            element_order: ElementOrder::P2,
+        };
+        FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device())
+    };
+    // Lone Q: rejected as a typed spec error naming the edge.
+    let mut lone_q = vec![true; space.n_dofs()];
+    lone_q[q] = false;
+    match assemble_with(&lone_q) {
+        Err(FloquetError::InvalidSpec(m)) => {
+            assert!(
+                m.contains(&format!("edge {feed}")),
+                "the error names the malformed edge {feed}: {m}"
+            );
+        }
+        Err(e) => panic!("a lone-Q mask must be an InvalidSpec, got {e:?}"),
+        Ok(_) => panic!("a lone-Q mask assembled: the shape check did not fire"),
+    }
+    // Lone W: the shape check is symmetric.
+    let mut lone_w = vec![true; space.n_dofs()];
+    lone_w[w] = false;
+    assert!(
+        matches!(assemble_with(&lone_w), Err(FloquetError::InvalidSpec(_))),
+        "a lone-W mask is rejected by the same check"
+    );
+    // The consistent {W, Q} pair elimination still assembles and factors.
+    let mut pair = vec![true; space.n_dofs()];
+    pair[w] = false;
+    pair[q] = false;
+    assemble_with(&pair)
+        .unwrap_or_else(|e| panic!("a pair-eliminated mask assembles: {e:?}"))
+        .factor(K0, [0.0; 3], 0.0)
+        .unwrap_or_else(|e| panic!("and factors: {e:?}"));
+}
+
+#[test]
+fn p2_radiator_scan_impedance_scans_through_the_rayleigh_anomaly() {
+    use geode_core::assembly::hcurl_space::HcurlSpace;
+    // Ground-plane radiator at p=2 (issue #1513 AC2 on the #1682 path):
+    // period 1.5 so the (−1,0) grating order turns on below grazing
+    // (k·d = 2.5·1.5 > π). Below the onset that order is evanescent and
+    // terminated; at it, the Rayleigh anomaly must still fire.
+    let size = [1.5, 1.5, 0.5];
+    let mut mesh = renumber(&box_tet_mesh([6, 6, 2], size), 7);
+    let pairs = box_periodic_pairs(&mesh, &[0, 1]);
+    let map = PeriodicMap::build(&mut mesh, &pairs, &PeriodicMatchOptions::default()).unwrap();
+    let tol = 1e-9;
+    let aperture = boundary_triangles_on_plane(&mesh, 2, size[2], tol);
+    let ground = boundary_triangles_on_plane(&mesh, 2, 0.0, tol);
+    let space = HcurlSpace::build(&mesh, ElementOrder::P2);
+    let mask = space.pec_interior_mask(&mesh, &[&ground]).unwrap();
+    // A free x-directed edge through the cell centre, one cell above the ground.
+    let feed = mesh
+        .edges()
+        .iter()
+        .position(|e| {
+            let near = |q: [f64; 3], p: [f64; 3]| {
+                (q[0] - p[0]).abs() < tol && (q[1] - p[1]).abs() < tol && (q[2] - p[2]).abs() < tol
+            };
+            let a = mesh.nodes[e[0] as usize];
+            let b = mesh.nodes[e[1] as usize];
+            (near(a, [0.75, 0.75, 0.25]) && near(b, [1.0, 0.75, 0.25]))
+                || (near(b, [0.75, 0.75, 0.25]) && near(a, [1.0, 0.75, 0.25]))
+        })
+        .expect("a free feed edge above the ground");
+    assert!(
+        mask[space.edge_dofs(feed)[0] as usize],
+        "the feed's W DOF must be free"
+    );
+    let eps = vec![ONE; mesh.n_tets()];
+    let p2 = FloquetCell::assemble_radiator::<B>(
+        &mesh,
+        &map,
+        &eps,
+        None,
+        Some(&mask),
+        FloquetPortSpec {
+            triangles: &aperture,
+            eps_r: 1.0,
+        },
+        FloquetSettings::default(),
+        ElementOrder::P2,
+        &device(),
+    )
+    .unwrap();
+    let onset = p2
+        .grating_lobe_onset(K0, 0.0)
+        .expect("an onset below grazing with k·d > π");
+    // Below the onset: evanescent-only higher orders, a finite passive Z.
+    let z = p2
+        .edge_scan_impedance(K0, onset / 2.0, 0.0, feed)
+        .expect("below the grating onset the scan solves");
+    assert!(z.re > 0.0, "a passive radiator has Re Z > 0 (got {z})");
+    // At it: the anomaly still fires on the p=2 scan-impedance path.
+    let r = p2.edge_scan_impedance(K0, onset, 0.0, feed);
+    assert!(
+        matches!(r, Err(FloquetError::RayleighAnomaly { .. })),
+        "expected RayleighAnomaly at the grating onset, got {r:?}"
+    );
 }

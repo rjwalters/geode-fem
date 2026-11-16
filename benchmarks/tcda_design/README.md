@@ -190,3 +190,99 @@ this run share (the FEM-vs-oracle mismatch noted in
 ends equally, which is why the comparison is meaningful but the absolute
 number is model-bound); or settle the near-degenerate-tet caveat above.
 Comparison against CMA-ES is #1580; p=2 and the Palace cross-check are #1581.
+
+---
+
+# The MMA-vs-CMA-ES comparison (issue #1580)
+
+Epic #1252 Phase 4c child 3 of #1537: the epic's Phase-4 ask — "solves to
+target" of the adjoint run compared with CMA-ES at three parameter counts,
+reusing the paper-1 harness. The paper-1 harness
+([`../patch_antenna_conformal/scripts/cma_loop.py`](../patch_antenna_conformal/scripts/cma_loop.py))
+is **reused, not forked**: it gained `--rank-ref` (the guard's ranking
+reference), `--bound` (a design box passed to pycma) and `--problem tcda`
+(the record/protocol flavor). With none of the three flags its invocation —
+including the two committed paper-1 `[meta].command` strings pinned in
+`benchmark_provenance.rs` — is reproduced byte-for-byte (verified against a
+protocol stub; the two pins match exactly).
+
+## Setup, fixed before any comparison run
+
+| | |
+|---|---|
+| eval server | `examples/tcda_design_cma.rs` (new): the #1130 JSON-lines protocol answered from the #1578 driver; feasibility server-side (no inverted tet + sampled #1535 manufacturability rows), objective `max_k |Gamma_active|^2`, solves = one factorization per grid point |
+| grid | **the reduced 18-point grid** `ScanGrid::reduced_comparison(PI)`: `omega/pi` in {0.9, 1.0, 1.1} x `theta` in {0, 30, 60} deg x `phi` in {0, 90} deg, both methods. The full 50-point grid costs ~200 s per evaluation (measured; 4.5-5.7 s per point), so ~43 100 s ≈ 12 h per cell at paper 1's 190-evaluation budget — not affordable x6 cells; and #1579's own 5400 s wall clock buys only ~23-27 evaluations, which is not a meaningful CMA-ES run |
+| grid validity | #1579's committed `final_theta_mm` re-evaluated on the reduced grid (one evaluation): **-6.274 dB** vs the recorded full-grid **-6.27 dB** (delta -0.004 dB, tolerance stated in advance 0.1 dB — pass). Both recorded binding points (theta = 60 deg, phi = 90 deg at `omega/pi` = 1.1 baseline and 0.9 optimized) are retained by construction |
+| start | `theta0 = 0` for both methods — the recorded baseline (-3.50 dB), which is also the #1579 adjoint's start |
+| box | **+/-1 mm** (`bound_mm = 1`), enforced **by pycma** (`cma_loop.py --bound 1.0`, recorded in each record's `[gradient_free]` as `bounds_enforced_by = "pycma"`); the adjoint enforces the same box through MMA's bounds, as #1579 did. (Stated choice: bounds in the optimizer, so both methods see the same box rather than the server rejecting out-of-box designs.) |
+| sigma0 | **0.3 mm** — re-chosen for the +/-1 mm box (30 % of its half-width, so the initial sample cloud spans roughly the box), not inherited from paper 1's 1.5 mm, which is wider than the whole box |
+| infeasible ranking | `--rank-ref 0`: an inverted mesh (ratio <= 0) ranks last; a manufacturability violation ranks between feasible designs and inverted meshes. An infeasible design costs an evaluation index, no solve |
+| target | the **-4.50 dB** kill floor (#1579's verdict: baseline -3.50 -> best feasible -6.27; `kill_criterion = "pass"`; the epic's -10 dB was not reached, so the gate is the target) |
+| parameter counts | `n_params` = **52 / 100 / 200** (`TCDA_DESIGN_N_EDGE` = 13 / 25 / 50; `n_params = 4*n_edge`, `layers = []`). pycma's default populations: 15 / 17 / 19 |
+| seed | 11, all CMA-ES cells (paper 1's seed) |
+| **budget** | **1080 solves per method at each parameter count, stated here before the runs** — solves are the epic's currency (one per grid point and factorization, the `cma_loop.py` rule). For CMA-ES that is exactly 60 reduced-grid evaluations (the `--budget` unit), i.e. about 4 / 3.5 / 3.2 generations; for the adjoint it is a cap the method is expected to finish well inside. A CMA-ES row that ends at the budget without the target is a complete result (its best value is reported), not a failure |
+
+Measured before the runs (one `TCDA_DESIGN_TIMING_ONLY=1` probe, then each
+run's own probe): one 18-point forward pass 102-200 s, one adjoint pass
+5.7-11.2 s, depending on host load (this box was heavily shared during the
+campaign; the runs are sequentially consistent regardless, since solves and
+evaluations are counted, not wall clock).
+
+## The comparison
+
+Adjoint rows run the same reduced grid through `examples/tcda_design_run.rs`
+with `TCDA_DESIGN_GRID=reduced` (same start, box, constraints and active
+margin 0.15 as #1579); records in
+[`adjoint_n52/`](adjoint_n52/results.toml),
+[`adjoint_n100/`](adjoint_n100/results.toml),
+[`adjoint_n200/`](adjoint_n200/results.toml). CMA-ES rows run
+`cma_loop.py --problem tcda` against the eval server; records
+[`cmaes_n52.toml`](cmaes_n52.toml), [`cmaes_n100.toml`](cmaes_n100.toml),
+[`cmaes_n200.toml`](cmaes_n200.toml).
+
+| method | n_params | solves to target (-4.50 dB) | best feasible (dB) | evals (fwd) | total solves spent |
+|---|---|---|---|---|---|
+| adjoint (MMA) | 52 | **36 + adjoints <= 80** (iteration 1, `n_evals = 2`) | -6.23 (within the 4-iteration window) | 5 | 5x18 + 44 = 134 |
+| adjoint (MMA) | 100 | **36 + adjoints <= 80** (iteration 1) | -6.24 | 5 | 134 |
+| adjoint (MMA) | 200 | **36 + adjoints <= 80** (iteration 1) | -6.23 | 5 | 134 |
+| CMA-ES | 52 | 972 (eval 54, generation 3) | -4.93 | 60 (59 feasible) | 1098 |
+| CMA-ES | 100 | 810 (eval 51, generation 2) | -4.71 | 60 (51 feasible) | 954 |
+| CMA-ES | 200 | **not reached within budget** | -4.29 | 60 (55 feasible) | 1026 |
+
+("36 + adjoints <= 80": the target is crossed at the first MMA update, two
+forward passes = 36 grid solves; the exact adjoint-pass count per iteration
+is not in the record, and the whole-run bound — 44 adjoint passes for 4
+iterations — caps the crossing at <= 80 of the 1080 budget. The same
+trajectory reproduces the recorded n = 52 full-grid history to 8 decimals at
+the crossing iterations (`t = 0.31399185` at iteration 1 in both), so the
+reduced-grid adjoint row is the recorded method, not a re-tuned one. Each
+CMA-ES cell spent its 60 evaluation indices, of which only the feasible ones
+cost solves (one factorization per grid point, the `cma_loop.py` rule), plus
+the `theta0` evaluation and the verification sweep the paper-1 harness adds
+outside the optimizer — so the in-optimizer spend (1080 / 936 / 1008) sits
+at or under the 1080 the all-feasible budget would cost, while the totals
+including that 18-solve verification sweep are 1098 / 954 / 1026, and the
+"solves to target" counts are the record's `solves_so_far` at the crossing
+evaluation, `theta0` included.)
+
+## What this does and does not establish
+
+**Does**: the paper-1 harness answers the epic's Phase-4 comparison ask on
+this grid, mesh and feed model: the adjoint reaches the -4.50 dB gate
+within its first update (<= 80 of 1080 solves) at all three parameter counts,
+while CMA-ES reaches it at n = 52 (972 solves, ~12x the adjoint's <= 80
+worst-case count) and n = 100 (810 solves), but **not at n = 200**, ending at -4.29 dB
+after its full 1080-solve budget — the expected drift of a full-covariance
+CMA-ES whose population grows only logarithmically (19 at n = 200) while the
+search space doubles. The reduced grid is validated against the
+recorded full-grid design to -0.004 dB, and the n = 52 adjoint trajectory
+matches the recorded run's crossing iterations exactly. The n = 200 row is
+reported as not reaching the target with its best value (criterion 4's
+complete-result rule), and the verification sweep of every CMA-ES record
+reproduces the optimizer's best to the last digit (`verify_worst_gamma_db` =
+`worst_gamma_db_final` in all three).
+
+**Does not**: claim CMA-ES cannot reach the gate with more budget (a
+budget-limited row is a complete result, not a proof of impossibility);
+reach the epic's -10 dB by either method; or establish anything about
+p = 2 re-centring or a Palace cross-check (#1581).

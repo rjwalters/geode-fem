@@ -1,105 +1,23 @@
 //! Shared structured-box mesh fixtures and the log-log slope fit used across
-//! the `geode-core` integration tests (issue #1599).
+//! the `geode-core` integration tests (issues #1599, #1607).
 //!
 //! Pulled in with `mod common;` and then `use common::box_fixtures::…;`.
 //!
-//! The node formula here is `origin + len * i / n`, moved verbatim from the
-//! six former per-file `box_mesh` copies. It is deliberately **not** the
-//! `i * (size / n)` formula of `box_tet_mesh` in `common/periodic_fixtures.rs`
-//! — the two can differ in the last ulp, and several callers assert tight
-//! tolerances or finite-difference agreement. Unifying them is out of scope.
-#![allow(dead_code)] // each test binary uses a subset
+//! The box mesher itself now lives in the library at
+//! [`geode_core::testing::mesh`] and is re-exported here, so the existing
+//! `use common::box_fixtures::box_mesh_with;` call sites keep working. It had
+//! to move out of `tests/common/` because `geode-cli`'s integration tests
+//! need the same mesher and cannot reach another crate's `tests/` tree.
+// Each test binary uses a subset — of the definitions below (`dead_code`) and
+// of the re-exports above (`unused_imports`).
+#![allow(dead_code, unused_imports)]
 
 use geode_core::mesh::TetMesh;
 
+pub use geode_core::testing::mesh::{box_mesh, box_mesh_with};
+
 use super::Lcg;
 use super::boundary_plane_faces;
-
-/// A structured box `origin + [0, len]` with `n` cells per axis, each hex
-/// split into 6 tets, keeping the cells where `keep(i, j, k)` (unused nodes
-/// dropped, relative order kept).
-pub fn box_mesh_with(
-    n: [usize; 3],
-    len: [f64; 3],
-    origin: [f64; 3],
-    keep: impl Fn(usize, usize, usize) -> bool,
-) -> TetMesh {
-    let np = [n[0] + 1, n[1] + 1, n[2] + 1];
-    let idx = |i: usize, j: usize, k: usize| (i + j * np[0] + k * np[0] * np[1]) as u32;
-    let mut nodes = Vec::with_capacity(np[0] * np[1] * np[2]);
-    for k in 0..np[2] {
-        for j in 0..np[1] {
-            for i in 0..np[0] {
-                nodes.push([
-                    origin[0] + len[0] * i as f64 / n[0] as f64,
-                    origin[1] + len[1] * j as f64 / n[1] as f64,
-                    origin[2] + len[2] * k as f64 / n[2] as f64,
-                ]);
-            }
-        }
-    }
-    let mut tets = Vec::new();
-    for k in 0..n[2] {
-        for j in 0..n[1] {
-            for i in 0..n[0] {
-                if !keep(i, j, k) {
-                    continue;
-                }
-                let q = [
-                    idx(i, j, k),
-                    idx(i + 1, j, k),
-                    idx(i + 1, j + 1, k),
-                    idx(i, j + 1, k),
-                    idx(i, j, k + 1),
-                    idx(i + 1, j, k + 1),
-                    idx(i + 1, j + 1, k + 1),
-                    idx(i, j + 1, k + 1),
-                ];
-                tets.push([q[0], q[1], q[2], q[6]]);
-                tets.push([q[0], q[2], q[3], q[6]]);
-                tets.push([q[0], q[3], q[7], q[6]]);
-                tets.push([q[0], q[7], q[4], q[6]]);
-                tets.push([q[0], q[4], q[5], q[6]]);
-                tets.push([q[0], q[5], q[1], q[6]]);
-            }
-        }
-    }
-    // Compact.
-    let mut used = vec![false; nodes.len()];
-    for t in &tets {
-        for &v in t {
-            used[v as usize] = true;
-        }
-    }
-    let mut remap = vec![u32::MAX; nodes.len()];
-    let mut kept = Vec::new();
-    for (i, p) in nodes.iter().enumerate() {
-        if used[i] {
-            remap[i] = kept.len() as u32;
-            kept.push(*p);
-        }
-    }
-    for t in &mut tets {
-        for v in t.iter_mut() {
-            *v = remap[*v as usize];
-        }
-    }
-    TetMesh {
-        nodes: kept,
-        tets,
-        physical_groups: Default::default(),
-    }
-}
-
-/// Structured box `[0, len]` with `n` cells per axis, 6 tets per hex.
-///
-/// `box_mesh_with` at `origin = [0.0; 3]` keeping every cell: adding `0.0`
-/// leaves each coordinate bit-identical, and the compaction pass is the
-/// identity when no cell is dropped, so this reproduces the former
-/// two-argument `box_mesh` copies exactly.
-pub fn box_mesh(n: [usize; 3], len: [f64; 3]) -> TetMesh {
-    box_mesh_with(n, len, [0.0; 3], |_, _, _| true)
-}
 
 /// Jitter every node strictly inside the box by up to `amp` per axis
 /// (the walls stay flat, and any node on the plane `keep_plane = (axis,

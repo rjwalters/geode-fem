@@ -64,17 +64,6 @@ pub fn boundary_plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32
         .collect()
 }
 
-/// Split `mesh.tet_edges()` into the per-tet `(idx, sign)` tables the
-/// assemblers take.
-#[allow(dead_code)] // some test binaries only use a subset of helpers
-pub fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter().map(|r| std::array::from_fn(|i| r[i].0)).collect(),
-        te.iter().map(|r| std::array::from_fn(|i| r[i].1)).collect(),
-    )
-}
-
 /// PEC interior-edge mask eliminating every edge whose **both** endpoints lie
 /// on the same listed plane `(axis, value)`.
 #[allow(dead_code)] // some test binaries only use a subset of helpers

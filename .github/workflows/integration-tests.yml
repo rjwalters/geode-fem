@@ -75,9 +75,12 @@ jobs:
     # scales with the number of binaries and a warm cache saves little), and
     # the tests about 7-10 min, about 28-42 min in all against the 45-min
     # bound. Each half builds and runs about half the binaries: about 10-16
-    # min of build plus 2-5 min of tests. 45 min is the per-job bound (issue
-    # #772).
-    timeout-minutes: 45
+    # min of build plus 2-5 min of tests. Issue #1700: this job's totals
+    # measured from the Actions jobs API span 33-41 min across the 9 most
+    # recent main runs (to 2026-11-16), so the 45-min per-job bound (issue
+    # #772) left under 4 min of headroom on the slowest runs and the check
+    # could go red for every PR from a slower runner alone; raised to 60.
+    timeout-minutes: 60
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
@@ -379,6 +382,7 @@ jobs:
               --test surface_p2_trace \
               --test tcda_baseline \
               --test tcda_design \
+              --test tcda_design_cma \
               --test thermal_conduction \
               --test thermoelastic_validation \
               --test torque_loop_oracle \
@@ -482,6 +486,7 @@ jobs:
               --test surface_p2_trace \
               --test tcda_baseline \
               --test tcda_design \
+              --test tcda_design_cma \
               --test thermal_conduction \
               --test thermoelastic_validation \
               --test torque_loop_oracle \

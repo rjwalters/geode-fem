@@ -68,7 +68,16 @@ pub(super) fn validate_sensitivity(spec: &ProblemSpec, analysis: Analysis) -> Re
                      Silver-Müller walls for an open boundary)"
                 )));
             }
-            if spec.sweep.as_ref().is_some_and(|s| s.adaptive.is_some()) {
+            // `sweep.adaptive` + `sensitivity` is the Phase 4 bypass on
+            // lumped ports (issue #1627): the sweep keeps its reduced-order
+            // rows and the gradients run full-order at the differentiated
+            // frequencies, so the two are reported together with warnings.
+            // Wave and hybrid ports stay rejected: their PROM is
+            // non-affine (#804) and the adjoint has no reduced rows to
+            // ride on.
+            if spec.sweep.as_ref().is_some_and(|s| s.adaptive.is_some())
+                && !spec.wave_ports.is_empty()
+            {
                 return Err(invalid(format!(
                     "`sensitivity` on a driven spec does not support `sweep.adaptive`: {lib} at \
                      every frequency, while the adaptive rows are reduced-order interpolations \

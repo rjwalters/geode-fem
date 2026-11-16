@@ -672,6 +672,15 @@ pub struct WarningResult {
     /// two volume groups) and `"sensitivity_wall_saturated"` (issue #1330:
     /// a wall roughness parameter whose loss factor sits on its plateau, so
     /// its column is ~0 by saturation; `physical_group` is the wall).
+    /// Under the `sweep.adaptive` bypass on lumped ports (Epic #841 Phase
+    /// 4, issue #1627; report-level, `physical_group` / `wave_port` both
+    /// `null`): `"sensitivity_full_order_gradients"` (the sweep's rows may
+    /// be ROM interpolations; the gradients at the named frequencies are
+    /// full-order solves), `"sensitivity_full_order_cost"` (no
+    /// `sensitivity.frequencies` named: the gradients solve full-order at
+    /// every swept frequency) and `"sensitivity_forward_parity"` (N-port
+    /// path: the ROM-vs-full-order delta reported as
+    /// `sensitivities.forward_parity`).
     pub kind: &'static str,
     /// Wave-port index (spec order), if the warning is about one port.
     pub wave_port: Option<usize>,
@@ -2367,14 +2376,21 @@ pub struct SensitivityReport {
     /// (and, for port-mode observables, the forward's `ε_eff` / line
     /// impedance) over the differentiated frequencies — the two are separate
     /// forwards of one operator, and a run above `1e-8` is a `solve_failed`
-    /// error.
+    /// error. Under the `sweep.adaptive` bypass (Epic #841 Phase 4,
+    /// issue #1627) the report's rows are ROM interpolations, so this is
+    /// instead the largest ROM-vs-full-order delta at the differentiated
+    /// frequencies (a non-fatal diagnostic; the full-order parity against a
+    /// freshly solved dense reference still holds at `1e-8` and is the
+    /// hard `solve_failed` bound there).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forward_parity: Option<f64>,
     /// N-port driven path: non-fatal conditions of the gradient (a
     /// near-degenerate face mode of a hybrid port the design touches, an
     /// ill-conditioned bordered solve, a shape parameter that translates
-    /// the whole model rigidly or moves an unpinned wall), each with its
-    /// remedy.
+    /// the whole model rigidly or moves an unpinned wall; under the
+    /// `sweep.adaptive` bypass also which rows carry gradients, their
+    /// full-order cost and the ROM-vs-full-order parity diagnostic), each
+    /// with its remedy.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<WarningResult>,
 }

@@ -8,8 +8,9 @@
 //! patch-length scale `θ` to minimize a real RF figure of merit
 //! `g = |S₁₁(f₀)|²` at a fixed drive frequency `f₀`, with **one driven
 //! solve + one adjoint solve per descent step** (a single complex sparse LU
-//! factorization each), via [`driven_shape_gradient`] and the
-//! [`s11_sq_objective`] closure.
+//! factorization each), via
+//! [`geode_core::driven::shape::driven_shape_gradient`] and the
+//! [`geode_core::driven::extraction::s11_sq_objective`] closure.
 //!
 //! Run with:
 //!
@@ -24,7 +25,8 @@
 //! # HONEST model scope — read this before citing the number
 //!
 //! The driven **shape** adjoint that exists on `main`
-//! ([`driven_shape_gradient`]) differentiates the **lossless, real-ε_r**
+//! ([`geode_core::driven::shape::driven_shape_gradient`]) differentiates the
+//! **lossless, real-ε_r**
 //! curl-curl pencil `A(X) = K(X) − ω² M(ε_r, X)` with a volumetric current
 //! source and PEC walls. It does **not** carry the lumped-port termination
 //! (the `jω/Z_s S_p` admittance block), the matched box-UPML tensors, or a
@@ -48,31 +50,18 @@
 //! bounded descent loop. The full open-radiator resonance-retuning loop is
 //! documented follow-on that needs a port/UPML-aware shape adjoint.
 
+#[path = "../tests/common/patch_diffopt_model.rs"]
+mod patch_model;
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
 
-use faer::c64;
+use geode_core::constants::ETA_0_OHM as ETA_0;
+use geode_core::driven::extraction::s11;
+use geode_core::mesh::{read_patch_fixture, read_patch_smoke_fixture};
 
-use geode_core::constants::{C_MM_PER_S, ETA_0_OHM as ETA_0};
-use geode_core::driven::extraction::{s11, s11_sq_and_dg_dv, s11_sq_objective};
-use geode_core::driven::ports::assemble_port_flux;
-use geode_core::driven::shape::driven_shape_gradient;
-use geode_core::driven::solve::{CurrentSource, DrivenBcs, DrivenMaterials, driven_solve};
-use geode_core::mesh::{
-    PatchFixture, pec_interior_mask_from_triangles, read_patch_fixture, read_patch_smoke_fixture,
-};
-use geode_core::shape::chain_node_motion;
-use geode_core::testing::{TestBackend, test_device as device};
-
-type B = TestBackend;
-
-/// Port reference resistance (Ω) → natural units by `η₀`.
-const R_PORT_OHM: f64 = 50.0;
-
-/// Drive frequency `f₀` (GHz). Chosen **off** the lossless PEC-cavity
-/// resonance so `A(f₀)` is non-singular across the swept length range.
-const F0_GHZ: f64 = 2.0;
+use patch_model::{F0_GHZ, R_PORT_OHM, build_model};
 
 /// Max |θ| (fractional length change) — the distortion/non-singularity
 /// budget the descent is clamped to.
@@ -81,10 +70,6 @@ const THETA_MAX: f64 = 0.08;
 /// Descent step cap.
 const MAX_STEPS: usize = 10;
 
-fn omega_natural(f_ghz: f64) -> f64 {
-    2.0 * std::f64::consts::PI * f_ghz * 1e9 / C_MM_PER_S
-}
-
 /// One recorded descent step.
 struct Step {
     iter: usize,
@@ -92,225 +77,6 @@ struct Step {
     g: f64,
     dg_dtheta: f64,
     residual_rel: f64,
-}
-
-/// Everything the [`driven_shape_gradient`] evaluator needs, assembled once
-/// on the base fixture (the port covector is geometry-constant because the
-/// port-face nodes are pinned, so it is baked once and reused).
-struct Model {
-    base: PatchFixture,
-    base_nodes: Vec<[f64; 3]>,
-    eps_r: Vec<f64>,
-    mask: Vec<bool>,
-    source: CurrentSource,
-    /// Node-motion velocity `∂X/∂θ` of the in-plane length scale (port nodes 0).
-    velocity: Vec<[f64; 3]>,
-    /// Port-flux covector `f` (real, sparse, `[n_edges]`), geometry-constant.
-    flux: Vec<f64>,
-    inv_width: f64,
-    v_inc: c64,
-    r_nat: f64,
-    z0: f64,
-    omega: f64,
-    length_axis: usize,
-}
-
-impl Model {
-    /// Move the base nodes to `X⁰ + θ·velocity` and return the moved fixture mesh.
-    fn moved_mesh(&self, theta: f64) -> geode_core::mesh::TetMesh {
-        let mut mesh = self.base.mesh.clone();
-        for (node, (x0, v)) in mesh
-            .nodes
-            .iter_mut()
-            .zip(self.base_nodes.iter().zip(self.velocity.iter()))
-        {
-            for k in 0..3 {
-                node[k] = x0[k] + theta * v[k];
-            }
-        }
-        mesh
-    }
-
-    fn objective(&self) -> impl Fn(&[c64]) -> (f64, Vec<c64>) {
-        s11_sq_objective(
-            self.flux.clone(),
-            self.inv_width,
-            self.v_inc,
-            self.r_nat,
-            self.z0,
-        )
-    }
-
-    /// One forward + one adjoint solve at `θ` → `(g, ∂g/∂θ, residual)`.
-    fn grad_g(&self, theta: f64) -> (f64, f64, f64) {
-        let mesh = self.moved_mesh(theta);
-        let bcs = DrivenBcs {
-            pec_interior_mask: &self.mask,
-        };
-        let sg = driven_shape_gradient::<B, _>(
-            &mesh,
-            &self.eps_r,
-            &bcs,
-            self.omega,
-            &self.source,
-            self.objective(),
-            &device(),
-        )
-        .expect("driven shape gradient");
-        assert_eq!(sg.n_factorizations, 1, "adjoint must reuse forward LU");
-        let dg = chain_node_motion(&sg.grad_node, &self.velocity);
-        (sg.objective, dg, sg.residual_rel)
-    }
-
-    /// A **fresh, independent** forward-only evaluation of `g` at `θ` (public
-    /// [`driven_solve`] path, no adjoint) — used for the descent line search
-    /// and the final honesty cross-check.
-    fn forward_g(&self, theta: f64) -> (f64, c64, f64) {
-        let mesh = self.moved_mesh(theta);
-        let eps_c: Vec<c64> = self.eps_r.iter().map(|&e| c64::new(e, 0.0)).collect();
-        let bcs = DrivenBcs {
-            pec_interior_mask: &self.mask,
-        };
-        let sol = driven_solve::<B>(
-            &mesh,
-            DrivenMaterials::Scalar(&eps_c),
-            &bcs,
-            self.omega,
-            &self.source,
-            &device(),
-        )
-        .expect("fresh forward driven solve");
-        // V = c · Σ f_i E_i (same functional the closure uses).
-        let mut v = c64::new(0.0, 0.0);
-        for (f, e) in self.flux.iter().zip(sol.e_edges.iter()) {
-            v += *e * *f;
-        }
-        v *= self.inv_width;
-        let (g, _) = s11_sq_and_dg_dv(v, self.v_inc, self.r_nat, self.z0);
-        (g, v, sol.residual_rel)
-    }
-}
-
-/// Build the base model: PEC mask, lossless real ε_r, a localized probe
-/// current source along the port gap direction, the pinned-port length-scale
-/// velocity field, and the geometry-constant port-flux covector.
-fn build_model(base: PatchFixture) -> Model {
-    let edges = base.mesh.edges();
-
-    let patch = base.patch_triangles();
-    let ground = base.ground_triangles();
-    let outer = base.outer_boundary_triangles();
-    let mask = pec_interior_mask_from_triangles(
-        &edges,
-        &[patch.as_slice(), ground.as_slice(), outer.as_slice()],
-    );
-
-    // Lossless real ε_r (real part of the FR-4/air map; drop tan δ).
-    let eps_r: Vec<f64> = base.epsilon_r_default().iter().map(|c| c.re).collect();
-
-    let port = base.port();
-    let r_nat = R_PORT_OHM / ETA_0;
-    let flux = assemble_port_flux(&base.mesh, &port.faces, port.e_hat, &edges);
-    let inv_width = 1.0 / port.width;
-
-    // Patch bounding box (from patch-face nodes) → in-plane length axis (the
-    // shorter horizontal extent, ~29 mm vs the 38 mm width) and its center.
-    let mut lo = [f64::INFINITY; 3];
-    let mut hi = [f64::NEG_INFINITY; 3];
-    for tri in &patch {
-        for &n in tri {
-            let p = base.mesh.nodes[n as usize];
-            for k in 0..3 {
-                lo[k] = lo[k].min(p[k]);
-                hi[k] = hi[k].max(p[k]);
-            }
-        }
-    }
-    let ext = [hi[0] - lo[0], hi[1] - lo[1]];
-    let length_axis = if ext[0] <= ext[1] { 0 } else { 1 };
-    let center_len = 0.5 * (lo[length_axis] + hi[length_axis]);
-
-    // Pin the port-face nodes so the flux covector f(X) is geometry-constant.
-    let mut port_node = vec![false; base.mesh.n_nodes()];
-    for tri in &port.faces {
-        for &n in tri {
-            port_node[n as usize] = true;
-        }
-    }
-
-    // In-plane length-scale velocity ∂X/∂θ: (coord_len − center) along the
-    // length axis for every non-port node; 0 on the pinned port nodes.
-    let velocity: Vec<[f64; 3]> = base
-        .mesh
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            if port_node[i] {
-                [0.0, 0.0, 0.0]
-            } else {
-                let mut v = [0.0, 0.0, 0.0];
-                v[length_axis] = p[length_axis] - center_len;
-                v
-            }
-        })
-        .collect();
-
-    // Localized probe current along the port gap direction ê in the tets whose
-    // centroid is near the port footprint — excites a nonzero port voltage.
-    let mut port_ctr = [0.0; 3];
-    let mut nf = 0.0;
-    for tri in &port.faces {
-        for &n in tri {
-            let p = base.mesh.nodes[n as usize];
-            for k in 0..3 {
-                port_ctr[k] += p[k];
-            }
-            nf += 1.0;
-        }
-    }
-    for c in &mut port_ctr {
-        *c /= nf;
-    }
-    let src_radius = 0.20 * ext[length_axis].max(ext[1 - length_axis]);
-    let e_hat = port.e_hat;
-    let source = CurrentSource::from_centroids(&base.mesh, |c| {
-        let d2: f64 = (0..3).map(|k| (c[k] - port_ctr[k]).powi(2)).sum();
-        if d2 <= src_radius * src_radius {
-            // Complex current amplitude (0.6 + i) along ê — a genuinely
-            // complex drive so the field, V, and |S11|² are complex-valued.
-            [
-                c64::new(0.6 * e_hat[0], e_hat[0]),
-                c64::new(0.6 * e_hat[1], e_hat[1]),
-                c64::new(0.6 * e_hat[2], e_hat[2]),
-            ]
-        } else {
-            [c64::new(0.0, 0.0); 3]
-        }
-    });
-    let n_src = source
-        .j_tet
-        .iter()
-        .filter(|j| j.iter().any(|c| c.norm() > 0.0))
-        .count();
-    assert!(n_src > 0, "probe source is empty — widen src_radius");
-
-    let base_nodes = base.mesh.nodes.clone();
-    Model {
-        base,
-        base_nodes,
-        eps_r,
-        mask,
-        source,
-        velocity,
-        flux,
-        inv_width,
-        v_inc: c64::new(1.0, 0.0),
-        r_nat,
-        z0: r_nat,
-        omega: omega_natural(F0_GHZ),
-        length_axis,
-    }
 }
 
 fn main() {

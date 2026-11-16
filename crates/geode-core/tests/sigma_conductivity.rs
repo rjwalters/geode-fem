@@ -20,7 +20,6 @@
 //!    matches the analytic skin depth `δ = √(2/(ωμσ))`.
 
 mod common;
-use common::edge_tables;
 
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Int, Tensor, TensorData};
@@ -73,7 +72,7 @@ fn max_asymmetry(flat: &[f64], n: usize) -> f64 {
 fn complex_symmetry_preserved_with_nonzero_sigma() {
     let mesh = cube_tet_mesh(2, 1.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let dev = device();
     let (nodes_t, tets_t) = upload_mesh::<B>(&mesh, &dev);
 
@@ -148,7 +147,7 @@ fn complex_symmetry_preserved_with_nonzero_sigma() {
 fn damping_matrix_matches_eps_eff_fold() {
     let mesh = cube_tet_mesh(2, 1.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let dev = device();
     let (nodes_t, tets_t) = upload_mesh::<B>(&mesh, &dev);
 
@@ -337,7 +336,7 @@ fn sigma_damping_assembly_preserves_autodiff() {
 
     let mesh = cube_tet_mesh(2, 1.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let sigma = varying_sigma(&mesh);
 
     let n = mesh.n_nodes();

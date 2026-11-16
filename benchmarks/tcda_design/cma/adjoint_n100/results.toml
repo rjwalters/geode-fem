@@ -1,0 +1,92 @@
+# Design A adjoint min-max run (issue #1579, Epic #1252 Phase 4c).
+# Written by `cargo run --release -j2 -p geode-core --example tcda_design_run`.
+# Re-run and the regression pin: see README.md.
+
+[meta]
+description = "Epic #1252 Phase 4c child 2 (#1579): MMA epigraph min-max run of the Design A element on the recorded Phase-4 grid, from the #1536 baseline at equal footprint, with the #1578 lumped-feed adjoint and the #1535 manufacturability constraints."
+backend = "ndarray"
+float_dtype = "F64"
+generated_at_commit = "dece2aba"
+driver = "crates/geode-core/tests/common/tcda_design.rs (#1578)"
+baseline = "benchmarks/tcda_baseline (#1536)"
+
+[design]
+n_edge = 25
+n_params = 100
+parameterization = "outline-only: 4*n_edge spline coefficients (right, left, top, bottom), millimetres"
+superstrate = "fixed at the baseline eps_r = 2.0 (layers = []), so theta0 IS the recorded baseline"
+bound_mm = 1
+z_ref = 0.15
+mm_per_unit = 14.9896229
+mesh = "10080 tets, 2160 nodes (the #1536 baseline mesh, scaled)"
+
+[grid]
+omega_over_pi = [0.9, 1.0, 1.1]
+theta_deg = [0, 30, 60]
+phi_deg = [0, 90]
+n_points = 18
+source = "ScanGrid::reduced_comparison(PI), the 18-point comparison grid of #1580"
+
+[cost]
+# Measured on this host before the budget was fixed (the run always probes
+# first; see the example's module docs).
+build_s = 0.1
+forward_pass_s = 193.36          # one assembly + 18 factorizations
+adjoint_pass_s = 11.24          # one point: assembly + factorization + transpose back-solve
+projected_s_per_iteration = 395.7
+wall_clock_s = 1246.6
+iterations = 4
+evaluations = 5
+failed_evaluations = 0
+adjoint_passes = 44       # ConstrainedEpigraph::n_gradients()
+active_margin = 0.15
+
+[run]
+stop_reason = "wall_clock_budget (1200 s); optimizer status Running"
+best_iteration = 4   # the recorded design is the best feasible iterate, not the last
+max_iter_budget = 8
+wall_clock_budget_s = 1200
+initial_worst_db = -3.50
+final_worst_db = -6.24
+final_worst_point = { omega_over_pi = 1.10, theta_deg = 60, phi_deg = 0 }
+worst_e_plane_db = -6.24
+worst_h_plane_db = -6.24
+passive = true                  # all |Gamma| <= 1 + 1e-6
+min_tet_volume_ratio = 0.214582   # > 0: no tet inverted at the final design
+manufacturable = true    # ElementConstraints::is_violated() == false (sampled, #1535)
+max_constraint_violation_mm = -6.787e-1
+
+# Per-point |Gamma| (dB) at the final design, rows omega ascending;
+# columns theta ascending. Same layout as benchmarks/tcda_baseline.
+table_e_plane_db = [
+  [-7.81, -9.87, -6.25],
+  [-10.16, -12.40, -7.23],
+  [-14.42, -17.24, -6.24],
+]
+table_h_plane_db = [
+  [-7.81, -8.37, -6.24],
+  [-10.16, -11.37, -8.00],
+  [-14.42, -18.23, -7.41],
+]
+
+# The final design vector, in the parameterization's own order
+# (right, left, top, bottom edges, n_edge coefficients each), millimetres.
+final_theta_mm = [-0.669347, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, -0.349727, -0.575071, -0.349727, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, -0.706666, -0.681979, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, -0.334031, -0.559570, -0.334031, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, -0.681114, -0.522078, 0.152750, 0.358973, 0.445557, 0.789586, 0.930265, 1.000000, 0.877800, 0.784631, 0.251614, 0.178210, 0.072883, -0.138256, -0.320290, 0.048013, 0.167498, 0.753071, 0.868200, 1.000000, 0.998221, 0.849234, 0.481958, 0.388273, 0.159143, -0.549765, -0.476861, 0.159690, 0.379450, 0.474329, 0.841891, 0.986760, 1.000000, 0.899777, 0.773449, 0.182003, 0.072990, -0.170484, -0.118130, -0.009851, 0.134078, 0.212785, 0.751677, 0.850518, 1.000000, 0.952602, 0.813865, 0.464472, 0.379314, 0.167217, -0.548734]
+
+[verdict]
+baseline_worst_db = -3.50
+kill_floor_db = -4.50
+epic_target_db = -10.00
+improvement_db = 2.74
+distance_to_epic_db = 3.76
+kill_criterion = "pass"
+
+[history]
+# One row per MMA iteration (0 = the starting point).
+iterations = [
+  { iter = 0, t = 0.44666406, t_db = -3.500, max_violation = 0.000e0, step_norm = 0.000e0, n_evals = 1 },
+  { iter = 1, t = 0.31400389, t_db = -5.031, max_violation = 0.000e0, step_norm = 5.793e-1, n_evals = 2 },
+  { iter = 2, t = 0.25661138, t_db = -5.907, max_violation = 0.000e0, step_norm = 4.315e-1, n_evals = 3 },
+  { iter = 3, t = 0.24073045, t_db = -6.185, max_violation = 0.000e0, step_norm = 2.259e-1, n_evals = 4 },
+  { iter = 4, t = 0.23840573, t_db = -6.227, max_violation = 0.000e0, step_norm = 2.127e-1, n_evals = 5 },
+]

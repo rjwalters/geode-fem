@@ -160,6 +160,26 @@ impl TetMesh {
             .collect()
     }
 
+    /// Per-tet edge-index and orientation-sign tables, in
+    /// [`TET_LOCAL_EDGES`] order: the `(idx, sign)` split of
+    /// [`TetMesh::tet_edges`] that the Nédélec assemblers and sensitivity
+    /// kernels take.
+    ///
+    /// `idx[t][k]` is the global edge index of local edge `k` of tet `t`
+    /// and `sign[t][k]` its `+1`/`-1` orientation (see
+    /// [`TetMesh::tet_edges`]).
+    pub fn tet_edge_tables(&self) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
+        let te = self.tet_edges();
+        (
+            te.iter()
+                .map(|row| std::array::from_fn(|i| row[i].0))
+                .collect(),
+            te.iter()
+                .map(|row| std::array::from_fn(|i| row[i].1))
+                .collect(),
+        )
+    }
+
     /// Build the deduplicated, globally-oriented face list of this mesh.
     ///
     /// Each face is stored as a vertex triple `[a, b, c]` with
@@ -707,6 +727,23 @@ fn split_quoted_name(row: &str) -> Result<(&str, String), MeshError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `tet_edge_tables()` is exactly the per-tet `(idx, sign)` split of
+    /// [`TetMesh::tet_edges`], in [`TET_LOCAL_EDGES`] order.
+    #[test]
+    fn tet_edge_tables_split_matches_tet_edges() {
+        let mesh = cube_tet_mesh(2, 1.0);
+        let te = mesh.tet_edges();
+        let (idx, sign) = mesh.tet_edge_tables();
+        assert_eq!(idx.len(), mesh.n_tets());
+        assert_eq!(sign.len(), mesh.n_tets());
+        for t in 0..mesh.n_tets() {
+            for k in 0..TET_LOCAL_EDGES.len() {
+                assert_eq!(idx[t][k], te[t][k].0);
+                assert_eq!(sign[t][k], te[t][k].1);
+            }
+        }
+    }
 
     /// The generic tagged reader resolves groups by name and agrees
     /// exactly with the fixture loader built on it (issue #673).
