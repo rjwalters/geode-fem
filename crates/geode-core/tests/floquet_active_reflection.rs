@@ -19,7 +19,7 @@ use std::f64::consts::PI;
 use faer::c64;
 
 use geode_core::driven::floquet::{
-    ActiveReflection, FloquetArraySpec, FloquetCell, FloquetOrder, FloquetPortSpec,
+    ActiveReflection, FloquetArraySpec, FloquetCell, FloquetError, FloquetOrder, FloquetPortSpec,
     FloquetSettings, ModalFeedSpec, find_blind_scans,
 };
 use geode_core::elements::ElementOrder;
@@ -47,7 +47,7 @@ struct Array {
 /// A parallel-plate-guide array element: `[0, 1] × [0, 0.1] × [0, 1]`,
 /// zero-thickness plates on `x = 0 ≡ 1` for `z < L_GUIDE`, feed plane
 /// `z = 0`, aperture plane `z = 1`.
-fn ppw_cell(n: [usize; 3], d_over_lambda: f64) -> Array {
+fn ppw_cell(n: [usize; 3], d_over_lambda: f64, order: ElementOrder) -> Array {
     let size = [1.0, 0.1, L_GUIDE + H_AIR];
     let mut mesh: TetMesh = renumber(&box_tet_mesh(n, size), 5);
     let pairs = box_periodic_pairs(&mesh, &[0, 1]);
@@ -64,10 +64,7 @@ fn ppw_cell(n: [usize; 3], d_over_lambda: f64) -> Array {
             zc < L_GUIDE
         })
         .collect();
-    let space = geode_core::assembly::hcurl_space::HcurlSpace::build(
-        &mesh,
-        geode_core::elements::ElementOrder::P1,
-    );
+    let space = geode_core::assembly::hcurl_space::HcurlSpace::build(&mesh, order);
     let mask = space.pec_interior_mask(&mesh, &[&walls]).unwrap();
     let eps = vec![ONE; mesh.n_tets()];
     let spec = FloquetArraySpec {
@@ -89,7 +86,7 @@ fn ppw_cell(n: [usize; 3], d_over_lambda: f64) -> Array {
         },
         settings: FloquetSettings::default(),
 
-        element_order: ElementOrder::P1,
+        element_order: order,
     };
     let cell = FloquetCell::assemble_array::<B>(&mesh, &map, &spec, &device()).unwrap();
     Array {
@@ -132,25 +129,81 @@ fn gamma_fem(a: &Array, deg: f64) -> ActiveReflection {
     ignore = "direct solves are slow in debug; runs in release CI"
 )]
 fn ppw_array_h_plane_scan_matches_the_modal_solution() {
-    let a = ppw_cell([40, 2, 40], 0.6);
+    // Issue #1684: the golden runs at both element orders against the same
+    // Amitay–Galindo–Wu modal reference.
+    //
+    // Comparison reference convergence: the p=1 regression assertion below
+    // keeps its original `ppw_array::solve(.., 16, 800)` oracle and 2%
+    // tolerance exactly (parameterizing must not move the p=1 numbers). The
+    // p1-vs-p2 *relation* is resolved against a converged reference instead:
+    // (16, 800) carries ~5e-3 truncation drift
+    // (`ppw_oracle_conserves_power_and_converges`), the same order as the FEM
+    // error gap the relation asserts, so it would be the error floor.
+    // Measured at every scanned angle (k d = 2π·0.6): raising the original
+    // (16, 800) to (48, 2400) moves |Γ| by ≤ 3.0e-4 absolute, and a further
+    // (48, 2400) → (64, 3200) check moves it by ≤ 1.7e-5 (≤ 6e-5 relative)
+    // — far below either arm's discretization error — so (48, 2400) is
+    // converged for this comparison.
+    const REF_MODES: usize = 48;
+    const REF_HARM: i32 = 2400;
+    let a1 = ppw_cell([40, 2, 40], 0.6, ElementOrder::P1);
+    let a2 = ppw_cell([40, 2, 40], 0.6, ElementOrder::P2);
+    // The p=2 space really carries more DOFs (both `ppw_cell` sites moved
+    // together — threading only one of them fails assembly instead, with a
+    // PEC-mask / DOF-count `InvalidSpec`).
+    let (n1, n2) = (a1.cell.operator().n_dofs(), a2.cell.operator().n_dofs());
+    assert!(n2 > n1, "p=2 cell {n2} vs p=1 cell {n1} DOFs");
+    eprintln!(
+        "p=2 array (same mesh as p=1): k d = {:.3}, DOFs {} vs {}",
+        a1.k, n2, n1
+    );
+    // Edge case (issue #1684): the analytic grating-lobe onset of this cell
+    // still raises the typed `RayleighAnomaly` at p=2 — the cutoff check
+    // fires in channel setup, before any solve. (θ = 0 in the scan below is
+    // the evanescent-only angle — every non-specular harmonic is below
+    // cutoff — and is covered by the scan itself.)
+    let onset = a2.cell.grating_lobe_onset(a2.k, 0.0).unwrap();
+    assert!(matches!(
+        a2.cell.active_reflection(a2.k, onset, 0.0),
+        Err(FloquetError::RayleighAnomaly { .. })
+    ));
+    let (mut err1, mut err2) = (0.0_f64, 0.0_f64);
     for deg in [0.0, 15.0, 30.0] {
-        let want = ppw_array::solve(a.k, 1.0, f64::to_radians(deg), 16, 800)
+        let th = f64::to_radians(deg);
+        // The p=1 regression oracle and tolerance, unchanged from the
+        // original golden.
+        let want = ppw_array::solve(a1.k, 1.0, th, 16, 800).gamma.norm();
+        let reference = ppw_array::solve(a1.k, 1.0, th, REF_MODES, REF_HARM)
             .gamma
             .norm();
-        let got = gamma_fem(&a, deg);
-        eprintln!(
-            "θ={deg}°: |Γ| FEM {:.4}, modal {:.4}, rel {:+.2}%, Z_scan {:.3}",
-            got.gamma.norm(),
-            want,
-            100.0 * (got.gamma.norm() / want - 1.0),
-            got.z_scan
-        );
-        assert!(
-            (got.gamma.norm() / want - 1.0).abs() < 0.02,
-            "θ={deg}: |Γ| {} vs {want}",
-            got.gamma.norm()
-        );
+        for (tag, a) in [("p1", &a1), ("p2", &a2)] {
+            let gamma = gamma_fem(a, deg).gamma.norm();
+            let err = (gamma / reference - 1.0).abs();
+            eprintln!(
+                "θ={deg}° {tag}: |Γ| FEM {gamma:.5}, modal {reference:.5} \
+                 [oracle {want:.5}], rel {:+.3}%",
+                100.0 * (gamma / reference - 1.0)
+            );
+            if tag == "p1" {
+                assert!(
+                    (gamma / want - 1.0).abs() < 0.02,
+                    "θ={deg}: p=1 |Γ| {gamma} vs {want}"
+                );
+                err1 = err1.max(err);
+            } else {
+                err2 = err2.max(err);
+            }
+        }
     }
+    eprintln!(
+        "worst relative |Γ| error vs the converged modal reference: p=1 {err1:.3e}, p=2 {err2:.3e}"
+    );
+    // Same mesh, same physics: the p=2 worst |Γ| error over the scan is no
+    // worse than p=1 (both numbers printed above).
+    assert!(
+        err1 > 0.0 && err2 <= err1,
+        "p=2 {err2:.3e} vs p=1 {err1:.3e}"
+    );
 }
 
 #[test]
@@ -159,7 +212,7 @@ fn ppw_array_h_plane_scan_matches_the_modal_solution() {
     ignore = "direct solves are slow in debug; runs in release CI"
 )]
 fn grating_lobe_onset_is_flagged_at_the_analytic_angle() {
-    let a = ppw_cell([40, 2, 40], 0.7);
+    let a = ppw_cell([40, 2, 40], 0.7, ElementOrder::P1);
     let onset = a.cell.grating_lobe_onset(a.k, 0.0).unwrap();
     assert!(
         (onset.to_degrees() - (1.0_f64 / 0.7 - 1.0).asin().to_degrees()).abs() < 1e-9,
