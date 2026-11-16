@@ -5,6 +5,10 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-16
 
+- **Issue #1712** (closed): ci(zip-compat): stop the recurring Dependabot bump of the version-shaped dtolnay/rust-toolchain pin
+- **PR #1714**: ci(zip-compat): use floating rust-toolchain@stable to stop Dependabot bump loop
+- **Issue #1607** (closed): Consolidate 7 duplicated box_mesh test meshers into one shared helper
+- **PR #1622**: refactor(tests): move the shared box tet mesher into geode_core::testing
 - **Issue #1701** (closed): Consolidate duplicated ok()/write_spec() CLI test helpers into tests/support/cli.rs
 - **PR #1708**: test(geode-cli): hoist the remaining ok/write_spec copies onto support/cli.rs
 - **PR #1707**: test(geode-core): tie mie_sphere FEM and analytic indices to a shared N_INSIDE const
