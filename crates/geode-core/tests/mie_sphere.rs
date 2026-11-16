@@ -91,18 +91,20 @@ const Q_LOWER_BAND_TM11: f64 = 1.5;
 /// profiles, kept in sync with `examples/mie_sphere.rs`.
 const K0_REF: f64 = 2.0;
 
+/// Sphere interior refractive index, shared by the FEM PML profile and the analytic `merged_roots` side so the two cannot drift apart.
+const N_INSIDE: f64 = 1.5;
+
 type B = TestBackend;
 
 /// Shared FEM pipeline for the three acceptance tests in this file:
 /// load the sphere fixture, build the anisotropic UPML epsilon (issue
-/// #54 defaults: n = 1.5, σ₀ = 5.0, k₀_ref = `K0_REF`), assemble the
+/// #54 defaults: n = `N_INSIDE`, σ₀ = 5.0, k₀_ref = `K0_REF`), assemble the
 /// Nédélec system, apply the PEC interior mask, and run the dense
 /// complex eigensolve for `spurious_dim + 10` eigenvalues. Returns the
 /// raw eigenvalue vector — spurious near-zero roots first; each caller
 /// applies the `1e-3 · max|λ|` filter downstream.
 fn solve_sphere_pml_pencil() -> Vec<faer::c64> {
     let device = <B as BackendTypes>::Device::default();
-    let n_inside = 1.5;
     let sigma_0 = 5.0;
 
     let f = read_sphere_fixture().expect("fixture load");
@@ -110,7 +112,7 @@ fn solve_sphere_pml_pencil() -> Vec<faer::c64> {
     let eps_aniso = build_anisotropic_pml_tensor_diag(
         &f.tet_physical_tags,
         &centroids,
-        n_inside,
+        N_INSIDE,
         sigma_0,
         K0_REF,
     );
@@ -158,10 +160,8 @@ fn solve_sphere_pml_pencil() -> Vec<faer::c64> {
 #[test]
 #[ignore = "slow in debug: dense eigensolve of the ~3300-DOF pencil did not finish in 600 s (debug build; no panic observed within the cap; the faier fix is #920); runs in the release --ignored tier: cargo test -p geode-core --release --test mie_sphere -- --ignored"]
 fn mie_sphere_ground_mode_within_5_percent_of_analytic() {
-    let n_inside = 1.5;
-
     // 1. Analytic side: lowest TM/TE roots for l ∈ {1, 2, 3}.
-    let analytic = merged_roots(n_inside, &[1, 2, 3], R_SPHERE, R_BUFFER, 3);
+    let analytic = merged_roots(N_INSIDE, &[1, 2, 3], R_SPHERE, R_BUFFER, 3);
     assert!(!analytic.is_empty(), "analytic side produced no roots");
 
     let ground = analytic
@@ -254,8 +254,6 @@ fn mie_sphere_tm11_triplet_q_above_band() {
     // We use the median (not the mean) so a single outlier from
     // mesh asymmetry does not drag the assertion below the band.
 
-    let n_inside = 1.5;
-
     let lambdas = solve_sphere_pml_pencil();
 
     // Spurious filter — same threshold as the other test.
@@ -303,7 +301,7 @@ fn mie_sphere_tm11_triplet_q_above_band() {
     let q_median = qs[1];
 
     // Cross-check: the TM_1,1 analytic root is the merged-roots ground.
-    let analytic = merged_roots(n_inside, &[1, 2, 3], R_SPHERE, R_BUFFER, 3);
+    let analytic = merged_roots(N_INSIDE, &[1, 2, 3], R_SPHERE, R_BUFFER, 3);
     let ground = analytic
         .iter()
         .min_by(|a, b| a.k.partial_cmp(&b.k).unwrap())
