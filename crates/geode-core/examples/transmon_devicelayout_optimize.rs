@@ -254,9 +254,7 @@ struct Solved {
 fn solve_a2(fx: &TransmonFixture, sigma_ghz: f64, n_modes: usize) -> Solved {
     let mesh = &fx.mesh;
     let edges = mesh.edges();
-    let te = mesh.tet_edges();
-    let idx: Vec<[u32; 6]> = te.iter().map(|r| std::array::from_fn(|i| r[i].0)).collect();
-    let sgn: Vec<[i8; 6]> = te.iter().map(|r| std::array::from_fn(|i| r[i].1)).collect();
+    let (idx, sgn) = mesh.tet_edge_tables();
     let eps = fx.epsilon_tensor_r();
     let scatter = NedelecScatterMap::new(&idx);
     let (nodes_t, tets_t) = upload_mesh::<B>(mesh, &device());

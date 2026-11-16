@@ -37,7 +37,7 @@
 
 #[path = "../tests/common/transmon_util.rs"]
 mod transmon_util;
-use transmon_util::{arr, edge_tables, git_head, tarr, tf, tget, vals_to_host};
+use transmon_util::{arr, git_head, tarr, tf, tget, vals_to_host};
 
 use std::fmt::Write as _;
 use std::fs;
@@ -112,7 +112,7 @@ fn solve_mode(mesh_path: &Path, label: &str, sigma_ghz: f64, n_modes: usize, run
 
     let t_asm = Instant::now();
     let edges = fx.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&fx.mesh);
+    let (tet_edge_idx, tet_edge_sign) = fx.mesh.tet_edge_tables();
     let eps = fx.epsilon_tensor_r();
     let scatter = NedelecScatterMap::new(&tet_edge_idx);
     let (nodes_t, tets_t) = upload_mesh::<B>(&fx.mesh, &device());

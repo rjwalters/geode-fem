@@ -128,15 +128,7 @@ fn manufactured_error(n: usize) -> f64 {
         .collect();
 
     // M-norm error: assemble the vacuum mass for the discrete L² metric.
-    let tet_edges = mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let (nodes_t, tets_t) = upload_mesh::<B>(&mesh, &device());
     let sys = assemble_global_nedelec(nodes_t, tets_t, &tet_idx, &tet_sign, edges.len());
     let m = burn_matrix_to_faer(sys.m);

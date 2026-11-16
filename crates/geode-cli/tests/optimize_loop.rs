@@ -15,20 +15,20 @@
 //!   optimized from `w/h = 1.5` to 50 Ω agrees with the Hammerstad–Jensen
 //!   synthesis within the port accuracy estimate.
 
+#[path = "support/msh.rs"]
+mod msh;
 #[path = "support/scratch.rs"]
 mod scratch_support;
+#[path = "support/slab_guide.rs"]
+mod slab_guide;
 
 use scratch_support::Scratch;
-use std::fmt::Write as _;
+use slab_guide::write_slab_guide;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 
-use geode_core::driven::ports::extruded_rect_waveguide_mesh;
 use serde_json::{Value, json};
 
-const A: f64 = 2.0;
-const B_DIM: f64 = 1.0;
-const LEN: f64 = 1.2;
 /// Metres per mesh unit (a 2 cm × 1 cm guide).
 const LENGTH_UNIT_M: f64 = 1e-2;
 /// Slab permittivity.
@@ -36,18 +36,7 @@ const SLAB_EPS: [f64; 2] = [2.5, -0.05];
 
 #[path = "support/cli.rs"]
 mod cli_support;
-use cli_support::geode;
-
-fn ok(out: &Output, what: &str) -> Value {
-    assert!(
-        out.status.success(),
-        "{what} failed ({}):\nstderr: {}\nstdout: {}",
-        out.status,
-        String::from_utf8_lossy(&out.stderr),
-        String::from_utf8_lossy(&out.stdout)
-    );
-    serde_json::from_slice(&out.stdout).expect("report JSON")
-}
+use cli_support::{geode, ok};
 
 /// The stderr of a failed run, asserting the error report's `code`.
 fn err(out: &Output, code: &str) -> String {
@@ -55,104 +44,6 @@ fn err(out: &Output, code: &str) -> String {
     let v: Value = serde_json::from_slice(&out.stdout).expect("error report");
     assert_eq!(v["error"]["code"], code, "{v}");
     v["error"]["message"].as_str().unwrap().to_string()
-}
-
-fn write_msh(
-    nodes: &[[f64; 3]],
-    volumes: &[(i32, &str, &[[u32; 4]])],
-    surfaces: &[(i32, &str, &[[u32; 3]])],
-) -> String {
-    let mut s = String::from("$MeshFormat\n4.1 0 8\n$EndMeshFormat\n$PhysicalNames\n");
-    let _ = writeln!(s, "{}", surfaces.len() + volumes.len());
-    for (tag, name, _) in surfaces {
-        let _ = writeln!(s, "2 {tag} \"{name}\"");
-    }
-    for (tag, name, _) in volumes {
-        let _ = writeln!(s, "3 {tag} \"{name}\"");
-    }
-    s.push_str("$EndPhysicalNames\n");
-    let _ = writeln!(s, "$Entities\n0 0 {} {}", surfaces.len(), volumes.len());
-    for (i, (tag, _, _)) in surfaces.iter().enumerate() {
-        let _ = writeln!(s, "{} 0 0 0 1 1 1 1 {tag} 0", i + 1);
-    }
-    let bound: Vec<String> = (1..=surfaces.len()).map(|i| i.to_string()).collect();
-    for (i, (tag, _, _)) in volumes.iter().enumerate() {
-        let _ = writeln!(
-            s,
-            "{} 0 0 0 1 1 1 1 {tag} {} {}",
-            i + 1,
-            surfaces.len(),
-            bound.join(" ")
-        );
-    }
-    s.push_str("$EndEntities\n");
-    let n = nodes.len();
-    let _ = writeln!(s, "$Nodes\n1 {n} 1 {n}\n3 1 0 {n}");
-    for i in 1..=n {
-        let _ = writeln!(s, "{i}");
-    }
-    for p in nodes {
-        let _ = writeln!(s, "{:.17e} {:.17e} {:.17e}", p[0], p[1], p[2]);
-    }
-    let n_tris: usize = surfaces.iter().map(|(_, _, t)| t.len()).sum();
-    let n_el = n_tris + volumes.iter().map(|(_, _, t)| t.len()).sum::<usize>();
-    let _ = writeln!(
-        s,
-        "$EndNodes\n$Elements\n{} {n_el} 1 {n_el}",
-        surfaces.len() + volumes.len()
-    );
-    let mut id = 1;
-    for (i, (_, _, tris)) in surfaces.iter().enumerate() {
-        let _ = writeln!(s, "2 {} 2 {}", i + 1, tris.len());
-        for t in *tris {
-            let _ = writeln!(s, "{id} {} {} {}", t[0] + 1, t[1] + 1, t[2] + 1);
-            id += 1;
-        }
-    }
-    for (i, (_, _, tets)) in volumes.iter().enumerate() {
-        let _ = writeln!(s, "3 {} 4 {}", i + 1, tets.len());
-        for t in *tets {
-            let _ = writeln!(
-                s,
-                "{id} {} {} {} {}",
-                t[0] + 1,
-                t[1] + 1,
-                t[2] + 1,
-                t[3] + 1
-            );
-            id += 1;
-        }
-    }
-    s.push_str("$EndElements\n");
-    s
-}
-
-/// The `2 × 1 × 1.2` guide (8 × 4 × 6 cells) with a dielectric `slab`
-/// filling the middle third (`0.4 < z < 0.8`) between two `guide` (air)
-/// ends; `port_in` / `port_out` are the end caps, `walls` the PEC sides.
-fn write_slab_guide(dir: &Path) -> PathBuf {
-    let g = extruded_rect_waveguide_mesh(8, 4, 6, A, B_DIM, LEN);
-    let (mut slab, mut air) = (Vec::new(), Vec::new());
-    for t in &g.mesh.tets {
-        let z = t.iter().map(|&v| g.mesh.nodes[v as usize][2]).sum::<f64>() / 4.0;
-        if z > 0.4 && z < 0.8 {
-            slab.push(*t);
-        } else {
-            air.push(*t);
-        }
-    }
-    let msh = write_msh(
-        &g.mesh.nodes,
-        &[(1, "guide", &air), (2, "slab", &slab)],
-        &[
-            (11, "port_in", &g.port1_faces),
-            (12, "port_out", &g.port2_faces),
-            (13, "walls", &g.sidewall_faces),
-        ],
-    );
-    let path = dir.join("slab_guide.msh");
-    std::fs::write(&path, msh).unwrap();
-    path
 }
 
 /// A slab-guide optimize spec: one design variable (the slab thickness,

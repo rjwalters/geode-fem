@@ -396,6 +396,28 @@ impl ScanGrid {
         }
     }
 
+    /// The reduced comparison grid of issue #1580 (Epic #1252 Phase 4c
+    /// child 3): `ω/π ∈ {0.9, 1.0, 1.1} × θ ∈ {0°, 30°, 60°} × φ ∈ {0°,
+    /// 90°}` — 18 points, about a third of the cost of [`Self::phase4`]
+    /// per evaluation. It deliberately keeps **both recorded binding
+    /// edges** at `θ = 60°, φ = 90°`: the #1536 baseline's worst case sits
+    /// at `ω/π = 1.1` and #1579's optimized design's worst case sits at
+    /// `ω/π = 0.9`, so dropping either band edge would decouple a run from
+    /// the kill floor (baseline − 1 dB) or let it escape into an
+    /// unmeasured frequency. The two interior frequencies sample the 20 %
+    /// band; a two-frequency grid would be too coarse for a min-max
+    /// objective.
+    pub fn reduced_comparison(omega0: f64) -> Self {
+        Self {
+            omegas: vec![0.9 * omega0, omega0, 1.1 * omega0],
+            thetas: [0.0_f64, 30.0, 60.0]
+                .iter()
+                .map(|d| d.to_radians())
+                .collect(),
+            phis: vec![0.0, PI / 2.0],
+        }
+    }
+
     pub fn n_points(&self) -> usize {
         self.omegas.len() * self.thetas.len() * self.phis.len()
     }

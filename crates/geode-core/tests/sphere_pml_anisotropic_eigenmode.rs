@@ -127,15 +127,7 @@ fn anisotropic_pml_sigma_zero_matches_scalar() {
 
     let edges = f.mesh.edges();
     let n_edges = edges.len();
-    let tet_edges = f.mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = f.mesh.tet_edge_tables();
 
     let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device());
 
@@ -213,15 +205,7 @@ fn anisotropic_pml_beats_scalar_on_tm11() {
 
     let edges = f.mesh.edges();
     let n_edges = edges.len();
-    let tet_edges = f.mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = f.mesh.tet_edge_tables();
     eprintln!(
         "anisotropic PML test: {} nodes, {} tets, {n_edges} edges",
         f.mesh.n_nodes(),

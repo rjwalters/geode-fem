@@ -488,15 +488,7 @@ impl<B: Backend> DistributedOperator<B> {
             assert_eq!(m.len(), n_edges, "interior_mask length must equal n_edges");
         }
 
-        let te = mesh.tet_edges();
-        let full_idx: Vec<[u32; 6]> = te
-            .iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect();
-        let full_sign: Vec<[i8; 6]> = te
-            .iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect();
+        let (full_idx, full_sign) = mesh.tet_edge_tables();
 
         // Shared global node coordinates (the sub-operators index into these
         // through their own subset connectivity).
@@ -970,9 +962,7 @@ mod tests {
         let g = seed_global(n);
 
         // Single-process reference operator over all elements.
-        let te = mesh.tet_edges();
-        let idx: Vec<[u32; 6]> = te.iter().map(|r| std::array::from_fn(|i| r[i].0)).collect();
-        let sign: Vec<[i8; 6]> = te.iter().map(|r| std::array::from_fn(|i| r[i].1)).collect();
+        let (idx, sign) = mesh.tet_edge_tables();
         let (nodes, tets) = upload_mesh::<Bk>(&mesh, &dev());
         let single = MatrixFreeNedelecOperator::<Bk>::new(nodes, tets, &idx, &sign, n, &eps);
         let xg: Tensor<Bk, 1> = Tensor::from_data(

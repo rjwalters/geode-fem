@@ -232,15 +232,7 @@ fn sphere_pec_cavity_sparse_matches_dense_oracle() {
     let edges = mesh.edges();
     let mask = pec_interior_mask_from_triangles(&edges, &[outer_tris.as_slice()]);
 
-    let tet_edges = mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|r| std::array::from_fn(|i| r[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|r| std::array::from_fn(|i| r[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let device = <B as BackendTypes>::Device::default();
     let (nodes_t, tets_t) = upload_mesh::<B>(mesh, &device);
     let sys = assemble_global_nedelec_with_epsilon(

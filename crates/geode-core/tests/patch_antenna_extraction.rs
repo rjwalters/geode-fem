@@ -55,200 +55,20 @@
 mod common;
 use common::repo_root;
 
+#[path = "common/patch_antenna.rs"]
+mod patch_antenna_common;
+
 use std::fs;
 
-use faer::c64;
+use geode_core::mesh::read_patch_smoke_fixture;
 
-use geode_core::analytic::patch::PatchCavity;
-use geode_core::constants::ETA_0_OHM as ETA_0;
-use geode_core::driven::extraction::s11;
-use geode_core::driven::ports::{port_current, port_voltage};
-use geode_core::driven::scattering::flux_power_box;
-use geode_core::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenMaterials, driven_solve_with_ports,
+use patch_antenna_common::{
+    Committed, FIXTURE_PATCH, PML_THICK_BENCH_MM, PML_THICK_SMOKE_MM, R_PORT_OHM, load_committed,
+    sweep,
 };
-use geode_core::mesh::patch::FR4_MATERIALS;
-use geode_core::mesh::{PatchFixture, pec_interior_mask_from_triangles, read_patch_smoke_fixture};
-use geode_core::testing::TestBackend;
-use geode_util::units::ghz_to_omega_mm as ghz_to_omega;
-
-/// Port reference resistance (Ω).
-const R_PORT_OHM: f64 = 50.0;
-
-/// Matched box-UPML strength (matches the example).
-const SIGMA_0: f64 = 25.0;
-
-/// Benchmark-fixture UPML thickness (mm) — `patch_2g4.yaml` pml_thick.
-const PML_THICK_BENCH_MM: f64 = 25.0;
-/// Smoke-fixture UPML thickness (mm) — `patch_2g4_smoke.yaml` pml_thick.
-const PML_THICK_SMOKE_MM: f64 = 8.0;
-
-/// Flux-surface inward shrink fraction (matches the example).
-const FLUX_SHRINK: f64 = 0.10;
-
-/// Fixture geometry for the cavity-model oracle
-/// (`tests/fixtures/patch_2g4.provenance.txt`).
-const FIXTURE_PATCH: PatchCavity = PatchCavity {
-    width: 38.0e-3,
-    length: 29.0e-3,
-    height: 1.6e-3,
-    eps_r: 4.4,
-    tan_delta: 0.02,
-};
-
-/// One parsed committed sweep row.
-struct Row {
-    f_ghz: f64,
-    z_ohm: c64,
-    s11_mag: f64,
-    s11_db: f64,
-    efficiency: f64,
-}
-
-/// Parsed committed benchmark results.
-struct Committed {
-    rows: Vec<Row>,
-    f_res_fem_ghz: Option<f64>,
-    s11_dip_db: f64,
-    s11_dip_f_ghz: f64,
-    efficiency_at_res: Option<f64>,
-}
 
 fn committed_results() -> Committed {
-    let path = repo_root().join("benchmarks/patch_antenna/results.toml");
-    let raw = fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read committed results {}: {e}", path.display()));
-    let doc: toml::Value = toml::from_str(&raw).expect("results.toml is valid TOML");
-
-    let meta = doc.get("meta").expect("[meta] table");
-    // Issue #690: the pre-#690 artifact came from the f32 Wgpu default
-    // (pre-#413). At the generating commit that shifted the sweep by only
-    // ~1e-4, but today's pipeline on an f32 backend moves Im Z_in by ~16 %,
-    // so the committed artifact must come from an f64 backend.
-    assert_eq!(
-        meta.get("float_dtype").and_then(|v| v.as_str()),
-        Some("F64"),
-        "results.toml [meta].float_dtype must record an f64 generation backend (issue #690)"
-    );
-    let f_res_fem_ghz = meta.get("f_res_fem_ghz").and_then(|v| v.as_float());
-    let s11_dip_db = meta
-        .get("s11_dip_db")
-        .and_then(|v| v.as_float())
-        .expect("meta.s11_dip_db");
-    let s11_dip_f_ghz = meta
-        .get("s11_dip_f_ghz")
-        .and_then(|v| v.as_float())
-        .expect("meta.s11_dip_f_ghz");
-    let efficiency_at_res = doc
-        .get("comparison")
-        .and_then(|c| c.get("efficiency_at_res"))
-        .and_then(|v| v.as_float());
-
-    let mut rows = Vec::new();
-    for i in 0.. {
-        let Some(pt) = doc.get(format!("point_{i}")) else {
-            break;
-        };
-        let f = |key: &str| {
-            pt.get(key)
-                .and_then(|v| v.as_float())
-                .unwrap_or_else(|| panic!("point_{i}.{key} missing"))
-        };
-        rows.push(Row {
-            f_ghz: f("f_ghz"),
-            z_ohm: c64::new(f("z_re_ohm"), f("z_im_ohm")),
-            s11_mag: f("s11_mag"),
-            s11_db: f("s11_db"),
-            efficiency: f("efficiency"),
-        });
-    }
-    assert!(rows.len() >= 10, "benchmark sweep has at least 10 points");
-    Committed {
-        rows,
-        f_res_fem_ghz,
-        s11_dip_db,
-        s11_dip_f_ghz,
-        efficiency_at_res,
-    }
-}
-
-/// Run the patch pipeline (PEC patch/ground/outer, matched box-UPML,
-/// 50 Ω probe port) on `fixture` at the given frequencies, returning
-/// `(f_ghz, Z_ohm, |S11|, efficiency, residual_rel)` per point.
-fn sweep(
-    fixture: &PatchFixture,
-    freqs_ghz: &[f64],
-    pml_thick: f64,
-) -> Vec<(f64, c64, f64, f64, f64)> {
-    use burn::tensor::backend::BackendTypes;
-    type B = TestBackend;
-    let device = <B as BackendTypes>::Device::default();
-
-    let edges = fixture.mesh.edges();
-    let patch = fixture.patch_triangles();
-    let ground = fixture.ground_triangles();
-    let outer = fixture.outer_boundary_triangles();
-    let mask = pec_interior_mask_from_triangles(
-        &edges,
-        &[patch.as_slice(), ground.as_slice(), outer.as_slice()],
-    );
-
-    let port = fixture.port();
-    let r_nat = R_PORT_OHM / ETA_0;
-    let lp = port.lumped_port(r_nat, c64::new(1.0, 0.0));
-    let source = CurrentSource {
-        j_tet: vec![[c64::new(0.0, 0.0); 3]; fixture.mesh.n_tets()],
-    };
-
-    let (air_lo, air_hi) = fixture.air_box(pml_thick);
-    let center: [f64; 3] = std::array::from_fn(|k| 0.5 * (air_lo[k] + air_hi[k]));
-    let half: [f64; 3] = std::array::from_fn(|k| 0.5 * (air_hi[k] - air_lo[k]));
-    let flux_lo: [f64; 3] = std::array::from_fn(|k| center[k] - (1.0 - FLUX_SHRINK) * half[k]);
-    let flux_hi: [f64; 3] = std::array::from_fn(|k| center[k] + (1.0 - FLUX_SHRINK) * half[k]);
-
-    freqs_ghz
-        .iter()
-        .map(|&f_ghz| {
-            let omega = ghz_to_omega(f_ghz);
-            let (eps_t, nu_t) = fixture.matched_upml_materials(
-                &FR4_MATERIALS,
-                air_lo,
-                air_hi,
-                pml_thick,
-                SIGMA_0,
-                omega,
-            );
-            let sol = driven_solve_with_ports::<B>(
-                &fixture.mesh,
-                DrivenMaterials::MatchedUpml {
-                    epsilon_tensor: &eps_t,
-                    nu_tensor: &nu_t,
-                },
-                None,
-                &DrivenBcs {
-                    pec_interior_mask: &mask,
-                },
-                std::slice::from_ref(&lp),
-                omega,
-                &source,
-                &device,
-            )
-            .expect("patch driven solve");
-            let v = port_voltage(&fixture.mesh, &lp, &edges, &sol.e_edges);
-            let i = port_current(&lp, v);
-            let z = v / i;
-            let p_in = 0.5 * (v * i.conj()).re;
-            let p_rad = flux_power_box(&fixture.mesh, omega, &sol.e_edges, flux_lo, flux_hi);
-            let eta = if p_in != 0.0 { p_rad / p_in } else { 0.0 };
-            (
-                f_ghz,
-                z * ETA_0,
-                s11(z, r_nat).norm(),
-                eta,
-                sol.residual_rel,
-            )
-        })
-        .collect()
+    load_committed("results.toml", 10)
 }
 
 /// Tier 1: committed FEM results consistent with the cavity-model

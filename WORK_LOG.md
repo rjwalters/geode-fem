@@ -3,6 +3,47 @@
 Chronological record of merged pull requests and closed issues, newest first.
 Maintained automatically by the Loom Guide role; entries are appended, never edited.
 
+### 2026-11-15
+
+- **PR #1673**: refactor: consolidate the patch_diffopt driven-S11 model into tests/common
+- **PR #1669**: refactor: share cube-cavity jax/onnx baseline harness body in tests/common
+- **PR #1668**: refactor: share patch-antenna sweep helper, committed-TOML loader and constants across patch_antenna tests
+- **PR #1665**: refactor(reference): retire eigensolve shim wrappers, call eigensolve_from_sidecar.py directly
+- **PR #1658**: feat: assemble the Floquet cell on the order-generic H(curl) space (p=2)
+- **PR #1657**: ci: pin geode-cli arpack jobs to ubuntu-24.04 for the measured-green Gmsh 4.12.x
+- **PR #1643**: refactor: route five tet barycentric-gradient copies through one definition
+- **PR #1641**: refactor: route four transmon solves through reduced_transmon_system
+- **PR #1640**: refactor(geode-core): move hybrid port report model and state machine to sibling modules
+- **PR #1637**: refactor: drop extraction.rs's duplicate dense complex inverse for the shared one
+- **PR #1608**: refactor: split eigen/ams.rs into ams.rs, ams/tests.rs and eigen/amg.rs
+- **Issue #1656** (closed): Consolidate duplicated jax/onnx cube-cavity reference harnesses: cube_cavity_onnx_reference.rs mirrors the jax one (~120 lines)
+- **Issue #1653** (closed): Consolidate the driven-S11 shape-adjoint Model/build_model copied between patch_diffopt example and test
+- **Issue #1652** (closed): Share the patch_antenna sweep helper, committed-TOML loader and constants across patch_antenna tests (~140 lines)
+- **Issue #1646** (closed): Finish the eigensolve-shim deprecation: retire the three reference/driver wrappers and call eigensolve_from_sidecar.py directly
+- **Issue #1636** (closed): Split driven/ports/hybrid.rs (4,292 lines): move the report/warning data model and the mode-tracking state machine into sibling modules
+- **Issue #1633** (closed): Consolidate the duplicated dense complex inverse: extraction.rs invert_complex is byte-identical to ports::wave::invert_complex_dense
+- **Issue #1632** (closed): CI: geode-cli cookbook + mesh_static gmsh boolean failures red on main (BOPAlgo_AlertTooFewArguments)
+- **Issue #1628** (closed): Floquet cell at p=2: build FloquetCell on the order-generic H(curl) space
+- **Issue #1612** (closed): Consolidate six copies of the tet barycentric-gradient formula onto tet_barycentric_gradients
+- **Issue #1609** (closed): Consolidate 4 inlined copies of the transmon reduced-system preamble onto the existing reduced_transmon_system helper
+- **Issue #1595** (closed): Split eigen/ams.rs (4,218 lines): move inline tests to ams/tests.rs and the scalar AMG to eigen/amg.rs
+
+### 2026-11-14
+
+- **PR #1618**: ci: compile-gate geode-core example targets
+- **PR #1615**: feat(benchmarks): record the Design A min-max run and its kill-criterion verdict
+- **PR #1614**: ci: add jax-sphere-pec drift gate for the sphere-PEC JAX snapshot
+- **PR #1606**: refactor: keep one definition of eight helpers duplicated across geode-core
+- **PR #1605**: refactor: merge the two duplicated port shape-adjoint cores in driven/shape.rs
+- **PR #1603**: refactor(tests): share the box tet mesher and slope fit via common/box_fixtures
+- **Issue #1639** (closed): Consolidate duplicated MSH writer: optimize_loop/optimize_remesh carry a verbatim copy of support/msh.rs
+- **Issue #1617** (closed): CI never compiles the ~40 crates/geode-core/examples/ binaries
+- **Issue #1602** (closed): Add a CI drift gate for the sphere_pec JAX fixture (sibling of jax-sphere-pml.yml)
+- **Issue #1599** (closed): Consolidate six copies of the box_mesh tet mesher (and jitter/box_walls/fit_slope) in geode-core tests into a shared module
+- **Issue #1596** (closed): Consolidate duplicated port shape-adjoint cores in driven/shape.rs: matched_upml_ports_core is a ~330-line copy of driven_shape_gradient_ports_complex_core
+- **Issue #1588** (closed): Consolidate eight byte-identical helper functions duplicated across geode-core src modules
+- **Issue #1579** (closed): [#1537 P4c-2] Design A adjoint min-max run and kill-criterion verdict
+
 ### 2026-11-13
 
 - **PR #1601**: feat: regenerate sphere_pec JAX fixture with real JAX, drop --stub writer
