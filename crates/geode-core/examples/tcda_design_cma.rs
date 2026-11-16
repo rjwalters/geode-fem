@@ -63,25 +63,8 @@ use std::io::BufWriter;
 
 use geode_optimize::MinMaxPoints;
 
-use tcda_baseline::{BaselineParams, ScanGrid};
+use tcda_baseline::{RECORDED as P, ScanGrid, Z_REF};
 use tcda_design::{MM_PER_UNIT, ParamSpec, TcdaDesign, run_eval_server};
-
-/// The recorded baseline element (identical to `tcda_baseline.rs`'s `P` and
-/// `tcda_design_run.rs`'s `P`).
-const P: BaselineParams = BaselineParams {
-    pitch: 0.9,
-    half_len: 0.39,
-    strip_cells: 2,
-    n: 14,
-    dz: 0.125,
-    l_dip: 4,
-    l_sub: 2,
-    l_air: 2,
-    eps_sub: 2.0,
-};
-
-/// Feed-line reference impedance of the recorded baseline.
-const Z_REF: f64 = 0.15;
 
 struct Cli {
     grid: String,

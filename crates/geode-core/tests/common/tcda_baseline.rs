@@ -104,6 +104,25 @@ impl BaselineParams {
     }
 }
 
+/// The recorded baseline element (`benchmarks/tcda_baseline/README.md`,
+/// issue #1536). The test and example binaries import it as `P`
+/// (`use tcda_baseline::RECORDED as P`).
+pub const RECORDED: BaselineParams = BaselineParams {
+    pitch: 0.9,
+    half_len: 0.39,
+    strip_cells: 2,
+    n: 14,
+    dz: 0.125,
+    l_dip: 4,
+    l_sub: 2,
+    l_air: 2,
+    eps_sub: 2.0,
+};
+
+/// Feed-line reference impedance of the recorded baseline (normalized
+/// units); about the mid-band broadside `Re Z_scan` (0.152 to 0.190).
+pub const Z_REF: f64 = 0.15;
+
 /// The realized element box of a built cell, in the mesh's own length
 /// units (so already scaled by [`build_cell_scaled`]'s factor). This is
 /// what `ElementGeometry` of `shape::floquet_element` is filled from.
