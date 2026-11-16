@@ -76,6 +76,7 @@ use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
 pub use crate::assembly::p1::SparsityPattern;
+use crate::elements::nedelec_p2::tet_barycentric_gradients;
 use crate::elements::p2::{TET_P2_DOFS, tet_p2_local, tet_p2_local_tensor};
 use crate::mesh::TetMesh;
 
@@ -1216,7 +1217,7 @@ pub(crate) fn amg_pcg_maxwell(
     ground_dofs: &[usize],
     opts: AmgPcgOptions,
 ) -> Result<(CapacitanceMatrix, AmgPcgReport, Vec<Vec<f64>>), ElectrostaticError> {
-    let amg = crate::eigen::ams::ScalarAmg::new(k.as_ref(), opts.cycles)
+    let amg = crate::eigen::amg::ScalarAmg::new(k.as_ref(), opts.cycles)
         .map_err(|e| ElectrostaticError::Factorization(format!("AMG setup: {e:?}")))?;
     let n = cond_dofs.len();
     let nf = k.ncols();
@@ -2153,25 +2154,13 @@ pub(crate) fn coords_of(mesh: &TetMesh, tet: &[u32; 4]) -> [[f64; 3]; 4] {
 /// `g₂ = e₃×e₁`, `g₃ = e₁×e₂`, `det = e₁·g₁ = 6V`, the barycentric
 /// gradients are `∇λ_i = g_i / det` (`i = 1..3`) and
 /// `∇λ₀ = −(∇λ₁+∇λ₂+∇λ₃)`.
+///
+/// The single definition of this formula is
+/// [`tet_barycentric_gradients`], which also returns the signed volume
+/// `det/6`; this is its gradient half, kept as the P1 assembly's name for
+/// it.
 pub fn tet_bary_grads(coords: &[[f64; 3]; 4]) -> [[f64; 3]; 4] {
-    let v0 = coords[0];
-    let e1 = sub(coords[1], v0);
-    let e2 = sub(coords[2], v0);
-    let e3 = sub(coords[3], v0);
-    let g1 = cross(e2, e3);
-    let g2 = cross(e3, e1);
-    let g3 = cross(e1, e2);
-    let det = dot(e1, g1); // = 6V (signed)
-    let inv = 1.0 / det;
-    let gl1 = scale(g1, inv);
-    let gl2 = scale(g2, inv);
-    let gl3 = scale(g3, inv);
-    let gl0 = [
-        -(gl1[0] + gl2[0] + gl3[0]),
-        -(gl1[1] + gl2[1] + gl3[1]),
-        -(gl1[2] + gl2[2] + gl3[2]),
-    ];
-    [gl0, gl1, gl2, gl3]
+    tet_barycentric_gradients(coords).0
 }
 
 /// Local P1 tet stiffness `K`, consistent mass `M`, and (unsigned) volume.
@@ -2765,7 +2754,7 @@ mod tests {
         let n = 40;
         let (k, b, b_norm) = chain_problem(n);
         let opts = AmgPcgOptions::default();
-        let amg = crate::eigen::ams::ScalarAmg::new(k.as_ref(), opts.cycles).unwrap();
+        let amg = crate::eigen::amg::ScalarAmg::new(k.as_ref(), opts.cycles).unwrap();
         let (_, it, true_rel) = pcg_solve(
             &k,
             &b,

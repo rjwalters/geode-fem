@@ -158,15 +158,7 @@ fn fe_assemble_nedelec_matches_manual_two_step_path() {
     .expect("fe_assemble Nédélec should succeed on the sphere fixture");
 
     // --- Reference two-step path ---
-    let tet_edges = f.mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = f.mesh.tet_edge_tables();
     let n_edges = f.mesh.edges().len();
     let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device());
     let sys = assemble_global_nedelec_with_epsilon(

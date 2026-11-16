@@ -179,7 +179,6 @@
 //! shift-invert sparse LU are debug-slow.
 
 mod common;
-use common::edge_tables;
 
 use faer::c64;
 
@@ -300,7 +299,7 @@ fn matched_upml_sigma_zero_matches_complex_scalar_assembly() {
     // (real unweighted K, scalar-weighted M with zero Im) entrywise.
     let f = read_sphere_fixture().expect("fixture load");
     let n_edges = f.mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&f.mesh);
+    let (tet_idx, tet_sign) = f.mesh.tet_edge_tables();
 
     let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device());
 
@@ -380,7 +379,7 @@ fn solve_and_classify(
     root: &MieRootComplex,
 ) -> Vec<ClassifiedMode> {
     let n_edges = f.mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&f.mesh);
+    let (tet_idx, tet_sign) = f.mesh.tet_edge_tables();
 
     // Freeze Λ at the analytic root frequency (ω₀ = Re(k), c = 1).
     let omega0 = root.re_k;

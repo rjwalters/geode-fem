@@ -23,8 +23,6 @@ mod common;
 mod transmon_util;
 use transmon_util::scaled_mesh;
 
-use common::edge_tables;
-
 use burn::tensor::Tensor;
 use faer::c64;
 
@@ -123,7 +121,7 @@ fn minev_participation_equals_phase_b_participation() {
     // synthetic fixture).
     let mesh = cube_tet_mesh(3, 1.0);
     let edges = mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&mesh);
+    let (tet_edge_idx, tet_edge_sign) = mesh.tet_edge_tables();
 
     let junction_faces: Vec<[u32; 3]> = mesh
         .faces()

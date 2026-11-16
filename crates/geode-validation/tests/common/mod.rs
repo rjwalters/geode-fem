@@ -6,8 +6,13 @@
 //! not read would warn; the module-level `allow(dead_code)` covers that.
 //! `BackendTolerances` (Issue #1401) is the 5-field f64/f32 table shared by
 //! the julia/onnx/tfjava harnesses; the jax harness has a 4-field variant and
-//! keeps its own table.
+//! keeps its own table. `CubeCavityTolerances` (Issue #1656) is the 2-field
+//! table shared by the cube-cavity jax/onnx baseline harnesses, whose whole
+//! comparison body (`compare_burn_cube_cavity_to_baseline`) also lives here.
 #![allow(dead_code)]
+
+use std::collections::BTreeMap;
+use std::path::Path;
 
 use burn::prelude::Backend;
 use burn::tensor::DType;
@@ -27,6 +32,8 @@ use geode_core::eigen::dense::{
 };
 use geode_core::mesh::{R_BUFFER, SphereFixture, cube_tet_mesh, read_sphere_fixture};
 use geode_core::testing::{TestBackend, device_tolerances};
+use geode_util::fixture::flatten_numeric;
+use geode_validation::{Fixture, FixtureFormat};
 
 type B = TestBackend;
 
@@ -99,15 +106,7 @@ pub fn run_burn_pipeline() -> BurnPipeline {
 
     let edges = fixture.mesh.edges();
     let n_edges = edges.len();
-    let tet_edges = fixture.mesh.tet_edges();
-    let tet_edge_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_edge_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_edge_idx, tet_edge_sign) = fixture.mesh.tet_edge_tables();
 
     let (mask_edges, interior_mask) = sphere_pec_interior_edges(&fixture.mesh, R_BUFFER);
     assert_eq!(mask_edges.len(), n_edges, "Burn-side edge mask shape");
@@ -181,15 +180,7 @@ pub fn run_burn_mie_pipeline(
 
     let edges = fixture.mesh.edges();
     let n_edges = edges.len();
-    let tet_edges = fixture.mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = fixture.mesh.tet_edge_tables();
 
     let (mask_edges, interior_mask) = sphere_pec_interior_edges(&fixture.mesh, R_BUFFER);
     assert_eq!(mask_edges.len(), n_edges, "Burn-side edge mask shape");
@@ -257,4 +248,183 @@ pub fn burn_cube_cavity(n: usize, side: f64, k: usize) -> (Vec<f64>, f64, f64) {
         .smallest_eigenvalues(k_int.as_ref(), m_int.as_ref(), k)
         .expect("eigensolve");
     (eigvals, trk, trm)
+}
+
+// ---- Cube-cavity baseline cross-check harness (Issue #1656) ----
+//
+// Shared verbatim by `cube_cavity_jax_reference.rs` and
+// `cube_cavity_onnx_reference.rs`, which were near-verbatim mirrors
+// (~120 of ~131 code lines identical). Each harness keeps only its
+// fixture path, expected `fixture_id`, diff-artifact name and thin
+// `#[test]` wrappers.
+
+/// Per-backend tolerance envelope for the cube-cavity jax/onnx baseline
+/// harnesses, selected by the active device's float dtype.
+#[derive(Debug, Clone, Copy)]
+pub struct CubeCavityTolerances {
+    /// Absolute tolerance on the lowest-5 eigenvalues (n=4 JAX fixture:
+    /// ~5e-5 relative at the lowest mode; n=10 ONNX fixture: ~5e-7
+    /// relative), above f32 accumulation, tight enough to catch a real
+    /// regression.
+    pub eigvals_abs: f64,
+    /// Absolute tolerance on trace(K_int) / trace(M_int) — pure assembly
+    /// readbacks (Burn `upload_mesh` f32-truncation friction, whiteroom #5).
+    pub trace_abs: f64,
+}
+
+const CUBE_CAVITY_F64_TOLERANCES: CubeCavityTolerances = CubeCavityTolerances {
+    eigvals_abs: 5.0e-5,
+    trace_abs: 1.0e-5,
+};
+
+const CUBE_CAVITY_F32_TOLERANCES: CubeCavityTolerances = CubeCavityTolerances {
+    eigvals_abs: 5.0e-3,
+    trace_abs: 1.0e-3,
+};
+
+impl CubeCavityTolerances {
+    /// Tolerance envelope for the active backend device, selected by the
+    /// device's float dtype.
+    pub fn for_device<B: Backend>(device: &B::Device) -> Self {
+        device_tolerances::<B, CubeCavityTolerances>(
+            device,
+            &[
+                ("", DType::F64, CUBE_CAVITY_F64_TOLERANCES),
+                ("", DType::F32, CUBE_CAVITY_F32_TOLERANCES),
+            ],
+        )
+        .expect("a tolerance case must match the active backend dtype")
+    }
+}
+
+/// Load-time smoke test shared by the cube-cavity baseline harnesses: the
+/// canonical loader must accept the fixture, the `fixture_id` must match,
+/// and the expected output/input fields and eigenvalue shape must be
+/// present. No Burn pipeline, no faer.
+pub fn assert_cube_cavity_baseline_fixture_schema(
+    fixture_path: &Path,
+    expected_fixture_id: &str,
+    baseline_label: &str,
+) {
+    let fixture = Fixture::load_from(fixture_path, FixtureFormat::Json)
+        .unwrap_or_else(|e| panic!("{baseline_label} baseline fixture should load: {e:?}"));
+    assert_eq!(fixture.schema_version, "1");
+    assert_eq!(fixture.fixture_id, expected_fixture_id);
+    for field in ["eigenvalues", "k_diag_sum", "m_diag_sum"] {
+        assert!(
+            fixture.outputs.contains_key(field),
+            "{baseline_label} baseline fixture missing output `{field}`"
+        );
+    }
+    for field in ["n", "side"] {
+        assert!(
+            fixture.inputs.contains_key(field),
+            "{baseline_label} baseline fixture missing input `{field}`"
+        );
+    }
+
+    let eigvals = fixture
+        .output_f64("eigenvalues")
+        .expect("eigenvalues field");
+    assert_eq!(eigvals.shape, &[5]);
+    assert_eq!(eigvals.numel(), 5);
+}
+
+/// Full Burn-vs-external-baseline cross-check shared by the cube-cavity
+/// jax/onnx harnesses: runs `burn_cube_cavity` at the fixture's `n` /
+/// `side`, relaxes the fixture's per-field `tolerance_abs` to the
+/// backend-aware envelope, compares through the canonical
+/// `compare_against` path, always writes the diff artifact (pass or
+/// fail) so the friction-mining loop has it even on green runs, and
+/// panics with the per-field report on failure.
+pub fn compare_burn_cube_cavity_to_baseline(
+    fixture_path: &Path,
+    baseline_label: &str,
+    diff_artifact_name: &str,
+) {
+    let fixture = Fixture::load_from(fixture_path, FixtureFormat::Json)
+        .unwrap_or_else(|e| panic!("load {}: {e:?}", fixture_path.display()));
+
+    let n = fixture.input_i64("n") as usize;
+    let side = fixture.input_f64("side");
+    eprintln!(
+        "{baseline_label} baseline fixture id = {}, n = {n}, side = {side}",
+        fixture.fixture_id
+    );
+
+    let expected_eigvals = fixture
+        .output_f64("eigenvalues")
+        .expect("eigenvalues field");
+    let n_eigs = expected_eigvals.numel();
+
+    let (eigvals, trk, trm) = burn_cube_cavity(n, side, n_eigs);
+
+    // Build the actual-outputs map for the canonical comparator. We
+    // also relax the fixture's per-field `tolerance_abs` to our
+    // backend-aware override before calling `compare_against` so the
+    // diff artifact reflects the actually-enforced bound (the original
+    // fixture tolerances target the external in-tree cross-check at
+    // ~1e-13–1e-15, which Burn cannot honor through its f32 upload path).
+    let mut actual = BTreeMap::new();
+    actual.insert("eigenvalues".to_string(), eigvals.clone());
+    actual.insert("k_diag_sum".to_string(), vec![trk]);
+    actual.insert("m_diag_sum".to_string(), vec![trm]);
+
+    let device = <B as BackendTypes>::Device::default();
+    let tol = CubeCavityTolerances::for_device::<B>(&device);
+    eprintln!(
+        "backend = {}, eigvals_abs_tol = {:.0e}, trace_abs_tol = {:.0e}",
+        B::name(&device),
+        tol.eigvals_abs,
+        tol.trace_abs
+    );
+
+    let mut relaxed = fixture.clone();
+    if let Some(field) = relaxed.outputs.get_mut("eigenvalues") {
+        field.tolerance_abs = tol.eigvals_abs;
+    }
+    if let Some(field) = relaxed.outputs.get_mut("k_diag_sum") {
+        field.tolerance_abs = tol.trace_abs;
+    }
+    if let Some(field) = relaxed.outputs.get_mut("m_diag_sum") {
+        field.tolerance_abs = tol.trace_abs;
+    }
+
+    let report = geode_validation::compare_against(&relaxed, &actual);
+
+    // Always write the diff artifact (pass or fail) so the
+    // friction-mining loop has the artifact even on green runs.
+    let artifact_path = Path::new(env!("CARGO_TARGET_TMPDIR")).join(diff_artifact_name);
+    let _ = report.write_diff_artifact(&artifact_path);
+
+    // Pretty-print eigenvalues for the green-run log.
+    eprintln!(
+        "trace(K_int): expected = {:.6e}, got = {:.6e}",
+        flatten_numeric(&fixture.outputs["k_diag_sum"].data)[0],
+        trk,
+    );
+    eprintln!(
+        "trace(M_int): expected = {:.6e}, got = {:.6e}",
+        flatten_numeric(&fixture.outputs["m_diag_sum"].data)[0],
+        trm,
+    );
+    eprintln!("Eigenvalue comparison (lowest {n_eigs}):");
+    for (i, (got, expected)) in eigvals.iter().zip(expected_eigvals.data.iter()).enumerate() {
+        let abs_err = (got - expected).abs();
+        let rel_err = abs_err / expected.abs().max(1.0);
+        eprintln!(
+            "  λ[{i}]  expected = {expected:.6e}  got = {got:.6e}  abs = {abs_err:.3e}  rel = {rel_err:.3e}"
+        );
+    }
+
+    if !report.passed {
+        panic!(
+            "Burn cube-cavity disagrees with {baseline_label} baseline; \
+             diff artifact at {} (n_failures = {}); \
+             per-field report = {:#?}",
+            artifact_path.display(),
+            report.n_failures(),
+            report.fields
+        );
+    }
 }

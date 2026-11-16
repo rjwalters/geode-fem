@@ -2369,7 +2369,6 @@ impl<'n> Prepared<'n> {
 
         let shape = match (&design.shape, moving) {
             (Some(s), Some(mv)) => {
-                let tet_edges = mesh.tet_edges();
                 let lookup = crate::elements::whitney::edge_lookup(&edges);
                 let mut wall_faces = Vec::new();
                 for (wall, bc) in net.surfaces.iter().enumerate() {
@@ -2388,18 +2387,13 @@ impl<'n> Prepared<'n> {
                         });
                     }
                 }
+                let (tet_idx, tet_sign) = mesh.tet_edge_tables();
                 Some(ShapeData {
                     wall_faces,
                     columns: s.columns.clone(),
                     moving: mv,
-                    tet_idx: tet_edges
-                        .iter()
-                        .map(|row| std::array::from_fn(|i| row[i].0))
-                        .collect(),
-                    tet_sign: tet_edges
-                        .iter()
-                        .map(|row| std::array::from_fn(|i| row[i].1))
-                        .collect(),
+                    tet_idx,
+                    tet_sign,
                 })
             }
             _ => None,

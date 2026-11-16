@@ -141,7 +141,7 @@
 
 #[path = "../tests/common/transmon_util.rs"]
 mod transmon_util;
-use transmon_util::{edge_tables, vals_to_host};
+use transmon_util::vals_to_host;
 
 use std::time::Instant;
 
@@ -351,7 +351,7 @@ fn main() {
     // ---- Phase 2: setup + assembly (identical to the release test path). --
     let t_setup = Instant::now();
     let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
 
     // PEC on metal + exterior boundary.
     let metal = f.metal_triangles();

@@ -36,7 +36,6 @@
 //! rented EC2 box, never in CI.
 
 mod common;
-use common::edge_tables;
 
 use faer::c64;
 use faer::sparse::{SparseColMat, Triplet};
@@ -84,7 +83,7 @@ struct Fixture {
 fn build_fixture(grid: usize, side: f64, eps_val: f64, sigma_val: f64, omega: f64) -> Fixture {
     let mesh = cube_tet_mesh(grid, side);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let n_tets = mesh.n_tets();
     let eps = vec![eps_val; n_tets];
     let sigma = vec![sigma_val; n_tets];
@@ -566,7 +565,7 @@ fn cocg_burn_cuda_f32_smoke() {
 
     let mesh = cube_tet_mesh(3, 1.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let eps = vec![1.0_f64; mesh.n_tets()];
     let sigma = vec![2.0_f64; mesh.n_tets()];
     let (_edges, mask) = cube_pec_interior_edges(&mesh, 1.0);

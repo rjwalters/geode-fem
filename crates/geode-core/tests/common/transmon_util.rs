@@ -42,20 +42,6 @@ pub fn vals_to_host<B: Backend>(t: Tensor<B, 1>) -> Vec<f64> {
     t.into_data().iter::<f64>().collect()
 }
 
-/// Split `mesh.tet_edges()` into the per-tet `(idx, sign)` tables the
-/// assemblers take.
-pub fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
-}
-
 /// Format a slice as `[a, b, c]` with `prec` decimal places.
 pub fn arr(v: &[f64], prec: usize) -> String {
     format!(

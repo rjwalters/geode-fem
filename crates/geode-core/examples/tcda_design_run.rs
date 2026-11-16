@@ -50,6 +50,7 @@
 //! | variable | default | meaning |
 //! |---|---|---|
 //! | `TCDA_DESIGN_N_EDGE` | `13` | spline coefficients per outline edge; `4·n_edge` design variables (13 → 52, inside the 50–200 of #1579) |
+//! | `TCDA_DESIGN_GRID` | `phase4` | `phase4` = the recorded 50-point #1536 grid (the #1579 run); `reduced` = the 18-point comparison grid of #1580 (`ScanGrid::reduced_comparison`), so an adjoint row of the #1580 comparison sees the same grid as its CMA-ES counterpart |
 //! | `TCDA_DESIGN_MAX_ITER` | `40` | MMA iteration budget |
 //! | `TCDA_DESIGN_BUDGET_S` | `0` | wall-clock budget in seconds for the MMA loop (`0` = none); the observer stops at the first iteration boundary past it |
 //! | `TCDA_DESIGN_ACTIVE_MARGIN` | unset | epigraph active margin in `|Γ|²`; unset = exact (every point gets its adjoint) |
@@ -217,8 +218,19 @@ fn main() {
         std::env::var("TCDA_DESIGN_DIR").unwrap_or_else(|_| "benchmarks/tcda_design".into()),
     );
 
-    let grid = ScanGrid::phase4(PI, 0.2, 5);
-    assert_eq!(grid.n_points(), 50, "the recorded Phase-4 grid");
+    let grid_kind = std::env::var("TCDA_DESIGN_GRID").unwrap_or_else(|_| "phase4".to_string());
+    let (grid, grid_source) = match grid_kind.as_str() {
+        "phase4" => (
+            ScanGrid::phase4(PI, 0.2, 5),
+            "ScanGrid::phase4(PI, 0.2, 5), the recorded grid of #1536".to_string(),
+        ),
+        "reduced" => (
+            ScanGrid::reduced_comparison(PI),
+            "ScanGrid::reduced_comparison(PI), the 18-point comparison grid of #1580".to_string(),
+        ),
+        other => panic!("TCDA_DESIGN_GRID={other:?} is not phase4 or reduced"),
+    };
+    assert_eq!(grid.n_points(), if grid_kind == "phase4" { 50 } else { 18 });
 
     // ------------------------------------------------------- cost probe
     let t_build = Instant::now();
@@ -257,7 +269,8 @@ fn main() {
         .map(|(k, _)| k)
         .expect("a non-empty grid");
     println!(
-        "forward (50 points): {:.1} s  -> worst {:.2} dB at point {k_worst} (recorded {BASELINE_WORST_DB:.2})",
+        "forward ({} points): {:.1} s  -> worst {:.2} dB at point {k_worst} (recorded {BASELINE_WORST_DB:.2})",
+        grid.n_points(),
         secs(t_fwd),
         db_of_sq(worst0_sq)
     );
@@ -490,14 +503,34 @@ fn main() {
         .collect();
 
     let mut toml = String::new();
+    let (header_tag, description) = if grid_kind == "phase4" {
+        (
+            "(issue #1579, Epic #1252 Phase 4c)",
+            "Epic #1252 Phase 4c child 2 (#1579): MMA epigraph min-max run of the Design A \
+             element on the recorded Phase-4 grid, from the #1536 baseline at equal \
+             footprint, with the #1578 lumped-feed adjoint and the #1535 manufacturability \
+             constraints."
+                .to_string(),
+        )
+    } else {
+        (
+            "for the #1580 CMA-ES comparison",
+            "Issue #1580 (Epic #1252 Phase 4c child 3): the adjoint row of the MMA-vs-CMA-ES \
+             comparison — the same #1579 run on the reduced comparison grid ([grid].source \
+             below, validated in one evaluation against the recorded full-grid design), same \
+             start theta0 = 0, same +-1 mm box, same #1535 manufacturability constraints and \
+             #1578 lumped-feed adjoint."
+                .to_string(),
+        )
+    };
     let _ = write!(
         toml,
-        r#"# Design A adjoint min-max run (issue #1579, Epic #1252 Phase 4c).
+        r#"# Design A adjoint min-max run {header_tag}.
 # Written by `cargo run --release -j2 -p geode-core --example tcda_design_run`.
 # Re-run and the regression pin: see README.md.
 
 [meta]
-description = "Epic #1252 Phase 4c child 2 (#1579): MMA epigraph min-max run of the Design A element on the recorded Phase-4 grid, from the #1536 baseline at equal footprint, with the #1578 lumped-feed adjoint and the #1535 manufacturability constraints."
+description = "{description}"
 backend = "{backend}"
 float_dtype = "{dtype}"
 generated_at_commit = "{head}"
@@ -515,11 +548,11 @@ mm_per_unit = {mm_per_unit:.7}
 mesh = "{n_tets} tets, {n_nodes} nodes (the #1536 baseline mesh, scaled)"
 
 [grid]
-omega_over_pi = [0.9, 0.95, 1.0, 1.05, 1.1]
-theta_deg = [0, 15, 30, 45, 60]
-phi_deg = [0, 90]
+omega_over_pi = [{grid_omega_list}]
+theta_deg = [{grid_theta_list}]
+phi_deg = [{grid_phi_list}]
 n_points = {n_points}
-source = "ScanGrid::phase4(PI, 0.2, 5), the recorded grid of #1536"
+source = "{grid_source}"
 
 [cost]
 # Measured on this host before the budget was fixed (the run always probes
@@ -550,8 +583,8 @@ min_tet_volume_ratio = {vol_ratio:.6}   # > 0: no tet inverted at the final desi
 manufacturable = {manufacturable}    # ElementConstraints::is_violated() == false (sampled, #1535)
 max_constraint_violation_mm = {max_violation:.3e}
 
-# Per-point |Gamma| (dB) at the final design, rows omega/pi = 0.9 .. 1.1;
-# columns theta = 0,15,30,45,60. Same layout as benchmarks/tcda_baseline.
+# Per-point |Gamma| (dB) at the final design, rows omega ascending;
+# columns theta ascending. Same layout as benchmarks/tcda_baseline.
 table_e_plane_db = {e_table}
 table_h_plane_db = {h_table}
 
@@ -582,6 +615,28 @@ iterations = [
         n_tets = final_d.parts().mesh.n_tets(),
         n_nodes = final_d.parts().mesh.n_nodes(),
         n_points = grid.n_points(),
+        grid_source = grid_source,
+        grid_omega_list = grid
+            .omegas
+            .iter()
+            .map(|&w| {
+                let s = format!("{:.2}", w / PI);
+                s.strip_suffix('0').unwrap_or(&s).to_string()
+            })
+            .collect::<Vec<_>>()
+            .join(", "),
+        grid_theta_list = grid
+            .thetas
+            .iter()
+            .map(|t| format!("{:.0}", t.to_degrees()))
+            .collect::<Vec<_>>()
+            .join(", "),
+        grid_phi_list = grid
+            .phis
+            .iter()
+            .map(|p| format!("{:.0}", p.to_degrees()))
+            .collect::<Vec<_>>()
+            .join(", "),
         build_s = secs(t_build),
         fwd_s = secs(t_fwd),
         adj_s = secs(t_adj),

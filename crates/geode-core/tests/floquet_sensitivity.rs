@@ -30,6 +30,7 @@ use geode_core::driven::floquet_sensitivity::{
     FloquetSensitivityFault, FloquetSensitivityOptions, floquet_s_sensitivity, floquet_s_vjp,
 };
 use geode_core::driven::s_sensitivity::{MaterialDesign, SParam, ShapeDesign};
+use geode_core::elements::ElementOrder;
 use geode_core::mesh::TetMesh;
 use geode_core::mesh::periodic::{
     PeriodicMap, PeriodicMatchOptions, boundary_triangles_on_plane, box_periodic_pairs,
@@ -87,6 +88,8 @@ fn floquet_on(c: &Cell, mesh: &TetMesh, eps: &[c64]) -> FloquetCell {
             },
         ],
         settings: FloquetSettings::default(),
+
+        element_order: ElementOrder::P1,
     };
     FloquetCell::assemble::<B>(mesh, &c.map, &spec, &device()).unwrap()
 }
