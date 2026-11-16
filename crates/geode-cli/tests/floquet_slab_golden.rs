@@ -22,8 +22,6 @@ mod msh;
 #[path = "support/scratch.rs"]
 mod scratch_support;
 
-use std::path::Path;
-
 use faer::c64;
 use floquet_cell::{EPS, K0, L, Z1, Z2, box_msh, spec};
 use gmsh::gmsh_or_skip;
@@ -32,11 +30,8 @@ use serde_json::{Value, json};
 
 #[path = "support/cli.rs"]
 mod cli_support;
-use cli_support::{error_of, geode, json};
+use cli_support::{error_of, geode, json, write_spec_str};
 
-fn write_spec(dir: &Path, file: &str, v: &Value) -> String {
-    cli_support::write_spec(dir, file, v).display().to_string()
-}
 fn scratch(name: &str, msh_text: String) -> Scratch {
     let dir = Scratch::new("geode-floquet-", name);
     std::fs::write(dir.join("cell.msh"), msh_text).unwrap();
@@ -110,7 +105,7 @@ fn row_s(point: &Value, inc: &str, port: usize, pol: &str) -> c64 {
 )]
 fn cli_slab_scan_matches_fresnel_and_writes_touchstone_per_angle() {
     let dir = scratch("golden", box_msh([3, 3, 80], true, 0.0));
-    let s = write_spec(
+    let s = write_spec_str(
         &dir,
         "s.json",
         &spec(json!({"scan": {
@@ -187,7 +182,7 @@ fn cli_slab_scan_matches_fresnel_and_writes_touchstone_per_angle() {
 fn check_accepts_a_matching_cell_and_a_snapable_one() {
     // Matching.
     let dir = scratch("check-ok", box_msh([2, 2, 6], true, 0.0));
-    let s = write_spec(
+    let s = write_spec_str(
         &dir,
         "s.json",
         &spec(json!({"incidence": {"theta_deg": 30.0, "phi_deg": 0.0, "polarization": "te"}})),
@@ -198,7 +193,7 @@ fn check_accepts_a_matching_cell_and_a_snapable_one() {
     // Snap-able: the x_hi nodes are off by far less than the matcher's
     // tolerance, so they are snapped onto the translated images.
     let dir = scratch("check-snap", box_msh([2, 2, 6], true, 1e-9));
-    let s = write_spec(
+    let s = write_spec_str(
         &dir,
         "s.json",
         &spec(json!({"incidence": {"theta_deg": 30.0}})),
@@ -211,7 +206,7 @@ fn check_accepts_a_matching_cell_and_a_snapable_one() {
 #[test]
 fn check_rejects_a_non_matching_periodic_mesh() {
     let dir = scratch("check-nomatch", box_msh([2, 2, 6], true, 0.3));
-    let s = write_spec(
+    let s = write_spec_str(
         &dir,
         "s.json",
         &spec(json!({"incidence": {"theta_deg": 30.0}})),
@@ -227,7 +222,7 @@ fn check_rejects_an_inhomogeneous_port_medium() {
     // Declare the (vacuum) port medium as the slab permittivity: tets on the
     // face carry ε_r = 1, not 4.
     v["floquet_ports"][0]["medium"] = json!("slab");
-    let s = write_spec(&dir, "s.json", &v);
+    let s = write_spec_str(&dir, "s.json", &v);
     let msg = error_of(&geode(&["check", &s]), "invalid_spec");
     assert!(msg.contains("Floquet") || msg.contains("port"), "{msg}");
 }
@@ -236,7 +231,7 @@ fn check_rejects_an_inhomogeneous_port_medium() {
 fn check_rejects_anisotropic_port_medium_and_bad_drives() {
     let dir = scratch("check-bad", box_msh([2, 2, 6], true, 0.0));
     let run = |v: &Value| -> String {
-        let s = write_spec(&dir, "s.json", v);
+        let s = write_spec_str(&dir, "s.json", v);
         error_of(&geode(&["check", &s]), "invalid_spec")
     };
     // Anisotropic medium.

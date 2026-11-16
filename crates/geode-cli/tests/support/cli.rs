@@ -85,6 +85,12 @@ pub fn write_spec(dir: &Path, name: &str, v: &Value) -> PathBuf {
     path
 }
 
+/// [`write_spec`] with the path returned as a `String`, for direct use as
+/// a CLI argument.
+pub fn write_spec_str(dir: &Path, name: &str, v: &Value) -> String {
+    write_spec(dir, name, v).display().to_string()
+}
+
 /// `fixture` (under `tests/fixtures`) with its mesh path made absolute and
 /// `edit` applied, written to `dir/name`.
 pub fn spec_from(fixture: &str, dir: &Path, name: &str, edit: impl FnOnce(&mut Value)) -> PathBuf {
