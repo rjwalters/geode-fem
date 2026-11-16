@@ -59,7 +59,7 @@ fn k0_hz(k0: f64) -> f64 {
 
 #[path = "support/cli.rs"]
 mod cli_support;
-use cli_support::{geode, ok};
+use cli_support::{geode, ok, write_spec};
 
 /// Write the filter mesh into `dir`: air tets (`air`), the two cavities
 /// (`cav1`, `cav2`), septum body / edge faces per iris (`bK` / `eK`), the
@@ -180,12 +180,6 @@ fn filter_spec(dir: &Path, edit: impl FnOnce(&mut Value)) -> Value {
     });
     edit(&mut v);
     v
-}
-
-fn write_spec(dir: &Path, name: &str, v: &Value) -> PathBuf {
-    let path = dir.join(name);
-    std::fs::write(&path, serde_json::to_string_pretty(v).unwrap()).unwrap();
-    path
 }
 
 fn db(c: &Value) -> f64 {

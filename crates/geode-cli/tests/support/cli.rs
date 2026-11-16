@@ -42,6 +42,15 @@ pub fn json(out: &Output) -> serde_json::Value {
     })
 }
 
+/// Require a failed run and return the error report's message; `code` is
+/// the expected `error.code`.
+pub fn error_of(out: &Output, code: &str) -> String {
+    let v = json(out);
+    assert!(!out.status.success(), "expected failure: {v:#}");
+    assert_eq!(v["error"]["code"], code, "report: {v:#}");
+    v["error"]["message"].as_str().unwrap().to_string()
+}
+
 /// Require a successful run and return its report JSON; `what` names the
 /// run in the panic message.
 pub fn ok(out: &Output, what: &str) -> Value {
@@ -67,6 +76,13 @@ pub fn ok_status(out: &Output, what: &str) -> serde_json::Value {
     let v = json(out);
     assert_eq!(v["status"], "ok");
     v
+}
+
+/// Write `v` pretty-printed to `dir/name` and return the path.
+pub fn write_spec(dir: &Path, name: &str, v: &Value) -> PathBuf {
+    let path = dir.join(name);
+    std::fs::write(&path, serde_json::to_string_pretty(v).unwrap()).unwrap();
+    path
 }
 
 /// `fixture` (under `tests/fixtures`) with its mesh path made absolute and

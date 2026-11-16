@@ -14,7 +14,6 @@ mod msh;
 mod scratch_support;
 
 use std::path::Path;
-use std::process::Output;
 
 use floquet_cell::{box_msh, hz, spec};
 use scratch_support::Scratch;
@@ -22,29 +21,10 @@ use serde_json::{Value, json};
 
 #[path = "support/cli.rs"]
 mod cli_support;
-use cli_support::geode;
-
-fn json_of(out: &Output) -> Value {
-    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
-        panic!(
-            "not JSON ({e}): {}\nstderr: {}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        )
-    })
-}
+use cli_support::{error_of, geode, json};
 
 fn write_spec(dir: &Path, file: &str, v: &Value) -> String {
-    let path = dir.join(file);
-    std::fs::write(&path, serde_json::to_vec_pretty(v).unwrap()).unwrap();
-    path.display().to_string()
-}
-
-fn error_of(out: &Output, code: &str) -> String {
-    let v = json_of(out);
-    assert!(!out.status.success(), "expected failure: {v:#}");
-    assert_eq!(v["error"]["code"], code, "report: {v:#}");
-    v["error"]["message"].as_str().unwrap().to_string()
+    cli_support::write_spec(dir, file, v).display().to_string()
 }
 fn scratch(name: &str, msh_text: String) -> Scratch {
     let dir = Scratch::new("geode-floquet-", name);
@@ -166,7 +146,7 @@ fn check_validates_fixed_kt() {
         geode(&["check", &s])
     };
     let out = check(&spec(json!({"fixed_k_t": {"k_t": [1.0, 0.0, 0.0]}})));
-    assert!(out.status.success(), "{:#}", json_of(&out));
+    assert!(out.status.success(), "{:#}", json(&out));
     // Excludes incidence / scan.
     let out = check(&spec(json!({
         "fixed_k_t": {"k_t": [1.0, 0.0, 0.0]},

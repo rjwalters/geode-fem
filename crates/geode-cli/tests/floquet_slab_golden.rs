@@ -23,7 +23,6 @@ mod msh;
 mod scratch_support;
 
 use std::path::Path;
-use std::process::Output;
 
 use faer::c64;
 use floquet_cell::{EPS, K0, L, Z1, Z2, box_msh, spec};
@@ -33,29 +32,10 @@ use serde_json::{Value, json};
 
 #[path = "support/cli.rs"]
 mod cli_support;
-use cli_support::geode;
-
-fn json_of(out: &Output) -> Value {
-    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
-        panic!(
-            "not JSON ({e}): {}\nstderr: {}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        )
-    })
-}
+use cli_support::{error_of, geode, json};
 
 fn write_spec(dir: &Path, file: &str, v: &Value) -> String {
-    let path = dir.join(file);
-    std::fs::write(&path, serde_json::to_vec_pretty(v).unwrap()).unwrap();
-    path.display().to_string()
-}
-
-fn error_of(out: &Output, code: &str) -> String {
-    let v = json_of(out);
-    assert!(!out.status.success(), "expected failure: {v:#}");
-    assert_eq!(v["error"]["code"], code, "report: {v:#}");
-    v["error"]["message"].as_str().unwrap().to_string()
+    cli_support::write_spec(dir, file, v).display().to_string()
 }
 fn scratch(name: &str, msh_text: String) -> Scratch {
     let dir = Scratch::new("geode-floquet-", name);
@@ -213,7 +193,7 @@ fn check_accepts_a_matching_cell_and_a_snapable_one() {
         &spec(json!({"incidence": {"theta_deg": 30.0, "phi_deg": 0.0, "polarization": "te"}})),
     );
     let out = geode(&["check", &s]);
-    let v = json_of(&out);
+    let v = json(&out);
     assert!(out.status.success(), "{v:#}");
     // Snap-able: the x_hi nodes are off by far less than the matcher's
     // tolerance, so they are snapped onto the translated images.
@@ -224,7 +204,7 @@ fn check_accepts_a_matching_cell_and_a_snapable_one() {
         &spec(json!({"incidence": {"theta_deg": 30.0}})),
     );
     let out = geode(&["check", &s]);
-    let v = json_of(&out);
+    let v = json(&out);
     assert!(out.status.success(), "{v:#}");
 }
 
@@ -337,7 +317,7 @@ fn generated_periodic_driven_mesh_passes_check() {
     assert_eq!(spec["floquet_ports"][0]["physical_group"], "z_lo");
     assert_eq!(spec["floquet_ports"][1]["physical_group"], "z_hi");
     let out = geode(&["check", spec_path.to_str().unwrap()]);
-    let v = json_of(&out);
+    let v = json(&out);
     assert!(out.status.success(), "check failed: {v:#}");
 }
 
