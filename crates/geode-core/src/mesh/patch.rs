@@ -789,7 +789,10 @@ pub fn read_patch_fixture_from_bytes(source: &[u8]) -> Result<PatchFixture, Mesh
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) use tests::composed_upml_port_fd_gate;
+
+#[cfg(test)]
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -1010,18 +1013,25 @@ mod tests {
         );
     }
 
-    /// **Phase-2 re-validation (epic #647).** The composed open-radiator
-    /// shape gradient — matched box-UPML tensor material + lossy FR-4 ε + a
+    /// Shared body of the composed open-radiator FD gradient gate, run on a
+    /// patch fixture: matched box-UPML tensor material + lossy FR-4 ε + a
     /// pinned-feed lumped port, all in one differentiated pencil via
-    /// [`driven_shape_gradient_matched_upml_ports`] — matches a full central
-    /// finite difference of the entire port-loaded UPML pipeline on the
-    /// **curved conformal** mesh to `rel_err ≤ 5e-3`, with
-    /// `n_factorizations == 1`. This confirms the already-merged adjoint is
-    /// correct on genuinely curved geometry, not just the flat patch. A
-    /// conjugation tripwire proves the tolerance bites.
-    #[test]
-    fn curved_conformal_composed_gradient_matches_central_finite_difference() {
-        let fixture = read_patch_smoke_curved_fixture().expect("curved smoke fixture");
+    /// [`driven_shape_gradient_matched_upml_ports`], adjoint vs a full central
+    /// finite difference of the entire **port-loaded UPML** pipeline (perturb
+    /// θ → move only the non-PML, non-port nodes → re-assemble + re-solve the
+    /// forward through the independent public [`driven_solve_with_ports`] with
+    /// [`DrivenMaterials::MatchedUpml`] → recompute g) to `rel_err ≤ 5e-3`,
+    /// with `n_factorizations == 1`. The PML shell (`∂Λ/∂X = 0`) and the port
+    /// feed (`∂S_p/∂X = ∂b_port/∂X = 0`) are both pinned. A conjugation
+    /// tripwire proves the tolerance bites. Returns the relative error of the
+    /// analytic gradient against the FD reference so a caller can report it
+    /// (the curved gate prints it; see
+    /// [`curved_conformal_composed_gradient_matches_central_finite_difference`]).
+    pub(crate) fn composed_upml_port_fd_gate(
+        fixture: &PatchFixture,
+        pml_thick: f64,
+        label: &str,
+    ) -> f64 {
         let mesh = fixture.mesh.clone();
         let edges = mesh.edges();
         let interior = pec_interior_mask_from_triangles(
@@ -1036,7 +1046,6 @@ mod tests {
             pec_interior_mask: &interior,
         };
 
-        let pml_thick = CURVED_SMOKE_PML_THICK;
         let (air_lo, air_hi) = fixture.air_box(pml_thick);
         let sigma_0 = 1.0;
         let omega = 0.35;
@@ -1050,12 +1059,13 @@ mod tests {
             omega,
         );
 
-        // Pinned-feed lumped port; complex incident drive so V and g are complex.
+        // Pinned-feed lumped port (Palace-style uniform), complex incident drive
+        // so the field, V and the objective are genuinely complex.
         let patch_port = fixture.port();
         let r_nat = 50.0 / ETA_0_OHM;
         let port = patch_port.lumped_port(r_nat, c64::new(1.0, 0.5));
 
-        // Pin BOTH the PML shell AND the port-face nodes in the motion map.
+        // Both the PML shell AND the port-face nodes are pinned in the motion map.
         let pml_tet_mask: Vec<bool> = fixture
             .tet_physical_tags
             .iter()
@@ -1068,7 +1078,8 @@ mod tests {
             }
         }
 
-        // Complex volumetric source (exercises the ∂b/∂X term alongside the port).
+        // A complex volumetric source in addition to the port drive, so the
+        // volume ∂b/∂X term is exercised alongside the port load.
         let source = CurrentSource::from_centroids(&mesh, |c| {
             [
                 c64::new(0.0, 0.20 * c[2].cos()),
@@ -1088,20 +1099,20 @@ mod tests {
             l2_objective,
             &device(),
         )
-        .expect("composed box-UPML + port shape gradient on curved mesh");
+        .unwrap_or_else(|e| panic!("{label}: composed box-UPML + port shape gradient: {e:?}"));
         assert_eq!(
             sg.n_factorizations, 1,
-            "composed adjoint must reuse the single forward factorization"
+            "{label}: composed adjoint must reuse the forward factorization"
         );
         assert!(
             sg.residual_rel < 1e-8,
-            "curved forward composed solve unhealthy (residual {:.3e})",
+            "{label}: forward composed solve unhealthy (residual {:.3e}); pick ω off resonance",
             sg.residual_rel
         );
 
         // FD reference: hold the per-tet Λ tensors FIXED (pinned-shell C1
-        // convention), move only non-PML/non-port nodes, re-assemble +
-        // re-solve the port-loaded UPML forward through the public path.
+        // convention), move only non-PML/non-port nodes, re-assemble + re-solve
+        // the port-loaded UPML forward through the independent public path.
         let eps_ref = eps_tensor.clone();
         let nu_ref = nu_tensor.clone();
         let g_of_theta = |theta: f64, d: &[[f64; 3]]| -> f64 {
@@ -1131,7 +1142,7 @@ mod tests {
         let g0 = g_of_theta(0.0, &vec![[0.0; 3]; mesh.n_nodes()]);
         assert!(
             (g0 - sg.objective).abs() <= 1e-8 * g0.abs().max(1.0),
-            "objective mismatch: adjoint {} vs public forward {g0}",
+            "objective mismatch ({label}): adjoint {} vs public port-loaded UPML forward {g0}",
             sg.objective
         );
 
@@ -1165,6 +1176,7 @@ mod tests {
                 }
             })
             .collect();
+        // Guard the pinned-feed premise: no port-face node is moved.
         for tri in &patch_port.faces {
             for &nn in tri {
                 assert_eq!(
@@ -1182,16 +1194,14 @@ mod tests {
             "FD gradient {fd} unexpectedly ~0 (fixture/source degenerate?)"
         );
         let rel = (ana - fd).abs() / fd.abs().max(f64::MIN_POSITIVE);
-        println!(
-            "curved-conformal composed-gradient FD gate: rel_err = {rel:.3e} (ana {ana:.6e}, fd {fd:.6e})"
-        );
         assert!(
             rel < 5e-3,
-            "curved composed adjoint {ana} vs central-FD {fd}, rel-err {rel:.3e} exceeds 5e-3"
+            "{label}: composed box-UPML+port adjoint {ana} vs central-FD {fd}, \
+             rel-err {rel:.3e} exceeds 5e-3"
         );
 
-        // Conjugation tripwire: the wrong Wirtinger cotangent (∂g/∂x̄) must
-        // be REJECTED by the FD — proving the 5e-3 gate bites on curved geom.
+        // Conjugation tripwire: the wrong Wirtinger cotangent (∂g/∂x̄) must be
+        // REJECTED by the FD — proving the 5e-3 gate bites for the composition.
         let wrong_objective = |x: &[c64]| -> (f64, Vec<c64>) {
             let g = x.iter().map(|z| z.re * z.re + z.im * z.im).sum::<f64>();
             let cot = x.iter().map(|z| c64::new(z.re, z.im)).collect();
@@ -1216,6 +1226,25 @@ mod tests {
             "conjugation error NOT detected by FD: wrong-adjoint {ana_wrong} vs FD {fd}, \
              rel-err {rel_wrong:.3e} (gate not biting)"
         );
+
+        rel
+    }
+
+    /// **Phase-2 re-validation (epic #647).** The composed open-radiator
+    /// shape gradient — matched box-UPML tensor material + lossy FR-4 ε + a
+    /// pinned-feed lumped port, all in one differentiated pencil via
+    /// [`driven_shape_gradient_matched_upml_ports`] — matches a full central
+    /// finite difference of the entire port-loaded UPML pipeline on the
+    /// **curved conformal** mesh to `rel_err ≤ 5e-3`, with
+    /// `n_factorizations == 1`. This confirms the already-merged adjoint is
+    /// correct on genuinely curved geometry, not just the flat patch. A
+    /// conjugation tripwire proves the tolerance bites.
+    #[test]
+    fn curved_conformal_composed_gradient_matches_central_finite_difference() {
+        let fixture = read_patch_smoke_curved_fixture().expect("curved smoke fixture");
+        let rel_err =
+            composed_upml_port_fd_gate(&fixture, CURVED_SMOKE_PML_THICK, "curved conformal mesh");
+        println!("curved-conformal composed-gradient FD gate: rel_err = {rel_err:.3e}");
     }
 
     /// **Moving feed on the matched-UPML open radiator (issue #1120).** The

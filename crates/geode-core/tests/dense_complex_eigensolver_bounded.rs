@@ -184,9 +184,7 @@ fn mie_pencil_dense() -> (Mat<c64>, Mat<c64>, usize) {
     let radii = tet_centroid_radii(&f.mesh);
     let eps = build_complex_epsilon_r_pml(&f.tet_physical_tags, &radii, 1.5, 5.0);
     let n_edges = f.mesh.edges().len();
-    let te = f.mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = te.iter().map(|r| std::array::from_fn(|i| r[i].0)).collect();
-    let tet_sign: Vec<[i8; 6]> = te.iter().map(|r| std::array::from_fn(|i| r[i].1)).collect();
+    let (tet_idx, tet_sign) = f.mesh.tet_edge_tables();
     let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device());
     let sys = assemble_global_nedelec_with_complex_epsilon(
         nodes_t, tets_t, &tet_idx, &tet_sign, n_edges, &eps,

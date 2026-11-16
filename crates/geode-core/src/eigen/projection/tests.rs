@@ -767,15 +767,7 @@ fn port_subspace_entry_point_returns_nearest_nonzero_modes() {
 
     let mesh = cube_tet_mesh(3, 1.0);
     let edges = mesh.edges();
-    let te = mesh.tet_edges();
-    let tet_edge_idx: Vec<[u32; 6]> = te
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_edge_sign: Vec<[i8; 6]> = te
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_edge_idx, tet_edge_sign) = mesh.tet_edge_tables();
     let on = |f: &[u32; 3], c: usize, v: f64| {
         f.iter()
             .all(|&x| (mesh.nodes[x as usize][c] - v).abs() < 1e-12)

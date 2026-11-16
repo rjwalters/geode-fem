@@ -522,9 +522,7 @@ fn initial_h_record_reproduces_release() {
     let fx = read_transmon_fixture_from_bytes(&bytes).expect("mesh");
     let device = <B as BackendTypes>::Device::default();
     let edges = fx.mesh.edges();
-    let te = fx.mesh.tet_edges();
-    let idx: Vec<[u32; 6]> = te.iter().map(|r| std::array::from_fn(|i| r[i].0)).collect();
-    let sgn: Vec<[i8; 6]> = te.iter().map(|r| std::array::from_fn(|i| r[i].1)).collect();
+    let (idx, sgn) = fx.mesh.tet_edge_tables();
     let eps = fx.epsilon_tensor_r();
     let scatter = NedelecScatterMap::new(&idx);
     let (nodes_t, tets_t) = upload_mesh::<B>(&fx.mesh, &device);

@@ -37,7 +37,6 @@
 //!    invalid by convention (PEC goes through the edge mask).
 
 mod common;
-use common::edge_tables;
 
 use burn::tensor::Tensor;
 use faer::c64;
@@ -130,7 +129,7 @@ fn box_fixture(n: usize, dims: [f64; 3]) -> BoxFixture {
     let edges = mesh.edges();
     let interior_mask_pec = pec_interior_mask_from_triangles(&edges, &[wall_tris.as_slice()]);
     let keep_all_mask = vec![true; edges.len()];
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&mesh);
+    let (tet_edge_idx, tet_edge_sign) = mesh.tet_edge_tables();
     let scatter = NedelecScatterMap::new(&tet_edge_idx);
 
     BoxFixture {

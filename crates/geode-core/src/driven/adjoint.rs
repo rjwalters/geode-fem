@@ -260,15 +260,7 @@ where
     }
 
     // --- Edge tables and the sparsity scatter map (issue #218 pattern) ------
-    let tet_edges = mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let scatter = NedelecScatterMap::new(&tet_idx);
     let pattern = scatter.pattern();
 
@@ -747,15 +739,7 @@ where
         .collect::<Result<_, _>>()?;
 
     // --- Edge tables and the sparsity scatter map (issue #218 pattern) ------
-    let tet_edges = mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let scatter = NedelecScatterMap::new(&tet_idx);
     let pattern = scatter.pattern();
 
