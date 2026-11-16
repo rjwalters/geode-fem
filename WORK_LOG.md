@@ -5,6 +5,35 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-16
 
+- **PR #1702**: ci: raise integration a-m job timeout 45 to 60 with measured-range comment
+- **PR #1698**: test(geode-cli): consolidate json_of/error_of/write_spec onto support/cli.rs
+- **PR #1697**: refactor: hoist duplicated tcda baseline P and Z_REF consts into the shared module
+- **PR #1695**: feat(geode-core): make the Floquet delta-gap feed and radiator cell order-generic
+- **PR #1693**: test: extract shared sphere PML eigensolve helper in mie_sphere tests
+- **PR #1691**: test: tighten the p=2 Floquet golden bound from a measurement; assert eliminated DOFs expand to zero
+- **PR #1690**: docs: fix tcda_design eval-server error contract and README budget arithmetic
+- **PR #1688**: test: run the PPW array H-plane scan golden at p=1 and p=2
+- **PR #1680**: ci: assert apt Gmsh is 4.12.x in both arpack geode-cli install steps
+- **PR #1675**: feat: run driven sensitivities under sweep.adaptive with full-order bypass gradients
+- **PR #1671**: refactor: share derham julia/numpy harness body via tests/common/derham_ref.rs
+- **PR #1663**: test: share the truncated-slab fixture via tests/common/slab_fixture.rs
+- **PR #1661**: test: point geode-core convergence tests at the shared fit_slope
+- **PR #1624**: refactor: move inline test modules of five large geode-core files into tests.rs children
+- **Issue #1700** (closed): CI: integration targets a-m job is approaching its 45-minute cap
+- **Issue #1689** (closed): Hoist duplicated tcda baseline P and Z_REF constants into the shared tcda_baseline common module
+- **Issue #1687** (closed): Consolidate triplicated FEM pipeline in mie_sphere.rs tests (~100 LOC)
+- **Issue #1685** (closed): Consolidate six duplicated tet barycentric-gradient helpers
+- **Issue #1684** (closed): Floquet at p=2: an array / active-reflection golden at p=2 (child 3/3 of #1660)
+- **Issue #1682** (closed): Floquet at p=2: the lumped delta-gap feed and the radiator cell element order (child 1/3 of #1660)
+- **Issue #1681** (closed): Harden the p=2 Floquet/periodic tests: defend the quoted golden accuracy and fix a vacuous assertion
+- **Issue #1677** (closed): benchmarks/tcda_design docs: eval-server error contract contradicts the code, and two README budget-arithmetic claims contradict their cited numbers
+- **Issue #1672** (closed): CI: fail fast when the apt Gmsh version drifts off the measured-green 4.12.x on the arpack geode-cli jobs
+- **Issue #1667** (closed): Consolidate derham julia/numpy reference harness bodies into a shared module
+- **Issue #1650** (closed): Consolidate the truncated-slab fixture copied between london_surface_impedance.rs and leontovich_surface_impedance.rs (~85 lines)
+- **Issue #1642** (closed): Consolidate json_of/error_of/write_spec in geode-cli tests: the helpers #1610 did not enumerate (~89 lines)
+- **Issue #1627** (closed): [#841 P4] Sensitivities with sweep.adaptive: full-order bypass at named frequencies
+- **Issue #1616** (closed): Point four differently named log-log slope fits in geode-core tests at the shared fit_slope
+- **Issue #1613** (closed): Move inline test modules out of five 3,000+-line geode-core source files into tests.rs child modules (5,655 lines)
 - **PR #1659**: refactor: share the p=1/p=2 dielectric raw-candidate post-assembly tail
 - **PR #1631**: test(geode-cli): move duplicated integration-test helpers onto support/
 - **Issue #1655** (closed): Consolidate the p=1/p=2 dielectric raw-candidate solvers: 70 identical lines differ only in the assembler call (~55 lines)
