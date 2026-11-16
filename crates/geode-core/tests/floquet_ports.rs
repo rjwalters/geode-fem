@@ -1931,8 +1931,11 @@ fn p2_cell_beats_p1_on_the_slab_against_fresnel() {
         mag1 > 0.0 && mag2 < mag1,
         "p=2 {mag2:.3e} vs p=1 {mag1:.3e}"
     );
-    // And both are actually close to the analytic slab.
-    assert!(mag2 < 1e-3, "p=2 |ΔS| {mag2:.3e}");
+    // And both are actually close to the analytic slab. The p=2 bound is
+    // measured, not quoted from the module doc: worst |ΔS| p2 = 2.821e-7
+    // in release with --nocapture (2026-11-16), so 1e-5 leaves ~1.5 orders
+    // of runner-to-runner slack and still fails a 1e-4-grade regression.
+    assert!(mag2 < 1e-5, "p=2 |ΔS| {mag2:.3e}");
 }
 
 #[test]

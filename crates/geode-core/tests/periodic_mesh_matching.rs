@@ -454,10 +454,11 @@ fn p2_constraint_pairs_blocks_and_gradient_commutes() {
 
     // Round trip: expanding a known reduced vector produces a field that
     // satisfies the periodic class relations of the map on every DOF —
-    // master copy, aliased copy, Bloch phase and all — and vanishes on the
-    // eliminated DOFs (`PᴴP` itself is not the identity when a class has
-    // two members, so the honest check is the field relation, not
-    // expand∘reduce = id).
+    // master copy, aliased copy, Bloch phase and all (`PᴴP` itself is not
+    // the identity when a class has two members, so the honest check is
+    // the field relation, not expand∘reduce = id). This fixture has no
+    // eliminated DOFs; the eliminated-DOFs-stay-zero check lives where
+    // they exist, in `p2_one_sided_pec_counts_classes_not_dofs`.
     let k = [0.7, 1.3, 0.0];
     let ck = c.with_bloch_phase(k);
     let mut hits = 0usize;
@@ -499,8 +500,6 @@ fn p2_constraint_pairs_blocks_and_gradient_commutes() {
                 }
             }
         }
-        // Eliminated DOFs stay zero (none here, but keep the check honest).
-        assert!(full.iter().all(|v| v.im.is_finite()));
     }
     assert!(hits > 0, "the renumbered mesh has aliased classes");
 
@@ -542,6 +541,29 @@ fn p2_one_sided_pec_counts_classes_not_dofs() {
     );
     // And the p=2 gradient still commutes with PEC eliminations in place.
     assert_eq!(c.check_gradient_commutes(), 0.0);
+
+    // The eliminated DOFs are forced to exactly zero: expand an arbitrary
+    // reduced vector and check every DOF the constraint reports as
+    // eliminated comes back zero — and that the aliases account for the
+    // whole report.
+    let mut x_r = vec![c64::new(0.0, 0.0); c.n_reduced()];
+    for (i, x) in x_r.iter_mut().enumerate() {
+        let t = i as f64;
+        *x = c64::new(0.5 * t + 1.0, -0.25 * t - 0.5);
+    }
+    let full = c.expand(&x_r);
+    let mut n_eliminated = 0usize;
+    for (i, &v) in full.iter().enumerate() {
+        if matches!(c.alias(i), DofAlias::Eliminated) {
+            assert_eq!(v, c64::new(0.0, 0.0), "eliminated DOF {i} not zero");
+            n_eliminated += 1;
+        }
+    }
+    assert_eq!(
+        n_eliminated,
+        c.report().n_eliminated,
+        "every eliminated DOF is covered by an alias"
+    );
 }
 
 /// One-sided PEC (a master edge PEC, its slave not): both copies are
