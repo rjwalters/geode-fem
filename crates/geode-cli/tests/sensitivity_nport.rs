@@ -46,21 +46,10 @@ const SLAB_EPS: [f64; 2] = [2.5, -0.05];
 
 #[path = "support/cli.rs"]
 mod cli_support;
-use cli_support::geode;
+use cli_support::{geode, ok};
 
 fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
-}
-
-fn ok(out: &Output, what: &str) -> Value {
-    assert!(
-        out.status.success(),
-        "{what} failed ({}):\nstderr: {}\nstdout: {}",
-        out.status,
-        String::from_utf8_lossy(&out.stderr),
-        String::from_utf8_lossy(&out.stdout)
-    );
-    serde_json::from_slice(&out.stdout).expect("report is JSON")
 }
 
 /// Require a failure with `code`; return the message.

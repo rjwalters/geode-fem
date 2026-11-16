@@ -21,11 +21,8 @@ use serde_json::{Value, json};
 
 #[path = "support/cli.rs"]
 mod cli_support;
-use cli_support::{error_of, geode, json};
+use cli_support::{error_of, geode, json, write_spec_str};
 
-fn write_spec(dir: &Path, file: &str, v: &Value) -> String {
-    cli_support::write_spec(dir, file, v).display().to_string()
-}
 fn scratch(name: &str, msh_text: String) -> Scratch {
     let dir = Scratch::new("geode-floquet-", name);
     std::fs::write(dir.join("cell.msh"), msh_text).unwrap();
@@ -33,7 +30,7 @@ fn scratch(name: &str, msh_text: String) -> Scratch {
 }
 
 fn run_driven(dir: &Path, v: &Value) -> Value {
-    let s = write_spec(dir, "s.json", v);
+    let s = write_spec_str(dir, "s.json", v);
     let out_path = dir.join("report.json").display().to_string();
     let out = geode(&["driven", &s, "-o", &out_path]);
     assert!(
@@ -142,7 +139,7 @@ fn fixed_angle_adaptive_sweep_keeps_the_dense_bypass_warning() {
 fn check_validates_fixed_kt() {
     let dir = scratch("check-kt", box_msh([2, 2, 6], true, 0.0));
     let check = |v: &Value| {
-        let s = write_spec(&dir, "s.json", v);
+        let s = write_spec_str(&dir, "s.json", v);
         geode(&["check", &s])
     };
     let out = check(&spec(json!({"fixed_k_t": {"k_t": [1.0, 0.0, 0.0]}})));
