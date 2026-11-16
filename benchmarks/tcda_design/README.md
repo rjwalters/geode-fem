@@ -242,34 +242,35 @@ margin 0.15 as #1579); records in
 
 | method | n_params | solves to target (-4.50 dB) | best feasible (dB) | evals (fwd) | total solves spent |
 |---|---|---|---|---|---|
-| adjoint (MMA) | 52 | **36 + adjoints <= 72** (iteration 1, `n_evals = 2`) | -6.23 (within the 4-iteration window) | 5 | 5x18 + 44 = 134 |
-| adjoint (MMA) | 100 | **36 + adjoints <= 72** (iteration 1) | -6.24 | 5 | 134 |
-| adjoint (MMA) | 200 | **36 + adjoints <= 72** (iteration 1) | -6.23 | 5 | 134 |
+| adjoint (MMA) | 52 | **36 + adjoints <= 80** (iteration 1, `n_evals = 2`) | -6.23 (within the 4-iteration window) | 5 | 5x18 + 44 = 134 |
+| adjoint (MMA) | 100 | **36 + adjoints <= 80** (iteration 1) | -6.24 | 5 | 134 |
+| adjoint (MMA) | 200 | **36 + adjoints <= 80** (iteration 1) | -6.23 | 5 | 134 |
 | CMA-ES | 52 | 972 (eval 54, generation 3) | -4.93 | 60 (59 feasible) | 1098 |
 | CMA-ES | 100 | 810 (eval 51, generation 2) | -4.71 | 60 (51 feasible) | 954 |
 | CMA-ES | 200 | **not reached within budget** | -4.29 | 60 (55 feasible) | 1026 |
 
-("36 + adjoints <= 72": the target is crossed at the first MMA update, two
+("36 + adjoints <= 80": the target is crossed at the first MMA update, two
 forward passes = 36 grid solves; the exact adjoint-pass count per iteration
 is not in the record, and the whole-run bound — 44 adjoint passes for 4
-iterations — caps the crossing at <= 72 of the 1080 budget. The same
+iterations — caps the crossing at <= 80 of the 1080 budget. The same
 trajectory reproduces the recorded n = 52 full-grid history to 8 decimals at
 the crossing iterations (`t = 0.31399185` at iteration 1 in both), so the
 reduced-grid adjoint row is the recorded method, not a re-tuned one. Each
 CMA-ES cell spent its 60 evaluation indices, of which only the feasible ones
 cost solves (one factorization per grid point, the `cma_loop.py` rule), plus
 the `theta0` evaluation and the verification sweep the paper-1 harness adds
-outside the optimizer — so the solves spent (1098 / 954 / 1026) sit under the
-1080 the all-feasible budget would cost, and the "solves to target" counts
-are the record's `solves_so_far` at the crossing evaluation, `theta0`
-included.)
+outside the optimizer — so the in-optimizer spend (1080 / 936 / 1008) sits
+at or under the 1080 the all-feasible budget would cost, while the totals
+including that 18-solve verification sweep are 1098 / 954 / 1026, and the
+"solves to target" counts are the record's `solves_so_far` at the crossing
+evaluation, `theta0` included.)
 
 ## What this does and does not establish
 
 **Does**: the paper-1 harness answers the epic's Phase-4 comparison ask on
 this grid, mesh and feed model: the adjoint reaches the -4.50 dB gate
-within its first update (~72 of 1080 solves) at all three parameter counts,
-while CMA-ES reaches it at n = 52 (972 solves, ~13x the adjoint's <= 72
+within its first update (<= 80 of 1080 solves) at all three parameter counts,
+while CMA-ES reaches it at n = 52 (972 solves, ~12x the adjoint's <= 80
 worst-case count) and n = 100 (810 solves), but **not at n = 200**, ending at -4.29 dB
 after its full 1080-solve budget — the expected drift of a full-covariance
 CMA-ES whose population grows only logarithmically (19 at n = 200) while the

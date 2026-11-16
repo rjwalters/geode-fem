@@ -583,9 +583,16 @@ pub fn standard(material: usize) -> &'static StandardMaterial {
 /// manufacturability rows not violated. An infeasible design is answered
 /// without a solve, exactly like the paper-1 volume guard. `solves` is the
 /// cumulative count of factorizations on the `cma_loop.py` rule: one per
-/// grid point of every forward or verification sweep (a mid-sweep solver
-/// error is answered `feasible: false` with its reason and counts nothing —
-/// the exact partial count is not observable from outside the driver).
+/// grid point of every forward or verification sweep. A mid-sweep solver
+/// error is *not* answered: it propagates with `?` out of `assemble` (the
+/// `v` branch) or `values` (the `f` branch) as a [`std::io::Error`] wrapped
+/// by [`std::io::Error::other`], so this server returns `Err` and the
+/// hosting example (`crates/geode-core/examples/tcda_design_cma.rs`)
+/// panics. The driver's `Server.ask` then raises `RuntimeError("eval-server
+/// exited; see its log")`, and since `cma_loop.py` writes its TOML only
+/// after the optimizer loop and the verification sweep, the whole run's
+/// record is lost — a solver failure costs the cell, it is not a
+/// per-design rejection.
 ///
 /// The objective of a feasible design is `max_k |Γ_active(k)|²` — the true
 /// min-max value, the same quantity the #1579 epigraph's worst-case rows
@@ -596,8 +603,10 @@ pub fn standard(material: usize) -> &'static StandardMaterial {
 ///
 /// # Errors
 ///
-/// Propagates [`std::io::Error`] from `input`/`out`; malformed protocol
-/// lines and designs panic, like the paper-1 server.
+/// Propagates [`std::io::Error`] from `input`/`out` and from the solver: an
+/// `assemble`/`values` failure surfaces as [`std::io::Error::other`] (see
+/// above). Malformed protocol lines and designs panic, like the paper-1
+/// server.
 pub fn run_eval_server(
     drv: &mut TcdaDesign,
     input: &mut dyn std::io::BufRead,
