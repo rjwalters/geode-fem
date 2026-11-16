@@ -300,10 +300,12 @@ pub fn run(
     };
     warnings.splice(0..0, preconditioner_warnings);
     // `∂|S11|²/∂ε_r` per frequency (issue #739); `problem::load` admitted
-    // the `sensitivity` section only for a one-lumped-port direct dense
-    // sweep without UPML.
+    // the `sensitivity` section only for a one-lumped-port direct sweep
+    // without UPML — dense, or under the `sweep.adaptive` bypass with
+    // full-order gradients (Epic #841 Phase 4, issue #1627).
     // The N-port S-matrix sensitivity (issue #883) differentiates the
-    // forward just reported (it checks its own S against `results`).
+    // forward just reported (it checks its own S against `results`; under
+    // the bypass, against a freshly solved dense reference instead).
     let sensitivities = p
         .sensitivity
         .as_ref()
