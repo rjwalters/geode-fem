@@ -1087,6 +1087,28 @@ impl FloquetCell {
                 )));
             }
         }
+        // A p=2 PEC face is a `{φ0, φ1}` pair (issue #1705), the face-level
+        // twin of the edge check above: [`HcurlSpace::pec_interior_mask`]
+        // eliminates the pair together, but a caller hand-eliminating a lone
+        // φ assembles fine and singularizes the reduction at `factor` as a
+        // sparse-LU `SymbolicSingular` (measured 2026-11-16 on the #1699
+        // cell: a lone φ1 failed that way, a lone φ0 factored fine). The
+        // same typed rejection naming the face applies; p=1 faces carry no
+        // DOFs and pass.
+        for f in 0..space.n_faces() {
+            let d = space.face_dofs(f);
+            if let [p0, p1] = d
+                && mask[*p0 as usize] != mask[*p1 as usize]
+            {
+                let state = |kept: bool| if kept { "kept" } else { "eliminated" };
+                return Err(FloquetError::InvalidSpec(format!(
+                    "PEC mask treats face {f}'s (φ0, φ1) DOFs differently (φ0 {}, φ1 {}): a \
+                     p=2 PEC face must keep or eliminate both",
+                    state(mask[*p0 as usize]),
+                    state(mask[*p1 as usize])
+                )));
+            }
+        }
 
         let inputs = CellInputs { eps_r, sigma, mask };
         let ports: Vec<PortFace> = port_specs
