@@ -2142,6 +2142,95 @@ fn p2_pec_eliminated_feed_edge_answers_none_regardless_of_the_q_dof() {
 }
 
 #[test]
+fn p2_pec_mask_rejects_an_edge_whose_w_and_q_disagree() {
+    use geode_core::assembly::hcurl_space::HcurlSpace;
+    // Issue #1699: the public `pec_interior_mask` parameter of the p=2
+    // Floquet assembles is an arbitrary caller-supplied mask, and one that
+    // eliminates a lone Q (its edge's W still free) used to assemble fine
+    // and singularize the reduction far away, at `factor`, as
+    // `FloquetError::Solve("sparse LU of the Floquet system:
+    // SymbolicSingular { .. }")` (measured 2026-11-16, edge 130 of this
+    // cell). A lone W elimination factored fine. Both are malformed PEC
+    // shapes: the shared assemble pre-check rejects a `{W, Q}` pair whose
+    // mask values disagree, naming the edge, before any port work.
+    let c = cell([2, 2, 4], [A_CELL, A_CELL, 0.2], 3);
+    let eps = vec![ONE; c.mesh.n_tets()];
+    let space = HcurlSpace::build(&c.mesh, ElementOrder::P2);
+    // An interior edge through the cell centre (same pick as the feed test
+    // above): off the ports and the periodic boundary, so the consistent
+    // control mask below keeps the reduction regular.
+    let centre = [A_CELL / 2.0, A_CELL / 2.0, 0.1];
+    let feed = c
+        .mesh
+        .edges()
+        .iter()
+        .position(|e| {
+            let near = |q: [f64; 3], p: [f64; 3]| {
+                (q[0] - p[0]).abs() < 1e-12
+                    && (q[1] - p[1]).abs() < 1e-12
+                    && (q[2] - p[2]).abs() < 1e-12
+            };
+            let a = c.mesh.nodes[e[0] as usize];
+            let b = c.mesh.nodes[e[1] as usize];
+            (near(a, centre) && near(b, [centre[0] + A_CELL / 2.0, centre[1], centre[2]]))
+                || (near(b, centre) && near(a, [centre[0] + A_CELL / 2.0, centre[1], centre[2]]))
+        })
+        .expect("an interior feed edge through the cell centre");
+    let (w, q) = {
+        let d = space.edge_dofs(feed);
+        (d[0] as usize, d[1] as usize)
+    };
+    let assemble_with = |mask: &[bool]| {
+        let spec = FloquetCellSpec {
+            eps_r: &eps,
+            sigma: None,
+            pec_interior_mask: Some(mask),
+            ports: [
+                FloquetPortSpec {
+                    triangles: &c.bottom,
+                    eps_r: 1.0,
+                },
+                FloquetPortSpec {
+                    triangles: &c.top,
+                    eps_r: 1.0,
+                },
+            ],
+            settings: FloquetSettings::default(),
+            element_order: ElementOrder::P2,
+        };
+        FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device())
+    };
+    // Lone Q: rejected as a typed spec error naming the edge.
+    let mut lone_q = vec![true; space.n_dofs()];
+    lone_q[q] = false;
+    match assemble_with(&lone_q) {
+        Err(FloquetError::InvalidSpec(m)) => {
+            assert!(
+                m.contains(&format!("edge {feed}")),
+                "the error names the malformed edge {feed}: {m}"
+            );
+        }
+        Err(e) => panic!("a lone-Q mask must be an InvalidSpec, got {e:?}"),
+        Ok(_) => panic!("a lone-Q mask assembled: the shape check did not fire"),
+    }
+    // Lone W: the shape check is symmetric.
+    let mut lone_w = vec![true; space.n_dofs()];
+    lone_w[w] = false;
+    assert!(
+        matches!(assemble_with(&lone_w), Err(FloquetError::InvalidSpec(_))),
+        "a lone-W mask is rejected by the same check"
+    );
+    // The consistent {W, Q} pair elimination still assembles and factors.
+    let mut pair = vec![true; space.n_dofs()];
+    pair[w] = false;
+    pair[q] = false;
+    assemble_with(&pair)
+        .unwrap_or_else(|e| panic!("a pair-eliminated mask assembles: {e:?}"))
+        .factor(K0, [0.0; 3], 0.0)
+        .unwrap_or_else(|e| panic!("and factors: {e:?}"));
+}
+
+#[test]
 fn p2_radiator_scan_impedance_scans_through_the_rayleigh_anomaly() {
     use geode_core::assembly::hcurl_space::HcurlSpace;
     // Ground-plane radiator at p=2 (issue #1513 AC2 on the #1682 path):
