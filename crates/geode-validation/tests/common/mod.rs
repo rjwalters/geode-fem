@@ -14,6 +14,14 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+// ---- Discrete de Rham reference harness body (issue #1667) ----
+
+/// Shared test body for `derham_numpy_reference.rs` /
+/// `derham_julia_reference.rs`: canonical-schema check, cell counts,
+/// bit-exact CSR cross-checks, exactness identities and the Euler
+/// rank pin, parameterised by fixture file name and `fixture_id`.
+pub mod derham_ref;
+
 use burn::prelude::Backend;
 use burn::tensor::DType;
 use burn::tensor::backend::BackendTypes;
