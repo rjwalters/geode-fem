@@ -3,8 +3,19 @@
 Chronological record of merged pull requests and closed issues, newest first.
 Maintained automatically by the Loom Guide role; entries are appended, never edited.
 
+### 2026-11-16
+
+- **PR #1659**: refactor: share the p=1/p=2 dielectric raw-candidate post-assembly tail
+- **PR #1631**: test(geode-cli): move duplicated integration-test helpers onto support/
+- **Issue #1655** (closed): Consolidate the p=1/p=2 dielectric raw-candidate solvers: 70 identical lines differ only in the assembler call (~55 lines)
+- **Issue #1610** (closed): Dedupe byte-identical test helpers in geode-cli integration tests onto the shared support modules (~395 lines)
+
 ### 2026-11-15
 
+- **PR #1679**: refactor: add TetMesh::tet_edge_tables, replace the inlined tet_edges idx/sign splits (~390 lines)
+- **PR #1678**: test: dedupe composed UPML+port FD gradient gate into shared helper
+- **PR #1674**: feat: MMA-vs-CMA-ES comparison at 52/100/200 params on the Design A element
+- **PR #1638**: refactor(tests): share the PML fiber-benchmark harness via common/fiber_pml_benchmark
 - **PR #1673**: refactor: consolidate the patch_diffopt driven-S11 model into tests/common
 - **PR #1669**: refactor: share cube-cavity jax/onnx baseline harness body in tests/common
 - **PR #1668**: refactor: share patch-antenna sweep helper, committed-TOML loader and constants across patch_antenna tests
@@ -16,6 +27,11 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 - **PR #1640**: refactor(geode-core): move hybrid port report model and state machine to sibling modules
 - **PR #1637**: refactor: drop extraction.rs's duplicate dense complex inverse for the shared one
 - **PR #1608**: refactor: split eigen/ams.rs into ams.rs, ams/tests.rs and eigen/amg.rs
+- **Issue #1676** (closed): benchmarks/tcda_design/README.md: two budget-arithmetic claims in the #1580 comparison contradict their own cited numbers
+- **Issue #1670** (closed): Consolidate the composed UPML+port FD gradient gate duplicated between shape.rs and mesh/patch.rs tests (~170 lines)
+- **Issue #1654** (closed): Add TetMesh::tet_edge_tables and replace ~57 inlined idx/sign splits of tet_edges() (~350 lines)
+- **Issue #1635** (closed): Consolidate the duplicated PML fiber-benchmark harness: high_contrast_fiber_benchmark.rs is a git-recorded copy of step_index_fiber_benchmark.rs (174 of 192 lines)
+- **Issue #1580** (closed): [#1537 P4c-3] Design A: adjoint vs CMA-ES at three parameter counts
 - **Issue #1656** (closed): Consolidate duplicated jax/onnx cube-cavity reference harnesses: cube_cavity_onnx_reference.rs mirrors the jax one (~120 lines)
 - **Issue #1653** (closed): Consolidate the driven-S11 shape-adjoint Model/build_model copied between patch_diffopt example and test
 - **Issue #1652** (closed): Share the patch_antenna sweep helper, committed-TOML loader and constants across patch_antenna tests (~140 lines)
