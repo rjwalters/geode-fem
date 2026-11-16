@@ -1939,18 +1939,270 @@ fn p2_cell_beats_p1_on_the_slab_against_fresnel() {
 }
 
 #[test]
-fn p2_cell_rejects_the_delta_gap_feed_with_a_typed_error() {
+fn p2_cell_drives_the_delta_gap_feed() {
+    // Inverse of the pre-#1682 refusal test: the feed resolves the edge to
+    // its Whitney DOF (`edge_dofs(e)[0]`) and answers on a p=2 cell.
     let c = cell([2, 2, 4], [A_CELL, A_CELL, 0.2], 3);
     let eps = vec![ONE; c.mesh.n_tets()];
     let p2 = floquet_at(&c, &eps, FloquetSettings::default(), ElementOrder::P2);
     let f = p2.factor(K0, [0.0; 3], 0.0).unwrap();
+    let b = f
+        .edge_current_rhs(0)
+        .unwrap()
+        .expect("edge 0 is free (no PEC mask)");
+    assert!(
+        b.iter().any(|v| v.norm() > 0.0),
+        "a unit current must source"
+    );
+    let mut x = vec![c64::new(0.0, 0.0); f.n_reduced()];
+    f.back_solve(&b, &mut x).unwrap();
+    let v = f.edge_voltage(&x, 0).unwrap();
+    assert!(v.norm() > 0.0 && v.norm().is_finite());
+    // The scan impedance is the same read-out: Z = −V/I at I = 1.
+    let z = p2.edge_scan_impedance(K0, 0.0, 0.0, 0).unwrap();
+    assert!(
+        (-v - z).norm() < 1e-9 * z.norm().max(1.0),
+        "−V {v} vs Z {z}"
+    );
+}
+
+#[test]
+fn p2_delta_gap_feed_agrees_with_p1_where_both_converge() {
+    // The p=2 gap voltage is the W coefficient alone: Q = ∇(λ_aλ_b) has a
+    // vanishing line integral along the edge, and the face functions have no
+    // tangential trace on it (issue #1682). Reading the (W, Q) pair instead
+    // — or a wrong DOF — breaks the agreement with p=1 outright. The
+    // delta-gap reactance is bound to the feed singularity, so the same-mesh
+    // p=1/p=2 gap shrinks as the mesh resolves the feed edge (h ↓ at a
+    // fixed DOF count below); both orders converge to the same continuum
+    // answer, p=2 faster.
+    let feed = |c: &Cell, eps: &[c64]| -> (c64, c64) {
+        let fc_p1 = floquet(c, eps, FloquetSettings::default());
+        let fc_p2 = floquet_at(c, eps, FloquetSettings::default(), ElementOrder::P2);
+        // A mid-height feed edge (the mesh-edge table is the same at both
+        // orders).
+        let feed = c
+            .mesh
+            .edges()
+            .iter()
+            .position(|e| {
+                let z = |v: u32| c.mesh.nodes[v as usize][2];
+                ((z(e[0]) + z(e[1])) / 2.0 - L_CELL / 2.0).abs() < 1e-12
+            })
+            .expect("a mid-height edge");
+        let drive = |fc: &FloquetCell| -> c64 {
+            let f = fc.factor(K0, [0.0; 3], 0.0).unwrap();
+            let b = f.edge_current_rhs(feed).unwrap().expect("free feed edge");
+            let mut x = vec![c64::new(0.0, 0.0); f.n_reduced()];
+            f.back_solve(&b, &mut x).unwrap();
+            let v = f.edge_voltage(&x, feed).unwrap();
+            let z = fc.edge_scan_impedance(K0, 0.0, 0.0, feed).unwrap();
+            assert!(
+                (-v - z).norm() < 1e-9 * z.norm().max(1.0),
+                "−V {v} vs Z {z}"
+            );
+            z
+        };
+        let z1 = drive(&fc_p1);
+        let z2 = drive(&fc_p2);
+        (z1, z2)
+    };
+    let mut prev: Option<(c64, c64, f64)> = None;
+    for a in [0.1, 0.05, 0.025] {
+        let c = cell([2, 2, 40], [a, a, L_CELL], 13);
+        let eps = vec![ONE; c.mesh.n_tets()];
+        let (z1, z2) = feed(&c, &eps);
+        let (dz, dre) = (
+            (z2 - z1).norm() / z1.norm(),
+            (z2.re - z1.re).abs() / z1.re.abs(),
+        );
+        eprintln!(
+            "h = {a:.3}/2: Z p1 {z1:.4} p2 {z2:.4} | rel |ΔZ| = {dz:.3e}, rel |ΔRe| = {dre:.3e}"
+        );
+        if let Some((_, _, prev_dre)) = prev {
+            assert!(
+                dre < prev_dre,
+                "the p=1/p=2 radiation-resistance gap must shrink as the feed edge is refined"
+            );
+        }
+        prev = Some((z1, z2, dre));
+    }
+    let (z1, z2, _) = prev.unwrap();
+    // At the finest feed edge both orders' radiation resistance agrees to a
+    // percent (measured 2026-11-16; the reactance is singularity-bound and
+    // only converges under further refinement — the table above shows the
+    // trend).
+    assert!(
+        (z2.re - z1.re).abs() / z1.re.abs() < 1e-2,
+        "p=2 Re Z {} vs p=1 {}",
+        z2.re,
+        z1.re
+    );
+}
+
+#[test]
+fn p2_scan_impedance_rejects_an_out_of_range_feed_edge() {
+    use geode_core::assembly::hcurl_space::HcurlSpace;
+    let c = cell([2, 2, 4], [A_CELL, A_CELL, 0.2], 3);
+    let eps = vec![ONE; c.mesh.n_tets()];
+    let p2 = floquet_at(&c, &eps, FloquetSettings::default(), ElementOrder::P2);
+    let space = HcurlSpace::build(&c.mesh, ElementOrder::P2);
+    let n_edges = space.n_edges();
+    let n_dofs = p2.operator().n_dofs();
+    assert!(n_dofs > n_edges, "a p=2 space has more DOFs than edges");
+    // An index in n_edges..n_dofs is a DOF id, not an edge: the pre-#1682
+    // bound compared against n_dofs() and accepted it, silently aliasing a
+    // gradient or face DOF (`interior_index` never panics below n_dofs).
+    let bad = n_edges + (n_dofs - n_edges) / 2;
     assert!(matches!(
-        f.edge_current_rhs(0),
-        Err(FloquetError::UnsupportedAtOrder { .. })
+        p2.edge_scan_impedance(K0, 0.0, 0.0, bad),
+        Err(FloquetError::InvalidSpec(_))
     ));
-    let x = vec![c64::new(0.0, 0.0); f.n_reduced()];
-    assert!(matches!(
-        f.edge_voltage(&x, 0),
-        Err(FloquetError::UnsupportedAtOrder { .. })
-    ));
+    // The last valid edge still answers.
+    assert!(p2.edge_scan_impedance(K0, 0.0, 0.0, n_edges - 1).is_ok());
+}
+
+#[test]
+fn p2_pec_eliminated_feed_edge_answers_none_regardless_of_the_q_dof() {
+    use geode_core::assembly::hcurl_space::HcurlSpace;
+    // Only W enters the feed (issue #1682), so a PEC-eliminated W answers
+    // `None` exactly as at p=1, whatever the state of the edge's Q DOF.
+    let c = cell([2, 2, 4], [A_CELL, A_CELL, 0.2], 3);
+    let eps = vec![ONE; c.mesh.n_tets()];
+    let space = HcurlSpace::build(&c.mesh, ElementOrder::P2);
+    // An interior feed edge through the cell centre: off the ports and the
+    // periodic boundary, so eliminating one of its DOFs is a plain local
+    // constraint (eliminating a boundary-paired DOF on its own would
+    // strand its periodic partner and singularize the reduction — that is
+    // a property of the constraint, not of the feed).
+    let centre = [A_CELL / 2.0, A_CELL / 2.0, 0.1];
+    let feed = c
+        .mesh
+        .edges()
+        .iter()
+        .position(|e| {
+            let near = |q: [f64; 3], p: [f64; 3]| {
+                (q[0] - p[0]).abs() < 1e-12
+                    && (q[1] - p[1]).abs() < 1e-12
+                    && (q[2] - p[2]).abs() < 1e-12
+            };
+            let a = c.mesh.nodes[e[0] as usize];
+            let b = c.mesh.nodes[e[1] as usize];
+            (near(a, centre) && near(b, [centre[0] + A_CELL / 2.0, centre[1], centre[2]]))
+                || (near(b, centre) && near(a, [centre[0] + A_CELL / 2.0, centre[1], centre[2]]))
+        })
+        .expect("an interior feed edge through the cell centre");
+    let (w, q) = {
+        let d = space.edge_dofs(feed);
+        (d[0] as usize, d[1] as usize)
+    };
+    let drive = |mask: &[bool]| -> Option<Vec<c64>> {
+        let spec = FloquetCellSpec {
+            eps_r: &eps,
+            sigma: None,
+            pec_interior_mask: Some(mask),
+            ports: [
+                FloquetPortSpec {
+                    triangles: &c.bottom,
+                    eps_r: 1.0,
+                },
+                FloquetPortSpec {
+                    triangles: &c.top,
+                    eps_r: 1.0,
+                },
+            ],
+            settings: FloquetSettings::default(),
+            element_order: ElementOrder::P2,
+        };
+        let fc = FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).unwrap();
+        fc.factor(K0, [0.0; 3], 0.0)
+            .unwrap()
+            .edge_current_rhs(feed)
+            .unwrap()
+    };
+    let mut w_pec = vec![true; space.n_dofs()];
+    w_pec[w] = false;
+    assert_eq!(
+        drive(&w_pec),
+        None,
+        "a PEC-eliminated W answers None, Q free"
+    );
+    w_pec[q] = false;
+    assert_eq!(
+        drive(&w_pec),
+        None,
+        "Q's elimination state does not change it"
+    );
+    // Observed, out of scope (2026-11-16): eliminating a lone Q DOF while
+    // its edge's W stays free singularizes the p=2 reduction
+    // (`SymbolicSingular`) — a property of the periodic constraint on the
+    // gradient DOFs, not of the feed. The shipped
+    // [`HcurlSpace::pec_interior_mask`] always eliminates `{W, Q}` together,
+    // so no real path constructs that mask.
+}
+
+#[test]
+fn p2_radiator_scan_impedance_scans_through_the_rayleigh_anomaly() {
+    use geode_core::assembly::hcurl_space::HcurlSpace;
+    // Ground-plane radiator at p=2 (issue #1513 AC2 on the #1682 path):
+    // period 1.5 so the (−1,0) grating order turns on below grazing
+    // (k·d = 2.5·1.5 > π). Below the onset that order is evanescent and
+    // terminated; at it, the Rayleigh anomaly must still fire.
+    let size = [1.5, 1.5, 0.5];
+    let mut mesh = renumber(&box_tet_mesh([6, 6, 2], size), 7);
+    let pairs = box_periodic_pairs(&mesh, &[0, 1]);
+    let map = PeriodicMap::build(&mut mesh, &pairs, &PeriodicMatchOptions::default()).unwrap();
+    let tol = 1e-9;
+    let aperture = boundary_triangles_on_plane(&mesh, 2, size[2], tol);
+    let ground = boundary_triangles_on_plane(&mesh, 2, 0.0, tol);
+    let space = HcurlSpace::build(&mesh, ElementOrder::P2);
+    let mask = space.pec_interior_mask(&mesh, &[&ground]).unwrap();
+    // A free x-directed edge through the cell centre, one cell above the ground.
+    let feed = mesh
+        .edges()
+        .iter()
+        .position(|e| {
+            let near = |q: [f64; 3], p: [f64; 3]| {
+                (q[0] - p[0]).abs() < tol && (q[1] - p[1]).abs() < tol && (q[2] - p[2]).abs() < tol
+            };
+            let a = mesh.nodes[e[0] as usize];
+            let b = mesh.nodes[e[1] as usize];
+            (near(a, [0.75, 0.75, 0.25]) && near(b, [1.0, 0.75, 0.25]))
+                || (near(b, [0.75, 0.75, 0.25]) && near(a, [1.0, 0.75, 0.25]))
+        })
+        .expect("a free feed edge above the ground");
+    assert!(
+        mask[space.edge_dofs(feed)[0] as usize],
+        "the feed's W DOF must be free"
+    );
+    let eps = vec![ONE; mesh.n_tets()];
+    let p2 = FloquetCell::assemble_radiator::<B>(
+        &mesh,
+        &map,
+        &eps,
+        None,
+        Some(&mask),
+        FloquetPortSpec {
+            triangles: &aperture,
+            eps_r: 1.0,
+        },
+        FloquetSettings::default(),
+        ElementOrder::P2,
+        &device(),
+    )
+    .unwrap();
+    let onset = p2
+        .grating_lobe_onset(K0, 0.0)
+        .expect("an onset below grazing with k·d > π");
+    // Below the onset: evanescent-only higher orders, a finite passive Z.
+    let z = p2
+        .edge_scan_impedance(K0, onset / 2.0, 0.0, feed)
+        .expect("below the grating onset the scan solves");
+    assert!(z.re > 0.0, "a passive radiator has Re Z > 0 (got {z})");
+    // At it: the anomaly still fires on the p=2 scan-impedance path.
+    let r = p2.edge_scan_impedance(K0, onset, 0.0, feed);
+    assert!(
+        matches!(r, Err(FloquetError::RayleighAnomaly { .. })),
+        "expected RayleighAnomaly at the grating onset, got {r:?}"
+    );
 }

@@ -224,11 +224,12 @@
 //! constraint and the p=2 port-face trace of [`crate::assembly::surface_p2`]),
 //! direct LU only, with scalar per-tet `ε_r` (complex allowed inside the
 //! cell, not on the port faces), optional `σ`, and optional PEC (e.g. a
-//! metal FSS patch) off the port faces. Still p=1 only: the lumped
-//! delta-gap feed ([`FactoredFloquetCell::edge_current_rhs`] /
+//! metal FSS patch) off the port faces. The lumped delta-gap feed
+//! ([`FactoredFloquetCell::edge_current_rhs`] /
 //! [`FactoredFloquetCell::edge_voltage`], hence
-//! [`FloquetCell::edge_scan_impedance`] and the radiator cell) and the
-//! Floquet-port sensitivities — both fail with
+//! [`FloquetCell::edge_scan_impedance`] and the radiator cell) is
+//! order-generic too (issue #1682: it reads the edge's Whitney DOF). Still
+//! p=1 only: the Floquet-port sensitivities — they fail with
 //! [`FloquetError::UnsupportedAtOrder`] on a p=2 cell.
 //!
 //! # Array elements: active reflection (issue #1513)
@@ -354,14 +355,13 @@ pub enum FloquetError {
     /// Sparse assembly / factorization / solve failure.
     #[error("Floquet solve failed: {0}")]
     Solve(String),
-    /// A piece of the cell is still p=1-only: the remaining pieces of
-    /// issue #1628 (the lumped delta-gap feed
-    /// ([`FactoredFloquetCell::edge_current_rhs`] /
-    /// [`FactoredFloquetCell::edge_voltage`], hence the scan-impedance
-    /// radiator path) and the Floquet-port sensitivities; tracked for p=2
-    /// in issue #1660). Build the cell at [`ElementOrder::P1`] for it.
+    /// A piece of the cell is still p=1-only: the Floquet-port
+    /// sensitivities (tracked for p=2 in issue #1660, child 2 #1683). The
+    /// lumped delta-gap feed, the scan-impedance radiator path and the
+    /// rest of issue #1628 landed (issue #1682). Build the cell at
+    /// [`ElementOrder::P1`] for the sensitivities.
     #[error(
-        "{feature} is p=1 only for now: it lands with the remaining pieces of issue #1628; build the cell at ElementOrder::P1"
+        "{feature} is p=1 only for now: the Floquet-port sensitivities are the last remaining piece (issue #1683); build the cell at ElementOrder::P1"
     )]
     UnsupportedAtOrder {
         /// The unsupported piece.
@@ -877,6 +877,12 @@ pub struct FloquetCell {
     ports: Vec<PortFace>,
     settings: FloquetSettings,
     interior_to_full: Vec<usize>,
+    /// The Whitney DOF of every mesh edge: [`HcurlSpace::edge_dofs`]`[0]`
+    /// (the identity at p=1, the `W` of the `(W, Q)` pair at p=2, issue
+    /// #1682). The delta-gap feed reads and drives only this DOF: `Q` is
+    /// the exact gradient `∇(λ_aλ_b)`, whose line integral along the edge
+    /// vanishes, so `∫E·dl` is the `W` coefficient at either order.
+    edge_w_dofs: Vec<u32>,
     /// Sparse LU factorizations performed by [`Self::factor`] so far.
     n_factorizations: AtomicUsize,
 }
@@ -975,9 +981,9 @@ impl FloquetCell {
     /// closed by the PEC mask (a ground plane and the radiating metal). Feed
     /// it with a delta-gap edge current, [`Self::edge_scan_impedance`].
     ///
-    /// The radiator is fed through the delta-gap edge, which is p=1-only
-    /// (issue #1628's [`FloquetError::UnsupportedAtOrder`] pieces), so this
-    /// entry point always assembles at [`ElementOrder::P1`].
+    /// The delta-gap feed is order-generic (issue #1682), so the cell
+    /// assembles at the `order` given here — [`ElementOrder::P1`] or
+    /// [`ElementOrder::P2`], as with [`FloquetArraySpec::with_element_order`].
     ///
     /// # Errors
     ///
@@ -991,6 +997,7 @@ impl FloquetCell {
         pec_interior_mask: Option<&[bool]>,
         aperture: FloquetPortSpec<'_>,
         settings: FloquetSettings,
+        order: ElementOrder,
         device: &B::Device,
     ) -> Result<Self, FloquetError> {
         Self::assemble_ports::<B>(
@@ -1000,7 +1007,7 @@ impl FloquetCell {
             sigma,
             pec_interior_mask,
             settings,
-            ElementOrder::P1,
+            order,
             &[(aperture, None)],
             device,
         )
@@ -1044,6 +1051,9 @@ impl FloquetCell {
             ));
         }
         let space = HcurlSpace::build(mesh, order);
+        let edge_w_dofs: Vec<u32> = (0..space.n_edges())
+            .map(|e| space.edge_dofs(e)[0])
+            .collect();
         let lattice = FloquetLattice::from_periodic_map(map)?;
         let edges = mesh.edges();
         let n_dofs = space.n_dofs();
@@ -1102,6 +1112,7 @@ impl FloquetCell {
             ports,
             settings,
             interior_to_full,
+            edge_w_dofs,
             n_factorizations: AtomicUsize::new(0),
         })
     }
@@ -1672,15 +1683,17 @@ impl FloquetCell {
     }
 
     /// The **scan impedance** `Z = −V/I` of an array element driven by a
-    /// unit delta-gap current on the full edge DOF `edge` (issue #1513 AC2):
-    /// the lumped-feed counterpart of [`Self::active_reflection`]. The cell
-    /// needs only the aperture Floquet port (the radiator is PEC in the
-    /// mask); the Bloch phase is that of the beam scanned to `(theta, phi)`.
-    /// One LU and one back-solve.
+    /// unit delta-gap current on mesh edge `edge` (issue #1513 AC2): the
+    /// lumped-feed counterpart of [`Self::active_reflection`]. The edge is
+    /// resolved to its Whitney DOF ([`HcurlSpace::edge_dofs`]`[0]`), so the
+    /// feed is order-generic (issue #1682). The cell needs only the aperture
+    /// Floquet port (the radiator is PEC in the mask); the Bloch phase is
+    /// that of the beam scanned to `(theta, phi)`. One LU and one back-solve.
     ///
     /// # Errors
     ///
-    /// [`FloquetError::InvalidSpec`] if `edge` is out of range or
+    /// [`FloquetError::InvalidSpec`] if `edge` is out of range (it must be a
+    /// mesh edge, not a DOF id — they coincide only at p=1) or
     /// PEC-eliminated, and the errors of [`Self::k_t_of`] / [`Self::factor`].
     pub fn edge_scan_impedance(
         &self,
@@ -1689,9 +1702,10 @@ impl FloquetCell {
         phi: f64,
         edge: usize,
     ) -> Result<c64, FloquetError> {
-        if edge >= self.op.n_dofs() {
+        if edge >= self.edge_w_dofs.len() {
             return Err(FloquetError::InvalidSpec(format!(
-                "feed edge {edge} out of range"
+                "feed edge {edge} out of range (the mesh has {} edges)",
+                self.edge_w_dofs.len()
             )));
         }
         let inc = FloquetIncidence {
@@ -1899,30 +1913,27 @@ impl FactoredFloquetCell<'_> {
     }
 
     /// The reduced right-hand side of a unit **delta-gap current** `I = 1`
-    /// impressed along the single edge `edge` (a full edge DOF, issue
-    /// #1513 AC2): `b = −iω Pᴴ e_edge` (the sign of the curl–curl
-    /// equation `∇×∇×E − k²εE = −iωJ`, which makes `Re(−V/I) > 0` a passive
-    /// load), since the line integral of the edge's own Nédélec function
-    /// along it is `1`. `None` if the edge is
-    /// PEC-eliminated (it carries no field).
-    ///
-    /// The delta-gap feed is one of the p=1-only pieces of issue #1628: on
-    /// a p=2 cell this returns [`FloquetError::UnsupportedAtOrder`].
+    /// impressed along mesh edge `edge`: `b = −iω Pᴴ e_W` (the sign of the
+    /// curl–curl equation `∇×∇×E − k²εE = −iωJ`, which makes `Re(−V/I) > 0`
+    /// a passive load), where `e_W` is the edge's Whitney DOF — the unit
+    /// vector on `edge_dofs(edge)[0]`. At p=1 that is the edge's own
+    /// Nédélec function (line integral `1` along it); at p=2 only the `W`
+    /// member of the `(W, Q)` pair enters, because `Q = ∇(λ_aλ_b)` has zero
+    /// line integral along the edge (issue #1682). `None` if the edge is
+    /// PEC-eliminated (its `W` DOF carries no field; the `Q` DOF's state is
+    /// irrelevant to the feed).
     ///
     /// # Errors
     ///
-    /// [`FloquetError::UnsupportedAtOrder`] on a p=2 cell.
+    /// No error is produced beyond the [`FloquetError`] contract; the
+    /// delta-gap feed is order-generic.
     ///
     /// # Panics
     ///
     /// Panics if `edge` is out of range.
     pub fn edge_current_rhs(&self, edge: usize) -> Result<Option<Vec<c64>>, FloquetError> {
-        if self.cell.op.order() == ElementOrder::P2 {
-            return Err(FloquetError::UnsupportedAtOrder {
-                feature: "the lumped delta-gap feed (edge_current_rhs)",
-            });
-        }
-        let Some(i) = self.cell.op.interior_index(edge) else {
+        let dof = self.cell.edge_w_dofs[edge] as usize;
+        let Some(i) = self.cell.op.interior_index(dof) else {
             // The edge is PEC-eliminated (it carries no field).
             return Ok(None);
         };
@@ -1934,22 +1945,19 @@ impl FactoredFloquetCell<'_> {
         Ok(Some(b))
     }
 
-    /// The gap voltage `V = ∫E·dl` along `edge` of a reduced solution `x_r`
-    /// (the edge DOF itself).
-    ///
-    /// The delta-gap feed is one of the p=1-only pieces of issue #1628: on
-    /// a p=2 cell this returns [`FloquetError::UnsupportedAtOrder`].
+    /// The gap voltage `V = ∫E·dl` along mesh edge `edge` of a reduced
+    /// solution `x_r`: the edge's Whitney DOF, `expand(x_r)[edge_dofs(edge)[0]]`.
+    /// At p=1 that is the edge DOF itself; at p=2 the `Q` DOF contributes
+    /// exactly zero (`Q = ∇(λ_aλ_b)` has no line integral along the edge),
+    /// so the `W` coefficient alone is the circulation at either order
+    /// (issue #1682).
     ///
     /// # Errors
     ///
-    /// [`FloquetError::UnsupportedAtOrder`] on a p=2 cell.
+    /// No error is produced beyond the [`FloquetError`] contract; the
+    /// delta-gap feed is order-generic.
     pub fn edge_voltage(&self, x_r: &[c64], edge: usize) -> Result<c64, FloquetError> {
-        if self.cell.op.order() == ElementOrder::P2 {
-            return Err(FloquetError::UnsupportedAtOrder {
-                feature: "the lumped delta-gap feed (edge_voltage)",
-            });
-        }
-        Ok(self.expand(x_r)[edge])
+        Ok(self.expand(x_r)[self.cell.edge_w_dofs[edge] as usize])
     }
 
     /// Solve `A_r x = b`.
