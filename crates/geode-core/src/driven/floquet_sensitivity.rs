@@ -103,19 +103,21 @@
 //!
 //! # Scope
 //!
-//! p=1, direct LU, one `(ω, k_t)` per call, scalar per-tet `ε` (complex
-//! allowed) and optional `σ`, as the forward. Moving port or periodic
-//! faces is a later phase.
+//! Both element orders (p=1 and p=2, issue #1683), direct LU, one
+//! `(ω, k_t)` per call, scalar per-tet `ε` (complex allowed) and optional
+//! `σ`, as the forward. Moving port or periodic faces is a later phase.
 
 use faer::c64;
 
+use crate::assembly::hcurl_space::{HcurlSpace, TetOrientation};
 use crate::driven::floquet::{
     FactoredFloquetCell, FloquetCell, FloquetChannel, FloquetError, FloquetIncidence,
     FloquetSolution,
 };
 use crate::driven::s_sensitivity::{MaterialDesign, SParam, ShapeDesign};
-use crate::driven::shape::{Dual, nedelec_local_dual};
+use crate::driven::shape::{Dual, nedelec_local_dual, nedelec2_local_dual};
 use crate::elements::ElementOrder;
+use crate::elements::nedelec_p2::TET_NEDELEC2_DOFS;
 use crate::mesh::TetMesh;
 use crate::mesh::periodic::PeriodicMap;
 
@@ -572,6 +574,10 @@ struct Prepared<'a> {
     material: Option<&'a MaterialDesign>,
     shape: Option<ShapeData<'a>>,
     params: Vec<SParam>,
+    /// The H(curl) space of the cell's order, rebuilt from the geometry's
+    /// mesh: the per-tet DOF tables of the p=2 gather and the DOF→entity
+    /// map of the pinned-node fence (issue #1683).
+    space: HcurlSpace,
     tet_idx: Vec<[u32; 6]>,
     tet_sign: Vec<[i8; 6]>,
 }
@@ -607,19 +613,17 @@ impl<'a> Prepared<'a> {
         let invalid = |m: String| FloquetSensitivityError::InvalidDesign(m);
         let mesh = geo.mesh;
         let n_tets = mesh.n_tets();
-        let edges = mesh.edges();
-        if cell.operator().order() == ElementOrder::P2 {
-            return Err(invalid(
-                "Floquet-port sensitivities at p=2 are not implemented yet: they land with the \
-                 remaining pieces of issue #1628; build the cell at ElementOrder::P1"
-                    .into(),
-            ));
-        }
-        if cell.operator().n_dofs() != edges.len() {
+        // The space of the cell's order on this mesh: the sizing check and
+        // the per-tet DOF layout of the volume terms come from it, at both
+        // orders (issue #1683).
+        let order = cell.operator().order();
+        let space = HcurlSpace::build(mesh, order);
+        if cell.operator().n_dofs() != space.n_dofs() {
             return Err(invalid(format!(
-                "the cell has {} edge DOFs, the mesh {} edges: it was assembled on another mesh",
+                "the cell has {} edge DOFs, the mesh's {order} space has {}: it was assembled \
+                 on another mesh",
                 cell.operator().n_dofs(),
-                edges.len()
+                space.n_dofs()
             )));
         }
         if !geo.map.matches_mesh(mesh) {
@@ -652,15 +656,21 @@ impl<'a> Prepared<'a> {
                     m.region_of_tet().len()
                 )));
             }
+            // All of a port-face triangle's DOFs sit on the port:
+            // `3·dofs_per_edge + dofs_per_face` (three edges and the face
+            // itself; 3 at p=1, 8 at p=2). A tet sharing only an edge or a
+            // vertex with the port holds strictly fewer (issue #1683).
+            let dofs_on_port_face = 3 * order.dofs_per_edge() + order.dofs_per_face();
             for port in 0..cell.n_ports() {
                 let dofs = cell.port_dofs(port);
                 for (t, r) in m.region_of_tet().iter().enumerate() {
                     let Some(region) = *r else { continue };
-                    let on_face = tet_idx[t]
+                    let on_face = space
+                        .tet_dofs(t)
                         .iter()
-                        .filter(|&&e| dofs.binary_search(&(e as usize)).is_ok())
+                        .filter(|&&d| dofs.binary_search(&(d as usize)).is_ok())
                         .count();
-                    if on_face >= 3 {
+                    if on_face >= dofs_on_port_face {
                         return Err(FloquetSensitivityError::MaterialTouchesPort {
                             region,
                             tet: t,
@@ -678,7 +688,21 @@ impl<'a> Prepared<'a> {
         }
         let shape = match &design.shape {
             Some(sh) => {
-                let moving = check_shape(cell, geo, sh, &edges)?;
+                // The nodes of the mesh entity carrying each DOF (the
+                // pinned-node fence): an edge DOF moves with its two
+                // endpoints, a face DOF with its three (issue #1683).
+                let mut dof_nodes: Vec<([u32; 3], usize)> = vec![([0; 3], 0); space.n_dofs()];
+                for (e, ed) in space.edges().iter().enumerate() {
+                    for &d in space.edge_dofs(e) {
+                        dof_nodes[d as usize] = ([ed[0], ed[1], u32::MAX], 2);
+                    }
+                }
+                for (f, fd) in space.faces().iter().enumerate() {
+                    for &d in space.face_dofs(f) {
+                        dof_nodes[d as usize] = (*fd, 3);
+                    }
+                }
+                let moving = check_shape(cell, geo, sh, &dof_nodes)?;
                 params.extend((0..sh.n_columns()).map(|column| SParam::Shape { column }));
                 Some(ShapeData { design: sh, moving })
             }
@@ -693,6 +717,7 @@ impl<'a> Prepared<'a> {
             material: design.material.as_ref(),
             shape,
             params,
+            space,
             tet_idx,
             tet_sign,
         })
@@ -755,10 +780,13 @@ impl<'a> Prepared<'a> {
         opts: &FloquetSensitivityOptions,
     ) -> Result<EdgeAt, FloquetSensitivityError> {
         let invalid = |m: String| FloquetSensitivityError::InvalidDesign(m);
-        let n_dofs = self.cell.operator().n_dofs();
-        if edge >= n_dofs {
+        // A feed edge is a **mesh edge**, not a DOF id: at p=2 the space has
+        // more DOFs than edges (issue #1683), and an index past the edge
+        // table would silently alias a face DOF.
+        let n_edges = self.geo.mesh.edges().len();
+        if edge >= n_edges {
             return Err(invalid(format!(
-                "feed edge {edge} is out of range; the cell has {n_dofs} edge DOFs"
+                "feed edge {edge} is out of range; the mesh has {n_edges} edges"
             )));
         }
         if !(omega > 0.0 && omega.is_finite()) {
@@ -805,8 +833,156 @@ impl<'a> Prepared<'a> {
         })
     }
 
-    /// `t[param][pair] = l_pairᵀ (∂A/∂θ_param) r_pair` on full edge vectors.
+    /// `t[param][pair] = l_pairᵀ (∂A/∂θ_param) r_pair` on full edge vectors,
+    /// at the cell's element order (issue #1683).
     fn volume_terms(&self, omega: f64, lefts: &[&[c64]], rights: &[&[c64]]) -> Vec<Vec<c64>> {
+        match self.cell.operator().order() {
+            ElementOrder::P2 => self.volume_terms_p2(omega, lefts, rights),
+            ElementOrder::P1 => self.volume_terms_p1(omega, lefts, rights),
+        }
+    }
+
+    /// [`Self::volume_terms`] at p=2 (issue #1683): the 20 second-order
+    /// Nédélec locals of [`nedelec2_local_dual`], gathered orientation-free
+    /// from the ascending-sorted local layout of [`HcurlSpace`]. The
+    /// identity, the parameter order and the `ω` scalings are the p=1
+    /// path's; only the element kernel and the gather differ.
+    fn volume_terms_p2(&self, omega: f64, lefts: &[&[c64]], rights: &[&[c64]]) -> Vec<Vec<c64>> {
+        let zero = c64::new(0.0, 0.0);
+        let n_pairs = lefts.len();
+        let omega2 = omega * omega;
+        let mesh = self.geo.mesh;
+        let space = &self.space;
+        let mut out = vec![vec![zero; n_pairs]; self.params.len()];
+        // p=2 locals are built on the ascending-sorted vertices and scatter
+        // with unit sign, so the gather is a plain DOF lookup.
+        let gather = |v: &[c64], t: usize| -> [c64; TET_NEDELEC2_DOFS] {
+            let dofs = space.tet_dofs(t);
+            std::array::from_fn(|i| v[dofs[i] as usize])
+        };
+        let coords = |t: usize| -> [[f64; 3]; 4] { space.tet_local_coords(mesh, t) };
+
+        // Material: z_R = Σ_{t ∈ R} lᵀ M_t r (the p=2 mass, ε = 1).
+        if let Some(m) = self.material {
+            let mut z = vec![vec![zero; n_pairs]; m.n_regions()];
+            for (t, r) in m.region_of_tet().iter().enumerate() {
+                let Some(region) = *r else { continue };
+                let (_, mm, _) = nedelec2_local_dual(&coords(t).map(|v| v.map(Dual::cst)));
+                for q in 0..n_pairs {
+                    let (l, r) = (gather(lefts[q], t), gather(rights[q], t));
+                    let mut acc = zero;
+                    for i in 0..TET_NEDELEC2_DOFS {
+                        for j in 0..TET_NEDELEC2_DOFS {
+                            acc += l[i] * r[j] * mm[i][j].re;
+                        }
+                    }
+                    z[region][q] += acc;
+                }
+            }
+            for (i, prm) in self.params.iter().enumerate() {
+                match *prm {
+                    SParam::EpsPrime { region } => {
+                        for (o, &zz) in out[i].iter_mut().zip(&z[region]) {
+                            *o = zz * (-omega2);
+                        }
+                    }
+                    SParam::EpsDoublePrime { region } => {
+                        for (o, &zz) in out[i].iter_mut().zip(&z[region]) {
+                            *o = zz * c64::new(0.0, omega2);
+                        }
+                    }
+                    // ∂A/∂σ_k = jω M_k (the forward is A = K − ω²εM + jωσM).
+                    // Not enumerated by this builder; kept exact so a future
+                    // σ column cannot silently get a zero gradient.
+                    SParam::Sigma { region } => {
+                        for (o, &zz) in out[i].iter_mut().zip(&z[region]) {
+                            *o = zz * c64::new(0.0, omega);
+                        }
+                    }
+                    // Shape is handled below; Floquet never builds direction or wall
+                    // columns (only ε′/ε″/shape above), so these contribute nothing here.
+                    SParam::Shape { .. } | SParam::EpsDirection { .. } | SParam::Wall { .. } => {}
+                }
+            }
+        }
+
+        // Shape: Σ_t Σ_(a,axis) V[node][axis] · l_locᵀ ∂A_loc r_loc. Local
+        // slot `a` is the ascending-sorted position of vertex `tet[perm[a]]`
+        // (the p=2 layout of [`HcurlSpace`]).
+        if let Some(sh) = &self.shape {
+            let first_shape = self
+                .params
+                .iter()
+                .position(|p| matches!(p, SParam::Shape { .. }))
+                .expect("shape data implies shape params");
+            let iomega = c64::new(0.0, omega);
+            for (t, tet) in mesh.tets.iter().enumerate() {
+                if !tet.iter().any(|&nd| sh.moving[nd as usize]) {
+                    continue;
+                }
+                let l_loc: Vec<[c64; TET_NEDELEC2_DOFS]> =
+                    lefts.iter().map(|l| gather(l, t)).collect();
+                let r_loc: Vec<[c64; TET_NEDELEC2_DOFS]> =
+                    rights.iter().map(|r| gather(r, t)).collect();
+                let base = coords(t);
+                let sig_t = self.geo.sigma.map_or(0.0, |s| s[t]);
+                let mass_coeff = self.geo.eps_r[t] * (-omega2) + iomega * sig_t;
+                let TetOrientation::AscendingPerm(perm) = space.tet_orientation(t) else {
+                    unreachable!("a p=2 space orients every tet by ascending permutation")
+                };
+                for a in 0..4 {
+                    let node = tet[perm[a]] as usize;
+                    if !sh.moving[node] {
+                        continue;
+                    }
+                    for axis in 0..3 {
+                        if (0..sh.design.n_columns())
+                            .all(|c| sh.design.column(c)[node][axis] == 0.0)
+                        {
+                            continue;
+                        }
+                        let mut dc = base.map(|v| v.map(Dual::cst));
+                        dc[a][axis] = Dual::var(base[a][axis]);
+                        let (dk, dm, _) = nedelec2_local_dual(&dc);
+                        let da: [[c64; TET_NEDELEC2_DOFS]; TET_NEDELEC2_DOFS] =
+                            std::array::from_fn(|i| {
+                                std::array::from_fn(|j| {
+                                    c64::new(dk[i][j].du, 0.0) + mass_coeff * dm[i][j].du
+                                })
+                            });
+                        let vals: Vec<c64> = (0..n_pairs)
+                            .map(|q| {
+                                let (l, r) = (&l_loc[q], &r_loc[q]);
+                                let mut acc = zero;
+                                for i in 0..TET_NEDELEC2_DOFS {
+                                    let mut row = zero;
+                                    for j in 0..TET_NEDELEC2_DOFS {
+                                        row += da[i][j] * r[j];
+                                    }
+                                    acc += l[i] * row;
+                                }
+                                acc
+                            })
+                            .collect();
+                        for c in 0..sh.design.n_columns() {
+                            let v = sh.design.column(c)[node][axis];
+                            if v == 0.0 {
+                                continue;
+                            }
+                            for (o, &val) in out[first_shape + c].iter_mut().zip(&vals) {
+                                *o += val * v;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// [`Self::volume_terms`] at p=1: the Whitney locals of
+    /// [`nedelec_local_dual`], gathered with the per-tet edge signs.
+    fn volume_terms_p1(&self, omega: f64, lefts: &[&[c64]], rights: &[&[c64]]) -> Vec<Vec<c64>> {
         let zero = c64::new(0.0, 0.0);
         let n_pairs = lefts.len();
         let omega2 = omega * omega;
@@ -930,12 +1106,14 @@ impl<'a> Prepared<'a> {
 }
 
 /// Validate the shape columns against the pinned faces and the periodic
-/// pairing. Returns the per-node "moves in some column" flags.
+/// pairing. Returns the per-node "moves in some column" flags. `dof_nodes`
+/// maps every H(curl) DOF to the nodes of the mesh entity carrying it
+/// (`n` = 2 for an edge DOF, 3 for a face DOF).
 fn check_shape(
     cell: &FloquetCell,
     geo: &FloquetGeometry<'_>,
     sh: &ShapeDesign,
-    edges: &[[u32; 2]],
+    dof_nodes: &[([u32; 3], usize)],
 ) -> Result<Vec<bool>, FloquetSensitivityError> {
     let n_nodes = geo.mesh.n_nodes();
     for c in 0..sh.n_columns() {
@@ -949,7 +1127,8 @@ fn check_shape(
     let mut on_port = vec![false; n_nodes];
     for p in 0..cell.n_ports() {
         for &d in cell.port_dofs(p) {
-            for &nd in &edges[d] {
+            let (nds, n) = dof_nodes[d];
+            for &nd in &nds[..n] {
                 on_port[nd as usize] = true;
             }
         }
