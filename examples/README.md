@@ -15,7 +15,7 @@ Examples that need an artifact directory accept the shared `geode-app` flag via
 default `artifacts/`). That flag is omitted
 from the per-example invocations below.
 
-## Example index (12 crates)
+## Example index (11 crates)
 
 > `--release` note: run the examples in release mode; the assembly and
 > eigensolves are slow unoptimized. (This used to be required:
