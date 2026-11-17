@@ -6,6 +6,7 @@
 //! the top of each test file.
 
 pub mod box_fixtures;
+pub mod spiral_benchmark;
 pub mod wave_port;
 
 use burn::tensor::backend::Backend;
