@@ -67,8 +67,6 @@ use crate::eigen::shift_guard::{
 };
 #[cfg(feature = "tensor")]
 use crate::eigen::transmon::{JunctionPortModel, junction_participation, reduced_transmon_system};
-#[cfg(feature = "tensor")]
-use crate::sparse_ops::quad_form;
 use crate::sparse_ops::{lu_solve, spmv, spmv_into, spmv_transpose_into};
 
 /// The sparse interior-restricted discrete gradient `G = d⁰_interior` plus
