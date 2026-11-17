@@ -104,13 +104,6 @@ from the per-example invocations below.
   cargo run -p step_index_fiber --release
   ```
 
-- **`fiber_smf28_solve_timing`** — `--release` — Performance harness timing
-  the SMF-28 fiber `p=2` modal solve on the sparse-direct assembly path
-  (issue #327).
-  ```sh
-  cargo run -p fiber_smf28_solve_timing --release
-  ```
-
 ### Convergence / tooling
 
 - **`eigen_convergence`** — `--release` — Quick convergence probe: prints
