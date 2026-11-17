@@ -255,28 +255,6 @@ pub fn d_e_c_hz_d_c_sigma(c_sigma_farad: f64) -> f64 {
     -E_CHARGE * E_CHARGE / (2.0 * c_sigma_farad * c_sigma_farad * H_PLANCK)
 }
 
-/// The transmon `01`-frequency sensitivity to `E_C` from the asymptote
-/// `ω01 ≈ √(8 E_J E_C) − E_C`:
-///
-/// ```text
-///   ∂ω01/∂E_C = √(2 E_J / E_C) − 1.
-/// ```
-///
-/// This is the exact derivative of the **asymptotic** form
-/// ([`omega01_asymptotic_hz`]); the gate `ω01` is the Koch diagonalization
-/// ([`TransmonSpectrum::omega01_hz`]), so this is the sanity-level closed
-/// form (good to ~1–2 % at `E_J/E_C ≈ 51`, exactly as `ω01` itself is). The
-/// companion anharmonicity asymptote `α ≈ −E_C` gives `∂α/∂E_C ≈ −1` to the
-/// same order.
-///
-/// # Panics
-///
-/// Panics if `e_j_hz` or `e_c_hz` is not strictly positive.
-pub fn d_omega01_asymptotic_d_e_c(e_j_hz: f64, e_c_hz: f64) -> f64 {
-    assert!(e_j_hz > 0.0 && e_c_hz > 0.0, "E_J, E_C must be positive");
-    (2.0 * e_j_hz / e_c_hz).sqrt() - 1.0
-}
-
 /// The total capacitance `C_Σ` (farads) implied by a charging energy
 /// `E_C/h` (Hz) — the inverse of [`e_c_hz_from_capacitance`], for reporting
 /// the back-solved `C_Σ` against the 80–100 fF expectation.
@@ -320,21 +298,6 @@ pub fn d_e_c_hz_from_c_sigma_d_c_sigma(c_sigma_farad: f64, c_j_farad: f64) -> f6
         "C_J must be non-negative, got {c_j_farad}"
     );
     d_e_c_hz_d_c_sigma(c_sigma_farad + c_j_farad)
-}
-
-/// The electrostatic `C_Σ` (F, junction excluded) implied by a charging
-/// energy `E_C/h` (Hz) and a junction capacitance `c_j_farad`: the inverse
-/// of [`e_c_hz_from_c_sigma`].
-///
-/// # Panics
-///
-/// Panics if `e_c_hz` is not strictly positive or `c_j_farad` is negative.
-pub fn c_sigma_from_e_c_hz(e_c_hz: f64, c_j_farad: f64) -> f64 {
-    assert!(
-        c_j_farad >= 0.0,
-        "C_J must be non-negative, got {c_j_farad}"
-    );
-    capacitance_from_e_c_hz(e_c_hz) - c_j_farad
 }
 
 /// Harmonic (linear `L ∥ C`) frequency in Hz, `f = 1/(2π √(L C_total))`.
@@ -1277,8 +1240,6 @@ mod tests {
         let f = a.harmonic_frequency_of_c_sigma_hz(a.c_sigma_farad);
         assert!((f - 4.14e9).abs() / 4.14e9 < 1e-13, "f = {f}");
         assert!((a.e_c_hz_of_c_sigma(a.c_sigma_farad) - a.e_c_hz).abs() / a.e_c_hz < 1e-14);
-        let c_back = c_sigma_from_e_c_hz(a.e_c_hz, a.c_j_farad);
-        assert!((c_back - a.c_sigma_farad).abs() / a.c_sigma_farad < 1e-12);
         // The superseded anchor is not this one: 89.9 fF is about 4 fF short.
         assert!(a.c_sigma_farad * 1e15 - 89.9 > 4.0);
     }
@@ -1333,25 +1294,6 @@ mod tests {
                 "∂E_C/∂C_Σ at C_Σ={c}: analytic {ana} vs FD {fd}, rel {rel:.3e}"
             );
         }
-    }
-
-    /// `∂ω01/∂E_C` (asymptotic) is the exact derivative of
-    /// [`omega01_asymptotic_hz`] — matches a central finite difference of it,
-    /// and is positive in the transmon regime (`√(2E_J/E_C) ≫ 1`).
-    #[test]
-    fn d_omega01_asymptotic_matches_finite_difference() {
-        let e_j = 11.0e9;
-        let e_c = 11.0e9 / 51.0;
-        let ana = d_omega01_asymptotic_d_e_c(e_j, e_c);
-        let h = e_c * 1e-6;
-        let fd =
-            (omega01_asymptotic_hz(e_j, e_c + h) - omega01_asymptotic_hz(e_j, e_c - h)) / (2.0 * h);
-        let rel = (ana - fd).abs() / fd.abs();
-        assert!(ana > 0.0, "∂ω01/∂E_C should be positive in transmon regime");
-        assert!(
-            rel < 1e-6,
-            "∂ω01/∂E_C: analytic {ana} vs FD {fd}, rel {rel:.3e}"
-        );
     }
 
     /// The tridiagonal eigensolver reproduces a known 3×3 spectrum.

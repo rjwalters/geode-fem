@@ -148,23 +148,6 @@ impl SphereFixture {
     pub fn n_buffer_tets(&self) -> usize {
         self.n_vacuum_gap_tets() + self.n_pml_shell_tets()
     }
-
-    /// 0-based tet indices (into `mesh.tets`) that lie in the
-    /// `pml_shell` region. Convenience helper for callers that need to
-    /// apply absorption only inside the PML.
-    pub fn pml_shell_tets(&self) -> Vec<u32> {
-        self.tet_physical_tags
-            .iter()
-            .enumerate()
-            .filter_map(|(i, &t)| {
-                if t == PHYS_PML_SHELL {
-                    Some(i as u32)
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
 }
 
 /// Load the bundled sphere-in-vacuum mesh fixture.
@@ -271,15 +254,5 @@ mod tests {
             f.mesh.n_tets(),
             "every tet must be tagged",
         );
-    }
-
-    #[test]
-    fn pml_shell_tet_indices_are_consistent() {
-        let f = read_sphere_fixture().expect("fixture load");
-        let pml = f.pml_shell_tets();
-        assert_eq!(pml.len(), f.n_pml_shell_tets());
-        for &i in &pml {
-            assert_eq!(f.tet_physical_tags[i as usize], PHYS_PML_SHELL);
-        }
     }
 }

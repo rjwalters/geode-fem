@@ -91,8 +91,7 @@ offsets of Opt120 trigger it for the both-band Arkkio.
   currents is a sum of these.
 - **API for part A.** `SectorShapeProblem::design_gradient(grad, &[V_k])`
   returns `dJ/dθ_k = ⟨dJ/dX, V_k⟩` for split-mesh velocities
-  `V_k = ∂X/∂θ_k`, and `expand_velocity` maps an input-mesh velocity to
-  the split mesh. A velocity that moves the coupling circle is rejected.
+  `V_k = ∂X/∂θ_k`. A velocity that moves the coupling circle is rejected.
 - **Moved designs.** These are evaluated through
   `SlidingBand::with_node_positions`, on the same topology, links and
   coupling grid. It rejects a moved coupling-circle node (the air-gap rule

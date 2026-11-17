@@ -461,12 +461,6 @@ impl SmootherWeight {
         self.source
     }
 
-    /// The stability bound `2 / rho_hat` implied by the estimate (`NaN` if
-    /// there is none). An estimate: see the type-level docs.
-    pub fn stability_bound_estimate(&self) -> f64 {
-        2.0 / self.rho_hat
-    }
-
     /// Set when an explicit override is above both `2 / rho_hat` and the
     /// automatic weight: the message that was printed to stderr at build
     /// time. The override is still used.

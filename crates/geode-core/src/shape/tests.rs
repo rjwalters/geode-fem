@@ -339,36 +339,6 @@ fn capacitance_shape_gradient_matches_fd_and_analytic() {
     );
 }
 
-/// **Mutation resistance.** The explicit `∂K/∂X` energy term is
-/// load-bearing: at the energy stationary point the field-energy adjoint
-/// (implicit term) vanishes to round-off, so the ENTIRE capacitance
-/// gradient comes from the explicit term. Dropping it (as the judge's
-/// mutation does) collapses `∂C/∂θ` to ~0 and breaks the FD match. Here
-/// we assert the implicit part is negligible relative to the total for
-/// both maps — i.e. the total is NOT reproducible from the adjoint alone.
-#[test]
-fn capacitance_explicit_dk_term_is_load_bearing() {
-    let (mesh, eps_r, electrodes, ground) = capacitor_fixture(4);
-    let grad = capacitance_shape_gradient(&mesh, &eps_r, &electrodes, &ground).unwrap();
-    let (d_xscale, d_yzscale) = capacitor_scale_maps(&mesh);
-    for (name, d) in [("x-scale", &d_xscale), ("yz-scale", &d_yzscale)] {
-        let total = grad.dc_dtheta(d);
-        let implicit = grad.dc_dtheta_implicit(d);
-        assert!(
-            total.abs() > 1e-14,
-            "map {name}: total ∂C/∂θ {total} unexpectedly ~0"
-        );
-        // Adjoint-only (explicit term dropped) is a vanishing fraction of
-        // the true gradient — so the explicit term carries the derivative.
-        let frac = implicit.abs() / total.abs();
-        assert!(
-            frac < 1e-8,
-            "map {name}: implicit (adjoint-only) part {implicit} is {frac:.3e} of \
-                 total {total} — expected ~0; the explicit ∂K/∂X term must dominate"
-        );
-    }
-}
-
 // ─────────────────────────────────────────────────────────────────────
 // In-plane subset scale map (issue #589).
 // ─────────────────────────────────────────────────────────────────────

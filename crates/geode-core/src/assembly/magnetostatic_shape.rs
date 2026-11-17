@@ -1026,16 +1026,6 @@ impl SectorShapeProblem {
         }
         Ok(design_gradient(grad, velocities))
     }
-
-    /// Expand a per-node velocity given on the **input** mesh to the split
-    /// mesh (split coupling copies take their original's value).
-    ///
-    /// # Panics
-    ///
-    /// Panics if `v` is not one entry per input-mesh node.
-    pub fn expand_velocity(&self, v: &[[f64; 2]]) -> Vec<[f64; 2]> {
-        self.band.expand_nodal(v)
-    }
 }
 
 /// The inputs of [`residual_shape_contraction`] besides `A` and `ψ`.
