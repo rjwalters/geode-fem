@@ -23,7 +23,7 @@ is an operator-gated 3D run (Meep).
 | --- | --- | --- | --- |
 | **GEODE** shape adjoint (the −10 dB result) | Unstructured tets; boundary nodes **on** the curve; node-motion (moving-boundary) adjoint, single factorization | Nodes on the curve (~1e-14 mm); linear facets 4.4 µm max on L0, 1.1 µm on L1 (`staircasing_demo.py`) | **Done** — committed artifact |
 | **FDTD-density** (Meep-adjoint) | Fixed Yee/Cartesian grid; permittivity/density field, later binarized | **Staircased** — O(h) boundary error, cubic 3D refinement cost | **Operator-gated** (Meep) |
-| **Low-DOF parametric** | A handful of shape scalars swept / FD-optimized | Can be conformal; measured gap to freeform is small at 16–48 DOFs (see table) | **Assembled from committed artifacts**: [`../patch_antenna_conformal/head_to_head/`](../patch_antenna_conformal/head_to_head/README.md) (mesh-level-conditional) |
+| **Low-DOF parametric** | A few shape scalars (`gap_1`, `gap_4`) up to low-dimensional B-spline shape fields (`gap_16`, `outline_16`, `gap_48`) swept / FD-optimized — the 16/48-DOF rows are spatially varying fields, not scalars | Can be conformal; measured gap to freeform is small at 16–48 DOFs (see table) | **Assembled from committed artifacts**: [`../patch_antenna_conformal/head_to_head/`](../patch_antenna_conformal/head_to_head/README.md) (mesh-level-conditional) |
 
 The claim the baseline supports: a density method optimizes a **grid-locked
 field**, never *moves the boundary*, so the curved conductor is permanently the
