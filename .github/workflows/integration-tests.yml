@@ -225,28 +225,40 @@ jobs:
         # no retry/skip logic; the underlying hang is a follow-up issue once
         # the target is named.
         #
-        # Issue #1729: two bounds were observed NOT binding. (1) The runner's
-        # step timeout-minutes above: run 44068825383 ran this step 43m36s
-        # against its 30 min bound and cancelled the job at 65 min, log
-        # discarded. (2) A coreutils `timeout 27m cargo test` prefix (PR
-        # #1730's first attempt): run 44081099929 — timeout(1) signals only
-        # its direct child, so cargo died at the bound but the wedged test
-        # binary survived as an orphan holding the step's log pipe; the
-        # runner never sees EOF, never closes the step (43m55s at job
-        # cancellation), and discards the log again. The bound is therefore
-        # enforced by an in-script watchdog: at 27m it TERMs cargo by pid
+        # Issue #1729: the runner's bounds were observed NOT binding twice:
+        # (1) the step timeout-minutes above — run 44068825383 ran this step
+        # 43m36s against its 30 min bound and cancelled the job at 65 min,
+        # log discarded; (2) a coreutils `timeout 27m cargo test` prefix
+        # (PR #1730's first attempt) — run 44081099929 also never closed its
+        # step (43m55s at job cancellation), log discarded again. WHY
+        # 44081099929 never closed is NOT known: its log was discarded, so
+        # no evidence survives. The earlier account here — "timeout(1)
+        # signals only its direct child, so the wedged test binary survived
+        # as an orphan holding the step's log pipe" — was measured false in
+        # its simple form: GNU coreutils `timeout`, in its default
+        # (non-`--foreground`) mode, puts the child in its own process group
+        # and signals the whole group, so a plainly surviving orphan holding
+        # an inherited pipe is not the mechanism. The bound is therefore
+        # enforced so that it does not depend on killing anything that may
+        # be unkillable: an in-script watchdog TERMs cargo by pid at 27m
         # (KILL after 60s) — 28 min, inside the 30-min step bound, ending by
-        # ~49 min into the job. cargo's output goes to a file instead of the
-        # step log, so a surviving grandchild cannot hold the log pipe open;
-        # the step below cats the file `if: failure()`, retaining the
-        # "Running tests/<target>.rs" lines that name a hung target. `set -m`
-        # + the group kill retire the watchdog so no orphaned sleep fires a
-        # stray pkill; the pattern's [-] keeps pkill from self-matching and
-        # keeps "cargo"+"test" out of this run block so
-        # scripts/ci-test-coverage.py still models this step as a plain
-        # `cargo test` (its coverage gate). A cut run exits with cargo's
-        # 143/137 (not timeout's 124). timeout-minutes stays as the outer
-        # backstop.
+        # ~49 min into the job — and cargo's output goes to a file instead
+        # of the step log, so NO descendant can hold the step's log pipe;
+        # EOF follows from the step shell exiting, whatever survives the
+        # signals. The step below tails that file `if: always()`, retaining
+        # the "Running tests/<target>.rs" lines that name a hung target on a
+        # failed, cancelled or green run alike. Watchdog retirement: the
+        # runner's default `bash -e` step shell exits at the cargo line when
+        # a cut cargo returns nonzero, so the `kill -TERM -- -$WATCHDOG`
+        # line runs on the success path only — on the cut path the watchdog
+        # lives out its own +60s and exits after firing a pkill that matches
+        # nothing; on the success path `set -m` + the group kill retire it
+        # so no orphaned sleep fires a stray pkill. The pattern's [-] keeps
+        # pkill from self-matching and keeps "cargo"+"test" out of this run
+        # block so scripts/ci-test-coverage.py still models this step as a
+        # plain `cargo test` (its coverage gate). A cut run exits with
+        # cargo's 143/137 (not timeout's 124). timeout-minutes stays as the
+        # outer backstop.
         timeout-minutes: 30
         run: |
           echo "cargo output goes to $RUNNER_TEMP/am-integration.log; a hung run is cut at 27m"
@@ -328,11 +340,18 @@ jobs:
         # The step above redirects cargo to this file so a surviving
         # grandchild cannot hold the step's log pipe open; this step puts the
         # "Running tests/<target>.rs" lines back into the retained job log.
-        if: failure()
+        # `always()`, not `failure()`: `failure()` is false when the job is
+        # cancelled — exactly the 60-min-bound scenario issue #1729 exists
+        # for — and on a green run it would retain none of the 68 targets'
+        # per-target output, so a cargo run that exited 0 having run nothing
+        # would produce a log byte-identical to a healthy one. Best-effort
+        # on cancellation. 400 lines: 68 targets emit roughly 3-4 lines
+        # each (~270), leaving headroom for cache-warm compile noise.
+        if: always()
         run: |
           if [ -f "$RUNNER_TEMP/am-integration.log" ]; then
-            echo "--- am-integration.log, last 200 lines ---"
-            tail -n 200 "$RUNNER_TEMP/am-integration.log"
+            echo "--- am-integration.log, last 400 lines ---"
+            tail -n 400 "$RUNNER_TEMP/am-integration.log"
           fi
 
   core-tests-b:
