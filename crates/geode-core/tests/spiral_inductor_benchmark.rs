@@ -58,22 +58,13 @@
 
 mod common;
 use common::repo_root;
+use common::spiral_benchmark::{self, FemRow, l_nh, row_at, sweep};
 
-use faer::c64;
 use std::fs;
 
 use geode_core::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
 use geode_core::constants::ETA_0_OHM as ETA_0;
-use geode_core::driven::extraction::{SweepPoint, driven_frequency_sweep};
-use geode_core::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
-};
-use geode_core::mesh::spiral::CONDUCTOR_SIGMA_NATURAL;
-use geode_core::mesh::{
-    SpiralFixture, pec_interior_mask_from_triangles, read_spiral_fixture, read_spiral_smoke_fixture,
-};
-use geode_core::testing::TestBackend;
-use geode_util::units::ghz_to_omega_um as ghz_to_omega;
+use geode_core::mesh::{GENERIC_MATERIALS, read_spiral_fixture, read_spiral_smoke_fixture};
 
 /// Low-frequency reference point for the L comparison (see the
 /// benchmark example for why 1 GHz: on the L plateau, inside the
@@ -88,97 +79,20 @@ const FIXTURE_SPIRAL: SquareSpiral = SquareSpiral {
     d_in: 60.0e-6,
 };
 
-/// Run the benchmark pipeline (Leontovich conductor surface, PEC outer
-/// walls, 50 Ω port) on `fixture` at the given frequencies.
-fn sweep(fixture: &SpiralFixture, freqs_ghz: &[f64]) -> Vec<SweepPoint> {
-    use burn::tensor::backend::BackendTypes;
-    type B = TestBackend;
-    let device = <B as BackendTypes>::Device::default();
-
-    let edges = fixture.mesh.edges();
-    let eps = fixture.epsilon_r_default();
-    let outer = fixture.outer_boundary_triangles();
-    let mask = pec_interior_mask_from_triangles(&edges, &[outer.as_slice()]);
-    let cond = fixture.conductor_triangles();
-    let surface = SurfaceImpedanceBc {
-        triangles: &cond,
-        model: SurfaceImpedanceModel::GoodConductor {
-            sigma: CONDUCTOR_SIGMA_NATURAL,
-        },
-    };
-    let port = fixture.port();
-    let lp = port.lumped_port(50.0 / ETA_0, c64::new(1.0, 0.0));
-    let source = CurrentSource {
-        j_tet: vec![[c64::new(0.0, 0.0); 3]; fixture.mesh.n_tets()],
-    };
-    let omegas: Vec<f64> = freqs_ghz.iter().map(|&f| ghz_to_omega(f)).collect();
-
-    driven_frequency_sweep::<B>(
-        &fixture.mesh,
-        DrivenMaterials::Scalar(&eps),
-        None,
-        &DrivenBcs {
-            pec_interior_mask: &mask,
-        },
-        std::slice::from_ref(&lp),
-        std::slice::from_ref(&surface),
-        &omegas,
-        &source,
-        &device,
-    )
-    .expect("port-driven sweep on the spiral fixture")
-}
-
-/// L (nH) from a sweep point: `Im(Z·η₀) / (2π f_GHz)`.
-fn l_nh(pt: &SweepPoint, f_ghz: f64) -> f64 {
-    (pt.ports[0].z * ETA_0).im / (2.0 * std::f64::consts::PI * f_ghz)
-}
-
-/// One committed sweep row: `(f_ghz, l_nh, r_ohm, q)`.
-type FemRow = (f64, f64, f64, f64);
-
 /// One mom baseline row: `(f_ghz, l_nh, q)`.
 type MomRow = (f64, f64, f64);
 
 /// Committed benchmark sweep, parsed: [`FemRow`]s plus the recorded SRF
 /// (GHz) if present.
+///
+/// Issue #674: an f32 operator assembly moves R/Q at 1 GHz by ~16–18 %,
+/// so the committed artifact must come from an f64 backend — the shared
+/// parser asserts `[meta].float_dtype = "F64"` with this issue number.
 fn committed_results() -> (Vec<FemRow>, Option<f64>) {
-    let path = repo_root().join("benchmarks/spiral_inductor/results.toml");
-    let raw = fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read committed results {}: {e}", path.display()));
-    let doc: toml::Value = toml::from_str(&raw).expect("results.toml is valid TOML");
-
-    // Issue #674: an f32 operator assembly moves R/Q at 1 GHz by
-    // ~16–18 %, so the committed artifact must come from an f64 backend.
-    let dtype = doc
-        .get("meta")
-        .and_then(|m| m.get("float_dtype"))
-        .and_then(|v| v.as_str());
-    assert_eq!(
-        dtype,
-        Some("F64"),
-        "results.toml [meta].float_dtype must record an f64 generation backend (issue #674)"
-    );
-
-    let srf_ghz = doc
-        .get("meta")
-        .and_then(|m| m.get("srf_ghz"))
-        .and_then(|v| v.as_float());
-
-    let mut rows = Vec::new();
-    for i in 0.. {
-        let Some(pt) = doc.get(format!("point_{i}")) else {
-            break;
-        };
-        let f = |key: &str| {
-            pt.get(key)
-                .and_then(|v| v.as_float())
-                .unwrap_or_else(|| panic!("point_{i}.{key} missing"))
-        };
-        rows.push((f("f_ghz"), f("l_nh"), f("r_ohm"), f("q")));
-    }
-    assert!(rows.len() >= 10, "benchmark sweep has at least 10 points");
-    (rows, srf_ghz)
+    spiral_benchmark::committed_results(
+        &repo_root().join("benchmarks/spiral_inductor/results.toml"),
+        674,
+    )
 }
 
 /// mom PEEC baseline, parsed: per-bracket `(n_turns, points)` with
@@ -210,18 +124,6 @@ fn mom_baseline() -> Vec<(f64, Vec<MomRow>)> {
             (n, pts)
         })
         .collect()
-}
-
-fn row_at(rows: &[FemRow], f_ghz: f64) -> FemRow {
-    *rows
-        .iter()
-        .min_by(|a, b| {
-            (a.0 - f_ghz)
-                .abs()
-                .partial_cmp(&(b.0 - f_ghz).abs())
-                .unwrap()
-        })
-        .expect("non-empty sweep")
 }
 
 /// Mohan current-sheet L (nH) for the fixture lateral parameters at a
@@ -375,7 +277,7 @@ fn committed_results_consistent_with_oracles() {
 fn smoke_fixture_extraction_is_physical() {
     let fixture = read_spiral_smoke_fixture().expect("bundled smoke spiral fixture");
     let f_ghz = 5.0;
-    let pts = sweep(&fixture, &[f_ghz]);
+    let pts = sweep(&fixture, &GENERIC_MATERIALS, &[f_ghz]);
     assert_eq!(pts.len(), 1);
     let pt = &pts[0];
     assert!(
@@ -426,7 +328,7 @@ fn benchmark_fixture_reference_point_matches_committed_results() {
     let (_, l_committed, r_committed, _) = row_at(&rows, L_REF_GHZ);
 
     let fixture = read_spiral_fixture().expect("bundled benchmark spiral fixture");
-    let pts = sweep(&fixture, &[L_REF_GHZ]);
+    let pts = sweep(&fixture, &GENERIC_MATERIALS, &[L_REF_GHZ]);
     let pt = &pts[0];
     assert!(pt.residual_rel < 1e-7, "residual {}", pt.residual_rel);
 
