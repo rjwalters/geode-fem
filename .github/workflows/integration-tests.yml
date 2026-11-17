@@ -224,9 +224,20 @@ jobs:
         # build and the ~3 min release-only step. Diagnosability bound only:
         # no retry/skip logic; the underlying hang is a follow-up issue once
         # the target is named.
+        #
+        # Issue #1729: the runner's step timeout-minutes above was observed
+        # NOT binding (run 44068825383: this step ran 43m36s against its 30
+        # min bound and the job was cancelled at 65 min, log discarded). So
+        # the bound is also enforced in-script with coreutils `timeout`:
+        # 27m + the 60s --kill-after stays under the step's 30 min, and the
+        # step starts ~21 min into the job, so it ends by ~51 min — inside
+        # the 60-min job bound. A cut run exits 124 (137 after KILL) and
+        # fails the step normally, retaining the log. timeout-minutes stays
+        # as the outer backstop.
         timeout-minutes: 30
         run: |
-          cargo test -p geode-core --release --features spade-mesh \
+          timeout --signal=TERM --kill-after=60s 27m \
+            cargo test -p geode-core --release --features spade-mesh \
               --test adapt_loop \
               --test adapt_refine \
               --test analytic_cladding_bc_fiber_benchmark \
