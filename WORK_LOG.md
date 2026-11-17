@@ -5,6 +5,8 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-17
 
+- **PR #1736**: docs: correct low-DOF parametric leg to scalars-or-B-spline-fields (1-48 DOFs)
+- **Issue #1734** (closed): Docs: "a handful of shape scalars" overclaims parsimony for the 16/48-DOF parametric rows
 - **PR #1732**: docs: replace stale ceviche-2D leg with low-DOF parametric sweep in Meep docker README
 - **PR #1728**: refactor: remove eleven unreferenced pub functions from geode-core
 - **PR #1726**: Remove ceviche 2D FDFD scaffold from fdtd_density_baseline
