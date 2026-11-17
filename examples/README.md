@@ -141,7 +141,7 @@ Verify the wiring with:
 
 ```sh
 cargo metadata --no-deps --format-version 1 | grep -o '"name":"[^"]*"'
-# … should list all 12 example crates …
+# … should list all 11 example crates …
 cargo build --workspace            # builds every example crate
 cargo build --workspace --all-targets
 ```
