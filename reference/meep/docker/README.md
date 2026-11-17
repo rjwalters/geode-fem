@@ -167,8 +167,11 @@ fabricated baseline numbers**. Three legs:
    (and its scaling with grid resolution) is exactly what this environment
    measures. Same physics family (open radiator + PML + |S11|), different
    geometry representation.
-3. **Low-DOF parametric sweep** — a handful of shape scalars swept /
-   FD-optimized (1–48 DOFs), assembled **from committed artifacts** in
+3. **Low-DOF parametric sweep** — a few shape scalars (`gap_1`, `gap_4`)
+   up to low-dimensional B-spline shape fields (`gap_16`, `outline_16`,
+   `gap_48`) swept / FD-optimized (1–48 DOFs; the 16/48-DOF rows are
+   spatially varying fields, not scalars), assembled **from committed
+   artifacts** in
    `benchmarks/patch_antenna_conformal/head_to_head/`; the measured
    parametric-vs-freeform gap is conditional on the mesh level (see that
    README).
