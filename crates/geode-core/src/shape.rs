@@ -1598,12 +1598,6 @@ impl CapacitanceShapeGradient {
         chain_node_motion(&self.grad_node_c, dnode_dtheta)
     }
 
-    /// `∂C_self/∂θ` from the **implicit (adjoint) part only** — a diagnostic
-    /// that is ~0 at the energy stationary point.
-    pub fn dc_dtheta_implicit(&self, dnode_dtheta: &[[f64; 3]]) -> f64 {
-        chain_node_motion(&self.grad_node_c_implicit, dnode_dtheta)
-    }
-
     /// `∂(E_C/h)/∂θ` (Hz per unit θ) for a node-motion map, composing the
     /// capacitance gradient with the analytic charging-energy chain factor
     /// `∂E_C/∂C_Σ = −e²/(2 C_Σ² h)` and treating `C_Σ = c_self` (single

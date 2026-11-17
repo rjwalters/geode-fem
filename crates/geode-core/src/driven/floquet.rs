@@ -1766,24 +1766,6 @@ impl FloquetCell {
         Ok(-f.edge_voltage(&x, edge)?)
     }
 
-    /// [`Self::active_reflection`] over a list of polar angles at one
-    /// `(omega, phi)`: a scan cut. One factorization per angle.
-    ///
-    /// # Errors
-    ///
-    /// The first error of [`Self::active_reflection`].
-    pub fn scan_cut(
-        &self,
-        omega: f64,
-        phi: f64,
-        thetas: &[f64],
-    ) -> Result<Vec<ActiveReflection>, FloquetError> {
-        thetas
-            .iter()
-            .map(|&t| self.active_reflection(omega, t, phi))
-            .collect()
-    }
-
     /// The polar scan angle (radians) at azimuth `phi` where the first
     /// **grating lobe** appears: the smallest `θ ∈ [0, π/2)` at which a
     /// non-specular aperture order `(m, n) ≠ (0, 0)` has `|κ_mn| = k`

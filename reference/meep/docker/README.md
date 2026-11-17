@@ -167,10 +167,11 @@ fabricated baseline numbers**. Three legs:
    (and its scaling with grid resolution) is exactly what this environment
    measures. Same physics family (open radiator + PML + |S11|), different
    geometry representation.
-3. **ceviche-2D interim baseline** — `benchmarks/fdtd_density_baseline/`
-   (owned by another agent; do NOT modify from here). A lighter 2-D FDTD
-   density optimizer used as an interim/cross-check; this 3-D Meep leg is the
-   definitive structured-grid comparison.
+3. **Low-DOF parametric sweep** — a handful of shape scalars swept /
+   FD-optimized (1–48 DOFs), assembled **from committed artifacts** in
+   `benchmarks/patch_antenna_conformal/head_to_head/`; the measured
+   parametric-vs-freeform gap is conditional on the mesh level (see that
+   README).
 
 **The honest claim today:** GEODE *reaches* a freeform curved-conformal
 −10 dB design; the *quantified* superiority over FDTD-density (worst-of-band

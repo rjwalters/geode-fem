@@ -1514,7 +1514,7 @@ fn smooth_weight_override_is_honoured_and_warns_above_bound() {
     let g = chain_gradient(n);
     let build = || AmsLitePreconditioner::build(&g, a.as_ref(), eye.as_ref(), 0.0).unwrap();
     let auto = build().smoother().clone();
-    let bound = auto.stability_bound_estimate();
+    let bound = 2.0 / auto.rho_hat();
     assert!(
         DEFAULT_SMOOTH_WEIGHT > bound,
         "0.6 must exceed 2/ρ̂ = {bound}"
