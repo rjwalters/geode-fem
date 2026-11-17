@@ -73,14 +73,6 @@ faer-parallel = ["faer/rayon", "dep:rayon"]
 
 wgpu = ["burn/wgpu"]
 cuda = ["burn/cuda"]
-# Flex CPU backend (burn-flex, pure Rust) — SPIKE-ONLY wiring for issue #451.
-# Exposed solely to compile the `flex_precision_spike` example, which probes
-# whether Epic #374's proposed `flex` CPU migration can deliver the f64 precision
-# the ARPACK / cube-cavity oracles rely on. Off by default; not a supported
-# solver backend and not exercised by any production code path or CI lane. The
-# spike example itself opts into this feature via `required-features` below, so
-# it is skipped for the default (and every other) feature selection.
-flex = ["burn/flex"]
 # Apple-GPU backend — opt-in, local-only (Apple platforms). `burn::backend::Metal`
 # is Burn's alias for its `Wgpu` backend pinned to the Metal graphics API / MSL
 # (`cubecl-msl`) shader pipeline, instantiated here as `Metal<f64>`
@@ -147,15 +139,6 @@ sha2 = "0.11"
 # Benchmark-only safe getrusage wrapper; reuse the version already locked.
 # No unsafe code is added to the evaluator or library (#1202).
 nix = { version = "=0.31.3", default-features = false, features = ["resource"] }
-
-# SPIKE-ONLY (issue #451): probes f64 precision on the burn-flex CPU backend.
-# Gated behind the `flex` feature so it is skipped for the default build and
-# every non-`flex` feature selection; run explicitly with:
-#   cargo run -p geode-core --example flex_precision_spike \
-#       --no-default-features --features flex --release
-[[example]]
-name = "flex_precision_spike"
-required-features = ["flex"]
 
 [[bench]]
 name = "assembly_p1"
