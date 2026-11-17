@@ -10,6 +10,7 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 - **PR #1721**: ci: add 30-min step timeout to a-m default-tier test step
 - **Issue #1713** (closed): CI: integration a-m default-tier test step jumped 16min to >44min and now times out the 60-min job (2 consecutive runs)
 - **Issue #1703** (closed): CI: investigate the integration a-m build-step variance (17-23 min swing drives the job's 8-min spread)
+- **Issue #1660** (closed): Floquet at p=2: the remaining p=1-only pieces of #1628 (delta-gap feed, scan impedance/radiator, port sensitivities, array golden)
 - **Issue #1683** (closed): Floquet at p=2: port sensitivities and the p=2 shape-derivative dual (child 2/3 of #1660)
 
 ### 2026-11-16
