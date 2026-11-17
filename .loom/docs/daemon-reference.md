@@ -963,9 +963,11 @@ the plan/ordering/checklist; the per-phase shell is rendered in
    rendered from the SAME supervision block as the canonical unit
    (`systemd_supervision_block()`, #11058; see "Supervisor exit-code contract"
    below) so `restart --drain` (#4090) works on fleet
-   workers (#4640). `WorkingDirectory=` is pinned to a workspace clone as the
-   **#4292** token-pool-cwd workaround — the rendered unit carries a `#4292`
-   marker so it is removed when that lands.
+   workers (#4640). `WorkingDirectory=` is pinned to the first registered
+   workspace clone: the fleet unit sets no `LOOM_WORKSPACE`, so the daemon's
+   cwd seeds its primary workspace, and the pin keeps that a real repo root
+   rather than an incidental cwd (the same property the canonical unit
+   maintains — see "systemd note" below).
 9. **idle-shutdown** (optional, `--idle-shutdown-minutes N`) — a cron guard that
    powers the host off after N idle minutes. This is stage 2:
    `autonomous.idleExit` is stage 1. On daemon-managed hosts use a short guard
@@ -2243,6 +2245,7 @@ a second resync at the same release writes nothing.
 | `.claude/agents/<name>.md` | each shipped file copied, only when the repo has a real `.claude/agents/` directory (#11033). A symlinked one (this repo's dogfood link) is left alone; a file the release does not ship is the repo's |
 | `.gitignore` | only the Loom-managed block is merged (as `loom-daemon update-gitignore` does), and only when the file exists. The file is never listed in `installed_files` |
 | `.github/labels.yml` | only the block between `# BEGIN LOOM LABELS` and `# END LOOM LABELS` is replaced from the release (#11033); every byte outside it is kept, so a consumer's own labels above or below survive. With no markers the block is appended; with no file the release's file is written. Malformed markers (a second BEGIN or END, END before BEGIN, a lone or near-miss marker) leave the file untouched, log a warning, and make `resync-payload` and `resync-installed.sh` exit 1. The file is never listed in `installed_files`. Live forge labels are never deleted here: that is `loom-daemon labels migrate --apply` |
+| `.claude/settings.json` | missing project-level Loom hook entries are added (#13793) for each hook script under `.loom/hooks/`, from a table in `loom-daemon/src/init/hook_wiring.rs` that a test keeps equal to `scripts/install/provision-hooks.sh`. A hook counts as wired only when a command under the same event contains `.loom/hooks/<name>` (a Repo Skills path does not). Additive and idempotent: nothing is removed or reordered. A file that is not a JSON object, or whose `hooks` shape is unexpected, is left as it is and reported. Never listed in `installed_files` |
 | `.loom/CLAUDE.md`, `.loom/AGENTS.md` | re-rendered from the release's template with the install date the file already carries, so an unchanged template changes nothing. Only when the file exists and has an `**Installation Date**:` line |
 | files in `defaults/.loom-retired.list` | removed when present, whether or not `installed_files` lists them |
 
@@ -2282,7 +2285,6 @@ from an older template is brought up to date.
 | `package.json` (`loom-workspace` stub) | The removal of its `version` field is a one-time migration (#4285) |
 | root `CLAUDE.md` | Repo-customized. Removing a leftover `**Loom Version**` header is a one-time migration (#6612, #8147) |
 | `.gitattributes` `merge=ours` block and the local `merge.ours.driver` | They resolve per-host resync commits that conflict on the stamp (#4528). The daemon resync has one writer per change. An existing block is left as it is, and local git config cannot be committed |
-| `.claude/settings.json` hook wiring | The repo's own file. `resync-installed.sh` only warns about a hook that `scripts/install/provision-hooks.sh` wires and the file does not (#11033), and never writes it; the payload carries no wiring table. A daemon-dispatched launch injects the roll-pause wiring itself (#11049) |
 | forge labels | The drift check against `.github/labels.yml` is a forge read and a report, not an installed file. Run `sync-labels.sh` |
 
 Also unchanged by a resync: the root `CLAUDE.md` / `AGENTS.md` pointer sections,
@@ -2426,7 +2428,7 @@ For each workspace the first rule that matches ends the attempt:
 | # | Check | State when it fails |
 |---|---|---|
 | 1 | the clone's `origin/HEAD` names the default branch (no remote is asked, `main` is never guessed) | `no-default-branch` |
-| 2 | HEAD is on it, not on another branch and not detached | `wrong-branch` |
+| 2 | HEAD is on it, not on another branch and not detached (a clean stranded one is first put back, see "A checkout stranded off the default branch" below) | `wrong-branch` |
 | 3 | no rebase, merge, cherry-pick, bisect or revert is in progress | `mid-operation` |
 | 4 | no main-health gate run is building in the checkout | `gate-in-flight` |
 | 4 | the daemon's self-update is not running in the checkout | `self-update-in-flight` |
@@ -2525,7 +2527,13 @@ blocker is Loom-owned:
   (a repo-local role file under `.loom/roles/` or a repo-local command under
   `.claude/commands/loom/`) does not,
   and a `.agents/skills/` file also needs the generation marker. A path pinned in `.loom/resync-ignore` (also as
-  `agents-skills/<rel>`) is never counted that way. A checkout on a named
+  `agents-skills/<rel>`) is never counted that way. One working-tree
+  exception (#13970): a dirty `opencode.json` — committed by the squad
+  installer, not Loom — whose working file is exactly the committed one plus
+  the single `"$schema": "https://opencode.ai/config.json"` entry OpenCode
+  adds is counted as Loom-owned, so the repair clears it automatically; any
+  other change to that file, and every committed change to it, still holds
+  for the operator. A checkout on a named
   branch other than the default is left alone. Every local commit (and every commit
   of an in-progress rebase, merge or cherry-pick) may change only those paths,
   and so may every dirty tracked path. Dirt counts only on a checkout that is
@@ -2540,12 +2548,44 @@ blocker is Loom-owned:
   default branch when it is behind `origin/<default>`, has not moved for 6
   hours (`LOOM_CHECKOUT_DETACHED_AFTER_MINUTES`, from the newest line of the
   HEAD reflog) and every commit on it is Loom-owned. One at origin's tip is
-  left alone: it already serves current files (2am's `provision.sh` keeps
-  geode-fem detached at its newest green commit this way). The branch tip gets
-  its `-branch` rescue ref, then `checkout -B <default> --track
-  origin/<default>`. A pinned checkout that must stay detached while behind
-  (geode-fem while main is red) opts out with `git config --local
-  loom.checkoutFf.detached keep`.
+  not handled by this repair (see the next section for the stranded rule that
+  does put it back). The branch tip gets its `-branch` rescue ref, then
+  `checkout -B <default> --track origin/<default>`. A pass only ever visits
+  the registered workspaces (plus the daemon's own checkout), so a tool clone
+  kept outside them is never visited at all and needs no opt-out: that is how
+  2am holds its pinned geode-fem clone, under `~/.local/share/loom-worker/`
+  since 2am#5228. A checkout that must stay detached *inside* a workspace opts
+  out with `git config --local loom.checkoutFf.detached keep`.
+- **A checkout stranded off the default branch (#13588).** A HEAD on another
+  branch, or detached, whose tree is clean (no tracked change, no operation,
+  no `index.lock`, no live `git`) and that has not moved for 6 hours is put
+  back on the default branch (`checkout`, with a `refs/loom/rescue/<ts>` ref at
+  the old HEAD, kind `rehomed`); the ordinary rules then fast-forward it. It
+  qualifies only when every commit on HEAD is on `origin/<default>`, or HEAD
+  is the head of a pull request the forge reports as merged. The lookup is
+  `gh api repos/{owner}/{repo}/commits/<sha>/pulls`; no network, an open
+  breaker or any failure means "not merged" and the hold stays (fail closed).
+  It is the **last** question the rule asks (#13835), after the clean-tree,
+  `detached=keep`, six-hour and live-`git` checks, so a checkout any of those
+  refuses costs no forge read at all; only one they all pass pays for it.
+  **A squash- or rebase-merged PR's head qualifies too**, measured 2026-11-13
+  against the production query on three squash-merged rjwalters/loom PRs
+  (#9216 head `3e0393d7`, #9240 head `5f35ef2e`, #9212 head `07af0cb5`, none
+  of them an ancestor of `origin/main`):
+  `gh api repos/rjwalters/loom/commits/<sha>/pulls --jq 'any(.[]; .merged_at != null and .head.sha == "<sha>")'`
+  answered `true` for each. So the endpoint does list a merged PR for a head
+  commit that is not on the default branch, and a checkout left on a squashed
+  branch is put back rather than held.
+  An existing rescue ref already at that HEAD is reused instead of a new one
+  being made (#13835), so a `checkout` that fails the same way pass after pass
+  (the default branch checked out in another worktree, an untracked file in the
+  way) leaves one ref behind rather than one per pass.
+  `loom.checkoutFf.detached=keep` still pins a detached HEAD. The same
+  `fleet.autoApply`, host-hold and gate-in-flight rules as every write apply.
+  A stranded checkout that is not repaired stays `wrong-branch`, and is said
+  again as a `still-held` transition (log line plus an event on the checkout
+  topic) every hour (`LOOM_CHECKOUT_REREPORT_AFTER_MINUTES`) so it can be
+  counted, instead of once.
 - **Repair, in order.** `refs/loom/rescue/<UTC ts>` at HEAD (and `<ts>-branch`
   at the branch tip when an operation moved HEAD); the lock; `stash push` of
   the dirty paths as `loom-rescue-<ts>` (not during an operation, whose abort
@@ -2564,7 +2604,8 @@ blocker is Loom-owned:
   restart asks once more.
 - **Telemetry.** Each step is an event on `fleet_sync.checkout` with kind
   `rescue-ref`, `lock-removed`, `stash`, `abort`, `reattached`, `repaired`,
-  `repair-failed`, `rescue-pruned` or `escalated`, and a log line naming the repo path. Carrying
+  `rehomed`, `still-held`, `repair-failed`, `rescue-pruned` or `escalated`, and
+  a log line naming the repo path. Carrying
   these to SigNoz is #11386.
 
 ## Fleet model A/B — `sweep-experiment plan` (#8055 phase 1)
@@ -3886,6 +3927,27 @@ negation only for a file a human writes and wants committed, never for
 daemon output. `post_init.rs`'s
 `every_daemon_state_path_is_ignored_by_the_managed_block` test checks both
 rules with `git check-ignore`.
+
+## Daily-rolling `daemon.log` (#13917)
+
+The daemon always writes to the fixed name `daemon.log` (`LOOM_DAEMON_LOG`
+overrides the path), so `tail -f` / `grep daemon.log` keep working. Closed UTC
+days are renamed to `daemon.log.YYYY-MM-DD`; each file holds one UTC day
+(line stamps are UTC, `DAEMON_LOG_STAMP_FORMAT`).
+
+- **Roll:** the first write after 00:00 UTC, and at startup for a live file last
+  modified on an earlier UTC day. A name collision (or the 1 GiB size backstop)
+  yields `daemon.log.YYYY-MM-DD.N`; an existing day file is never overwritten.
+  A time-window reader opens only the day files it needs.
+- **Retention:** by days from the filename date, default 14,
+  `LOOM_DAEMON_LOG_RETENTION_DAYS`.
+- **Archive hook:** with `LOOM_DAEMON_LOG_REQUIRE_ARCHIVE=1`, retention deletes a
+  day file only when its sidecar `<day file>.archived` exists (created by the
+  host's archiver), and removes the pair. Unset: plain age-based deletion.
+- **Legacy files:** numbered `daemon.log.N` from the old startup rotation are
+  never touched; an operator removes them once.
+- `loom-daemon health` reads the newest day file when the live file has no
+  `work_finder:` line (right after a roll).
 
 ## Reaper task
 

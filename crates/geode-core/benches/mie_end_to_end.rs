@@ -66,15 +66,7 @@ fn bench_mie_end_to_end_dense(c: &mut Criterion) {
     let eps_complex =
         build_complex_epsilon_r_pml(&fixture.tet_physical_tags, &radii, N_INSIDE, SIGMA_0);
 
-    let tet_edges_idx = fixture.mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges_idx
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges_idx
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = fixture.mesh.tet_edge_tables();
     let n_edges = fixture.mesh.edges().len();
 
     let (_mask_edges, interior_mask) = sphere_pec_interior_edges(&fixture.mesh, R_BUFFER);
@@ -156,15 +148,7 @@ fn bench_mie_end_to_end_sparse(c: &mut Criterion) {
     let eps_complex =
         build_complex_epsilon_r_pml(&fixture.tet_physical_tags, &radii, N_INSIDE, SIGMA_0);
 
-    let tet_edges_idx = fixture.mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges_idx
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges_idx
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = fixture.mesh.tet_edge_tables();
     let n_edges = fixture.mesh.edges().len();
 
     let (_mask_edges, interior_mask) = sphere_pec_interior_edges(&fixture.mesh, R_BUFFER);

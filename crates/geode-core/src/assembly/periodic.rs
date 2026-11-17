@@ -25,14 +25,25 @@
 //!
 //! # Block size (the p=2 hook)
 //!
-//! The row storage is CSR, so a row may hold **several** entries: the p=2
-//! sibling epic (#836) stores a p=2 face pair `(φ0, φ1)` as a dense 2×2
-//! block from [`HcurlSpace::face_dof_transform`] (two entries per slave
-//! face row), and a p=2 edge pair `(W, Q)` as a 2-diagonal block (`W` takes
-//! `σ`, `Q` is orientation-free). The reduction loops above are already
-//! written for any number of entries per row. This phase implements block
-//! size 1 (p=1 Whitney edges, P1 nodes) only: a p=2 space returns
-//! [`PeriodicError::Unsupported`].
+//! The row storage is CSR, so a row may hold **several** entries. At p=1
+//! (block size 1) a row holds the single entry `σ · e^{−j k·Σd}`. At p=2
+//! (issue #1628, Epic #836) the pairing lifts to blocks:
+//!
+//! - an edge pair `(W, Q)` pairs as a **2-diagonal block**: `W` takes the
+//!   relative orientation `σ` (the Whitney function flips under edge
+//!   reversal), `Q` is orientation-free (`+1`);
+//! - a face pair `(φ0, φ1)` pairs as a **dense 2×2 block**: the slave
+//!   face's ascending labelling is a relabelling of the master's
+//!   ([`PeriodicMap`]'s `master_vertex`), and the relabelled face functions
+//!   mix by [`HcurlSpace::face_dof_transform`] — the slave DOFs are
+//!   `T^{-T}` combinations of the master pair.
+//!
+//! The scalar constraint likewise covers the p=2 scalar DOFs: the P1 nodes
+//! **and** the edge bubbles `λ_aλ_b` (the P2 scalar space's extra DOFs),
+//! each with coefficient `+1`, so the discrete gradient — which at p=2 has
+//! one column per node and one per edge bubble — still satisfies
+//! `G P_node = P_edge G_r`
+//! ([`PeriodicConstraint::check_gradient_commutes`]).
 //!
 //! # PEC composition
 //!
@@ -45,14 +56,15 @@
 //!
 //! # Nodes and the discrete gradient
 //!
-//! The same alias logic on P1 nodes ([`PeriodicConstraint::nodes`]) is what
+//! The same alias logic on the scalar DOFs — P1 nodes and, at p=2, the edge
+//! bubbles ([`PeriodicConstraint::nodes`]) — is what
 //! the gauge / gradient-nullspace machinery needs: the reduced discrete
 //! gradient `G_r` ([`PeriodicConstraint::reduced_gradient`]) satisfies
 //! `G P_node = P_edge G_r` exactly, which
 //! [`PeriodicConstraint::check_gradient_commutes`] verifies rather than
 //! assumes. A node is PEC when it is an endpoint of a PEC edge (the
 //! face-exact masks of #771 eliminate exactly the edges of wall
-//! triangles).
+//! triangles); a p=2 edge bubble is PEC with its edge.
 //!
 //! # Design rule
 //!
@@ -350,8 +362,7 @@ impl DofAliasMap {
         let mut out = Vec::with_capacity(self.coeffs.len());
         for i in 0..self.n_full() {
             let d = self.shift[i];
-            for k in self.row_ptr[i]..self.row_ptr[i + 1] {
-                let c = self.coeffs[k];
+            for &c in &self.coeffs[self.row_ptr[i]..self.row_ptr[i + 1]] {
                 let mj = c64::new(0.0, -1.0) * c;
                 out.push([mj * d[0], mj * d[1], mj * d[2]]);
             }
@@ -547,10 +558,13 @@ impl PeriodicConstraint {
     /// interior mask over `space.n_dofs()` (`true` = kept, as
     /// [`HcurlSpace::pec_interior_mask`]).
     ///
+    /// Both orders are supported: p=1 pairs single DOFs (block size 1), p=2
+    /// pairs the edge `(W, Q)` and face `(φ0, φ1)` DOFs as blocks (see the
+    /// [module docs](self), issue #1628).
+    ///
     /// # Errors
     ///
-    /// - [`PeriodicError::Unsupported`] for a p=2 space (the face-block
-    ///   pairing is owned by the p=2 epic #836);
+    /// - [`PeriodicError::Unsupported`] for a space of order > 2;
     /// - [`PeriodicError::Mismatch`] if `map`, `space` or the mask describe
     ///   different meshes.
     pub fn build(
@@ -558,12 +572,19 @@ impl PeriodicConstraint {
         map: &PeriodicMap,
         pec_interior_mask: Option<&[bool]>,
     ) -> Result<Self, PeriodicError> {
-        if space.order() != ElementOrder::P1 {
-            return Err(PeriodicError::Unsupported {
-                feature: "a p=2 (or higher) H(curl) space",
-                phase: "the p=2 face-block pairing lands with Epic #836; use ElementOrder::P1",
-            });
+        match space.order() {
+            ElementOrder::P1 => Self::build_p1(space, map, pec_interior_mask),
+            ElementOrder::P2 => Self::build_p2(space, map, pec_interior_mask),
         }
+    }
+
+    /// Shared input checks of both orders.
+    fn check_inputs(
+        space: &HcurlSpace,
+        map: &PeriodicMap,
+        pec_interior_mask: Option<&[bool]>,
+        n_full: usize,
+    ) -> Result<(), PeriodicError> {
         if space.n_nodes() != map.n_nodes() || space.n_edges() != map.n_edges() {
             return Err(PeriodicError::Mismatch(format!(
                 "the space has {} nodes / {} edges, the periodic map {} / {}",
@@ -573,7 +594,6 @@ impl PeriodicConstraint {
                 map.n_edges()
             )));
         }
-        let n_full = space.n_dofs();
         if let Some(m) = pec_interior_mask
             && m.len() != n_full
         {
@@ -582,6 +602,17 @@ impl PeriodicConstraint {
                 m.len()
             )));
         }
+        Ok(())
+    }
+
+    /// The p=1 constraint (block size 1; the pre-#1628 path, unchanged).
+    fn build_p1(
+        space: &HcurlSpace,
+        map: &PeriodicMap,
+        pec_interior_mask: Option<&[bool]>,
+    ) -> Result<Self, PeriodicError> {
+        let n_full = space.n_dofs();
+        Self::check_inputs(space, map, pec_interior_mask, n_full)?;
         let kept = |i: usize| pec_interior_mask.is_none_or(|m| m[i]);
 
         // --- Edge (p=1 DOF) classes -----------------------------------------
@@ -693,8 +724,249 @@ impl PeriodicConstraint {
         })
     }
 
-    /// Element order of the space the constraint was built on (P1 in this
-    /// phase).
+    /// The p=2 constraint (issue #1628): the edge `(W, Q)` 2-diagonal
+    /// block and the face `(φ0, φ1)` 2×2 block, with the scalar map
+    /// covering the P1 nodes **and** the edge bubbles.
+    fn build_p2(
+        space: &HcurlSpace,
+        map: &PeriodicMap,
+        pec_interior_mask: Option<&[bool]>,
+    ) -> Result<Self, PeriodicError> {
+        let n_nodes = space.n_nodes();
+        let n_e = space.n_edges();
+        let n_f = space.n_faces();
+        if n_f != map.n_faces() {
+            return Err(PeriodicError::Mismatch(format!(
+                "the space has {n_f} faces, the periodic map {}",
+                map.n_faces()
+            )));
+        }
+        let n_full = space.n_dofs();
+        Self::check_inputs(space, map, pec_interior_mask, n_full)?;
+        let kept = |i: usize| pec_interior_mask.is_none_or(|m| m[i]);
+        let edge_kept = |ge: usize| kept(2 * ge);
+        let face_base = 2 * n_e;
+        let face_kept = |gf: usize| kept(face_base + 2 * gf);
+
+        // --- Edge classes: both DOFs (W, Q) share the edge's class --------
+        let edge_master = |ge: usize| map.edge_alias(ge).map_or(ge, |a| a.master);
+        let mut edge_class_pec = vec![false; n_e];
+        let mut edge_class_any_kept = vec![false; n_e];
+        for ge in 0..n_e {
+            let m = edge_master(ge);
+            if edge_kept(ge) {
+                edge_class_any_kept[m] = true;
+            } else {
+                edge_class_pec[m] = true;
+            }
+        }
+        let mut n_one_sided_pec = 0usize;
+        for ge in 0..n_e {
+            if edge_master(ge) == ge
+                && map.edge_alias(ge).is_some()
+                && edge_class_pec[ge]
+                && edge_class_any_kept[ge]
+            {
+                n_one_sided_pec += 1;
+            }
+        }
+
+        // --- Face classes ---------------------------------------------------
+        let face_master = |gf: usize| map.face_alias(gf).map_or(gf, |a| a.master);
+        let mut face_class_pec = vec![false; n_f];
+        let mut face_class_any_kept = vec![false; n_f];
+        for gf in 0..n_f {
+            let m = face_master(gf);
+            if face_kept(gf) {
+                face_class_any_kept[m] = true;
+            } else {
+                face_class_pec[m] = true;
+            }
+        }
+        for gf in 0..n_f {
+            if face_master(gf) == gf
+                && map.face_alias(gf).is_some()
+                && face_class_pec[gf]
+                && face_class_any_kept[gf]
+            {
+                n_one_sided_pec += 1;
+            }
+        }
+
+        // --- Reduced numbering: masters in ascending full DOF order --------
+        let mut red = vec![usize::MAX; n_full];
+        let mut n_reduced = 0usize;
+        for ge in 0..n_e {
+            if edge_master(ge) != ge || edge_class_pec[ge] {
+                continue;
+            }
+            red[2 * ge] = n_reduced;
+            red[2 * ge + 1] = n_reduced + 1;
+            n_reduced += 2;
+        }
+        for gf in 0..n_f {
+            if face_master(gf) != gf || face_class_pec[gf] {
+                continue;
+            }
+            red[face_base + 2 * gf] = n_reduced;
+            red[face_base + 2 * gf + 1] = n_reduced + 1;
+            n_reduced += 2;
+        }
+
+        // --- Rows: edge (W, Q) 2-diagonal, face 2×2 -------------------------
+        let mut rows: Vec<Vec<(usize, c64)>> = Vec::with_capacity(n_full);
+        let mut shift: Vec<[f64; 3]> = Vec::with_capacity(n_full);
+        let (mut n_aliased, mut n_eliminated) = (0usize, 0usize);
+        for ge in 0..n_e {
+            let (m, sign, d) = map
+                .edge_alias(ge)
+                .map_or((ge, 1i8, [0.0; 3]), |a| (a.master, a.sign, a.shift));
+            let sig = f64::from(sign);
+            for (slot, coeff) in [(0usize, sig), (1usize, 1.0)] {
+                shift.push(d);
+                let m_dof = 2 * m + slot;
+                if edge_class_pec[m] {
+                    n_eliminated += 1;
+                    rows.push(Vec::new());
+                } else {
+                    if m_dof != 2 * ge + slot {
+                        n_aliased += 1;
+                    }
+                    rows.push(vec![(red[m_dof], c64::new(coeff, 0.0))]);
+                }
+            }
+        }
+        for gf in 0..n_f {
+            let (m, mv, d) = map
+                .face_alias(gf)
+                .map_or((gf, [0usize, 1, 2], [0.0; 3]), |a| {
+                    (a.master, a.master_vertex, a.shift)
+                });
+            // The slave's ascending labelling relabels the master's
+            // (`master_vertex`): the relabelled face functions mix by `T`,
+            // so the slave DOFs are `S = T^{-T}` combinations of the
+            // master pair (`HcurlSpace::face_dof_transform`).
+            let t = HcurlSpace::face_dof_transform(mv);
+            let det = t[0][0] * t[1][1] - t[0][1] * t[1][0];
+            debug_assert!(
+                det == 1.0 || det == -1.0,
+                "face transform {t:?} not unimodular"
+            );
+            let s = [
+                [t[1][1] / det, -t[1][0] / det],
+                [-t[0][1] / det, t[0][0] / det],
+            ];
+            for srow in &s {
+                shift.push(d);
+                if face_class_pec[m] {
+                    n_eliminated += 1;
+                    rows.push(Vec::new());
+                } else {
+                    if m != gf {
+                        n_aliased += 1;
+                    }
+                    let mut row: Vec<(usize, c64)> = Vec::with_capacity(2);
+                    for (j, &c) in srow.iter().enumerate() {
+                        if c != 0.0 {
+                            row.push((red[face_base + 2 * m + j], c64::new(c, 0.0)));
+                        }
+                    }
+                    rows.push(row);
+                }
+            }
+        }
+        let dofs = DofAliasMap::from_rows(n_reduced, rows, shift);
+        let on_periodic: Vec<bool> = (0..n_e)
+            .map(|ge| map.edge_alias(ge).is_some())
+            .chain((0..n_f).map(|gf| map.face_alias(gf).is_some()))
+            .flat_map(|b| [b, b])
+            .collect();
+        let is_master: Vec<bool> = (0..n_e)
+            .map(|ge| edge_master(ge) == ge)
+            .chain((0..n_f).map(|gf| face_master(gf) == gf))
+            .flat_map(|b| [b, b])
+            .collect();
+
+        // --- Scalar classes: P1 nodes + p=2 edge bubbles (gradient) --------
+        let mut node_pec = vec![false; n_nodes];
+        for (ge, ab) in space.edges().iter().enumerate() {
+            if !edge_kept(ge) {
+                node_pec[ab[0] as usize] = true;
+                node_pec[ab[1] as usize] = true;
+            }
+        }
+        let node_master = |v: usize| map.node_alias(v).map_or(v, |a| a.master);
+        let mut node_class_pec = vec![false; n_nodes];
+        for v in 0..n_nodes {
+            if node_pec[v] {
+                node_class_pec[node_master(v)] = true;
+            }
+        }
+        // Reduced scalar numbering: nodes first, then the edge bubbles of
+        // the master (non-PEC) edges — ascending in the scalar DOF order.
+        let n_scalar = n_nodes + n_e;
+        let mut scalar_red = vec![usize::MAX; n_scalar];
+        let mut n_nodes_reduced = 0usize;
+        for v in 0..n_nodes {
+            if node_master(v) == v && !node_class_pec[v] {
+                scalar_red[v] = n_nodes_reduced;
+                n_nodes_reduced += 1;
+            }
+        }
+        let mut n_bubbles_reduced = 0usize;
+        for ge in 0..n_e {
+            if edge_master(ge) == ge && !edge_class_pec[ge] {
+                scalar_red[n_nodes + ge] = n_nodes_reduced + n_bubbles_reduced;
+                n_bubbles_reduced += 1;
+            }
+        }
+        let mut nrows: Vec<Vec<(usize, c64)>> = Vec::with_capacity(n_scalar);
+        let mut nshift: Vec<[f64; 3]> = Vec::with_capacity(n_scalar);
+        for v in 0..n_nodes {
+            let (m, d) = map
+                .node_alias(v)
+                .map_or((v, [0.0; 3]), |a| (a.master, a.shift));
+            nshift.push(d);
+            if node_class_pec[m] {
+                nrows.push(Vec::new());
+            } else {
+                nrows.push(vec![(scalar_red[m], c64::new(1.0, 0.0))]);
+            }
+        }
+        // An edge bubble `λ_a λ_b` is orientation-free and pairs with `+1`.
+        for ge in 0..n_e {
+            let (m, d) = map
+                .edge_alias(ge)
+                .map_or((ge, [0.0; 3]), |a| (a.master, a.shift));
+            nshift.push(d);
+            if edge_class_pec[m] {
+                nrows.push(Vec::new());
+            } else {
+                nrows.push(vec![(scalar_red[n_nodes + m], c64::new(1.0, 0.0))]);
+            }
+        }
+        let nodes = DofAliasMap::from_rows(n_nodes_reduced + n_bubbles_reduced, nrows, nshift);
+
+        Ok(Self {
+            order: space.order(),
+            dofs,
+            nodes,
+            edges: space.edges().to_vec(),
+            on_periodic,
+            is_master,
+            report: PeriodicConstraintReport {
+                n_full,
+                n_reduced,
+                n_aliased,
+                n_eliminated,
+                n_one_sided_pec,
+                n_nodes,
+                n_nodes_reduced,
+            },
+        })
+    }
+
+    /// Element order of the space the constraint was built on.
     pub fn order(&self) -> ElementOrder {
         self.order
     }
@@ -704,7 +976,9 @@ impl PeriodicConstraint {
         &self.dofs
     }
 
-    /// The P1 node prolongation `P_node` (gauge / gradient nullspace).
+    /// The scalar prolongation `P_node` (gauge / gradient nullspace): the
+    /// P1 nodes and, at p=2, the edge bubbles `λ_a λ_b` (rows
+    /// `n_nodes + ge`), in that order.
     pub fn nodes(&self) -> &DofAliasMap {
         &self.nodes
     }
@@ -758,9 +1032,10 @@ impl PeriodicConstraint {
     }
 
     /// The same constraint with the **Bloch phase** of wave vector `k`
-    /// (rad per mesh length unit) on both the H(curl) DOFs and the P1
-    /// nodes: every alias row becomes `σ · e^{−j k·Σd}` (Epic #837 Phase 2,
-    /// issue #858). Edges and nodes carry the **same** phase, so the
+    /// (rad per mesh length unit) on both the H(curl) DOFs and the scalar
+    /// DOFs (P1 nodes; at p=2 also the edge bubbles): every alias row
+    /// becomes `σ · e^{−j k·Σd}` (Epic #837 Phase 2, issue #858). Edges and
+    /// scalars carry the **same** phase, so the
     /// reduced gradient keeps `G P_node = P_edge G_r` and the curl-curl
     /// kernel is exactly the Bloch-phased gradients
     /// ([`Self::reduced_gradient_complex`]).
@@ -812,7 +1087,7 @@ impl PeriodicConstraint {
         let mut w = Vec::new();
         if self.report.n_one_sided_pec > 0 {
             w.push(format!(
-                "{} periodic edge class(es) are PEC on one periodic face but not on its \
+                "{} periodic DOF class(es) are PEC on one periodic face but not on its \
                  partner; both copies were eliminated (periodicity forces the field to vanish \
                  there). Check that the PEC geometry is itself periodic",
                 self.report.n_one_sided_pec
@@ -821,21 +1096,43 @@ impl PeriodicConstraint {
         w
     }
 
-    /// The full discrete gradient `G` (`n_edges × n_nodes`, `G[e, b] = +1`,
-    /// `G[e, a] = −1` for edge `e = (a, b)`, `a < b`).
+    /// The full discrete gradient `G` (`n_dofs × n_scalar`,
+    /// `G[e, b] = +1`, `G[e, a] = −1` for edge `e = (a, b)`, `a < b`). At
+    /// p=1 it is `n_edges × n_nodes`. At p=2 the scalar space is the P2
+    /// Lagrange space (columns `0..n_nodes` the nodal values, columns
+    /// `n_nodes + ge` the edge bubbles `λ_a λ_b`): the gradient of a node
+    /// value hits the `W` DOFs only (`∇λ_i = Σ_e (δ_ib − δ_ia) W_e`, since
+    /// the Whitney functions span `(P_1)³` and every `Q`/face function is
+    /// orthogonal to it), and the gradient of an edge bubble **is** its `Q`
+    /// DOF (`∇(λ_aλ_b) = Q_ab`).
     pub fn full_gradient(&self) -> SparseColMat<usize, f64> {
-        let mut tr = Vec::with_capacity(2 * self.edges.len());
-        for (e, ab) in self.edges.iter().enumerate() {
-            tr.push(Triplet::new(e, ab[0] as usize, -1.0));
-            tr.push(Triplet::new(e, ab[1] as usize, 1.0));
+        let n_e = self.edges.len();
+        if self.order == ElementOrder::P1 {
+            let mut tr = Vec::with_capacity(2 * n_e);
+            for (e, ab) in self.edges.iter().enumerate() {
+                tr.push(Triplet::new(e, ab[0] as usize, -1.0));
+                tr.push(Triplet::new(e, ab[1] as usize, 1.0));
+            }
+            SparseColMat::try_new_from_triplets(n_e, self.nodes.n_full(), &tr)
+                .expect("gradient triplets are in range")
+        } else {
+            let n_nodes = self.nodes.n_full() - n_e;
+            let mut tr = Vec::with_capacity(3 * n_e);
+            for (ge, ab) in self.edges.iter().enumerate() {
+                tr.push(Triplet::new(2 * ge, ab[0] as usize, -1.0));
+                tr.push(Triplet::new(2 * ge, ab[1] as usize, 1.0));
+                tr.push(Triplet::new(2 * ge + 1, n_nodes + ge, 1.0));
+            }
+            SparseColMat::try_new_from_triplets(self.dofs.n_full(), self.nodes.n_full(), &tr)
+                .expect("gradient triplets are in range")
         }
-        SparseColMat::try_new_from_triplets(self.edges.len(), self.nodes.n_full(), &tr)
-            .expect("gradient triplets are in range")
     }
 
-    /// The reduced discrete gradient `G_r` (`n_reduced × n_nodes_reduced`):
-    /// row `r` is the gradient row of the canonical master edge of reduced
-    /// DOF `r`, with each endpoint replaced by its reduced node.
+    /// The reduced discrete gradient `G_r` (`n_reduced × n_scalar_reduced`):
+    /// row `r` is the gradient row of the canonical master DOF of reduced
+    /// DOF `r` — at p=1 the master edges' endpoint differences; at p=2 also
+    /// the master `Q` rows (`+1` on their own edge bubble) — with each
+    /// scalar endpoint replaced by its reduced scalar.
     ///
     /// It satisfies `G P_node = P_edge G_r` (checked by
     /// [`Self::check_gradient_commutes`]), so `image(G_r)` is exactly the
@@ -852,12 +1149,18 @@ impl PeriodicConstraint {
              reduced_gradient_complex"
         );
         let mut tr = Vec::new();
+        let n_e = self.edges.len();
         for (e, ab) in self.edges.iter().enumerate() {
             // A canonical master carries coefficient +1 in its own column.
-            if !self.is_master[e] {
+            let w = if self.order == ElementOrder::P1 {
+                e
+            } else {
+                2 * e
+            };
+            if !self.is_master[w] {
                 continue;
             }
-            let DofAlias::Reduced { index, .. } = self.dofs.alias(e) else {
+            let DofAlias::Reduced { index, .. } = self.dofs.alias(w) else {
                 continue;
             };
             for (v, s) in [(ab[0] as usize, -1.0), (ab[1] as usize, 1.0)] {
@@ -867,6 +1170,19 @@ impl PeriodicConstraint {
                 } = self.nodes.alias(v)
                 {
                     tr.push(Triplet::new(index, rv, s * cv.re));
+                }
+            }
+            if self.order != ElementOrder::P1 {
+                // The `Q` row: +1 on the edge's own (reduced) bubble.
+                let DofAlias::Reduced { index: qi, .. } = self.dofs.alias(2 * e + 1) else {
+                    continue;
+                };
+                if let DofAlias::Reduced {
+                    index: rv,
+                    coeff: cv,
+                } = self.nodes.alias(self.nodes.n_full() - n_e + e)
+                {
+                    tr.push(Triplet::new(qi, rv, cv.re));
                 }
             }
         }
@@ -886,11 +1202,17 @@ impl PeriodicConstraint {
     /// Bloch-periodic gradients and `K_r G_r = 0`.
     pub fn reduced_gradient_complex(&self) -> SparseColMat<usize, c64> {
         let mut tr = Vec::new();
+        let n_e = self.edges.len();
         for (e, ab) in self.edges.iter().enumerate() {
-            if !self.is_master[e] {
+            let w = if self.order == ElementOrder::P1 {
+                e
+            } else {
+                2 * e
+            };
+            if !self.is_master[w] {
                 continue;
             }
-            let DofAlias::Reduced { index, .. } = self.dofs.alias(e) else {
+            let DofAlias::Reduced { index, .. } = self.dofs.alias(w) else {
                 continue;
             };
             for (v, s) in [(ab[0] as usize, -1.0), (ab[1] as usize, 1.0)] {
@@ -900,6 +1222,18 @@ impl PeriodicConstraint {
                 } = self.nodes.alias(v)
                 {
                     tr.push(Triplet::new(index, rv, cv * s));
+                }
+            }
+            if self.order != ElementOrder::P1 {
+                let DofAlias::Reduced { index: qi, .. } = self.dofs.alias(2 * e + 1) else {
+                    continue;
+                };
+                if let DofAlias::Reduced {
+                    index: rv,
+                    coeff: cv,
+                } = self.nodes.alias(self.nodes.n_full() - n_e + e)
+                {
+                    tr.push(Triplet::new(qi, rv, cv));
                 }
             }
         }
@@ -914,7 +1248,6 @@ impl PeriodicConstraint {
     pub fn check_gradient_commutes(&self) -> f64 {
         let g = self.full_gradient();
         let gr = self.reduced_gradient_complex();
-        let n_e = self.edges.len();
         let n_vr = self.nodes.n_reduced();
         // Dense-row comparison, one edge at a time (rows are tiny).
         let mut gr_rows: Vec<Vec<(usize, c64)>> = vec![Vec::new(); gr.nrows()];
@@ -926,7 +1259,9 @@ impl PeriodicConstraint {
         let g_rows = csc_rows(g.as_ref());
         let zero = c64::new(0.0, 0.0);
         let mut worst = 0.0_f64;
-        for (e, g_row) in g_rows.iter().enumerate().take(n_e) {
+        // Every H(curl) row: the edge rows at p=1, the `W`/`Q`/face rows at
+        // p=2 (`g` has exactly `n_full` rows at both orders).
+        for (e, g_row) in g_rows.iter().enumerate() {
             let mut lhs = vec![zero; n_vr];
             for &(v, gv) in g_row {
                 for (rv, cv) in self.nodes.row(v) {

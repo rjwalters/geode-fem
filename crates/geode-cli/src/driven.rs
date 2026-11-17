@@ -233,6 +233,18 @@ pub fn run(
         ));
     }
     let p = p;
+    if p.floquet.is_some() {
+        if dataset.is_some() || check_gradient {
+            return Err(CliError::InvalidSpec(
+                "`--dataset` / `--check-gradient` are not supported with `floquet_ports`".into(),
+            ));
+        }
+        if outdir.is_some() {
+            eprintln!("note: --outdir: field export is not supported for Floquet-port specs");
+        }
+        p.print_load_warnings();
+        return crate::floquet::run(&p, provenance, touchstone, opts);
+    }
     if dataset.is_some() {
         validate_dataset(&p)?;
     }
@@ -288,10 +300,12 @@ pub fn run(
     };
     warnings.splice(0..0, preconditioner_warnings);
     // `∂|S11|²/∂ε_r` per frequency (issue #739); `problem::load` admitted
-    // the `sensitivity` section only for a one-lumped-port direct dense
-    // sweep without UPML.
+    // the `sensitivity` section only for a one-lumped-port direct sweep
+    // without UPML — dense, or under the `sweep.adaptive` bypass with
+    // full-order gradients (Epic #841 Phase 4, issue #1627).
     // The N-port S-matrix sensitivity (issue #883) differentiates the
-    // forward just reported (it checks its own S against `results`).
+    // forward just reported (it checks its own S against `results`; under
+    // the bypass, against a freshly solved dense reference instead).
     let sensitivities = p
         .sensitivity
         .as_ref()
@@ -345,6 +359,7 @@ pub fn run(
         warnings,
         adaptive_mesh,
         accuracy,
+        floquet: None,
     })
 }
 

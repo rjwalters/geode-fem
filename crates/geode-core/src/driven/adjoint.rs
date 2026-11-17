@@ -260,15 +260,7 @@ where
     }
 
     // --- Edge tables and the sparsity scatter map (issue #218 pattern) ------
-    let tet_edges = mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let scatter = NedelecScatterMap::new(&tet_idx);
     let pattern = scatter.pattern();
 
@@ -747,15 +739,7 @@ where
         .collect::<Result<_, _>>()?;
 
     // --- Edge tables and the sparsity scatter map (issue #218 pattern) ------
-    let tet_edges = mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let scatter = NedelecScatterMap::new(&tet_idx);
     let pattern = scatter.pattern();
 
@@ -1051,9 +1035,12 @@ pub struct P2DrivenAdjointGradient {
 ///   dg/dε_k = −2 Re[ λᵀ (∂A/∂ε_k) x ] = 2 ω² Re[ λᵀ M_k x ],   Aᵀ λ = ∂g/∂x,
 /// ```
 ///
-/// with `M_k` the `p=2` mass restricted to region `k`
-/// ([`crate::assembly::nedelec_p2::p2_region_mass_action`]). `A` is
-/// complex-symmetric, so the adjoint reuses the forward factorization.
+/// with `M_k` the `p=2` mass restricted to region `k`. The scalars
+/// `λᵀ M_k x` are accumulated for every region in a single element-local
+/// sweep (no `M_k` is ever assembled, and no `M_k x` vector is formed): each
+/// tet contributes its local mass form to the region named by
+/// `region_of_tet[t]`. `A` is complex-symmetric, so the adjoint reuses the
+/// forward factorization.
 ///
 /// # Arguments
 ///

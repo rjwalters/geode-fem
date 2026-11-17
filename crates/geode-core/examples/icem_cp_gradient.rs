@@ -41,32 +41,27 @@ mod icem_design;
 #[path = "../tests/common/icem_shape.rs"]
 mod icem_shape;
 
+#[path = "../tests/common/example_io.rs"]
+mod example_io;
+use example_io::{
+    H_REF, HS, curves_json, mesh_bytes, step_factor, sweep_header, sweep_record,
+    write_json_out as write_json,
+};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::time::Instant;
 
 use geode_core::assembly::magnetostatic_nonlinear::NewtonConfig;
-use geode_core::mesh::icem_controlpoints::{
-    IcemCpDesign, N_CP_PARAMS, N_OFFSETS, OFFSET_NAMES, sector_curves_cp_f64,
-};
-use geode_core::mesh::icem_parametric::{CurveShape, N_PARAMS, motion_quality};
+use geode_core::mesh::icem_controlpoints::{IcemCpDesign, N_CP_PARAMS, N_OFFSETS, OFFSET_NAMES};
+use geode_core::mesh::icem_parametric::{N_PARAMS, motion_quality};
 use icem::{I_PEAK_INITIAL, IcemModel, IronLaw, LEVELS};
 use icem_cp_design::{
     CpDesignGradient, CpDesignPoint, CpDesignSetup, KC_ANGLE, KC_SCALE, N_CP_DESIGN,
     cp_design_names, design_gradient, offset_index, step_sweep,
 };
-use icem_design::{
-    CurrentBase, CurrentRule, Mode, StepRow, group1_area, rule_current, taylor_window,
-};
+use icem_design::{CurrentBase, CurrentRule, Mode, group1_area, rule_current, taylor_window};
 use serde_json::{Value, json};
 
-/// Steps of the sweep (m for the geometric components and `LENGTH`; the
-/// angle uses `× 1e3` degrees and `ScaleR` `× 10`), as in #1177.
-const HS: [f64; 13] = [
-    1e-3, 3e-4, 1e-4, 3e-5, 1e-5, 3e-6, 1e-6, 3e-7, 1e-7, 3e-8, 1e-8, 3e-9, 1e-9,
-];
-/// Reference step of the Taylor window.
-const H_REF: f64 = 1e-5;
 /// Components and steps of the remeshed cross-check. `1e-3` m is left out:
 /// at θ0 every offset sits at a box end, and a 1 mm step outward crosses the
 /// coupling circle (rotor) or moves the bore inside it (stator).
@@ -75,14 +70,6 @@ const REMESH_HS: [f64; 6] = [3e-4, 1e-4, 3e-5, 1e-5, 3e-6, 1e-6];
 /// Unscaled peak current of the iteration-120 design at full load (A),
 /// `reference_data.json` `history_unscaled_current_amplitudes_A[2]`.
 const I_PEAK_OPT120: f64 = 11.048494105125824;
-
-fn step_factor(k: usize) -> f64 {
-    match k {
-        KC_ANGLE => 1e3,
-        KC_SCALE => 10.0,
-        _ => 1.0,
-    }
-}
 
 struct Args {
     cmd: String,
@@ -180,15 +167,6 @@ fn components(spec: &str) -> Vec<usize> {
     }
 }
 
-fn write_json(path: &Option<PathBuf>, v: &Value) {
-    let p = path.clone().expect("--out FILE");
-    if let Some(d) = p.parent() {
-        std::fs::create_dir_all(d).unwrap();
-    }
-    std::fs::write(&p, serde_json::to_string_pretty(v).unwrap()).unwrap();
-    eprintln!("wrote {}", p.display());
-}
-
 fn grad_json(g: &CpDesignGradient) -> Value {
     json!({
         "mean": g.mean, "std": g.std, "torques": g.torques,
@@ -201,100 +179,13 @@ fn grad_json(g: &CpDesignGradient) -> Value {
     })
 }
 
-/// One component's sweep: rows, best FD, Taylor windows.
-fn sweep_record(
-    md: &mut String,
-    name: &str,
-    k: usize,
-    adj: [f64; 2],
-    j0: [f64; 2],
-    rows: &[StepRow],
-    rejected: &[(f64, String)],
-) -> Value {
-    let f = step_factor(k);
-    let mut out_rows = Vec::new();
-    let mut best = [(f64::INFINITY, 0.0); 2];
-    let mut rems = [Vec::new(), Vec::new()];
-    for r in rows {
-        let mut e = [0.0; 2];
-        for o in 0..2 {
-            e[o] = (r.central(o) - adj[o]).abs() / adj[o].abs();
-            if e[o] < best[o].0 {
-                best[o] = (e[o], r.h);
-            }
-            rems[o].push(r.remainder(o, j0[o], adj[o]));
-        }
-        out_rows.push(json!({
-            "h": r.h, "plus": r.plus.to_vec(), "minus": r.minus.to_vec(),
-            "fd": [r.central(0), r.central(1)], "rel_err": e.to_vec(),
-            "remainder": [rems[0].last(), rems[1].last()],
-        }));
-    }
-    let hs: Vec<f64> = rows.iter().map(|r| r.h).collect();
-    let windows: Vec<Value> = (0..2)
-        .map(|o| match taylor_window(&hs, &rems[o], H_REF * f) {
-            Some((hi, lo, dec)) => json!({"h_hi": hi, "h_lo": lo, "decades": dec}),
-            None => Value::Null,
-        })
-        .collect();
-    let win = |o: usize| {
-        windows[o]
-            .as_object()
-            .map(|w| {
-                format!(
-                    "{:.0e} .. {:.0e}, {:.1}",
-                    w["h_hi"].as_f64().unwrap(),
-                    w["h_lo"].as_f64().unwrap(),
-                    w["decades"].as_f64().unwrap()
-                )
-            })
-            .unwrap_or_else(|| "none".into())
-    };
-    let _ = writeln!(
-        md,
-        "| {name} | {:+.6e} | {:.1e} ({:.0e}) | {} | {:+.6e} | {:.1e} ({:.0e}) | {} | {} |",
-        adj[0],
-        best[0].0,
-        best[0].1,
-        win(0),
-        adj[1],
-        best[1].0,
-        best[1].1,
-        win(1),
-        if rejected.is_empty() {
-            String::new()
-        } else {
-            format!("{:?}", rejected.iter().map(|r| r.0).collect::<Vec<_>>())
-        }
-    );
-    json!({
-        "parameter": name, "k": k, "step_factor": f, "adjoint": adj.to_vec(), "j0": j0.to_vec(),
-        "rows": out_rows,
-        "best": [{"rel_err": best[0].0, "h": best[0].1}, {"rel_err": best[1].0, "h": best[1].1}],
-        "taylor_window": windows,
-        "rejected": rejected.iter().map(|(h, e)| json!({"h": h, "error": e})).collect::<Vec<_>>(),
-    })
-}
-
-const SWEEP_HEADER: &str = "| component | d mean (adjoint) | mean: best FD rel. err (h) | mean: Taylor window, decades | d std (adjoint) | std: best FD rel. err (h) | std: Taylor window, decades | rejected h |\n|---|---|---|---|---|---|---|---|";
-
-fn mesh_bytes(a: &Args) -> Vec<u8> {
-    let p = a.mesh.clone().unwrap_or_else(|| icem::mesh_path(a.level));
-    std::fs::read(&p).unwrap_or_else(|e| {
-        panic!(
-            "read {}: {e}. L1-L3 are gitignored; regenerate them with the \
-             benchmarks/motor_reference/geometry/README.md command",
-            p.display()
-        )
-    })
-}
-
 fn cmd_study(a: &Args) {
     let reference = icem::load_reference();
     let (dp, i_full) = design_point(a, &reference);
+    let mesh_p = a.mesh.clone().unwrap_or_else(|| icem::mesh_path(a.level));
     let setup = CpDesignSetup::new(
         a.level,
-        &mesh_bytes(a),
+        &mesh_bytes(&mesh_p),
         &reference,
         Mode::H45,
         IcemCpDesign::INITIAL,
@@ -324,6 +215,7 @@ fn cmd_study(a: &Args) {
         "components": comps.iter().map(|&k| names[k]).collect::<Vec<_>>(),
     });
     let c = cfg();
+    let header = sweep_header("component");
     for &ci in &a.currents {
         let i_peak = LEVELS[ci] * i_full;
         let t0 = Instant::now();
@@ -332,7 +224,7 @@ fn cmd_study(a: &Args) {
             md,
             "## Current level {} (I_peak = {i_peak:.6} A): mean {:.9} N m, std {:.9} N m \
              (gradient {:.3} s)\n\n### Step sweep, current rule jinit (central differences \
-             re-move the mesh)\n\n{SWEEP_HEADER}",
+             re-move the mesh)\n\n{header}",
             LEVELS[ci],
             g.mean,
             g.std,
@@ -358,18 +250,24 @@ fn cmd_study(a: &Args) {
             if k == icem_cp_design::KC_LENGTH || k == KC_ANGLE {
                 continue; // the Jinit rule does not change them
             }
-            let f = step_factor(k);
+            let f = step_factor(k, KC_ANGLE, KC_SCALE);
             let hs: Vec<f64> = a.hs.iter().map(|h| h * f).collect();
             let (rows, rejected) =
                 step_sweep(&setup, &dp, k, &hs, CurrentRule::Jinit, &cb, &c, &base).expect("sweep");
+            let rows: Vec<(f64, [f64; 2], [f64; 2])> =
+                rows.iter().map(|r| (r.h, r.plus, r.minus)).collect();
             srec.push(sweep_record(
                 &mut md,
                 names[k],
                 k,
+                f,
                 [g.d_mean_jinit[k], g.d_std_jinit[k]],
                 [g.mean, g.std],
                 &rows,
                 &rejected,
+                taylor_window,
+                None,
+                false,
             ));
             eprintln!(
                 "  L{} {} current {} {} done",
@@ -383,35 +281,6 @@ fn cmd_study(a: &Args) {
     }
     print!("{md}");
     write_json(&a.out, &rec);
-}
-
-fn curves_json(d: &IcemCpDesign) -> Value {
-    json!(
-        sector_curves_cp_f64(d)
-            .expect("construction")
-            .iter()
-            .map(|c| match &c.shape {
-                CurveShape::Line { a, b } =>
-                    json!({"name": c.name, "kind": "line", "a": a, "b": b}),
-                CurveShape::Arc {
-                    c: cc,
-                    r,
-                    phi_a,
-                    phi_b,
-                    a,
-                    b,
-                } => json!({"name": c.name, "kind": "arc", "c": cc, "r": r,
-                    "phi_a": phi_a, "phi_b": phi_b, "a": a, "b": b}),
-                CurveShape::Spline {
-                    degree,
-                    knots,
-                    cps,
-                    weights,
-                } => json!({"name": c.name, "kind": "nurbs", "degree": degree, "knots": knots,
-                    "cps": cps, "weights": weights, "a": cps[0], "b": cps[cps.len() - 1]}),
-            })
-            .collect::<Vec<_>>()
-    )
 }
 
 fn cmd_plan(a: &Args) {

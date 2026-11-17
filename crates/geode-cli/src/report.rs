@@ -672,6 +672,15 @@ pub struct WarningResult {
     /// two volume groups) and `"sensitivity_wall_saturated"` (issue #1330:
     /// a wall roughness parameter whose loss factor sits on its plateau, so
     /// its column is ~0 by saturation; `physical_group` is the wall).
+    /// Under the `sweep.adaptive` bypass on lumped ports (Epic #841 Phase
+    /// 4, issue #1627; report-level, `physical_group` / `wave_port` both
+    /// `null`): `"sensitivity_full_order_gradients"` (the sweep's rows may
+    /// be ROM interpolations; the gradients at the named frequencies are
+    /// full-order solves), `"sensitivity_full_order_cost"` (no
+    /// `sensitivity.frequencies` named: the gradients solve full-order at
+    /// every swept frequency) and `"sensitivity_forward_parity"` (N-port
+    /// path: the ROM-vs-full-order delta reported as
+    /// `sensitivities.forward_parity`).
     pub kind: &'static str,
     /// Wave-port index (spec order), if the warning is about one port.
     pub wave_port: Option<usize>,
@@ -1004,6 +1013,234 @@ pub struct CapacitanceReport {
     /// discretization error.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sensitivities: Option<SensitivityReport>,
+}
+
+/// Echo of a resolved `conduction` spec section plus the size of the
+/// scalar system (additive in v1, issue #1479).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ConductionSettingsSummary {
+    /// Terminals in matrix row/column order.
+    pub terminals: Vec<ConductorSummary>,
+    /// Lumped series resistance (Ω) per terminal, `null` for a pinned
+    /// (ideal Dirichlet) terminal.
+    pub r_ext_ohm: Vec<Option<f64>>,
+    /// Terminal voltages (V) of the reported operating point: the first
+    /// terminal at 1 V, every other terminal at 0 V.
+    pub operating_point_v: Vec<f64>,
+    /// Always `"p1_tet"`.
+    pub element: &'static str,
+    /// Scalar DOFs before Dirichlet elimination (= mesh nodes).
+    pub n_dof: usize,
+    /// Free DOFs after pinning every ideal terminal's nodes.
+    pub n_free_dof: usize,
+    /// Unit-voltage solves (one per terminal), sharing one LU.
+    pub n_solves: usize,
+}
+
+/// Statistics of a `geode conduction` solve.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ConductionSolverStats {
+    /// Always `"gradient_energy"`: `G_ij = Σ σ V ∇φ_i·∇φ_j` element-wise.
+    pub method: &'static str,
+    /// Always `"direct_lu_jacobi_scaled"`.
+    pub inner: &'static str,
+    /// Worst relative residual `‖K u − b‖/‖b‖` over every solve.
+    pub max_rel_residual: f64,
+    /// Wall time of assembly + every solve + post-processing, seconds.
+    pub wall_time_s: f64,
+}
+
+/// `geode conduction` report (`kind = "conduction"`, additive in v1).
+///
+/// The conductance matrix is real, in siemens (SI: the mesh length unit is
+/// folded in), row-major `g_siemens[row][col]` in terminal order.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ConductionReport {
+    /// Provenance (flattened).
+    #[serde(flatten)]
+    pub provenance: Provenance,
+    /// Always `"conduction"`.
+    #[schemars(extend("const" = "conduction"))]
+    pub kind: &'static str,
+    /// Always `"ok"` (failures produce an [`ErrorReport`]).
+    #[schemars(extend("const" = "ok"))]
+    pub status: &'static str,
+    /// Mesh summary (the scalar system size is in `conduction`).
+    pub mesh: MeshSummary,
+    /// Volume regions (`eps_r` is unused by a conduction solve).
+    pub regions: Vec<RegionSummary>,
+    /// The conduction settings and system size.
+    pub conduction: ConductionSettingsSummary,
+    /// Terminal names in matrix row/column order.
+    pub terminals: Vec<String>,
+    /// The N×N terminal conductance matrix (S): `I_i = Σ_j G_ij V_j`,
+    /// symmetric; rows sum to zero when no terminal drains to ground.
+    pub g_siemens: Vec<Vec<f64>>,
+    /// `max |G_ij − G_ji| / max(|G_ij|, |G_ji|)` over off-diagonal pairs.
+    pub max_rel_asymmetry: f64,
+    /// `max_i |Σ_j G_ij| / G_ii`.
+    pub max_rel_row_sum: f64,
+    /// Current (A) entering the network at each terminal at the reported
+    /// operating point (first terminal 1 V, the rest 0 V).
+    pub terminal_current_a: Vec<f64>,
+    /// Total dissipated power (W) at the operating point (volume Joule
+    /// heat plus any `r_ext` resistors).
+    pub total_power_w: f64,
+    /// `|P_diss − Σ V_i I_i| / |Σ V_i I_i|`: the power-balance check
+    /// (degrades above ~8 decades of conductivity contrast, see the
+    /// library docs).
+    pub power_balance_rel_error: f64,
+    /// Largest per-element current density `|J|` (A/m²) at the operating
+    /// point. **Mesh-dependent**: at a re-entrant corner the P1 current
+    /// density is singular and this maximum grows without bound under
+    /// refinement; do not read it as a converged peak.
+    pub max_current_density_a_m2: f64,
+    /// Largest per-element Joule density `σ|∇φ|²` (W/m³) at the operating
+    /// point. **Mesh-dependent** in the same way as
+    /// `max_current_density_a_m2`.
+    pub max_joule_density_w_m3: f64,
+    /// Whether per-element `J` / Joule fields are exported: `exported`
+    /// (see `fields_file`) with `--outdir`, otherwise a `not_exported`
+    /// marker.
+    pub per_element_fields: &'static str,
+    /// Cell-data `.vtu` with per-tet `J` (A/m²), `joule_density` (W/m³) and
+    /// `sigma` (S/m) in SI at the reported operating point; points are in
+    /// mesh units. Present only with `--outdir` (additive in v1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fields_file: Option<FileRef>,
+    /// Solver statistics.
+    pub solver: ConductionSolverStats,
+}
+
+/// Echo of a resolved `eqs` spec section plus the size of the scalar system
+/// (additive in v1, issue #1494).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct EqsSettingsSummary {
+    /// Driven terminals in report order.
+    pub terminals: Vec<ConductorSummary>,
+    /// Floating conductors.
+    pub floating: Vec<ConductorSummary>,
+    /// `"transient"` or `"admittance"`.
+    pub mode: &'static str,
+    /// Always `"p1_tet"`.
+    pub element: &'static str,
+    /// Scalar DOFs before elimination (= mesh nodes).
+    pub n_dof: usize,
+}
+
+/// One time level of an `eqs` transient (SI units).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct EqsStepReport {
+    /// Time (s).
+    pub t_s: f64,
+    /// Applied terminal voltages (V), terminal order.
+    pub v: Vec<f64>,
+    /// Potential (V) of each floating conductor.
+    pub floating_phi_v: Vec<f64>,
+    /// Conduction current (A) into the network at each terminal.
+    pub i_cond_a: Vec<f64>,
+    /// Displacement current (A) into the network at each terminal (zero at
+    /// `t = 0`, where it is impulsive).
+    pub i_disp_a: Vec<f64>,
+    /// Total current (A) into each floating conductor (zero up to round-off
+    /// for `t > 0`).
+    pub floating_current_a: Vec<f64>,
+    /// Volume-averaged `E` (V/m) per region (`regions` order).
+    pub region_e_v_m: Vec<[f64; 3]>,
+    /// `|sum of all terminal and floating currents| / max|I|` for `t > 0`;
+    /// `null` at `t = 0`.
+    pub charge_residual: Option<f64>,
+}
+
+/// Time-domain result of `geode eqs`.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct EqsTransientReport {
+    /// Time step (s).
+    pub dt_s: f64,
+    /// Number of steps (`steps` has one more entry, `t = 0` first).
+    pub n_steps: usize,
+    /// θ-method weight.
+    pub theta: f64,
+    /// Region names for `region_e_v_m` (the `materials[]` volume groups).
+    pub regions: Vec<String>,
+    /// Per-step results.
+    pub steps: Vec<EqsStepReport>,
+    /// Energy (J) delivered into the network by each terminal through its
+    /// conduction current, `integral V I_cond dt`.
+    pub delivered_energy_cond_j: Vec<f64>,
+    /// Energy (J) delivered by each terminal through its displacement
+    /// current, `integral V I_disp dt` (stored field energy plus recovered
+    /// charge, so it can be negative on discharge).
+    pub delivered_energy_disp_j: Vec<f64>,
+    /// Quadrature of the two energies. The conduction energy is the
+    /// trapezoid of `V I_cond` over the reported steps; the displacement
+    /// energy is the midpoint form, the mean of the step-end voltages times
+    /// each step's displacement charge increment, so a closed lossless
+    /// pulse nets to round-off even with discontinuous edges. The impulsive
+    /// displacement current at `t = 0` is zero, so a step at `t = 0`
+    /// excludes its initial charging pulse.
+    pub energy_quadrature: &'static str,
+}
+
+/// Small-signal terminal admittance at one frequency (SI units).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct EqsAdmittanceReport {
+    /// Frequency (Hz).
+    pub frequency_hz: f64,
+    /// `omega = 2 pi f` (rad/s).
+    pub omega_rad_s: f64,
+    /// `Re Y` (S), `I_i = sum_j Y_ij V_j`; this is the conductance `G`.
+    pub g_siemens: Vec<Vec<f64>>,
+    /// `Im Y` (S).
+    pub y_im_siemens: Vec<Vec<f64>>,
+    /// `C = Im Y / omega` (F); `null` at `omega = 0`, where it is not
+    /// defined by the admittance (use `geode capacitance`).
+    pub c_farad: Option<Vec<Vec<f64>>>,
+}
+
+/// Statistics of a `geode eqs` solve.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct EqsSolverStats {
+    /// `"theta_method"` (transient) or `"complex_block"` (admittance).
+    pub method: &'static str,
+    /// Always `"direct_lu"`.
+    pub inner: &'static str,
+    /// Wall time of assembly + solve + post-processing, seconds.
+    pub wall_time_s: f64,
+}
+
+/// `geode eqs` report (`kind = "eqs"`, additive in v1). Exactly one of
+/// `transient` and `admittance` is present, matching `eqs.mode`.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct EqsReport {
+    /// Provenance (flattened).
+    #[serde(flatten)]
+    pub provenance: Provenance,
+    /// Always `"eqs"`.
+    #[schemars(extend("const" = "eqs"))]
+    pub kind: &'static str,
+    /// Always `"ok"` (failures produce an [`ErrorReport`]).
+    #[schemars(extend("const" = "ok"))]
+    pub status: &'static str,
+    /// Mesh summary.
+    pub mesh: MeshSummary,
+    /// Volume regions.
+    pub regions: Vec<RegionSummary>,
+    /// The EQS settings and system size.
+    pub eqs: EqsSettingsSummary,
+    /// Terminal names in report row/column order.
+    pub terminals: Vec<String>,
+    /// Floating-conductor names.
+    pub floating: Vec<String>,
+    /// Time-domain result (transient mode).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transient: Option<EqsTransientReport>,
+    /// Admittance per frequency (frequency mode), in `eqs.frequencies`
+    /// order.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admittance: Option<Vec<EqsAdmittanceReport>>,
+    /// Solver statistics.
+    pub solver: EqsSolverStats,
 }
 
 /// One current path of an inductance spec.
@@ -1546,6 +1783,100 @@ pub struct DrivenReport {
     /// an `element_order = 2` lumped-port sweep.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub accuracy: Option<DrivenAccuracy>,
+    /// Floquet-port results (additive in v1, Epic #837 Phase 4b); present
+    /// only for a spec with `floquet_ports`, whose `results` is empty.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub floquet: Option<FloquetReport>,
+}
+
+/// The Floquet-port analysis of a periodic driven unit cell (Epic #837
+/// Phase 4b).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct FloquetReport {
+    /// The two open faces, in spec order (port index 0 and 1).
+    pub ports: Vec<FloquetPortSummary>,
+    /// Incident polarizations solved at every point (`"TE"` / `"TM"`).
+    pub incident_polarizations: Vec<&'static str>,
+    /// Whether the angles come from a `scan` (else a single `incidence`).
+    pub scan: bool,
+    /// One entry per incidence angle, in spec order.
+    pub angles: Vec<FloquetAngleResult>,
+}
+
+/// One Floquet port.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct FloquetPortSummary {
+    /// Physical group of the open face.
+    pub physical_group: String,
+    /// Relative permittivity of the half-space beyond it.
+    pub eps_r: f64,
+    /// Evanescent termination rings.
+    pub n_evanescent: usize,
+    /// Triangles of the face.
+    pub n_triangles: usize,
+}
+
+/// All frequencies at one incidence angle (or at the fixed `k_t`).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct FloquetAngleResult {
+    /// Polar angle (degrees). Absent for a `fixed_k_t` sweep (the angle
+    /// then moves with frequency; see `k_t`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theta_deg: Option<f64>,
+    /// Azimuth (degrees). Absent for a `fixed_k_t` sweep.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phi_deg: Option<f64>,
+    /// The fixed transverse wave vector (rad per mesh length unit) of a
+    /// `fixed_k_t` sweep; absent for an `incidence` / `scan` angle.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub k_t: Option<[f64; 3]>,
+    /// Per-frequency points, in spec order.
+    pub points: Vec<FloquetPoint>,
+    /// The Touchstone file of this angle (`--touchstone`; channels named
+    /// `P<port>_<m>_<n>_<TE|TM>`, port 1-based).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub touchstone_file: Option<FileRef>,
+}
+
+/// One `(angle, frequency)` solve.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct FloquetPoint {
+    /// Frequency (Hz).
+    pub frequency_hz: f64,
+    /// `k₀ = ω/c` (rad / mesh length unit).
+    pub k0: f64,
+    /// Worst post-solve relative residual.
+    pub residual_rel: f64,
+    /// Propagating channels at this point.
+    pub n_propagating: usize,
+    /// One row per (incident polarization, propagating output channel).
+    pub rows: Vec<FloquetRow>,
+}
+
+/// The response of one output channel to a unit incident wave: the
+/// specular order of port 0 in polarization `incident_pol`.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct FloquetRow {
+    /// Incident polarization (`"TE"` / `"TM"`).
+    pub incident_pol: &'static str,
+    /// Output port index (`0` = the incidence port: reflection).
+    pub port: usize,
+    /// Output order along `b₁`.
+    pub m: i32,
+    /// Output order along `b₂`.
+    pub n: i32,
+    /// Output polarization (`"TE"` / `"TM"`).
+    pub pol: &'static str,
+    /// Whether the order propagates (rows are written for propagating
+    /// channels; evanescent orders carry no power).
+    pub propagating: bool,
+    /// Normal wavenumber `k_z` of the order in the port medium (`Im ≤ 0`
+    /// is the outgoing branch).
+    pub k_z: Complex,
+    /// Power-normalized modal amplitude `S`.
+    pub s: Complex,
+    /// Diffraction efficiency `|S|²`.
+    pub efficiency: f64,
 }
 
 /// Accuracy diagnostics of a driven report (issue #1265).
@@ -2045,14 +2376,21 @@ pub struct SensitivityReport {
     /// (and, for port-mode observables, the forward's `ε_eff` / line
     /// impedance) over the differentiated frequencies — the two are separate
     /// forwards of one operator, and a run above `1e-8` is a `solve_failed`
-    /// error.
+    /// error. Under the `sweep.adaptive` bypass (Epic #841 Phase 4,
+    /// issue #1627) the report's rows are ROM interpolations, so this is
+    /// instead the largest ROM-vs-full-order delta at the differentiated
+    /// frequencies (a non-fatal diagnostic; the full-order parity against a
+    /// freshly solved dense reference still holds at `1e-8` and is the
+    /// hard `solve_failed` bound there).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forward_parity: Option<f64>,
     /// N-port driven path: non-fatal conditions of the gradient (a
     /// near-degenerate face mode of a hybrid port the design touches, an
     /// ill-conditioned bordered solve, a shape parameter that translates
-    /// the whole model rigidly or moves an unpinned wall), each with its
-    /// remedy.
+    /// the whole model rigidly or moves an unpinned wall; under the
+    /// `sweep.adaptive` bypass also which rows carry gradients, their
+    /// full-order cost and the ROM-vs-full-order parity diagnostic), each
+    /// with its remedy.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<WarningResult>,
 }

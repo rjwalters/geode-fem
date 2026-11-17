@@ -5,7 +5,6 @@
 //! `Lu::solve_in_place` wrapper shared by the real and complex solvers.
 
 use faer::Mat;
-#[cfg(feature = "tensor")]
 use faer::c64;
 use faer::linalg::solvers::Solve;
 use faer::sparse::SparseColMatRef;
@@ -13,7 +12,6 @@ use faer::sparse::linalg::solvers::Lu;
 use faer::traits::ComplexField;
 
 /// Euclidean 2-norm `sqrt(Σ xᵢ²)` of a real slice.
-#[cfg(feature = "tensor")]
 pub(crate) fn norm2(v: &[f64]) -> f64 {
     v.iter().map(|x| x * x).sum::<f64>().sqrt()
 }
@@ -52,7 +50,6 @@ pub(crate) fn spmv(a: SparseColMatRef<'_, usize, f64>, x: &[f64]) -> Vec<f64> {
 
 /// `y = A · x` for a complex CSC sparse matrix (overwrite). Columns with
 /// `x[j] == 0` are skipped.
-#[cfg(feature = "tensor")]
 pub(crate) fn spmv_c_into(a: SparseColMatRef<'_, usize, c64>, x: &[c64], y: &mut [c64]) {
     let zero = c64::new(0.0, 0.0);
     y.iter_mut().for_each(|v| *v = zero);

@@ -933,7 +933,12 @@ fn explicit_residual_rel<B: Backend>(
 
 /// Breakdown guard on a bilinear inner-product scalar — mirrors the CPU
 /// `bd_check` closure.
-fn bd_check(val: c64, iter: usize, kind: &'static str, tol: f64) -> Result<(), KspError> {
+pub(crate) fn bd_check(
+    val: c64,
+    iter: usize,
+    kind: &'static str,
+    tol: f64,
+) -> Result<(), KspError> {
     let mag2 = val.re * val.re + val.im * val.im;
     if !val.re.is_finite() || !val.im.is_finite() || mag2 < tol * tol {
         Err(KspError::Breakdown {
@@ -1030,9 +1035,7 @@ mod tests {
         // DOFs out, and just assert the solve converges to low residual.
         let mesh = cube_tet_mesh(2, 1.0);
         let n_edges = mesh.edges().len();
-        let te = mesh.tet_edges();
-        let tet_idx: Vec<[u32; 6]> = te.iter().map(|r| std::array::from_fn(|i| r[i].0)).collect();
-        let tet_sign: Vec<[i8; 6]> = te.iter().map(|r| std::array::from_fn(|i| r[i].1)).collect();
+        let (tet_idx, tet_sign) = mesh.tet_edge_tables();
         let eps = vec![1.0_f64; mesh.n_tets()];
         let sigma = vec![0.5_f64; mesh.n_tets()];
         let mask = vec![true; n_edges];
@@ -1102,15 +1105,8 @@ mod tests {
     }
 
     fn drift_rhs(n: usize) -> Vec<c64> {
-        let mut s = 12345_u64;
-        (0..n)
-            .map(|_| {
-                s = s
-                    .wrapping_mul(6364136223846793005)
-                    .wrapping_add(1442695040888963407);
-                c64::new(((s >> 11) as f64 / (1_u64 << 53) as f64) - 0.5, 0.0)
-            })
-            .collect()
+        let mut rng = geode_util::rng::Lcg(12345);
+        (0..n).map(|_| c64::new(rng.next_centered(), 0.0)).collect()
     }
 
     /// **Issue #943, matrix-free twin**: `BurnCocg` repairs a

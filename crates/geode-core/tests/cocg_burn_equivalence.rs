@@ -36,7 +36,6 @@
 //! rented EC2 box, never in CI.
 
 mod common;
-use common::edge_tables;
 
 use faer::c64;
 use faer::sparse::{SparseColMat, Triplet};
@@ -60,14 +59,8 @@ fn dense_to_host(t: burn::tensor::Tensor<B, 2>) -> Vec<f64> {
 
 /// Deterministic pseudo-random complex `b` from a 64-bit LCG (no `rand` dep).
 fn pseudo_random_c64(n: usize, seed: u64) -> Vec<c64> {
-    let mut state = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-    let mut next = || {
-        state = state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        let u = (state >> 11) as f64 / (1u64 << 53) as f64;
-        2.0 * u - 1.0
-    };
+    let mut rng = geode_util::rng::Lcg(seed.wrapping_mul(6364136223846793005).wrapping_add(1));
+    let mut next = || rng.next();
     (0..n).map(|_| c64::new(next(), 0.3 * next())).collect()
 }
 
@@ -90,7 +83,7 @@ struct Fixture {
 fn build_fixture(grid: usize, side: f64, eps_val: f64, sigma_val: f64, omega: f64) -> Fixture {
     let mesh = cube_tet_mesh(grid, side);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let n_tets = mesh.n_tets();
     let eps = vec![eps_val; n_tets];
     let sigma = vec![sigma_val; n_tets];
@@ -572,7 +565,7 @@ fn cocg_burn_cuda_f32_smoke() {
 
     let mesh = cube_tet_mesh(3, 1.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let eps = vec![1.0_f64; mesh.n_tets()];
     let sigma = vec![2.0_f64; mesh.n_tets()];
     let (_edges, mask) = cube_pec_interior_edges(&mesh, 1.0);

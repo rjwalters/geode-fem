@@ -360,43 +360,6 @@ pub fn p2_interior_km(
     (remap, n_interior, kept)
 }
 
-/// Accumulate the per-region mass action `(M_k x)` over interior DOFs, where
-/// `M_k` is the `p=2` mass with `ε` set to the indicator of region `k`
-/// (`region_of_tet[t] == k`). Used by the material adjoint
-/// (`dg/dε_k = 2 ω² Re[λᵀ M_k x]`). Returns a length-`n_interior` vector.
-pub fn p2_region_mass_action(
-    mesh: &TetMesh,
-    dofs: &P2DofMap,
-    remap: &[i64],
-    n_interior: usize,
-    region_of_tet: &[usize],
-    region_k: usize,
-    x_int: &[c64],
-) -> Vec<c64> {
-    let mut out = vec![c64::new(0.0, 0.0); n_interior];
-    for (t, gdofs) in dofs.tet_dofs.iter().enumerate() {
-        if region_of_tet[t] != region_k {
-            continue;
-        }
-        let (_k_loc, m_loc) = tet_p2_local_sorted(dofs, mesh, t);
-        for i in 0..TET_NEDELEC2_DOFS {
-            let ri = remap[gdofs[i]];
-            if ri < 0 {
-                continue;
-            }
-            let ri = ri as usize;
-            for j in 0..TET_NEDELEC2_DOFS {
-                let rj = remap[gdofs[j]];
-                if rj < 0 {
-                    continue;
-                }
-                out[ri] += c64::new(m_loc[i][j], 0.0) * x_int[rj as usize];
-            }
-        }
-    }
-    out
-}
-
 /// Interior (kept) `p=2` DOF mask for a **cube PEC cavity** `[0, side]³`
 /// whose whole outer surface is PEC. Length `dofs.n_dofs`.
 ///

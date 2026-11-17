@@ -1387,7 +1387,7 @@ fn triplet_list_matvec(triplets: &[(usize, usize, f64)], x: &[c64], n: usize) ->
 /// X·v_j`, the **normalized** new basis column `w`, and its product
 /// `xw = X·w`:
 /// new column entries `v_iᴴ·xw`, new row entries `wᴴ·xv_j`, corner `wᴴ·xw`.
-fn grow_reduced(
+pub(crate) fn grow_reduced(
     reduced: &mut Vec<Vec<c64>>,
     basis: &[Vec<c64>],
     xv: &[Vec<c64>],
@@ -1405,7 +1405,7 @@ fn grow_reduced(
 }
 
 /// Hermitian inner product `Σᵢ conj(aᵢ)·bᵢ`.
-fn dot_h(a: &[c64], b: &[c64]) -> c64 {
+pub(crate) fn dot_h(a: &[c64], b: &[c64]) -> c64 {
     debug_assert_eq!(a.len(), b.len());
     let mut acc = c64::new(0.0, 0.0);
     for (&ai, &bi) in a.iter().zip(b.iter()) {

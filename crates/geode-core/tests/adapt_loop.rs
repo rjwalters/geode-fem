@@ -31,6 +31,9 @@
 //!     by two tets is accepted, stays conforming and area-conserving, and the
 //!     estimator carries its sheet term.
 
+mod common;
+use common::box_fixtures::{box_mesh_with, fit_slope};
+
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -78,81 +81,6 @@ const DAUGE_L2: f64 = 3.534_031_366_78;
 // Meshes
 // ---------------------------------------------------------------------------
 
-/// A structured box `origin + [0, len]` with `n` cells per axis, each hex
-/// split into 6 tets, keeping the cells where `keep(i, j, k)` (unused nodes
-/// dropped, relative order kept).
-fn box_mesh(
-    n: [usize; 3],
-    len: [f64; 3],
-    origin: [f64; 3],
-    keep: impl Fn(usize, usize, usize) -> bool,
-) -> TetMesh {
-    let np = [n[0] + 1, n[1] + 1, n[2] + 1];
-    let idx = |i: usize, j: usize, k: usize| (i + j * np[0] + k * np[0] * np[1]) as u32;
-    let mut nodes = Vec::with_capacity(np[0] * np[1] * np[2]);
-    for k in 0..np[2] {
-        for j in 0..np[1] {
-            for i in 0..np[0] {
-                nodes.push([
-                    origin[0] + len[0] * i as f64 / n[0] as f64,
-                    origin[1] + len[1] * j as f64 / n[1] as f64,
-                    origin[2] + len[2] * k as f64 / n[2] as f64,
-                ]);
-            }
-        }
-    }
-    let mut tets = Vec::new();
-    for k in 0..n[2] {
-        for j in 0..n[1] {
-            for i in 0..n[0] {
-                if !keep(i, j, k) {
-                    continue;
-                }
-                let q = [
-                    idx(i, j, k),
-                    idx(i + 1, j, k),
-                    idx(i + 1, j + 1, k),
-                    idx(i, j + 1, k),
-                    idx(i, j, k + 1),
-                    idx(i + 1, j, k + 1),
-                    idx(i + 1, j + 1, k + 1),
-                    idx(i, j + 1, k + 1),
-                ];
-                tets.push([q[0], q[1], q[2], q[6]]);
-                tets.push([q[0], q[2], q[3], q[6]]);
-                tets.push([q[0], q[3], q[7], q[6]]);
-                tets.push([q[0], q[7], q[4], q[6]]);
-                tets.push([q[0], q[4], q[5], q[6]]);
-                tets.push([q[0], q[5], q[1], q[6]]);
-            }
-        }
-    }
-    let mut used = vec![false; nodes.len()];
-    for t in &tets {
-        for &v in t {
-            used[v as usize] = true;
-        }
-    }
-    let mut remap = vec![u32::MAX; nodes.len()];
-    let mut kept = Vec::new();
-    for (i, p) in nodes.iter().enumerate() {
-        if used[i] {
-            remap[i] = kept.len() as u32;
-            kept.push(*p);
-        }
-    }
-    for t in &mut tets {
-        for v in t.iter_mut() {
-            *v = remap[*v as usize];
-        }
-    }
-    TetMesh {
-        nodes: kept,
-        tets,
-        physical_groups: Default::default(),
-    }
-}
-
 fn untagged(mesh: TetMesh) -> TaggedTetMesh {
     let n = mesh.n_tets();
     TaggedTetMesh {
@@ -168,7 +96,7 @@ const THICK: f64 = 0.25;
 /// The thick-L prism `((−1,1)² \ [0,1]×[−1,0]) × (0, THICK)`, `m` cells per
 /// unit length in-plane, `nz` layers.
 fn thick_l(m: usize, nz: usize) -> TaggedTetMesh {
-    untagged(box_mesh(
+    untagged(box_mesh_with(
         [2 * m, 2 * m, nz],
         [2.0, 2.0, THICK],
         [-1.0, -1.0, 0.0],
@@ -177,7 +105,7 @@ fn thick_l(m: usize, nz: usize) -> TaggedTetMesh {
 }
 
 fn unit_cube(n: usize) -> TaggedTetMesh {
-    untagged(box_mesh([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true))
+    untagged(box_mesh_with([n; 3], [1.0; 3], [0.0; 3], |_, _, _| true))
 }
 
 fn pec(_: &FaceCtx) -> FaceBc {
@@ -191,18 +119,6 @@ fn tet_volume(v: &[[f64; 3]; 4]) -> f64 {
 // ---------------------------------------------------------------------------
 // Convergence helpers
 // ---------------------------------------------------------------------------
-
-/// Least-squares slope of `ln y` against `ln x`.
-fn loglog_slope(x: &[f64], y: &[f64]) -> f64 {
-    let lx: Vec<f64> = x.iter().map(|v| v.ln()).collect();
-    let ly: Vec<f64> = y.iter().map(|v| v.ln()).collect();
-    let n = lx.len() as f64;
-    let mx = lx.iter().sum::<f64>() / n;
-    let my = ly.iter().sum::<f64>() / n;
-    let sxx: f64 = lx.iter().map(|v| (v - mx) * (v - mx)).sum();
-    let sxy: f64 = lx.iter().zip(&ly).map(|(a, b)| (a - mx) * (b - my)).sum();
-    sxy / sxx
-}
 
 /// DOFs at which the curve `(n, err)` first reaches `target`, by log-log
 /// interpolation between the bracketing levels.
@@ -342,12 +258,12 @@ fn golden1_thick_l_eigen_adaptive_beats_uniform() {
         .iter()
         .position(|&n| n >= 2000.0)
         .expect("adaptive passes 2000 DOFs");
-    let rate_a = -loglog_slope(&na[a0..], &ea[a0..]);
-    let rate_u = -loglog_slope(&nu[2..], &eu[2..]);
+    let rate_a = -fit_slope(&na[a0..], &ea[a0..]);
+    let rate_u = -fit_slope(&nu[2..], &eu[2..]);
     let eta_a: Vec<f64> = ad.history.iter().map(|h| h.eta_rel).collect();
     let eta_u: Vec<f64> = un.history.iter().map(|h| h.eta_rel).collect();
-    let eta_rate_a = -loglog_slope(&na[a0..], &eta_a[a0..]);
-    let eta_rate_u = -loglog_slope(&nu[2..], &eta_u[2..]);
+    let eta_rate_a = -fit_slope(&na[a0..], &eta_a[a0..]);
+    let eta_rate_u = -fit_slope(&nu[2..], &eta_u[2..]);
     let fine_u = *eu.last().unwrap();
     let n_u = *nu.last().unwrap();
     let n_a = dofs_to_reach(&na, &ea, fine_u).expect("adaptive reaches the uniform error");
@@ -661,8 +577,8 @@ fn golden2_thick_l_driven_singular_adaptive_beats_uniform() {
         .iter()
         .position(|&n| n >= 2000.0)
         .expect("adaptive passes 2000 DOFs");
-    let rate_a = -loglog_slope(&na[a0..], &ea2[a0..]);
-    let rate_u = -loglog_slope(&nu[2..], &eu2[2..]);
+    let rate_a = -fit_slope(&na[a0..], &ea2[a0..]);
+    let rate_u = -fit_slope(&nu[2..], &eu2[2..]);
     let fine_u = *eu2.last().unwrap();
     let n_u = *nu.last().unwrap();
     let n_a = dofs_to_reach(&na, &ea2, fine_u).expect("adaptive reaches the uniform error");
@@ -820,8 +736,8 @@ fn golden3_smooth_cube_adaptive_not_worse_than_uniform() {
         eprintln!("  level {i}: {n} DOFs, rel energy error {e:.4e}");
     }
     let u0 = nu.iter().position(|&n| n >= 1000.0).unwrap();
-    let rate_a = -loglog_slope(&na, &ea);
-    let rate_u = -loglog_slope(&nu[u0..], &eu[u0..]);
+    let rate_a = -fit_slope(&na, &ea);
+    let rate_u = -fit_slope(&nu[u0..], &eu[u0..]);
     eprintln!(
         "golden3: worst adaptive/uniform error ratio at matched DOFs {worst:.3}; rates over \
          [1000, {n_max}] DOFs adaptive {rate_a:.3}, uniform {rate_u:.3} (theory 1/3)"
@@ -1506,9 +1422,12 @@ fn golden6_deterministic_mesh_sequence() {
 #[test]
 fn golden7_periodic_driven_adapts_and_stays_matched() {
     let omega = PI;
-    let mesh = untagged(box_mesh([4, 4, 2], [1.0, 1.0, 0.5], [0.0; 3], |_, _, _| {
-        true
-    }));
+    let mesh = untagged(box_mesh_with(
+        [4, 4, 2],
+        [1.0, 1.0, 0.5],
+        [0.0; 3],
+        |_, _, _| true,
+    ));
     let pairs = box_periodic_pairs(&mesh.mesh, &[0]);
     let eps = |_: &TetCtx| c(1.0);
     let psi = |x: [f64; 3]| (2.0 * PI * x[0]).sin() * (PI * x[1]).sin();
@@ -1590,9 +1509,12 @@ fn golden7_periodic_driven_adapts_and_stays_matched() {
 /// overall reduction.
 #[test]
 fn golden7b_periodic_eigen_adapts_and_tracks_the_mode() {
-    let mesh = untagged(box_mesh([3, 3, 2], [1.0, 1.0, 0.5], [0.0; 3], |_, _, _| {
-        true
-    }));
+    let mesh = untagged(box_mesh_with(
+        [3, 3, 2],
+        [1.0, 1.0, 0.5],
+        [0.0; 3],
+        |_, _, _| true,
+    ));
     let pairs = box_periodic_pairs(&mesh.mesh, &[0]);
     let eps = |_: &TetCtx| 1.0;
     let mut spec = EigenAdaptSpec::new(mesh, 0.8 * PI * PI, 1, &eps, &pec);
@@ -1946,7 +1868,12 @@ fn unsupported_combinations_are_rejected() {
 /// with the shift between them and one tracked mode.
 fn swapping_pair(marking: Marking, extra_candidates: usize) -> AdaptReport {
     let b = 0.99;
-    let mesh = untagged(box_mesh([3, 3, 2], [1.0, b, 0.7], [0.0; 3], |_, _, _| true));
+    let mesh = untagged(box_mesh_with(
+        [3, 3, 2],
+        [1.0, b, 0.7],
+        [0.0; 3],
+        |_, _, _| true,
+    ));
     let eps = |_: &TetCtx| 1.0;
     let l101 = PI * PI * (1.0 + 1.0 / 0.49);
     let l011 = PI * PI * (1.0 / (b * b) + 1.0 / 0.49);

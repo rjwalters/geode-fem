@@ -126,6 +126,34 @@
       },
       "type": "object"
     },
+    "AngleRangeSpec": {
+      "additionalProperties": false,
+      "description": "A linear angle range `start..=stop` with `count` samples.",
+      "properties": {
+        "count": {
+          "description": "Number of samples (`>= 1`; `1` uses `start`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "start": {
+          "description": "First angle (degrees).",
+          "format": "double",
+          "type": "number"
+        },
+        "stop": {
+          "description": "Last angle (degrees).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start",
+        "stop",
+        "count"
+      ],
+      "type": "object"
+    },
     "BlochPathSpec": {
       "additionalProperties": false,
       "description": "`eigen.bloch` along a k-path.",
@@ -240,6 +268,31 @@
         },
         "terminals": {
           "description": "Dimension-2 physical-group names, one per conductor terminal, in\nmatrix row/column order (`≥ 1`, distinct).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "terminals"
+      ],
+      "type": "object"
+    },
+    "ConductionSpec": {
+      "additionalProperties": false,
+      "description": "Steady DC current-conduction settings (`geode conduction`, issue\n#1479).\n\nSolves `∇·(σ∇φ) = 0` (P1 on the tets, per-region `σ` from\n`materials[].conductivity_s_m`, S/m) with every terminal a Dirichlet\nsurface and all other boundaries insulating\n([`geode_core::assembly::conduction`]). The terminal conductance matrix\n`G` (`I_i = Σ_j G_ij V_j`) comes from one unit-voltage solve per\nterminal. The reported operating point (per-terminal currents, total\npower, power balance) drives the **first terminal at 1 V and every\nother terminal at 0 V**.\n\nEvery `materials` entry of a conduction spec must give\n`conductivity_s_m`; tets in unlisted regions are insulating (`σ = 0`).",
+      "properties": {
+        "r_ext": {
+          "additionalProperties": {
+            "format": "double",
+            "type": "number"
+          },
+          "description": "Optional lumped series resistance (Ω, finite, `> 0`) per terminal,\nkeyed by terminal name: the terminal's surface is then held at its\napplied voltage through that resistor instead of being pinned.",
+          "type": "object"
+        },
+        "terminals": {
+          "description": "Dimension-2 physical-group names, one per terminal, in matrix\nrow/column order (`≥ 1`, distinct).",
           "items": {
             "type": "string"
           },
@@ -604,6 +657,115 @@
       ],
       "type": "object"
     },
+    "EqsSpec": {
+      "additionalProperties": false,
+      "description": "Electro-quasi-static settings (`geode eqs`, issue #1494).\n\nSolves `div(sigma grad phi + d/dt(eps grad phi)) = 0`\n([`geode_core::assembly::eqs_transient`]) with per-region `eps_r` and\n`conductivity_s_m` from `materials[]` (every material needs\n`conductivity_s_m`; unlisted regions are vacuum, `sigma = 0`). Exactly\none of `transient` (time-domain response to the terminal waveforms) and\n`frequencies` (small-signal admittance) must be given.",
+      "properties": {
+        "floating": {
+          "description": "Floating conductors (dimension-2 physical groups): equipotential,\nzero net current, initially uncharged.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "frequencies": {
+          "description": "Frequency-domain mode: frequencies in Hz (finite, `>= 0`).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "terminals": {
+          "description": "Driven terminals (dimension-2 physical groups), in report order.",
+          "items": {
+            "$ref": "#/$defs/EqsTerminalSpec"
+          },
+          "type": "array"
+        },
+        "transient": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EqsTransientSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Time-domain mode."
+        }
+      },
+      "required": [
+        "terminals"
+      ],
+      "type": "object"
+    },
+    "EqsTerminalSpec": {
+      "additionalProperties": false,
+      "description": "One driven terminal of an `eqs` spec.",
+      "properties": {
+        "name": {
+          "description": "Dimension-2 physical-group name of the terminal surface.",
+          "type": "string"
+        },
+        "waveform": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WaveformSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Drive waveform; required with `transient`, forbidden with\n`frequencies` (the admittance uses a unit drive per terminal)."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "EqsTransientSpec": {
+      "additionalProperties": false,
+      "description": "θ-method time stepping of an `eqs` transient.",
+      "properties": {
+        "dt": {
+          "description": "Time step (s, `> 0`). Give exactly one of `dt` and `n_steps`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "n_steps": {
+          "description": "Number of steps (`>= 1`); `dt = t_end / n_steps`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "t_end": {
+          "description": "End time (s, `> 0`).",
+          "format": "double",
+          "type": "number"
+        },
+        "theta": {
+          "default": 1.0,
+          "description": "θ-method weight in `[0.5, 1]` (default `1`, backward Euler;\n`0.5` is Crank-Nicolson).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "t_end"
+      ],
+      "type": "object"
+    },
     "ExtractSpec": {
       "additionalProperties": false,
       "description": "Inductance-extraction settings (`geode extract`).\n\nThe sweep itself is the driven one (`ports`, `frequencies`,\n`boundary_conditions`, `solver`). On top of the per-frequency\n`L = Im Z_kk / ω`, `R = Re Z_kk`, `Q = Im Z_kk / Re Z_kk`, `geode\nextract` reports per port the quasi-static inductance\n`L₀ = lim_{f→0} L(f)` by two-point Richardson extrapolation of\n`L(f) ≈ L₀ − a·f²` on the two lowest **anchor** frequencies\n([`geode_core::driven::extraction::extrapolate_l0`]), a consistency\nerror estimate from the third-lowest anchor, and the self-resonant\nfrequency (first `Im Z_kk` sign change) when the sweep brackets one.\nEvery field is optional: `\"extract\": {}` is a complete section.",
@@ -649,6 +811,59 @@
           "type": "number"
         }
       },
+      "type": "object"
+    },
+    "FixedKtSpec": {
+      "additionalProperties": false,
+      "description": "A fixed transverse wave vector for a Floquet-port frequency sweep.\n\nUnlike an `incidence` / `scan` (a fixed *angle*, where `k_t = k₀ √ε_r\nsin θ (…)` moves with frequency), the Bloch phase is the same at every\nfrequency. This is the case in which `sweep.adaptive` applies: it builds\na reduced-order model over the band (a band over which the set of\ndiffraction orders in the channel list changes falls back to the dense\nsweep, with a `floquet` warning).",
+      "properties": {
+        "k_t": {
+          "description": "The transverse wave vector `(k_x, k_y, k_z)` in rad per mesh length\nunit, in the lattice plane (its component along the lattice normal\nmust be zero).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "polarization": {
+          "$ref": "#/$defs/IncidencePolarization",
+          "default": "both",
+          "description": "Incident polarization (default `\"both\"`)."
+        }
+      },
+      "required": [
+        "k_t"
+      ],
+      "type": "object"
+    },
+    "FloquetPortSpec": {
+      "additionalProperties": false,
+      "description": "One Floquet port: the open cell face and the medium beyond it.",
+      "properties": {
+        "medium": {
+          "description": "Physical-group name of the volume `materials` entry that fills the\nhalf-space beyond this port (homogeneous, isotropic, real `eps_r`).\nDefault: vacuum.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "n_evanescent": {
+          "default": 4,
+          "description": "Evanescent termination rings: every order with\n`max(|m|, |n|) <= n_evanescent` is a channel (default `4`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "physical_group": {
+          "description": "Dimension-2 physical-group name of the open face.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "physical_group"
+      ],
       "type": "object"
     },
     "FrequencySpec": {
@@ -788,6 +1003,52 @@
           "type": "string"
         }
       ]
+    },
+    "IncidencePolarization": {
+      "description": "Incident polarization of a Floquet-port analysis.",
+      "oneOf": [
+        {
+          "const": "te",
+          "description": "Transverse electric.",
+          "type": "string"
+        },
+        {
+          "const": "tm",
+          "description": "Transverse magnetic.",
+          "type": "string"
+        },
+        {
+          "const": "both",
+          "description": "Both (two incident columns per point).",
+          "type": "string"
+        }
+      ]
+    },
+    "IncidenceSpec": {
+      "additionalProperties": false,
+      "description": "One plane-wave incidence, from the first Floquet port.",
+      "properties": {
+        "phi_deg": {
+          "default": 0.0,
+          "description": "Azimuth from the first lattice vector, degrees.",
+          "format": "double",
+          "type": "number"
+        },
+        "polarization": {
+          "$ref": "#/$defs/IncidencePolarization",
+          "default": "both",
+          "description": "Incident polarization (default `\"both\"`)."
+        },
+        "theta_deg": {
+          "description": "Polar angle from the lattice normal, degrees, in `[0, 90)`.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "theta_deg"
+      ],
+      "type": "object"
     },
     "InductanceSpec": {
       "additionalProperties": false,
@@ -1496,6 +1757,36 @@
         }
       ]
     },
+    "ScanSpec": {
+      "additionalProperties": false,
+      "description": "A scan over incidence angles: every `theta_deg` at every `phi_deg`.",
+      "properties": {
+        "phi_deg": {
+          "default": [
+            0.0
+          ],
+          "description": "Azimuths (degrees; default `[0]`).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "polarization": {
+          "$ref": "#/$defs/IncidencePolarization",
+          "default": "both",
+          "description": "Incident polarization (default `\"both\"`)."
+        },
+        "theta_deg": {
+          "$ref": "#/$defs/AngleRangeSpec",
+          "description": "Polar angles."
+        }
+      },
+      "required": [
+        "theta_deg"
+      ],
+      "type": "object"
+    },
     "SensitivityObservableSpec": {
       "additionalProperties": false,
       "description": "One differentiated observable of a driven [`SensitivitySpec`] (issue\n#883). Channel indices follow the report's flat S-matrix order: lumped\nports first (spec order), then the wave channels (port-major,\nmode-minor) — the `channel` numbers of `results[].wave_channels`.",
@@ -2006,6 +2297,109 @@
         "physical_group"
       ],
       "type": "object"
+    },
+    "WaveformSpec": {
+      "description": "A terminal drive waveform `V(t)` (volts, `t` in seconds), a pure\nfunction of time (`geode eqs`, issue #1494).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "`0` before `t0`, `v` from `t0` on.",
+          "properties": {
+            "kind": {
+              "const": "step",
+              "type": "string"
+            },
+            "t0": {
+              "description": "Step time (s, finite, `>= 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "v": {
+              "description": "Level after the step (V).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "t0",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "SPICE-style trapezoidal pulse from 0 to `v`: `0` until `delay`,\nlinear rise over `rise`, flat for `width`, linear fall over `fall`,\nthen `0`. A zero `rise` / `fall` is an instantaneous edge.",
+          "properties": {
+            "delay": {
+              "description": "Start of the rising edge (s, `>= 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "fall": {
+              "description": "Fall time (s, `>= 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "pulse",
+              "type": "string"
+            },
+            "rise": {
+              "description": "Rise time (s, `>= 0`).",
+              "format": "double",
+              "type": "number"
+            },
+            "v": {
+              "description": "Pulse level (V).",
+              "format": "double",
+              "type": "number"
+            },
+            "width": {
+              "description": "Flat-top width (s, `>= 0`).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "delay",
+            "rise",
+            "width",
+            "fall",
+            "v"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Piecewise-linear `[[t, v], ...]` (`t` strictly increasing); the\nfirst / last value is held before / after the table.",
+          "properties": {
+            "kind": {
+              "const": "pl",
+              "type": "string"
+            },
+            "points": {
+              "description": "`(t_s, v)` points, at least one.",
+              "items": {
+                "items": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "points"
+          ],
+          "type": "object"
+        }
+      ]
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2051,6 +2445,17 @@
       ],
       "description": "Static capacitance-extraction settings (additive in v1, issue\n#705). Its presence makes this a **capacitance spec** (for `geode\ncapacitance`)."
     },
+    "conduction": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConductionSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Steady DC current-conduction settings (additive in v1, issue #1479).\nIts presence makes this a **conduction spec** (for `geode\nconduction`)."
+    },
     "eigen": {
       "anyOf": [
         {
@@ -2067,6 +2472,17 @@
       "$ref": "#/$defs/ElementOrderSpec",
       "description": "Nédélec element order of the H(curl) space (additive in v1, issue\n#1265, Epic #836 Phase 5a): `1` (default, lowest-order edge\nelements) or `2` (second-order, `2·n_edges + 2·n_faces` DOFs).\nOrder 2 is supported by lossless / lossy `eigen` specs and by `driven`\nspecs with lumped ports, a direct solver and a dense sweep; every\nother combination is rejected with `invalid_spec` naming the feature\n(never solved at order 1 and reported as order 2)."
     },
+    "eqs": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EqsSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Electro-quasi-static transient / admittance settings (additive in\nv1, issue #1494). Its presence makes this an **eqs spec** (for\n`geode eqs`)."
+    },
     "extract": {
       "anyOf": [
         {
@@ -2079,6 +2495,24 @@
       "default": null,
       "description": "Inductance-extraction settings. Its presence makes this an\n**extract spec** (for `geode extract`). Without `eigen` or\n`extract` the spec is a driven spec."
     },
+    "fixed_k_t": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FixedKtSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "A sweep at a fixed transverse wave vector `k_t` (Floquet-port specs,\nissue #1521): the Bloch phase does not move with frequency, so\n`sweep.adaptive` uses a reduced-order model here. Excludes\n`incidence` / `scan`."
+    },
+    "floquet_ports": {
+      "description": "The two Floquet ports (the open faces) of a periodic driven unit\ncell (additive in v1, Epic #837 Phase 4b). Needs\n`boundary_conditions.periodic` (the two lattice vectors) and exactly\none of `incidence` / `scan` / `fixed_k_t`; cannot be combined with lumped or wave\nports.",
+      "items": {
+        "$ref": "#/$defs/FloquetPortSpec"
+      },
+      "type": "array"
+    },
     "frequencies": {
       "anyOf": [
         {
@@ -2090,6 +2524,17 @@
       ],
       "default": null,
       "description": "Frequencies to solve at. Required for a `driven` / `extract` spec;\nnot allowed in an `eigen` spec (its target is [`EigenSpec::shift`])."
+    },
+    "incidence": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/IncidenceSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "A single plane-wave incidence (Floquet-port specs)."
     },
     "inductance": {
       "anyOf": [
@@ -2132,6 +2577,17 @@
         "$ref": "#/$defs/LumpedPortSpec"
       },
       "type": "array"
+    },
+    "scan": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ScanSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "A scan over incidence angles (Floquet-port specs)."
     },
     "schema_version": {
       "const": 1,

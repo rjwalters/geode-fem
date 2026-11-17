@@ -208,16 +208,44 @@
 //! on any narrow cell, where `|b|` is large, also when the terminated
 //! orders have long decayed and carry nothing.
 //!
-//! A p=2 periodic cell (Epic #836) would lower the floor, and the
-//! residual estimator of Epic #835 could replace this a-priori fit by an
-//! a-posteriori one. Neither is wired to Floquet ports yet.
+//! A p=2 cell lowers the floor: on the p=2 golden's slab fixture (same mesh
+//! for both orders), the worst |ΔS| against the analytic Fresnel/Airy
+//! result drops from `1.9e-3` (p=1) to `2.8e-7` (p=2) at TE/TM, normal and
+//! 30° incidence (measured 2026-11-15, `p2_cell_beats_p1_on_the_slab_against_fresnel`).
+//! The estimate above is calibrated at p=1 and stays a conservative upper
+//! bound at p=2. The residual estimator of Epic #835 could replace
+//! this a-priori fit by an a-posteriori one; it is not wired to Floquet
+//! ports yet.
 //!
 //! # Scope
 //!
-//! The scope is p=1, direct LU only, with scalar per-tet `ε_r` (complex
-//! allowed inside the cell, not on the port faces), optional `σ`, and
-//! optional PEC (e.g. a metal FSS patch) off the port faces. Lumped feed
-//! ports inside the cell (scan impedance) are Phase 5. The CLI is Phase
+//! The scope is p=1 or p=2 ([`ElementOrder`], issue #1628 — the cell
+//! assembles on the order-generic H(curl) space, with the p=2 periodic
+//! constraint and the p=2 port-face trace of [`crate::assembly::surface_p2`]),
+//! direct LU only, with scalar per-tet `ε_r` (complex allowed inside the
+//! cell, not on the port faces), optional `σ`, and optional PEC (e.g. a
+//! metal FSS patch) off the port faces. The lumped delta-gap feed
+//! ([`FactoredFloquetCell::edge_current_rhs`] /
+//! [`FactoredFloquetCell::edge_voltage`], hence
+//! [`FloquetCell::edge_scan_impedance`] and the radiator cell) is
+//! order-generic too (issue #1682: it reads the edge's Whitney DOF). Still
+//! p=1 only: the Floquet-port sensitivities — they fail with
+//! [`FloquetError::UnsupportedAtOrder`] on a p=2 cell.
+//!
+//! # Array elements: active reflection (issue #1513)
+//!
+//! [`FloquetCell::assemble_array`] builds an **array element cell**: one
+//! open aperture face (Floquet port 0) and an analytic waveguide-mode feed
+//! inside the cell ([`ModalFeedSpec`], port 1). The feed is an ordinary
+//! channel, so the Bloch solve with unit incidence on it gives
+//! `Γ_active(θ, φ, f) = S_ff` for every element driven with the progressive
+//! phase of a beam scanned to `(θ, φ)`
+//! ([`FloquetCell::active_reflection`]), the scan impedance
+//! ([`ActiveReflection::z_scan`]), the grating lobes (propagating
+//! non-specular aperture orders, [`ActiveReflection::grating_lobes`], with
+//! the analytic onset [`FloquetCell::grating_lobe_onset`]) and blind-scan
+//! candidates ([`find_blind_scans`]). Lumped (delta-gap) feeds are not
+//! part of this cell yet. The CLI is Phase
 //! 4b. The 1-D RCWA oracle the diffraction goldens use is test-only
 //! (`tests/common/rcwa1d.rs`).
 
@@ -234,9 +262,12 @@ use faer::sparse::{SparseColMat, Triplet};
 use crate::analytic::waveguide::TRI_QUAD_DEG4;
 use crate::assembly::hcurl_space::HcurlSpace;
 use crate::assembly::periodic::{DofAliasMap, PeriodicConstraint, PeriodicError};
+use crate::assembly::surface_p2::{TRI_NEDELEC2_TRACE_DOFS, tri_nedelec2_trace_shapes};
+use crate::dense_ops::dense_solve_multi;
 use crate::driven::periodic::lu_solve_transpose;
+use crate::driven::rom::{RomSettings, dot_h, grow_reduced};
 use crate::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator,
+    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, DrivenSource,
 };
 use crate::eigen::complex::spmv;
 use crate::elements::ElementOrder;
@@ -324,6 +355,24 @@ pub enum FloquetError {
     /// Sparse assembly / factorization / solve failure.
     #[error("Floquet solve failed: {0}")]
     Solve(String),
+    /// A piece of the cell is still p=1-only: the Floquet-port
+    /// sensitivities (tracked for p=2 in issue #1660, child 2 #1683). The
+    /// lumped delta-gap feed, the scan-impedance radiator path and the
+    /// rest of issue #1628 landed (issue #1682). Build the cell at
+    /// [`ElementOrder::P1`] for the sensitivities.
+    #[error(
+        "{feature} is p=1 only for now: the Floquet-port sensitivities are the last remaining piece (issue #1683); build the cell at ElementOrder::P1"
+    )]
+    UnsupportedAtOrder {
+        /// The unsupported piece.
+        feature: &'static str,
+    },
+    /// The fixed-`k_t` reduced-order model does not apply to this band: the
+    /// set of channels `(port, order, polarization)` changes across it, so
+    /// the port vectors cannot be projected once (see [`FloquetProm`]). A
+    /// dense sweep handles it.
+    #[error("Floquet PROM does not apply: {0}")]
+    PromUnsupported(String),
 }
 
 /// A Floquet mode polarization.
@@ -499,6 +548,76 @@ pub struct FloquetPortSpec<'a> {
     pub eps_r: f64,
 }
 
+/// An analytic **rectangular-waveguide `TE_m0` feed** inside the unit cell
+/// (issue #1513, Epic #1252 Phase 2): the element feed of an
+/// infinite-array **active reflection** solve.
+///
+/// The feed plane is a full cross-section of the cell (it covers exactly one
+/// lattice cell, like a Floquet port) normal to the lattice normal. The
+/// guide walls are PEC edges of [`FloquetArraySpec::pec_interior_mask`];
+/// they may lie on the feed plane, where the mode vanishes. The mode is
+///
+/// ```text
+/// e = ê √(2/A_cell) sin(m π (s − s₀)/w),   s = r · ŝ,
+/// ```
+///
+/// power-normalized under the Hermitian face product, with cutoff
+/// `k_c = mπ/w`, `β = √((k − k_c)(k + k_c))` and `y = β/k₀` (units of `Y₀`,
+/// the TE convention of the Floquet ports). The feed is a normal channel of
+/// the cell, so `S_ff` of the solve is the active reflection coefficient of
+/// the element, referenced to the feed plane.
+#[derive(Debug, Clone, Copy)]
+pub struct ModalFeedSpec<'a> {
+    /// Boundary triangles covering the feed plane (one full cell cross
+    /// section; PEC guide-wall edges may lie on it).
+    pub triangles: &'a [[u32; 3]],
+    /// Real relative permittivity of the guide medium on the feed plane.
+    pub eps_r: f64,
+    /// Unit field direction `ê` (tangential to the feed plane; `E ∥ ê`).
+    pub e_hat: [f64; 3],
+    /// Unit direction `ŝ` across the guide (tangential, `⟂ ê`), along which
+    /// the mode varies as `sin`.
+    pub across: [f64; 3],
+    /// Coordinate `s₀ = r · ŝ` of the first guide wall.
+    pub s0: f64,
+    /// Guide width `w` (distance between the two walls along `ŝ`).
+    pub width: f64,
+    /// Mode index `m ≥ 1` (`TE_m0`).
+    pub m: usize,
+}
+
+/// Inputs of [`FloquetCell::assemble_array`]: one open **aperture** face
+/// with a Floquet port, and an in-cell modal feed.
+#[derive(Debug, Clone, Copy)]
+pub struct FloquetArraySpec<'a> {
+    /// Complex relative permittivity per tet.
+    pub eps_r: &'a [c64],
+    /// Optional conductivity per tet.
+    pub sigma: Option<&'a [f64]>,
+    /// PEC interior mask over the space's DOFs (`true` = kept): the guide
+    /// walls / ground plane / radiators (`mesh.n_edges()` entries at p=1,
+    /// `HcurlSpace::n_dofs()` at p=2). It must not touch the aperture face.
+    pub pec_interior_mask: Option<&'a [bool]>,
+    /// The aperture Floquet port (port 0).
+    pub aperture: FloquetPortSpec<'a>,
+    /// The element feed (port 1).
+    pub feed: ModalFeedSpec<'a>,
+    /// Settings.
+    pub settings: FloquetSettings,
+    /// Element order of the H(curl) space (issue #1628);
+    /// [`ElementOrder::P1`] until set with [`Self::with_element_order`].
+    pub element_order: ElementOrder,
+}
+
+impl FloquetArraySpec<'_> {
+    /// The same spec assembled at element order `order` (issue #1628).
+    #[must_use]
+    pub fn with_element_order(mut self, order: ElementOrder) -> Self {
+        self.element_order = order;
+        self
+    }
+}
+
 /// Floquet-port settings.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloquetSettings {
@@ -535,13 +654,31 @@ pub struct FloquetCellSpec<'a> {
     /// Optional conductivity per tet (natural units), as
     /// [`DrivenOperator::assemble`].
     pub sigma: Option<&'a [f64]>,
-    /// Optional PEC interior mask over the edges (`true` = kept), e.g. a
-    /// metal FSS patch. It must not touch a port face.
+    /// Optional PEC interior mask over the space's DOFs (`true` = kept,
+    /// e.g. a metal FSS patch): `mesh.n_edges()` entries at p=1,
+    /// `HcurlSpace::n_dofs()` at p=2 (build it with
+    /// [`crate::assembly::hcurl_space::HcurlSpace::pec_interior_mask`]). It
+    /// must not touch a port face.
     pub pec_interior_mask: Option<&'a [bool]>,
     /// The two Floquet ports (the two open faces).
     pub ports: [FloquetPortSpec<'a>; 2],
     /// Settings.
     pub settings: FloquetSettings,
+    /// Element order of the H(curl) space the cell is assembled on
+    /// (issue #1628). [`ElementOrder::P1`] unless set with
+    /// [`Self::with_element_order`].
+    pub element_order: ElementOrder,
+}
+
+impl FloquetCellSpec<'_> {
+    /// The same spec assembled at element order `order` (issue #1628).
+    /// [`ElementOrder::P1`] is the default and the pre-#1628 behavior bit
+    /// for bit.
+    #[must_use]
+    pub fn with_element_order(mut self, order: ElementOrder) -> Self {
+        self.element_order = order;
+        self
+    }
 }
 
 /// A plane-wave incidence: polar angle `theta` from the lattice normal
@@ -690,16 +827,35 @@ impl FloquetSolution {
 #[derive(Debug, Clone)]
 struct PortTriangle {
     p: [[f64; 3]; 3],
-    /// Surface gradients of the barycentrics.
+    /// Surface gradients of the barycentrics (vertices in ascending global
+    /// order).
     grad: [[f64; 3]; 3],
     area: f64,
     h: f64,
     /// `(full DOF, local lo vertex, local hi vertex)` of the three edges.
+    /// The DOF is the edge's Whitney DOF at p=2 (only the p=1 mode
+    /// integrals read it).
     edges: [(usize, usize, usize); 3],
+    /// At p=2: the 8 global tangential-trace DOFs in the
+    /// [`crate::assembly::surface_p2`] layout
+    /// `[W01, Q01, W02, Q02, W12, Q12, φ0, φ1]`; `None` at p=1.
+    trace: Option<[usize; TRI_NEDELEC2_TRACE_DOFS]>,
+}
+
+/// The analytic `TE_m0` profile of a [`ModalFeedSpec`].
+#[derive(Debug, Clone, Copy)]
+struct ModalProfile {
+    e_hat: [f64; 3],
+    across: [f64; 3],
+    s0: f64,
+    width: f64,
+    m: usize,
 }
 
 #[derive(Debug, Clone)]
 struct PortFace {
+    /// `Some` for a modal feed, `None` for a Floquet (plane-wave) port.
+    modal: Option<ModalProfile>,
     eps_r: f64,
     tris: Vec<PortTriangle>,
     /// Full DOFs on the face (sorted, unique).
@@ -711,15 +867,22 @@ struct PortFace {
     clearance: f64,
 }
 
-/// A p=1 periodic unit cell with two Floquet ports (see the
-/// [module docs](self)).
+/// A periodic unit cell with two Floquet ports (see the
+/// [module docs](self)), on the order-generic H(curl) space (p=1 or p=2,
+/// issue #1628).
 pub struct FloquetCell {
     op: DrivenOperator,
     constraint: PeriodicConstraint,
     lattice: FloquetLattice,
-    ports: [PortFace; 2],
+    ports: Vec<PortFace>,
     settings: FloquetSettings,
     interior_to_full: Vec<usize>,
+    /// The Whitney DOF of every mesh edge: [`HcurlSpace::edge_dofs`]`[0]`
+    /// (the identity at p=1, the `W` of the `(W, Q)` pair at p=2, issue
+    /// #1682). The delta-gap feed reads and drives only this DOF: `Q` is
+    /// the exact gradient `∇(λ_aλ_b)`, whose line integral along the edge
+    /// vanishes, so `∫E·dl` is the `W` coefficient at either order.
+    edge_w_dofs: Vec<u32>,
     /// Sparse LU factorizations performed by [`Self::factor`] so far.
     n_factorizations: AtomicUsize,
 }
@@ -734,22 +897,142 @@ impl FloquetCell {
     /// translations, a port that does not cover one planar open cell face,
     /// two ports on the same side, a port medium that is not the port's
     /// homogeneous real `ε_r` (or has `σ`, or PEC), or mismatched input
-    /// lengths. Also the errors of [`DrivenOperator::assemble`] and
-    /// [`PeriodicConstraint::build`].
+    /// lengths. Also the errors of [`DrivenOperator::assemble_with_space`]
+    /// and [`PeriodicConstraint::build`].
     pub fn assemble<B: Backend>(
         mesh: &TetMesh,
         map: &PeriodicMap,
         spec: &FloquetCellSpec<'_>,
         device: &B::Device,
     ) -> Result<Self, FloquetError> {
+        Self::assemble_ports::<B>(
+            mesh,
+            map,
+            spec.eps_r,
+            spec.sigma,
+            spec.pec_interior_mask,
+            spec.settings,
+            spec.element_order,
+            &[(spec.ports[0], None), (spec.ports[1], None)],
+            device,
+        )
+    }
+
+    /// Assemble an **array element cell** (issue #1513, Epic #1252
+    /// Phase 2): the aperture is the only open face (a Floquet port, port
+    /// 0) and the element is fed by an analytic waveguide mode inside the
+    /// cell (port 1, [`ModalFeedSpec`]). Solve it with
+    /// [`Self::active_reflection`]; the feed's `S_ff` is `Γ_active`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::assemble`], plus [`FloquetError::InvalidSpec`] for a
+    /// feed whose directions are not unit, tangential and orthogonal, a
+    /// non-positive width, or `m = 0`.
+    pub fn assemble_array<B: Backend>(
+        mesh: &TetMesh,
+        map: &PeriodicMap,
+        spec: &FloquetArraySpec<'_>,
+        device: &B::Device,
+    ) -> Result<Self, FloquetError> {
+        let f = &spec.feed;
+        let unit = |v: [f64; 3]| (norm(v) - 1.0).abs() < 1e-9;
+        if !(unit(f.e_hat) && unit(f.across) && dot(f.e_hat, f.across).abs() < 1e-9) {
+            return Err(FloquetError::InvalidSpec(
+                "feed e_hat and across must be orthogonal unit vectors".into(),
+            ));
+        }
+        if !(f.width.is_finite() && f.width > 0.0 && f.m >= 1 && f.s0.is_finite()) {
+            return Err(FloquetError::InvalidSpec(
+                "feed needs a finite s0, a width > 0 and a mode index m >= 1".into(),
+            ));
+        }
+        let modal = ModalProfile {
+            e_hat: f.e_hat,
+            across: f.across,
+            s0: f.s0,
+            width: f.width,
+            m: f.m,
+        };
+        Self::assemble_ports::<B>(
+            mesh,
+            map,
+            spec.eps_r,
+            spec.sigma,
+            spec.pec_interior_mask,
+            spec.settings,
+            spec.element_order,
+            &[
+                (spec.aperture, None),
+                (
+                    FloquetPortSpec {
+                        triangles: f.triangles,
+                        eps_r: f.eps_r,
+                    },
+                    Some(modal),
+                ),
+            ],
+            device,
+        )
+    }
+
+    /// Assemble a **radiator cell** with a single open face (issue #1513
+    /// AC2): the aperture is the only Floquet port and everything else is
+    /// closed by the PEC mask (a ground plane and the radiating metal). Feed
+    /// it with a delta-gap edge current, [`Self::edge_scan_impedance`].
+    ///
+    /// The delta-gap feed is order-generic (issue #1682), so the cell
+    /// assembles at the `order` given here — [`ElementOrder::P1`] or
+    /// [`ElementOrder::P2`], as with [`FloquetArraySpec::with_element_order`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::assemble`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn assemble_radiator<B: Backend>(
+        mesh: &TetMesh,
+        map: &PeriodicMap,
+        eps_r: &[c64],
+        sigma: Option<&[f64]>,
+        pec_interior_mask: Option<&[bool]>,
+        aperture: FloquetPortSpec<'_>,
+        settings: FloquetSettings,
+        order: ElementOrder,
+        device: &B::Device,
+    ) -> Result<Self, FloquetError> {
+        Self::assemble_ports::<B>(
+            mesh,
+            map,
+            eps_r,
+            sigma,
+            pec_interior_mask,
+            settings,
+            order,
+            &[(aperture, None)],
+            device,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn assemble_ports<B: Backend>(
+        mesh: &TetMesh,
+        map: &PeriodicMap,
+        eps_r: &[c64],
+        sigma: Option<&[f64]>,
+        pec_interior_mask: Option<&[bool]>,
+        settings: FloquetSettings,
+        order: ElementOrder,
+        port_specs: &[(FloquetPortSpec<'_>, Option<ModalProfile>)],
+        device: &B::Device,
+    ) -> Result<Self, FloquetError> {
         let n_tets = mesh.n_tets();
-        if spec.eps_r.len() != n_tets {
+        if eps_r.len() != n_tets {
             return Err(FloquetError::InvalidSpec(format!(
                 "eps_r has {} entries, the mesh {n_tets} tets",
-                spec.eps_r.len()
+                eps_r.len()
             )));
         }
-        if let Some(s) = spec.sigma
+        if let Some(s) = sigma
             && s.len() != n_tets
         {
             return Err(FloquetError::InvalidSpec(format!(
@@ -762,29 +1045,85 @@ impl FloquetCell {
                 "the periodic map was built on another mesh".into(),
             ));
         }
-        if !(spec.settings.rayleigh_warn.is_finite() && spec.settings.rayleigh_warn >= 0.0) {
+        if !(settings.rayleigh_warn.is_finite() && settings.rayleigh_warn >= 0.0) {
             return Err(FloquetError::InvalidSpec(
                 "rayleigh_warn must be finite and >= 0".into(),
             ));
         }
+        let space = HcurlSpace::build(mesh, order);
+        let edge_w_dofs: Vec<u32> = (0..space.n_edges())
+            .map(|e| space.edge_dofs(e)[0])
+            .collect();
         let lattice = FloquetLattice::from_periodic_map(map)?;
         let edges = mesh.edges();
-        let n_edges = edges.len();
-        let all_kept = vec![true; n_edges];
-        let mask = spec.pec_interior_mask.unwrap_or(&all_kept);
-        if mask.len() != n_edges {
+        let n_dofs = space.n_dofs();
+        let all_kept = vec![true; n_dofs];
+        let mask = pec_interior_mask.unwrap_or(&all_kept);
+        if mask.len() != n_dofs {
             return Err(FloquetError::InvalidSpec(format!(
-                "PEC mask has {} entries, the mesh {n_edges} edges",
-                mask.len()
+                "PEC mask has {} entries, the p={} space has {n_dofs} DOFs",
+                mask.len(),
+                order.degree()
             )));
         }
+        // A p=2 PEC edge is a `{W, Q}` pair (issue #1699): a mask that
+        // eliminates only one half leaves the edge's constraint split and
+        // singularizes the reduction far from the bad input, at `factor`,
+        // as a sparse-LU `SymbolicSingular`. The library-built
+        // [`HcurlSpace::pec_interior_mask`] always eliminates the pair
+        // together; a caller hand-building a mask gets a typed rejection
+        // naming the edge instead. p=1 edge DOFs are singletons and pass.
+        for e in 0..space.n_edges() {
+            let d = space.edge_dofs(e);
+            if let [w, q] = d
+                && mask[*w as usize] != mask[*q as usize]
+            {
+                let state = |kept: bool| if kept { "kept" } else { "eliminated" };
+                return Err(FloquetError::InvalidSpec(format!(
+                    "PEC mask treats edge {e}'s (W, Q) DOFs differently (W {}, Q {}): a p=2 \
+                     PEC edge must keep or eliminate both",
+                    state(mask[*w as usize]),
+                    state(mask[*q as usize])
+                )));
+            }
+        }
+        // A p=2 PEC face is a `{φ0, φ1}` pair (issue #1705), the face-level
+        // twin of the edge check above: [`HcurlSpace::pec_interior_mask`]
+        // eliminates the pair together, but a caller hand-eliminating a lone
+        // φ assembles fine and singularizes the reduction at `factor` as a
+        // sparse-LU `SymbolicSingular` (measured 2026-11-16 on the #1699
+        // cell: a lone φ1 failed that way, a lone φ0 factored fine). The
+        // same typed rejection naming the face applies; p=1 faces carry no
+        // DOFs and pass.
+        for f in 0..space.n_faces() {
+            let d = space.face_dofs(f);
+            if let [p0, p1] = d
+                && mask[*p0 as usize] != mask[*p1 as usize]
+            {
+                let state = |kept: bool| if kept { "kept" } else { "eliminated" };
+                return Err(FloquetError::InvalidSpec(format!(
+                    "PEC mask treats face {f}'s (φ0, φ1) DOFs differently (φ0 {}, φ1 {}): a \
+                     p=2 PEC face must keep or eliminate both",
+                    state(mask[*p0 as usize]),
+                    state(mask[*p1 as usize])
+                )));
+            }
+        }
 
-        let ports = [
-            prepare_port(mesh, &edges, &lattice, spec, mask, 0)?,
-            prepare_port(mesh, &edges, &lattice, spec, mask, 1)?,
-        ];
+        let inputs = CellInputs { eps_r, sigma, mask };
+        let ports: Vec<PortFace> = port_specs
+            .iter()
+            .enumerate()
+            .map(|(p, (ps, modal))| {
+                prepare_port(mesh, &space, &edges, &lattice, &inputs, p, ps, *modal)
+            })
+            .collect::<Result<_, _>>()?;
         let side = |p: &PortFace| plane_of(&p.tris[0], lattice.normal);
-        if (side(&ports[0]) - side(&ports[1])).abs() <= 1e-9 * ports[0].h_max.max(ports[1].h_max) {
+        if ports.len() == 2
+            && ports.iter().all(|p| p.modal.is_none())
+            && (side(&ports[0]) - side(&ports[1])).abs()
+                <= 1e-9 * ports[0].h_max.max(ports[1].h_max)
+        {
             return Err(FloquetError::InvalidSpec(
                 "the two Floquet ports lie on the same plane; they must be the two opposite open \
                  faces of the cell"
@@ -792,20 +1131,20 @@ impl FloquetCell {
             ));
         }
 
-        let space = HcurlSpace::build(mesh, ElementOrder::P1);
-        let constraint = PeriodicConstraint::build(&space, map, spec.pec_interior_mask)?;
+        let constraint = PeriodicConstraint::build(&space, map, pec_interior_mask)?;
         let zero = c64::new(0.0, 0.0);
         let source = CurrentSource::from_centroids(mesh, |_| [zero; 3]);
-        let op = DrivenOperator::assemble::<B>(
+        let op = DrivenOperator::assemble_with_space::<B>(
+            &space,
             mesh,
-            DrivenMaterials::Scalar(spec.eps_r),
-            spec.sigma,
+            DrivenMaterials::Scalar(eps_r),
+            sigma,
             &DrivenBcs {
                 pec_interior_mask: mask,
             },
             &[],
             &[],
-            &source,
+            DrivenSource::Constant(&source),
             device,
         )?;
         let interior_to_full = op.interior_to_full();
@@ -814,8 +1153,9 @@ impl FloquetCell {
             constraint,
             lattice,
             ports,
-            settings: spec.settings,
+            settings,
             interior_to_full,
+            edge_w_dofs,
             n_factorizations: AtomicUsize::new(0),
         })
     }
@@ -828,12 +1168,24 @@ impl FloquetCell {
         self.n_factorizations.load(Ordering::Relaxed)
     }
 
-    /// The full edge DOFs on the triangles of Floquet port `p` (sorted,
-    /// unique). The sensitivities pin the nodes of these edges.
+    /// The number of port faces of this cell: 2 for [`Self::assemble`] and
+    /// [`Self::assemble_array`] (the second being the modal feed there), 1
+    /// for [`Self::assemble_radiator`] (the aperture only, the radiator
+    /// being driven by a delta-gap edge instead). [`Self::port_dofs`] is
+    /// valid for `0..n_ports()`; the sensitivities of
+    /// [`super::floquet_sensitivity`] pin every one of them, so they must
+    /// iterate this and not a hard-coded 2 (issue #1578).
+    pub fn n_ports(&self) -> usize {
+        self.ports.len()
+    }
+
+    /// The full DOFs on the triangles of Floquet port `p` (sorted,
+    /// unique): the edges' DOFs at p=1; the edges' `(W, Q)` and the faces'
+    /// `(φ0, φ1)` at p=2. The sensitivities pin the nodes of these edges.
     ///
     /// # Panics
     ///
-    /// Panics if `p > 1`.
+    /// Panics if `p >= self.n_ports()`.
     pub fn port_dofs(&self, p: usize) -> &[usize] {
         &self.ports[p].dofs
     }
@@ -861,9 +1213,9 @@ impl FloquetCell {
     /// (grazing incidence has `k_z = 0`), a non-finite angle, or a port
     /// index other than 0 or 1.
     pub fn k_t_of(&self, omega: f64, inc: &FloquetIncidence) -> Result<[f64; 3], FloquetError> {
-        if inc.from_port > 1 {
+        if inc.from_port >= self.ports.len() || self.ports[inc.from_port].modal.is_some() {
             return Err(FloquetError::InvalidSpec(format!(
-                "incidence port {} does not exist (a Floquet cell has ports 0 and 1)",
+                "incidence port {} is not a Floquet port of this cell",
                 inc.from_port
             )));
         }
@@ -900,6 +1252,7 @@ impl FloquetCell {
         let kt_abs = norm(k_t);
         self.ports
             .iter()
+            .filter(|port| port.modal.is_none())
             .filter_map(|port| specular_floor(port, omega, kt_abs))
             .fold(0.0, f64::max)
     }
@@ -943,6 +1296,33 @@ impl FloquetCell {
         let mut channels = Vec::new();
         for (p, port) in self.ports.iter().enumerate() {
             let k = omega * port.eps_r.sqrt();
+            if let Some(modal) = &port.modal {
+                // An analytic TE_m0 guide mode: one channel (issue #1513).
+                let kc = modal.m as f64 * PI / modal.width;
+                let arg = (k - kc) * (k + kc);
+                if arg.abs() <= CUTOFF_TOL * k * k {
+                    return Err(FloquetError::InvalidSpec(format!(
+                        "the feed mode TE_{}0 of port {p} is exactly at cutoff",
+                        modal.m
+                    )));
+                }
+                let k_z = if arg > 0.0 {
+                    c64::new(arg.sqrt(), 0.0)
+                } else {
+                    c64::new(0.0, -(-arg).sqrt())
+                };
+                channels.push(FloquetChannel {
+                    port: p,
+                    order: FloquetOrder::SPECULAR,
+                    pol: FloquetPolarization::Te,
+                    kappa: scale_v(modal.across, kc),
+                    e_hat: modal.e_hat,
+                    k_z,
+                    admittance: k_z / omega,
+                    propagating: arg > 0.0,
+                });
+                continue;
+            }
             // One exhaustive pass over every order that could propagate (and
             // the evanescent rings): the channel set is the propagating
             // orders ∪ the rings `max(|m|, |n|) ≤ n_evanescent`.
@@ -1130,7 +1510,7 @@ impl FloquetCell {
         let a_vol = interior.reduce_matrix(a.as_ref())?;
 
         // Port vectors h_q = Pᵀ g_q on the reduced DOFs of each port face.
-        let mut port_support: [Vec<usize>; 2] = [Vec::new(), Vec::new()];
+        let mut port_support: Vec<Vec<usize>> = vec![Vec::new(); self.ports.len()];
         let mut h: Vec<Vec<c64>> = Vec::with_capacity(channels.len());
         for (p, port) in self.ports.iter().enumerate() {
             port_support[p] = reduced_support(&self.op, &interior, &port.dofs);
@@ -1224,6 +1604,292 @@ impl FloquetCell {
     pub fn solve_k_t(&self, omega: f64, k_t: [f64; 3]) -> Result<FloquetSolution, FloquetError> {
         self.factor(omega, k_t, 0.0)?.s_matrix()
     }
+
+    /// The **active reflection coefficient** of the array element at the
+    /// scan angle `(theta, phi)` (radians) and `omega` (issue #1513, Epic
+    /// #1252 Phase 2).
+    ///
+    /// The Bloch phase is `k_t = k₀ sin θ (cos φ û + sin φ v̂)` of the
+    /// aperture medium, so the infinite array is driven by the feed with
+    /// the progressive phase of a beam scanned to `(θ, φ)`: every element
+    /// carries the same amplitude and the Floquet phase. With unit
+    /// incidence on the feed, `Γ_active = S_ff = ⟨E, e_f⟩ − 1` of the
+    /// factored cell, referenced to the feed plane, and the **scan
+    /// impedance** is `Z_ref (1 + Γ)/(1 − Γ)` with `Z_ref = 1/y_f`. One LU
+    /// factorization and one back-solve per call.
+    ///
+    /// # Errors
+    ///
+    /// [`FloquetError::InvalidSpec`] for a cell without a modal feed or a
+    /// feed mode below cutoff, and the errors of [`Self::k_t_of`] and
+    /// [`Self::factor`] (a Rayleigh anomaly at the exact onset of a
+    /// grating lobe is [`FloquetError::RayleighAnomaly`]: step off it).
+    pub fn active_reflection(
+        &self,
+        omega: f64,
+        theta: f64,
+        phi: f64,
+    ) -> Result<ActiveReflection, FloquetError> {
+        let feed_port = self
+            .ports
+            .iter()
+            .position(|p| p.modal.is_some())
+            .ok_or_else(|| {
+                FloquetError::InvalidSpec(
+                    "active reflection needs a cell with a modal feed (assemble_array)".into(),
+                )
+            })?;
+        let inc = FloquetIncidence {
+            theta,
+            phi,
+            from_port: 0,
+        };
+        let k_t = self.k_t_of(omega, &inc)?;
+        let f = self.factor(omega, k_t, phi)?;
+        let q = f
+            .channels()
+            .iter()
+            .position(|c| c.port == feed_port)
+            .expect("the feed channel exists");
+        let ch = f.channels()[q];
+        if !ch.propagating {
+            return Err(FloquetError::InvalidSpec(format!(
+                "the feed mode is below cutoff at ω = {omega}: there is no active reflection to \
+                 report"
+            )));
+        }
+        let mut x = vec![c64::new(0.0, 0.0); f.n_reduced()];
+        f.back_solve(&f.rhs(q), &mut x)?;
+        let gamma = f.project(q, &x) - c64::new(1.0, 0.0);
+        let one = c64::new(1.0, 0.0);
+        let z_scan = (one + gamma) / (one - gamma) / ch.admittance;
+        let mut grating_lobes: Vec<FloquetOrder> = f
+            .channels()
+            .iter()
+            .filter(|c| c.port == 0 && c.propagating && c.order != FloquetOrder::SPECULAR)
+            .map(|c| c.order)
+            .collect();
+        grating_lobes.sort_unstable();
+        grating_lobes.dedup();
+        Ok(ActiveReflection {
+            omega,
+            theta,
+            phi,
+            gamma,
+            z_scan,
+            grating_lobes,
+            warnings: f.warnings.clone(),
+        })
+    }
+
+    /// The position of the feed channel in the propagating set at
+    /// `(omega, k_t)`: the row/column of `Γ_active = S_ff` in the S matrix of
+    /// [`Self::factor`] and of the Floquet adjoint
+    /// ([`crate::driven::floquet_sensitivity::floquet_s_vjp`]).
+    ///
+    /// # Errors
+    ///
+    /// [`FloquetError::InvalidSpec`] for a cell without a modal feed or a
+    /// feed mode below cutoff, and the errors of [`Self::channels_at`].
+    pub fn feed_propagating_index(
+        &self,
+        omega: f64,
+        k_t: [f64; 3],
+        phi: f64,
+    ) -> Result<usize, FloquetError> {
+        let feed_port = self
+            .ports
+            .iter()
+            .position(|p| p.modal.is_some())
+            .ok_or_else(|| {
+                FloquetError::InvalidSpec("the cell has no modal feed (assemble_array)".into())
+            })?;
+        let (channels, _) = self.channels_at(omega, k_t, phi)?;
+        let mut pos = 0;
+        for c in &channels {
+            if c.port == feed_port {
+                return if c.propagating {
+                    Ok(pos)
+                } else {
+                    Err(FloquetError::InvalidSpec(
+                        "the feed mode is below cutoff".into(),
+                    ))
+                };
+            }
+            if c.propagating {
+                pos += 1;
+            }
+        }
+        Err(FloquetError::InvalidSpec(
+            "the feed channel is missing".into(),
+        ))
+    }
+
+    /// The **scan impedance** `Z = −V/I` of an array element driven by a
+    /// unit delta-gap current on mesh edge `edge` (issue #1513 AC2): the
+    /// lumped-feed counterpart of [`Self::active_reflection`]. The edge is
+    /// resolved to its Whitney DOF ([`HcurlSpace::edge_dofs`]`[0]`), so the
+    /// feed is order-generic (issue #1682). The cell needs only the aperture
+    /// Floquet port (the radiator is PEC in the mask); the Bloch phase is
+    /// that of the beam scanned to `(theta, phi)`. One LU and one back-solve.
+    ///
+    /// # Errors
+    ///
+    /// [`FloquetError::InvalidSpec`] if `edge` is out of range (it must be a
+    /// mesh edge, not a DOF id — they coincide only at p=1) or
+    /// PEC-eliminated, and the errors of [`Self::k_t_of`] / [`Self::factor`].
+    pub fn edge_scan_impedance(
+        &self,
+        omega: f64,
+        theta: f64,
+        phi: f64,
+        edge: usize,
+    ) -> Result<c64, FloquetError> {
+        if edge >= self.edge_w_dofs.len() {
+            return Err(FloquetError::InvalidSpec(format!(
+                "feed edge {edge} out of range (the mesh has {} edges)",
+                self.edge_w_dofs.len()
+            )));
+        }
+        let inc = FloquetIncidence {
+            theta,
+            phi,
+            from_port: 0,
+        };
+        let k_t = self.k_t_of(omega, &inc)?;
+        let f = self.factor(omega, k_t, phi)?;
+        let b = f.edge_current_rhs(edge)?.ok_or_else(|| {
+            FloquetError::InvalidSpec(format!("feed edge {edge} is PEC-eliminated"))
+        })?;
+        let mut x = vec![c64::new(0.0, 0.0); f.n_reduced()];
+        f.back_solve(&b, &mut x)?;
+        Ok(-f.edge_voltage(&x, edge)?)
+    }
+
+    /// [`Self::active_reflection`] over a list of polar angles at one
+    /// `(omega, phi)`: a scan cut. One factorization per angle.
+    ///
+    /// # Errors
+    ///
+    /// The first error of [`Self::active_reflection`].
+    pub fn scan_cut(
+        &self,
+        omega: f64,
+        phi: f64,
+        thetas: &[f64],
+    ) -> Result<Vec<ActiveReflection>, FloquetError> {
+        thetas
+            .iter()
+            .map(|&t| self.active_reflection(omega, t, phi))
+            .collect()
+    }
+
+    /// The polar scan angle (radians) at azimuth `phi` where the first
+    /// **grating lobe** appears: the smallest `θ ∈ [0, π/2)` at which a
+    /// non-specular aperture order `(m, n) ≠ (0, 0)` has `|κ_mn| = k`
+    /// (`k_t = k sin θ d̂` plus the reciprocal vector `G_mn`). It is `0` if
+    /// such an order already propagates broadside, and `None` if none
+    /// appears before grazing. This is the analytic twin of
+    /// [`ActiveReflection::grating_lobes`], which comes from the solve.
+    pub fn grating_lobe_onset(&self, omega: f64, phi: f64) -> Option<f64> {
+        let k = omega * self.ports[0].eps_r.sqrt();
+        let d = self.lattice.azimuth(phi);
+        let span = |b: [f64; 3]| (2.0 * k / norm(b)).ceil() as i32 + 1;
+        let (mm, nn) = (span(self.lattice.b1), span(self.lattice.b2));
+        let mut best: Option<f64> = None;
+        for m in -mm..=mm {
+            for n in -nn..=nn {
+                if m == 0 && n == 0 {
+                    continue;
+                }
+                let g = add(
+                    scale_v(self.lattice.b1, f64::from(m)),
+                    scale_v(self.lattice.b2, f64::from(n)),
+                );
+                // |k s d + G|² = k²  ⇒  k² s² + 2 k s (d·G) + |G|² − k² = 0.
+                let (dg, gg) = (dot(d, g), dot(g, g));
+                if gg < k * k {
+                    return Some(0.0);
+                }
+                let disc = dg * dg - gg + k * k;
+                if disc < 0.0 {
+                    continue;
+                }
+                let s = (-dg - disc.sqrt()) / k;
+                let s2 = (-dg + disc.sqrt()) / k;
+                for root in [s, s2] {
+                    if root > 0.0 && root < 1.0 {
+                        let th = root.asin();
+                        best = Some(best.map_or(th, |b| b.min(th)));
+                    }
+                }
+            }
+        }
+        best
+    }
+}
+
+/// The active reflection of an array element at one scan angle (see
+/// [`FloquetCell::active_reflection`]).
+#[derive(Debug, Clone)]
+pub struct ActiveReflection {
+    /// Angular frequency (`= k₀`).
+    pub omega: f64,
+    /// Polar scan angle (radians, from the lattice normal).
+    pub theta: f64,
+    /// Scan azimuth (radians, from `û`).
+    pub phi: f64,
+    /// `Γ_active(θ, φ, f)`, referenced to the feed plane.
+    pub gamma: c64,
+    /// Scan impedance `Z_ref (1 + Γ)/(1 − Γ)` in units of `η₀`.
+    pub z_scan: c64,
+    /// Non-specular aperture orders that propagate here: **grating lobes**.
+    /// Empty below the onset.
+    pub grating_lobes: Vec<FloquetOrder>,
+    /// Warnings of the solve ([`FloquetSolution::warnings`]).
+    pub warnings: Vec<String>,
+}
+
+impl ActiveReflection {
+    /// The fraction of the feed power radiated by the element,
+    /// `1 − |Γ|²` (lossless cell).
+    pub fn radiated_fraction(&self) -> f64 {
+        1.0 - self.gamma.norm_sqr()
+    }
+}
+
+/// A **blind-scan** candidate found by [`find_blind_scans`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BlindScan {
+    /// The scan sample (radians) at which the radiated fraction is least.
+    pub theta: f64,
+    /// `|Γ_active|` there (close to 1).
+    pub gamma_abs: f64,
+}
+
+/// Default blind-scan threshold of [`find_blind_scans`]: a local minimum
+/// of the radiated fraction `1 − |Γ|²` below this.
+pub const BLIND_SCAN_FRACTION: f64 = 0.1;
+
+/// Detect **blind-scan** angles along a scan cut: interior samples where
+/// the radiated fraction `1 − |Γ|²` is a strict local minimum below
+/// `threshold` (default [`BLIND_SCAN_FRACTION`]), i.e. `|Γ_active| → 1` at
+/// an angle where the surface wave of the array is excited and the element
+/// stops radiating. The cut must be ordered by `θ`; resolution of the null
+/// is that of the sampling (refine around a candidate).
+pub fn find_blind_scans(cut: &[ActiveReflection], threshold: Option<f64>) -> Vec<BlindScan> {
+    let thr = threshold.unwrap_or(BLIND_SCAN_FRACTION);
+    let rad: Vec<f64> = cut
+        .iter()
+        .map(ActiveReflection::radiated_fraction)
+        .collect();
+    (1..cut.len().saturating_sub(1))
+        .filter(|&i| rad[i] < thr && rad[i] < rad[i - 1] && rad[i] < rad[i + 1])
+        .map(|i| BlindScan {
+            theta: cut[i].theta,
+            gamma_abs: cut[i].gamma.norm(),
+        })
+        .collect()
 }
 
 /// A Floquet cell factored at one `(ω, k_t)`.
@@ -1233,7 +1899,7 @@ pub struct FactoredFloquetCell<'a> {
     k_t: [f64; 3],
     channels: Vec<FloquetChannel>,
     warnings: Vec<String>,
-    port_support: [Vec<usize>; 2],
+    port_support: Vec<Vec<usize>>,
     /// `h_q` on `port_support[channel.port]`.
     h: Vec<Vec<c64>>,
     interior: DofAliasMap,
@@ -1287,6 +1953,54 @@ impl FactoredFloquetCell<'_> {
     pub fn rhs(&self, q: usize) -> Vec<c64> {
         let c = c64::new(0.0, 2.0 * self.omega) * self.channels[q].admittance;
         self.port_vector(q).iter().map(|v| v.conj() * c).collect()
+    }
+
+    /// The reduced right-hand side of a unit **delta-gap current** `I = 1`
+    /// impressed along mesh edge `edge`: `b = −iω Pᴴ e_W` (the sign of the
+    /// curl–curl equation `∇×∇×E − k²εE = −iωJ`, which makes `Re(−V/I) > 0`
+    /// a passive load), where `e_W` is the edge's Whitney DOF — the unit
+    /// vector on `edge_dofs(edge)[0]`. At p=1 that is the edge's own
+    /// Nédélec function (line integral `1` along it); at p=2 only the `W`
+    /// member of the `(W, Q)` pair enters, because `Q = ∇(λ_aλ_b)` has zero
+    /// line integral along the edge (issue #1682). `None` if the edge is
+    /// PEC-eliminated (its `W` DOF carries no field; the `Q` DOF's state is
+    /// irrelevant to the feed).
+    ///
+    /// # Errors
+    ///
+    /// No error is produced beyond the [`FloquetError`] contract; the
+    /// delta-gap feed is order-generic.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `edge` is out of range.
+    pub fn edge_current_rhs(&self, edge: usize) -> Result<Option<Vec<c64>>, FloquetError> {
+        let dof = self.cell.edge_w_dofs[edge] as usize;
+        let Some(i) = self.cell.op.interior_index(dof) else {
+            // The edge is PEC-eliminated (it carries no field).
+            return Ok(None);
+        };
+        let mut b = vec![c64::new(0.0, 0.0); self.n_reduced()];
+        let w = c64::new(0.0, -self.omega);
+        for (r, c) in self.interior.row(i) {
+            b[r] += c.conj() * w;
+        }
+        Ok(Some(b))
+    }
+
+    /// The gap voltage `V = ∫E·dl` along mesh edge `edge` of a reduced
+    /// solution `x_r`: the edge's Whitney DOF, `expand(x_r)[edge_dofs(edge)[0]]`.
+    /// At p=1 that is the edge DOF itself; at p=2 the `Q` DOF contributes
+    /// exactly zero (`Q = ∇(λ_aλ_b)` has no line integral along the edge),
+    /// so the `W` coefficient alone is the circulation at either order
+    /// (issue #1682).
+    ///
+    /// # Errors
+    ///
+    /// No error is produced beyond the [`FloquetError`] contract; the
+    /// delta-gap feed is order-generic.
+    pub fn edge_voltage(&self, x_r: &[c64], edge: usize) -> Result<c64, FloquetError> {
+        Ok(self.expand(x_r)[self.cell.edge_w_dofs[edge] as usize])
     }
 
     /// Solve `A_r x = b`.
@@ -1378,6 +2092,521 @@ impl FactoredFloquetCell<'_> {
     }
 }
 
+/// One frequency of a [`FloquetPromSweep`].
+#[derive(Debug, Clone)]
+pub struct FloquetPromPoint {
+    /// Angular frequency (`= k₀`).
+    pub omega: f64,
+    /// The S-matrix over the propagating channels. For a point evaluated
+    /// through the reduced model `fields` is empty and `residual_rel` is the
+    /// full-order residual indicator `‖A_r V x_k − b‖/‖b‖` (not a solver
+    /// residual).
+    pub solution: FloquetSolution,
+    /// `true` for a full-order solve (a greedy snapshot or a fallback),
+    /// `false` for a point evaluated through the reduced model.
+    pub solved: bool,
+}
+
+/// The result of [`FloquetProm::sweep`]: the points (in input order) and
+/// the greedy diagnostics.
+#[derive(Debug, Clone)]
+pub struct FloquetPromSweep {
+    /// One point per requested frequency, in input order.
+    pub points: Vec<FloquetPromPoint>,
+    /// Dimension of the reduced model.
+    pub reduced_order: usize,
+    /// Whether the greedy loop reached the tolerance over every frequency
+    /// within the snapshot budget.
+    pub converged: bool,
+    /// Worst residual indicator over the grid when the greedy loop stopped
+    /// (before any fallback solve).
+    pub worst_residual: f64,
+    /// Greedy snapshot frequencies, in selection order (band ends and
+    /// midpoint first).
+    pub snapshot_omegas: Vec<f64>,
+    /// Frequencies above the tolerance after the greedy loop, solved
+    /// full-order instead (empty when `converged`).
+    pub fallback_omegas: Vec<f64>,
+    /// Sparse LU factorizations spent (snapshots + fallbacks).
+    pub n_factorizations: usize,
+}
+
+/// A **projection-based reduced-order model (PROM) of a Floquet cell at a
+/// fixed transverse wave vector `k_t`** (issue #1521, Epic #837 Phase 4b).
+///
+/// With `k_t` fixed the Bloch-phased reduction `P` is fixed, and
+/// `A_r(ω) = Pᴴ A(ω) P + Σ_q c_q(ω) h̄_q h_qᵀ` has an affine structure that
+/// can be projected **once**:
+///
+/// - `Pᴴ A(ω) P = K + iωC − ω²M` (the driven operator's own K/M/C family);
+/// - the port vectors `h_q = Pᵀ g_q` depend on `ω` **not at all**: the mode
+///   integrals `g_q` use only `κ_q = k_t + m b₁ + n b₂` and the unit
+///   polarization `ê_q`, both functions of `k_t` and the order. Only the
+///   scalar `c_q(ω) = iω y_q(ω)` varies (`y_TE = k_z/ω`, `y_TM = ω ε/k_z`,
+///   `k_z = √(k² − κ²)`, non-affine but a closed form per channel).
+///
+/// So `V` (an orthonormal basis of full-order snapshot solutions at greedily
+/// chosen frequencies) gives the reduced operator
+/// `Vᴴ A_r(ω) V = Kᵣ + iωCᵣ − ω²Mᵣ + Σ_q c_q(ω) w̄_q w_qᵀ` with
+/// `w_q = Vᵀ h_q`, in which `Kᵣ, Cᵣ, Mᵣ, w_q` are computed once per basis
+/// vector and every frequency costs a dense `k × k` solve.
+///
+/// A diffraction order that switches between propagating and evanescent
+/// across the band is fine (only `c_q` and the S read-out columns change).
+/// A band over which the channel *set* changes (a new order enters outside
+/// the evanescent rings) is not: [`Self::build`] returns
+/// [`FloquetError::PromUnsupported`] and the caller runs the dense sweep.
+/// A cell with a modal feed is likewise rejected.
+///
+/// The residual indicator is the full-order relative residual of the
+/// reduced solution, so (as for [`crate::driven::rom::DrivenRom`]) it bounds
+/// the residual, not the error in `S`, by the conditioning of `A_r(ω)`. It
+/// has a round-off floor (measured `≈ 2e-9` on the slab fixture, where the
+/// true `|ΔS|` against the dense sweep is `≈ 1e-12`): a tolerance below the
+/// floor never converges and ends in the full-order fallback.
+pub struct FloquetProm<'a> {
+    cell: &'a FloquetCell,
+    k_t: [f64; 3],
+    phi: f64,
+    keys: Vec<FloquetLabel>,
+    port_support: Vec<Vec<usize>>,
+    /// `h_q` on `port_support[port of q]`.
+    h: Vec<Vec<c64>>,
+    /// Reduced operators at `ω = 0, s, 2s` (`K`, `K + isC − s²M`, …).
+    a_ref: [SparseColMat<usize, c64>; 3],
+    scale: f64,
+    basis: Vec<Vec<c64>>,
+    kv: Vec<Vec<c64>>,
+    cv: Vec<Vec<c64>>,
+    mv: Vec<Vec<c64>>,
+    kr: Vec<Vec<c64>>,
+    cr: Vec<Vec<c64>>,
+    mr: Vec<Vec<c64>>,
+    /// `w[q][j] = h_qᵀ v_j`.
+    w: Vec<Vec<c64>>,
+    snapshots: Vec<f64>,
+    worst_residual: f64,
+    converged: bool,
+    n_factorizations: usize,
+}
+
+fn channel_keys(channels: &[FloquetChannel]) -> Vec<FloquetLabel> {
+    channels.iter().map(|c| (c.port, c.order, c.pol)).collect()
+}
+
+impl<'a> FloquetProm<'a> {
+    /// Build the PROM over the candidate frequencies `omegas` (at least
+    /// one, each finite and `> 0`) by greedy snapshot selection: the band
+    /// ends and midpoint seed it, then the candidate with the worst
+    /// residual indicator is added until `settings.tolerance` is reached or
+    /// `settings.max_snapshots` full-order factorizations are spent. Each
+    /// snapshot adds the solutions of every propagating excitation.
+    ///
+    /// # Errors
+    ///
+    /// [`FloquetError::InvalidSpec`] for bad frequencies / settings or a
+    /// modal-feed cell; [`FloquetError::PromUnsupported`] if the channel
+    /// set changes across `omegas`; the errors of [`FloquetCell::channels_at`]
+    /// and [`FloquetCell::factor`].
+    pub fn build(
+        cell: &'a FloquetCell,
+        k_t: [f64; 3],
+        phi: f64,
+        omegas: &[f64],
+        settings: RomSettings,
+    ) -> Result<Self, FloquetError> {
+        if omegas.is_empty() || !omegas.iter().all(|w| w.is_finite() && *w > 0.0) {
+            return Err(FloquetError::InvalidSpec(
+                "PROM frequencies must be a non-empty list of finite ω > 0".into(),
+            ));
+        }
+        if settings.max_snapshots == 0 || settings.tolerance.is_nan() || settings.tolerance <= 0.0 {
+            return Err(FloquetError::InvalidSpec(
+                "PROM needs tolerance > 0 and max_snapshots >= 1".into(),
+            ));
+        }
+        if cell.ports.iter().any(|p| p.modal.is_some()) {
+            return Err(FloquetError::InvalidSpec(
+                "the Floquet PROM does not support a modal feed".into(),
+            ));
+        }
+        // The channel set must be one fixed list across the band.
+        let mut cands = Vec::with_capacity(omegas.len());
+        let mut keys: Option<Vec<FloquetLabel>> = None;
+        for &omega in omegas {
+            let (channels, warnings) = cell.channels_at(omega, k_t, phi)?;
+            let k = channel_keys(&channels);
+            match &keys {
+                None => keys = Some(k),
+                Some(k0) if *k0 != k => {
+                    return Err(FloquetError::PromUnsupported(format!(
+                        "the channel set changes across the band (at ω = {omega}); run the \\
+                         dense sweep"
+                    )));
+                }
+                Some(_) => {}
+            }
+            cands.push((omega, channels, warnings));
+        }
+        let keys = keys.expect("non-empty");
+        // Seeds: band ends and midpoint of the sorted candidate list.
+        let mut order: Vec<usize> = (0..omegas.len()).collect();
+        order.sort_by(|&a, &b| omegas[a].total_cmp(&omegas[b]));
+        let mut seeds = vec![order[0], order[order.len() / 2], order[order.len() - 1]];
+        seeds.dedup();
+        let (lo, hi) = (omegas[order[0]], omegas[order[order.len() - 1]]);
+        let scale = 0.5 * (lo + hi);
+
+        let phased = cell.constraint.with_bloch_phase(k_t);
+        let interior = phased.dofs().restrict_rows(&cell.interior_to_full);
+        let a_at = |w: f64| -> Result<SparseColMat<usize, c64>, FloquetError> {
+            let a = cell.op.matrix_at(w)?;
+            Ok(interior.reduce_matrix(a.as_ref())?)
+        };
+        let a_ref = [a_at(0.0)?, a_at(scale)?, a_at(2.0 * scale)?];
+
+        let first = cell.factor(omegas[seeds[0]], k_t, phi)?;
+        let n_q = keys.len();
+        let mut prom = Self {
+            cell,
+            k_t,
+            phi,
+            keys,
+            port_support: first.port_support.clone(),
+            h: first.h.clone(),
+            a_ref,
+            scale,
+            basis: Vec::new(),
+            kv: Vec::new(),
+            cv: Vec::new(),
+            mv: Vec::new(),
+            kr: Vec::new(),
+            cr: Vec::new(),
+            mr: Vec::new(),
+            w: vec![Vec::new(); n_q],
+            snapshots: Vec::new(),
+            worst_residual: 0.0,
+            converged: false,
+            n_factorizations: 0,
+        };
+        prom.add_snapshot(omegas[seeds[0]], &first)?;
+        drop(first);
+        for &i in &seeds[1..] {
+            if prom.snapshots.len() >= settings.max_snapshots {
+                break;
+            }
+            let fac = cell.factor(omegas[i], k_t, phi)?;
+            prom.add_snapshot(omegas[i], &fac)?;
+        }
+        // Greedy loop over the non-snapshot candidates.
+        loop {
+            let mut worst = (0.0_f64, usize::MAX);
+            for (i, (omega, channels, warnings)) in cands.iter().enumerate() {
+                if prom.snapshots.contains(omega) {
+                    continue;
+                }
+                let eta = prom.evaluate_with(*omega, channels, warnings)?.residual_rel;
+                if eta > worst.0 {
+                    worst = (eta, i);
+                }
+            }
+            prom.worst_residual = worst.0;
+            if worst.1 == usize::MAX || worst.0 <= settings.tolerance {
+                prom.converged = true;
+                break;
+            }
+            if prom.snapshots.len() >= settings.max_snapshots {
+                break;
+            }
+            let omega = cands[worst.1].0;
+            let fac = cell.factor(omega, k_t, phi)?;
+            let before = prom.basis.len();
+            prom.add_snapshot(omega, &fac)?;
+            if prom.basis.len() == before {
+                break; // stagnated: nothing new to add
+            }
+        }
+        Ok(prom)
+    }
+
+    /// Orthonormalize the propagating-excitation solutions of `fac` into
+    /// the basis and extend the projected operators.
+    fn add_snapshot(
+        &mut self,
+        omega: f64,
+        fac: &FactoredFloquetCell<'_>,
+    ) -> Result<(), FloquetError> {
+        self.n_factorizations += 1;
+        self.snapshots.push(omega);
+        let n = fac.n_reduced();
+        for q in (0..fac.channels.len()).filter(|&q| fac.channels[q].propagating) {
+            let mut x = vec![c64::new(0.0, 0.0); n];
+            fac.back_solve(&fac.rhs(q), &mut x)?;
+            let norm0 = dot_h(&x, &x).re.sqrt();
+            if norm0.is_nan() || norm0 <= 0.0 || !norm0.is_finite() {
+                continue;
+            }
+            for _ in 0..2 {
+                for v in &self.basis {
+                    let c = dot_h(v, &x);
+                    for (xi, vi) in x.iter_mut().zip(v) {
+                        *xi -= c * vi;
+                    }
+                }
+            }
+            let nrm = dot_h(&x, &x).re.sqrt();
+            if nrm <= 1e-10 * norm0 {
+                continue;
+            }
+            for xi in &mut x {
+                *xi /= nrm;
+            }
+            self.push_basis(x);
+        }
+        Ok(())
+    }
+
+    fn push_basis(&mut self, v: Vec<c64>) {
+        let n = v.len();
+        let apply = |a: &SparseColMat<usize, c64>| {
+            let mut y = vec![c64::new(0.0, 0.0); n];
+            spmv(a.as_ref(), &v, &mut y);
+            y
+        };
+        let (y0, y1, y2) = (
+            apply(&self.a_ref[0]),
+            apply(&self.a_ref[1]),
+            apply(&self.a_ref[2]),
+        );
+        // A(ω) = K + iωC − ω²M at ω = 0, s, 2s.
+        let s = self.scale;
+        let kw = y0.clone();
+        let mut cw = vec![c64::new(0.0, 0.0); n];
+        let mut mw = vec![c64::new(0.0, 0.0); n];
+        let ic = c64::new(0.0, 1.0 / (2.0 * s));
+        for i in 0..n {
+            let x1 = y1[i] - y0[i];
+            let x2 = y2[i] - y0[i];
+            mw[i] = (x1 * 2.0 - x2) / (2.0 * s * s);
+            cw[i] = (x2 - x1 * 4.0) * ic;
+        }
+        grow_reduced(&mut self.kr, &self.basis, &self.kv, &v, &kw);
+        grow_reduced(&mut self.cr, &self.basis, &self.cv, &v, &cw);
+        grow_reduced(&mut self.mr, &self.basis, &self.mv, &v, &mw);
+        for (q, wq) in self.w.iter_mut().enumerate() {
+            let support = &self.port_support[self.keys[q].0];
+            wq.push(
+                support
+                    .iter()
+                    .zip(&self.h[q])
+                    .map(|(&r, &hv)| hv * v[r])
+                    .fold(c64::new(0.0, 0.0), |a, b| a + b),
+            );
+        }
+        self.kv.push(kw);
+        self.cv.push(cw);
+        self.mv.push(mw);
+        self.basis.push(v);
+    }
+
+    /// Dimension of the reduced model.
+    pub fn reduced_order(&self) -> usize {
+        self.basis.len()
+    }
+
+    /// Whether the greedy loop reached the tolerance over the whole grid.
+    pub fn converged(&self) -> bool {
+        self.converged
+    }
+
+    /// Worst residual indicator over the candidate grid when the greedy
+    /// loop stopped.
+    pub fn worst_residual(&self) -> f64 {
+        self.worst_residual
+    }
+
+    /// Greedy snapshot frequencies, in selection order.
+    pub fn snapshot_omegas(&self) -> &[f64] {
+        &self.snapshots
+    }
+
+    /// Full-order factorizations spent building the model.
+    pub fn n_factorizations(&self) -> usize {
+        self.n_factorizations
+    }
+
+    /// Evaluate the S-matrix at `omega` through the reduced model.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`FloquetCell::channels_at`];
+    /// [`FloquetError::PromUnsupported`] if the channel set at `omega`
+    /// differs from the one the model was built for;
+    /// [`FloquetError::Solve`] for a singular reduced system.
+    pub fn evaluate(&self, omega: f64) -> Result<FloquetSolution, FloquetError> {
+        let (channels, warnings) = self.cell.channels_at(omega, self.k_t, self.phi)?;
+        self.evaluate_with(omega, &channels, &warnings)
+    }
+
+    fn evaluate_with(
+        &self,
+        omega: f64,
+        channels: &[FloquetChannel],
+        warnings: &[String],
+    ) -> Result<FloquetSolution, FloquetError> {
+        if channel_keys(channels) != self.keys {
+            return Err(FloquetError::PromUnsupported(format!(
+                "the channel set at ω = {omega} differs from the one the model was built for"
+            )));
+        }
+        let k = self.basis.len();
+        let iw = c64::new(0.0, omega);
+        let w2 = omega * omega;
+        let c: Vec<c64> = channels.iter().map(|ch| iw * ch.admittance).collect();
+        let mut a = vec![c64::new(0.0, 0.0); k * k];
+        for i in 0..k {
+            for j in 0..k {
+                a[i * k + j] = self.kr[i][j] + iw * self.cr[i][j] - self.mr[i][j] * w2;
+            }
+        }
+        for (q, wq) in self.w.iter().enumerate() {
+            for i in 0..k {
+                let ci = c[q] * wq[i].conj();
+                for j in 0..k {
+                    a[i * k + j] += ci * wq[j];
+                }
+            }
+        }
+        let propagating: Vec<usize> = (0..channels.len())
+            .filter(|&q| channels[q].propagating)
+            .collect();
+        let np = propagating.len();
+        let mut b = vec![c64::new(0.0, 0.0); k * np];
+        for (jc, &q) in propagating.iter().enumerate() {
+            for i in 0..k {
+                b[i * np + jc] = c[q] * self.w[q][i].conj() * 2.0;
+            }
+        }
+        let x = dense_solve_multi(&a, &b, k, np).ok_or_else(|| {
+            FloquetError::Solve(format!("singular reduced Floquet system at ω = {omega}"))
+        })?;
+        let cols: Vec<Vec<c64>> = (0..np)
+            .map(|jc| (0..k).map(|i| x[i * np + jc]).collect())
+            .collect();
+        let mut s = vec![vec![c64::new(0.0, 0.0); np]; np];
+        let mut residual_rel: f64 = 0.0;
+        for (jc, &q) in propagating.iter().enumerate() {
+            let yq = channels[q].admittance.re;
+            for (ic, &p) in propagating.iter().enumerate() {
+                let mut bp = self.w[p]
+                    .iter()
+                    .zip(&cols[jc])
+                    .map(|(&wv, &xv)| wv * xv)
+                    .fold(c64::new(0.0, 0.0), |a, b| a + b);
+                if p == q {
+                    bp -= c64::new(1.0, 0.0);
+                }
+                s[ic][jc] = bp * (channels[p].admittance.re / yq).sqrt();
+            }
+            residual_rel = residual_rel.max(self.residual(omega, &c, q, &cols[jc]));
+        }
+        Ok(FloquetSolution {
+            omega,
+            k_t: self.k_t,
+            channels: channels.to_vec(),
+            propagating,
+            s,
+            fields: Vec::new(),
+            residual_rel,
+            warnings: warnings.to_vec(),
+        })
+    }
+
+    /// `‖A_r(ω) V x − b_q‖ / ‖b_q‖` in the full reduced space.
+    fn residual(&self, omega: f64, c: &[c64], q: usize, x: &[c64]) -> f64 {
+        let n = self.basis[0].len();
+        let (iw, w2) = (c64::new(0.0, omega), omega * omega);
+        let mut r = vec![c64::new(0.0, 0.0); n];
+        for (j, &xj) in x.iter().enumerate() {
+            for (i, ri) in r.iter_mut().enumerate() {
+                *ri += xj * (self.kv[j][i] + iw * self.cv[j][i] - self.mv[j][i] * w2);
+            }
+        }
+        let mut b2 = 0.0_f64;
+        for (p, hp) in self.h.iter().enumerate() {
+            let support = &self.port_support[self.keys[p].0];
+            let proj = self.w[p]
+                .iter()
+                .zip(x)
+                .map(|(&wv, &xv)| wv * xv)
+                .fold(c64::new(0.0, 0.0), |a, b| a + b);
+            let mut t = c[p] * proj;
+            let mut tb = c64::new(0.0, 0.0);
+            if p == q {
+                tb = c[q] * 2.0;
+                t -= tb;
+            }
+            for (&row, &hv) in support.iter().zip(hp) {
+                r[row] += hv.conj() * t;
+                if p == q {
+                    b2 += (hv.conj() * tb).norm_sqr();
+                }
+            }
+        }
+        let r2: f64 = r.iter().map(|z| z.norm_sqr()).sum();
+        (r2 / b2.max(f64::MIN_POSITIVE)).sqrt()
+    }
+
+    /// Evaluate every frequency of `omegas` (the grid the model was built
+    /// on): snapshots and any frequency still above `tolerance` after the
+    /// greedy loop are solved full-order (the latter is the fallback, so a
+    /// non-converged model never returns an uncertified point); the rest go
+    /// through the reduced model.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::evaluate`] and [`FloquetCell::factor`].
+    pub fn sweep(
+        &mut self,
+        omegas: &[f64],
+        tolerance: f64,
+    ) -> Result<FloquetPromSweep, FloquetError> {
+        let mut points = Vec::with_capacity(omegas.len());
+        let mut fallback = Vec::new();
+        for &omega in omegas {
+            let sol = self.evaluate(omega)?;
+            let snap = self.snapshots.contains(&omega);
+            if !snap && sol.residual_rel > tolerance {
+                let sol = self.cell.factor(omega, self.k_t, self.phi)?.s_matrix()?;
+                self.n_factorizations += 1;
+                fallback.push(omega);
+                points.push(FloquetPromPoint {
+                    omega,
+                    solution: sol,
+                    solved: true,
+                });
+            } else {
+                points.push(FloquetPromPoint {
+                    omega,
+                    solution: sol,
+                    solved: snap,
+                });
+            }
+        }
+        fallback.sort_by(f64::total_cmp);
+        fallback.dedup();
+        Ok(FloquetPromSweep {
+            points,
+            reduced_order: self.reduced_order(),
+            converged: self.converged,
+            worst_residual: self.worst_residual,
+            snapshot_omegas: self.snapshots.clone(),
+            fallback_omegas: fallback,
+            n_factorizations: self.n_factorizations,
+        })
+    }
+}
+
 /// `C (k h)² k/k_z` of the specular order at one port (issue #885), or
 /// `None` if it does not propagate there.
 fn specular_floor(port: &PortFace, omega: f64, kt_abs: f64) -> Option<f64> {
@@ -1412,27 +2641,55 @@ fn mode_integrals(port: &PortFace, ch: &FloquetChannel, cell_area: f64) -> Vec<c
             level += 1;
         }
         let pts = sub_quadrature(level);
-        let mut acc = [c64::new(0.0, 0.0); 3];
+        // Local DOF slots of this triangle: 3 at p=1 (the `edges` list), 8
+        // at p=2 (the trace layout, mapped into `port.dofs` positions).
+        let slots: Vec<usize> = if let Some(trace) = &t.trace {
+            trace
+                .iter()
+                .map(|&d| port.dofs.binary_search(&d).expect("face DOF"))
+                .collect()
+        } else {
+            t.edges
+                .iter()
+                .map(|&(f, _, _)| port.dofs.binary_search(&f).expect("face DOF"))
+                .collect()
+        };
+        let p2 = t.trace.is_some();
+        let mut acc = [c64::new(0.0, 0.0); TRI_NEDELEC2_TRACE_DOFS];
         for (lam, w) in &pts {
             let r = [
                 lam[0] * t.p[0][0] + lam[1] * t.p[1][0] + lam[2] * t.p[2][0],
                 lam[0] * t.p[0][1] + lam[1] * t.p[1][1] + lam[2] * t.p[2][1],
                 lam[0] * t.p[0][2] + lam[1] * t.p[1][2] + lam[2] * t.p[2][2],
             ];
-            // ē_q = ê e^{+jκ·r} / √A.
-            let ph = dot(ch.kappa, r);
-            let e = c64::new(ph.cos(), ph.sin()) * (w * t.area * norm_c);
-            for (k, &(_, a, b)) in t.edges.iter().enumerate() {
-                let wv = [
-                    lam[a] * t.grad[b][0] - lam[b] * t.grad[a][0],
-                    lam[a] * t.grad[b][1] - lam[b] * t.grad[a][1],
-                    lam[a] * t.grad[b][2] - lam[b] * t.grad[a][2],
-                ];
-                acc[k] += e * dot(wv, ch.e_hat);
+            // ē_q = ê e^{+jκ·r} / √A (a modal feed: ê √(2/A) sin(mπ(s − s₀)/w)).
+            let e = if let Some(m) = &port.modal {
+                let arg = m.m as f64 * PI * (dot(r, m.across) - m.s0) / m.width;
+                c64::new(arg.sin() * std::f64::consts::SQRT_2, 0.0) * (w * t.area * norm_c)
+            } else {
+                let ph = dot(ch.kappa, r);
+                c64::new(ph.cos(), ph.sin()) * (w * t.area * norm_c)
+            };
+            if p2 {
+                // The p=2 tangential trace (the triangle's vertices are in
+                // ascending global order, so the trace DOFs are the global
+                // DOFs with unit sign — `surface_p2`).
+                let n = tri_nedelec2_trace_shapes(lam, &t.grad);
+                for (k, nv) in n.iter().enumerate() {
+                    acc[k] += e * dot(*nv, ch.e_hat);
+                }
+            } else {
+                for (k, &(_, a, b)) in t.edges.iter().enumerate() {
+                    let wv = [
+                        lam[a] * t.grad[b][0] - lam[b] * t.grad[a][0],
+                        lam[a] * t.grad[b][1] - lam[b] * t.grad[a][1],
+                        lam[a] * t.grad[b][2] - lam[b] * t.grad[a][2],
+                    ];
+                    acc[k] += e * dot(wv, ch.e_hat);
+                }
             }
         }
-        for (k, &(f, _, _)) in t.edges.iter().enumerate() {
-            let i = port.dofs.binary_search(&f).expect("face DOF");
+        for (k, &i) in slots.iter().enumerate() {
             g[i] += acc[k];
         }
     }
@@ -1480,16 +2737,27 @@ fn plane_of(t: &PortTriangle, n: [f64; 3]) -> f64 {
     dot(t.p[0], n)
 }
 
+/// The material inputs `prepare_port` needs from either spec flavor.
+struct CellInputs<'a> {
+    eps_r: &'a [c64],
+    sigma: Option<&'a [f64]>,
+    /// PEC interior mask over the edges (`true` = kept).
+    mask: &'a [bool],
+}
+
 /// Validate and prepare port `p`.
+#[allow(clippy::too_many_arguments)]
 fn prepare_port(
     mesh: &TetMesh,
+    space: &HcurlSpace,
     edges: &[[u32; 2]],
     lattice: &FloquetLattice,
-    spec: &FloquetCellSpec<'_>,
-    mask: &[bool],
+    spec: &CellInputs<'_>,
     p: usize,
+    ps: &FloquetPortSpec<'_>,
+    modal: Option<ModalProfile>,
 ) -> Result<PortFace, FloquetError> {
-    let ps = &spec.ports[p];
+    let mask = spec.mask;
     if !(ps.eps_r.is_finite() && ps.eps_r > 0.0) {
         return Err(FloquetError::InvalidSpec(format!(
             "Floquet port {p}: eps_r must be finite and > 0 (got {}); a Floquet mode is a plane \
@@ -1508,6 +2776,17 @@ fn prepare_port(
         .enumerate()
         .map(|(i, e)| ((e[0], e[1]), i))
         .collect();
+    let p2 = space.order() == ElementOrder::P2;
+    // Face index lookup for the p=2 trace DOFs (`mesh.faces()` is sorted).
+    let face_index: HashMap<[u32; 3], usize> = if p2 {
+        mesh.faces()
+            .iter()
+            .enumerate()
+            .map(|(i, f)| (*f, i))
+            .collect()
+    } else {
+        HashMap::new()
+    };
     // Which tets own each port triangle.
     let mut owner: HashMap<[u32; 3], Vec<usize>> = ps
         .triangles
@@ -1615,20 +2894,63 @@ fn prepare_port(
         let gl1 = add(scale_v(e1, i00), scale_v(e2, i01));
         let gl2 = add(scale_v(e1, i01), scale_v(e2, i11));
         let gl0 = scale_v(add(gl1, gl2), -1.0);
+        // A port DOF must be PEC-free (a Floquet port face is a homogeneous
+        // dielectric; a modal feed's wall edges may touch its plane where
+        // the mode vanishes).
+        let need_free = |d: usize, what: &str| -> Result<(), FloquetError> {
+            if !mask[d] && modal.is_none() {
+                return Err(FloquetError::InvalidSpec(format!(
+                    "Floquet port {p}: {what} {d} on the port face is PEC; a Floquet port face \
+                     must be a homogeneous dielectric (move the metal off the port plane)"
+                )));
+            }
+            Ok(())
+        };
         let mut tedges = [(0usize, 0usize, 0usize); 3];
+        let mut trace: Option<[usize; TRI_NEDELEC2_TRACE_DOFS]> = None;
         for (k, (a, b)) in [(0usize, 1usize), (1, 2), (0, 2)].into_iter().enumerate() {
             // s is ascending, so local a < b ⇔ global s[a] < s[b].
             let f = *edge_index
                 .get(&(s[a], s[b]))
                 .expect("triangle edge is a mesh edge");
-            if !mask[f] {
-                return Err(FloquetError::InvalidSpec(format!(
-                    "Floquet port {p}: edge {f} on the port face is PEC; a Floquet port face \
-                     must be a homogeneous dielectric (move the metal off the port plane)"
-                )));
+            let mut trace_edge = [0usize; 2];
+            if p2 {
+                let ed = space.edge_dofs(f);
+                need_free(ed[0] as usize, "the W DOF of edge")?;
+                need_free(ed[1] as usize, "the Q DOF of edge")?;
+                trace_edge = [ed[0] as usize, ed[1] as usize];
+                dofs.push(ed[0] as usize);
+                dofs.push(ed[1] as usize);
+            } else {
+                need_free(f, "edge")?;
+                dofs.push(f);
             }
-            tedges[k] = (f, a, b);
-            dofs.push(f);
+            tedges[k] = (if p2 { trace_edge[0] } else { f }, a, b);
+            if p2 {
+                // Fill the trace layout by the edge's own vertex positions:
+                // the kernel's layout is [W01, Q01, W02, Q02, W12, Q12, …],
+                // while this loop visits the edges in (p=1) order
+                // (0,1), (1,2), (0,2).
+                let base = match (a, b) {
+                    (0, 1) => 0,
+                    (0, 2) => 2,
+                    _ => 4,
+                };
+                let tr = trace.get_or_insert([0usize; TRI_NEDELEC2_TRACE_DOFS]);
+                tr[base] = trace_edge[0];
+                tr[base + 1] = trace_edge[1];
+            }
+        }
+        if p2 {
+            let gf = *face_index.get(&s).expect("a port triangle is a mesh face");
+            let fd = space.face_dofs(gf);
+            need_free(fd[0] as usize, "the φ0 DOF of face")?;
+            need_free(fd[1] as usize, "the φ1 DOF of face")?;
+            let tr = trace.as_mut().expect("trace filled above");
+            tr[6] = fd[0] as usize;
+            tr[7] = fd[1] as usize;
+            dofs.push(fd[0] as usize);
+            dofs.push(fd[1] as usize);
         }
         area_sum += 0.5 * a2;
         tris.push(PortTriangle {
@@ -1637,6 +2959,7 @@ fn prepare_port(
             area: 0.5 * a2,
             h,
             edges: tedges,
+            trace,
         });
     }
     if (area_sum - lattice.area).abs() > 1e-8 * lattice.area {
@@ -1665,7 +2988,9 @@ fn prepare_port(
     // along the normal.
     let pl = plane.expect("non-empty port");
     let mut clearance = f64::INFINITY;
-    for (t, tet) in mesh.tets.iter().enumerate() {
+    // A modal feed sits inside its guide: the walls and the evanescent
+    // guide modes are not a port-clearance concern.
+    for (t, tet) in mesh.tets.iter().enumerate().filter(|_| modal.is_none()) {
         let e = spec.eps_r[t];
         let sig = spec.sigma.map_or(0.0, |s| s[t]);
         if (e.re - ps.eps_r).abs() > 1e-12 * ps.eps_r.max(1.0) || e.im != 0.0 || sig != 0.0 {
@@ -1674,14 +2999,23 @@ fn prepare_port(
             }
         }
     }
-    for (f, e) in edges.iter().enumerate() {
-        if !mask[f] {
+    for (f, e) in edges.iter().enumerate().filter(|_| modal.is_none()) {
+        // An edge is PEC when either of its DOFs is eliminated (the mask
+        // eliminates `(W, Q)` together, but stay robust to a hand-made one).
+        let pec = if p2 {
+            let ed = space.edge_dofs(f);
+            !mask[ed[0] as usize] || !mask[ed[1] as usize]
+        } else {
+            !mask[f]
+        };
+        if pec {
             for &v in e {
                 clearance = clearance.min((dot(node(v), n) - pl).abs());
             }
         }
     }
     Ok(PortFace {
+        modal,
         eps_r: ps.eps_r,
         tris,
         dofs,

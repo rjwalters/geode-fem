@@ -40,7 +40,10 @@
 //!   the committed Palace oracle comparison.
 
 mod common;
-use common::edge_tables;
+
+#[path = "common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::{tarr, tf, tstr};
 
 use burn::tensor::Tensor;
 use faer::c64;
@@ -143,7 +146,7 @@ struct SyntheticFixture {
 fn synthetic_fixture(n: usize) -> SyntheticFixture {
     let mesh = cube_tet_mesh(n, 1.0);
     let edges = mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&mesh);
+    let (tet_edge_idx, tet_edge_sign) = mesh.tet_edge_tables();
 
     // Junction patch: the whole z = 0 face. A large surface patch gives
     // the reactive shunt appreciable coupling to the cavity modes (a
@@ -2124,7 +2127,7 @@ fn real_transmon_projection_deflates_junction_mode() {
     let jsigma = lambda_shift_for_frequency_hz(PALACE_PORT_SHEET_MODE_GHZ * 1e9, M_PER_UNIT);
     let ung_div = {
         let edges = f.mesh.edges();
-        let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+        let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
         let metal = f.metal_triangles();
         let exterior = f.exterior_boundary_triangles();
         let interior_mask =
@@ -2507,7 +2510,7 @@ fn real_transmon_port_voltage_a2_bulk_projector_n6() {
 
     let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
     let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
     let metal = f.metal_triangles();
     let exterior = f.exterior_boundary_triangles();
     let interior_mask =
@@ -2680,7 +2683,7 @@ fn real_transmon_shipped_shunt_bulk_projector_n6() {
 
     let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
     let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
     let metal = f.metal_triangles();
     let exterior = f.exterior_boundary_triangles();
     let interior_mask =
@@ -2897,7 +2900,7 @@ fn solve_real_fixture_gauged(
     n_modes: usize,
 ) -> Vec<ModeReport> {
     let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
     let metal = f.metal_triangles();
     let exterior = f.exterior_boundary_triangles();
     let interior_mask =
@@ -2941,7 +2944,7 @@ fn solve_real_fixture_projected(
     geode_core::eigen::projection::ProjectionDiagnostics,
 ) {
     let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
     let metal = f.metal_triangles();
     let exterior = f.exterior_boundary_triangles();
     let interior_mask =
@@ -2989,7 +2992,7 @@ fn solve_real_fixture_port_aware(
     geode_core::eigen::projection::ProjectionDiagnostics,
 ) {
     let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
     let metal = f.metal_triangles();
     let exterior = f.exterior_boundary_triangles();
     let interior_mask =
@@ -3037,7 +3040,7 @@ fn solve_real_fixture_port_subspace(
     geode_core::eigen::projection::ProjectionDiagnostics,
 ) {
     let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
     let metal = f.metal_triangles();
     let exterior = f.exterior_boundary_triangles();
     let interior_mask =
@@ -3093,7 +3096,7 @@ fn solve_real_fixture_with_l_lambda(
     n_modes: usize,
 ) -> Vec<ModeReport> {
     let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
 
     // PEC on metal + exterior boundary.
     let metal = f.metal_triangles();
@@ -3349,7 +3352,7 @@ fn solve_real_fixture_matrix_free_indefinite(
     n_modes: usize,
 ) -> Result<Vec<ModeReport>, geode_core::eigen::dense::EigenError> {
     let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
 
     let metal = f.metal_triangles();
     let exterior = f.exterior_boundary_triangles();
@@ -3501,7 +3504,7 @@ fn solve_real_fixture_indefinite_inner_iters(
     precond: geode_core::eigen::lanczos::InnerPreconditioner,
 ) -> Result<(Vec<ModeReport>, usize), geode_core::eigen::dense::EigenError> {
     let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
 
     let metal = f.metal_triangles();
     let exterior = f.exterior_boundary_triangles();
@@ -3683,7 +3686,7 @@ fn solve_real_fixture_matrix_free_inner_iters(
     precond: geode_core::eigen::lanczos::InnerPreconditioner,
 ) -> Result<(Vec<ModeReport>, usize), geode_core::eigen::dense::EigenError> {
     let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
 
     let metal = f.metal_triangles();
     let exterior = f.exterior_boundary_triangles();
@@ -3742,7 +3745,7 @@ fn real_fixture_short_lanczos_inner_iters(
     use geode_core::eigen::lanczos::SparseShiftInvertLanczos;
 
     let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
     let metal = f.metal_triangles();
     let exterior = f.exterior_boundary_triangles();
     let interior_mask =
@@ -3944,47 +3947,6 @@ fn coupling_results() -> toml::Value {
     let text =
         std::fs::read_to_string(path).expect("read benchmarks/transmon_coupling/results.toml");
     toml::from_str(&text).expect("parse benchmarks/transmon_coupling/results.toml")
-}
-
-fn tf(v: &toml::Value, path: &str) -> f64 {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur.as_float()
-        .or_else(|| cur.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("{path} is not a number"))
-}
-
-fn tarr(v: &toml::Value, path: &str) -> Vec<f64> {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur.as_array()
-        .unwrap_or_else(|| panic!("{path} is not an array"))
-        .iter()
-        .map(|x| {
-            x.as_float()
-                .or_else(|| x.as_integer().map(|i| i as f64))
-                .unwrap()
-        })
-        .collect()
-}
-
-fn tstr<'a>(v: &'a toml::Value, path: &str) -> &'a str {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur.as_str()
-        .unwrap_or_else(|| panic!("{path} is not a string"))
 }
 
 /// Issue #1078 (default tier): the committed coupling artifact matches the
@@ -4250,7 +4212,7 @@ fn real_transmon_coupling_sweep_point_reproduces() {
 
     let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
     let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
     let metal = f.metal_triangles();
     let exterior = f.exterior_boundary_triangles();
     let interior_mask =
@@ -4671,7 +4633,7 @@ fn real_transmon_loop_inductance_cj0_reproduces() {
     let want_ser = tarr(&doc, "topology.geode_l_s_nh")[0];
     let f: TransmonFixture = read_transmon_smoke_fixture().expect("real transmon fixture");
     let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
     let metal = f.metal_triangles();
     let exterior = f.exterior_boundary_triangles();
     let interior_mask =

@@ -369,17 +369,6 @@ impl Fixture {
         }
     }
 
-    /// Load a JSON fixture by its path relative to `reference/fixtures/`
-    /// (e.g. `"cube_cavity/baseline.json"`).
-    ///
-    /// Convenience wrapper over [`Fixture::load_from`] +
-    /// [`crate::repo::fixture_path`] — the one-call form of the
-    /// `load_from(&fixture_path(...), FixtureFormat::Json)` pattern the
-    /// reference tests repeat.
-    pub fn load_json(relative: impl AsRef<Path>) -> Result<Self, FixtureError> {
-        Self::load_from(&crate::repo::fixture_path(relative), FixtureFormat::Json)
-    }
-
     /// Load a fixture from disk (JSON, the only supported format).
     pub fn load(path: &Path) -> Result<Self, FixtureError> {
         Self::load_from(path, FixtureFormat::Json)

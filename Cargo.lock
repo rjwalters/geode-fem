@@ -2916,6 +2916,7 @@ dependencies = [
  "criterion",
  "faier",
  "geode-core",
+ "geode-optimize",
  "geode-util",
  "mshio",
  "nix",
@@ -5742,7 +5743,6 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-util",
- "serde",
 ]
 
 [[package]]
@@ -5839,7 +5839,6 @@ dependencies = [
  "geode-app",
  "geode-core",
  "geode-util",
- "serde",
 ]
 
 [[package]]

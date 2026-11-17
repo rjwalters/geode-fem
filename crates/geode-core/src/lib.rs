@@ -1,9 +1,11 @@
 //! GEODE-FEM core: solver primitives over Burn tensor IR.
 //!
-//! This is the bootstrap surface (issue #2). The traits below are
-//! intentionally thin placeholders that establish the directional
-//! shape of the API; concrete implementations arrive with scalar
-//! Helmholtz (#3) and the eigenmode solver work that follows.
+//! The crate root re-exports three thin, backend-parameterized traits
+//! ([`Mesh`], [`Element`], [`Operator`]). They are reserved API surface:
+//! nothing in this workspace implements or consumes them today, and the
+//! solver paths use concrete types instead. They are kept (not removed or
+//! deprecated) as the crate's conceptual entry point — see epic #377,
+//! open question 1.
 
 #[cfg(feature = "tensor")]
 pub mod adapt;
@@ -29,6 +31,7 @@ pub mod postproc;
 pub mod prelude;
 #[cfg(feature = "tensor")]
 pub mod quantum;
+pub(crate) mod rng;
 #[cfg(feature = "tensor")]
 pub mod shape;
 #[cfg(feature = "tensor")]

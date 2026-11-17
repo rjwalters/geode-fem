@@ -139,9 +139,7 @@ use crate::assembly::nedelec::{
     assemble_global_nedelec_with_full_tensors_sparse,
 };
 use crate::assembly::p1::upload_mesh;
-use crate::eigen::complex::{
-    CheckedComplexEigenpairs, SparseComplexShiftInvertLanczos, spmv as complex_spmv,
-};
+use crate::eigen::complex::{CheckedComplexEigenpairs, SparseComplexShiftInvertLanczos};
 use crate::eigen::dense::EigenError;
 use crate::eigen::hcurl_null::{
     GRADIENT_FRACTION_CUT, GradientNullCount, GradientNullSpace, LoopHarmonics,
@@ -149,7 +147,7 @@ use crate::eigen::hcurl_null::{
 use crate::eigen::lanczos::ConvergenceCheck;
 use crate::elements::ElementOrder;
 use crate::mesh::{TaggedTetMesh, TetMesh, pec_interior_mask_from_triangles};
-use crate::sparse_ops::norm2_c as norm2;
+use crate::sparse_ops::{norm2_c as norm2, spmv_c};
 
 /// Errors from the lossy / open cavity eigensolve.
 #[derive(Debug, thiserror::Error)]
@@ -428,7 +426,7 @@ pub fn assemble_lossy_pencil<B: Backend>(
     device: &B::Device,
 ) -> Result<LossyPencil, LossyCavityError> {
     validate_materials(mesh.n_tets(), materials)?;
-    let tet_edges = mesh.tet_edges();
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let n_edges = mesh.edges().len();
     if pec_interior_mask.len() != n_edges {
         return Err(LossyCavityError::InvalidInput(format!(
@@ -436,14 +434,6 @@ pub fn assemble_lossy_pencil<B: Backend>(
             pec_interior_mask.len()
         )));
     }
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
 
     let mut remap = vec![usize::MAX; n_edges];
     let mut n_interior = 0usize;
@@ -503,13 +493,6 @@ pub fn assemble_lossy_pencil<B: Backend>(
         build(&k_tr, "lossy cavity K")?,
         build(&m_tr, "lossy cavity M")?,
     ))
-}
-
-/// `y = A x` (allocating) over the shared complex CSC kernel.
-fn spmv(a: SparseColMatRef<'_, usize, c64>, x: &[c64]) -> Vec<c64> {
-    let mut y = vec![c64::new(0.0, 0.0); a.nrows()];
-    complex_spmv(a, x, &mut y);
-    y
 }
 
 fn validate_settings(s: &LossyCavitySettings) -> Result<(), LossyCavityError> {
@@ -626,8 +609,8 @@ fn solve_lossy_pencil_modes(
     let candidates: Vec<LossyCavityMode> = std::mem::take(&mut solve.pairs)
         .into_iter()
         .map(|p| {
-            let kx = spmv(k, &p.vector);
-            let mx = spmv(m, &p.vector);
+            let kx = spmv_c(k, &p.vector);
+            let mx = spmv_c(m, &p.vector);
             let r: Vec<c64> = kx
                 .iter()
                 .zip(&mx)
@@ -1746,15 +1729,11 @@ mod tests {
         seed: u64,
         n_null: usize,
     ) -> (Vec<c64>, SparseColMat<usize, c64>, SparseColMat<usize, c64>) {
-        let lcg = |s: u64| {
-            s.wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407)
-        };
-        let mut st = lcg(seed + 1000);
-        let mut rnd = || {
-            st = lcg(st);
-            ((st >> 11) as f64) / ((1u64 << 53) as f64)
-        };
+        // Seed with one LCG step (discarded draw), as the pre-consolidation
+        // copy did via `lcg(seed + 1000)`.
+        let mut rng = geode_util::rng::Lcg(seed + 1000);
+        rng.next_unit();
+        let mut rnd = || rng.next_unit();
         let tan_d = 0.125;
         let phys = [
             25.3, 37.3, 42.8, 52.0, 52.05, 54.2, 66.1, 70.5, 81.4, 81.5, 88.1, 98.0,

@@ -18,7 +18,7 @@
 //!   without solving.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use geode_core::driven::ports::extruded_rect_waveguide_mesh;
 
@@ -36,22 +36,9 @@ const LEN: f64 = 1.2;
 /// Metres per mesh unit (a 2 cm × 1 cm box).
 const LENGTH_UNIT_M: f64 = 1e-2;
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
-
-fn json_of(out: &Output) -> Value {
-    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
-        panic!(
-            "stdout is not JSON ({e}): {}\nstderr: {}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        )
-    })
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::{geode, json, write_spec};
 
 /// Write the box with a port face (`port`), PEC `walls` and `far` end.
 fn write_box(dir: &Path) -> PathBuf {
@@ -99,12 +86,6 @@ fn eigen_spec(mesh: &Path, adaptive: Option<Value>) -> Value {
     v
 }
 
-fn write_spec(dir: &Path, name: &str, v: &Value) -> PathBuf {
-    let path = dir.join(name);
-    std::fs::write(&path, serde_json::to_string_pretty(v).unwrap()).unwrap();
-    path
-}
-
 fn run(cmd: &str, spec: &Path) -> Output {
     geode(&[cmd, spec.to_str().unwrap()])
 }
@@ -125,12 +106,12 @@ fn ok_report(out: &Output) -> Value {
         "geode failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
-    json_of(out)
+    json(out)
 }
 
 fn invalid_spec(out: &Output) -> String {
     assert!(!out.status.success(), "expected failure");
-    let v = json_of(out);
+    let v = json(out);
     assert_eq!(v["kind"], "error", "report: {v:#}");
     assert_eq!(v["error"]["code"], "invalid_spec", "report: {v:#}");
     let msg = v["error"]["message"].as_str().unwrap().to_string();
@@ -321,7 +302,7 @@ fn adaptive_mesh_misuse_is_invalid_spec() {
         let p = write_spec(&dir, "d.json", &driven_spec(&mesh, Some(a)));
         let out = run("driven", &p);
         assert!(!out.status.success());
-        let v = json_of(&out);
+        let v = json(&out);
         assert_eq!(v["error"]["code"], "spec_parse", "{key}: {v:#}");
     }
 

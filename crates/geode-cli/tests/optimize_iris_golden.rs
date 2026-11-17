@@ -30,7 +30,6 @@ mod scratch_support;
 
 use scratch_support::Scratch;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
 
 use geode_core::driven::ports::extruded_rect_waveguide_mesh;
 use serde_json::{Value, json};
@@ -58,23 +57,9 @@ fn k0_hz(k0: f64) -> f64 {
     k0 * 299_792_458.0 / (2.0 * std::f64::consts::PI * LENGTH_UNIT_M)
 }
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
-
-fn ok(out: &Output, what: &str) -> Value {
-    assert!(
-        out.status.success(),
-        "{what} failed ({}):\nstderr: {}\nstdout: {}",
-        out.status,
-        String::from_utf8_lossy(&out.stderr),
-        String::from_utf8_lossy(&out.stdout)
-    );
-    serde_json::from_slice(&out.stdout).expect("report JSON")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::{geode, ok, write_spec};
 
 /// Write the filter mesh into `dir`: air tets (`air`), the two cavities
 /// (`cav1`, `cav2`), septum body / edge faces per iris (`bK` / `eK`), the
@@ -195,12 +180,6 @@ fn filter_spec(dir: &Path, edit: impl FnOnce(&mut Value)) -> Value {
     });
     edit(&mut v);
     v
-}
-
-fn write_spec(dir: &Path, name: &str, v: &Value) -> PathBuf {
-    let path = dir.join(name);
-    std::fs::write(&path, serde_json::to_string_pretty(v).unwrap()).unwrap();
-    path
 }
 
 fn db(c: &Value) -> f64 {

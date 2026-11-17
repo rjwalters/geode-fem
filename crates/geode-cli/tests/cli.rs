@@ -23,12 +23,9 @@ mod touchstone_support;
 
 use scratch_support::{Scratch, ScratchFile};
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::{geode, json};
 
 fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -62,15 +59,6 @@ fn edited_spec(name: &str, edit: impl FnOnce(&mut serde_json::Value)) -> Scratch
     edit(&mut v);
     let text = serde_json::to_string_pretty(&v).unwrap();
     ScratchFile::write("geode-cli-test-", name, "spec.json", text)
-}
-
-fn json(out: &Output) -> serde_json::Value {
-    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
-        panic!(
-            "stdout is not JSON ({e}): {}",
-            String::from_utf8_lossy(&out.stdout)
-        )
-    })
 }
 
 /// Every `invalid_spec` message is one clean sentence: a run of spaces

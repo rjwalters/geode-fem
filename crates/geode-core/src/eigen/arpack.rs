@@ -55,10 +55,10 @@
 
 #![allow(unsafe_code)]
 
-use faer::sparse::{SparseColMat, SparseColMatRef};
+use faer::sparse::SparseColMatRef;
 
 use crate::eigen::dense::EigenError;
-use crate::eigen::lanczos::SparseEigenSolver;
+use crate::eigen::lanczos::{SparseEigenSolver, shifted_pencil};
 use crate::sparse_ops::{lu_solve, spmv_into};
 
 // ---------------------------------------------------------------------------
@@ -172,45 +172,6 @@ impl Default for ArpackEigensolver {
             ncv_factor: 2,
         }
     }
-}
-
-// `K - σM` as a fresh sparse matrix, used to build the LU factorization.
-//
-// Iterates the union of both patterns. K and M typically share sparsity
-// in this crate's assembler (same P1 stencil), but we don't assume that.
-fn shifted_pencil(
-    k: SparseColMatRef<'_, usize, f64>,
-    m: SparseColMatRef<'_, usize, f64>,
-    sigma: f64,
-) -> Result<SparseColMat<usize, f64>, EigenError> {
-    use faer::sparse::Triplet;
-    let n = k.nrows();
-    assert_eq!(k.ncols(), n);
-    assert_eq!(m.nrows(), n);
-    assert_eq!(m.ncols(), n);
-
-    let nnz = k.col_ptr()[n] + m.col_ptr()[n];
-    let mut trips: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(nnz);
-
-    let push = |trips: &mut Vec<Triplet<usize, usize, f64>>,
-                a: SparseColMatRef<'_, usize, f64>,
-                scale: f64| {
-        let cp = a.col_ptr();
-        let ri = a.row_idx();
-        let v = a.val();
-        for j in 0..a.ncols() {
-            for k in cp[j]..cp[j + 1] {
-                trips.push(Triplet::new(ri[k], j, scale * v[k]));
-            }
-        }
-    };
-    push(&mut trips, k, 1.0);
-    if sigma != 0.0 {
-        push(&mut trips, m, -sigma);
-    }
-
-    SparseColMat::<usize, f64>::try_new_from_triplets(n, n, &trips)
-        .map_err(|e| EigenError::FaerGevd(format!("shifted pencil assembly: {e:?}")))
 }
 
 impl SparseEigenSolver for ArpackEigensolver {

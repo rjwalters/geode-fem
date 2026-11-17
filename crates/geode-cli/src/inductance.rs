@@ -30,7 +30,7 @@ use geode_core::assembly::magnetostatic3d::{
 use geode_core::mesh::TetMesh;
 
 use crate::check::{inductance_settings_summary, mesh_summary, region_summaries};
-use crate::error::CliError;
+use crate::error::{CliError, scaled_matrix};
 use crate::problem::{self, InductanceTarget};
 use crate::report::{InductanceReport, InductanceSolverStats, Provenance};
 use crate::spec::Analysis;
@@ -71,20 +71,7 @@ pub fn run(
     check_physical(&solved.matrix)?;
 
     let scale = p.length_unit_m();
-    for (i, row) in solved.matrix.l.iter().enumerate() {
-        if let Some(bad) = row.iter().find(|v| !v.is_finite()) {
-            return Err(CliError::NonFinite {
-                index: i,
-                what: format!("inductance row {i} has a non-finite entry {bad}"),
-            });
-        }
-    }
-    let l_henry = solved
-        .matrix
-        .l
-        .iter()
-        .map(|row| row.iter().map(|v| v * scale).collect())
-        .collect();
+    let l_henry = scaled_matrix(&solved.matrix.l, scale, "inductance")?;
     let paths = &solved.paths;
     let mut report = InductanceReport {
         provenance,

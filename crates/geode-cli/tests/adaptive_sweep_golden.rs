@@ -30,6 +30,12 @@
 //!   (issue #776 walls) Leontovich sidewalls on the pure-wave and mixed
 //!   guides plus a Silver-Müller end cap. See
 //!   the section header below for the measured numbers.
+//! * **`sweep.adaptive` + `sensitivity` bypass** (issue #1627, Epic #841
+//!   Phase 4, `#[ignore]`d like the comparisons above): on the spiral
+//!   sensitivity smoke fixture the bypass run's gradients equal the dense
+//!   run's, the report carries the full-order / cost / ROM-parity
+//!   warnings, `forward_parity` reports the ROM delta non-fatally, and
+//!   `--check-gradient` passes with its FD solves forced dense.
 //!
 //! The two adaptive-vs-dense comparisons are `#[ignore]`d — slow in a
 //! debug build (the per-frequency assembly runs unoptimized) — and run in
@@ -55,9 +61,9 @@ use std::process::Command;
 use scratch_support::Scratch;
 use serde_json::Value;
 
-fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::manifest_dir;
 
 /// `fixture` with its mesh path made absolute and `edit` applied,
 /// written to `dir/name`.
@@ -261,6 +267,166 @@ fn spiral_smoke_adaptive_sweep_matches_dense_sweep() {
         assert!(t >= last, "elapsed_s is monotone on a serial sweep");
         last = t;
     }
+}
+
+/// The `sweep.adaptive` + `sensitivity` bypass (Epic #841 Phase 4, issue
+/// #1627) on the spiral sensitivity smoke fixture (one lumped port, `eps_r`
+/// parameters), where the combination used to be `invalid_spec`:
+///
+/// * **Legacy `|S11|²` path** (no `sensitivity.frequencies`): the run
+///   succeeds, the gradients equal the dense run's (both are the path's
+///   own full-order solves, independent of the sweep), the report carries
+///   the full-order + cost warnings, and `--check-gradient` passes (its
+///   FD solves are forced dense);
+/// * **N-port path** (`sensitivity.frequencies` named): same gradient
+///   equality; `forward_parity` reports the ROM-vs-full-order delta at
+///   the differentiated frequencies as a non-fatal diagnostic, with
+///   warning `sensitivity_forward_parity` but no cost note; a dense run's
+///   `forward_parity` stays at round-off (its hard `1e-8` bound
+///   unchanged).
+#[test]
+#[ignore = "heavy (~2.5 min in release: 4 spiral driven runs with FD checks); CI runs it in release with --ignored"]
+fn adaptive_sweep_with_sensitivity_runs_full_order_gradients() {
+    let dir = Scratch::new("geode-cli-adaptive-", "sens-bypass");
+    let dense_empty_warnings = |r: &Value| {
+        r["sensitivities"]
+            .get("warnings")
+            .is_none_or(|w| w.as_array().unwrap().is_empty())
+    };
+    let grad_scale = |s: &Value| -> f64 {
+        s["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["gradient"].as_f64().unwrap().abs())
+            .fold(0.0, f64::max)
+            .max(f64::MIN_POSITIVE)
+    };
+    let max_grad_delta = |a: &Value, b: &Value| -> f64 {
+        let (ea, eb) = (
+            a["entries"].as_array().unwrap(),
+            b["entries"].as_array().unwrap(),
+        );
+        assert_eq!(ea.len(), eb.len());
+        let scale = grad_scale(a);
+        ea.iter()
+            .zip(eb)
+            .map(|(x, y)| {
+                (x["gradient"].as_f64().unwrap() - y["gradient"].as_f64().unwrap()).abs() / scale
+            })
+            .fold(0.0, f64::max)
+    };
+    let kinds = |s: &Value| -> Vec<String> {
+        s["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| w["kind"].as_str().unwrap().to_string())
+            .collect()
+    };
+
+    // The legacy one-lumped-port |S11|² path.
+    let legacy_dense = spec_from(
+        "driven_spiral_sensitivity_smoke.json",
+        "spiral_3p5_smoke.msh",
+        &dir,
+        "legacy-dense.json",
+        |_| {},
+    );
+    let legacy_bypass = spec_from(
+        "driven_spiral_sensitivity_smoke.json",
+        "spiral_3p5_smoke.msh",
+        &dir,
+        "legacy-bypass.json",
+        |v| v["sweep"] = serde_json::json!({ "adaptive": { "tolerance": TOL } }),
+    );
+    let (rd, _) = driven(&legacy_dense, &["--jobs", "2"]);
+    let (ra, _) = driven(&legacy_bypass, &["--check-gradient"]);
+    assert!(rd["sensitivities"]["observable"] == "s11_mag_sq");
+    assert!(dense_empty_warnings(&rd), "dense run gains no warnings");
+    assert!(ra["solver"].get("adaptive").is_some());
+    let ka = kinds(&ra["sensitivities"]);
+    assert!(
+        ka.iter().any(|k| k == "sensitivity_full_order_gradients"),
+        "{ka:?}"
+    );
+    assert!(
+        ka.iter().any(|k| k == "sensitivity_full_order_cost"),
+        "{ka:?}"
+    );
+    let d = max_grad_delta(&rd["sensitivities"], &ra["sensitivities"]);
+    assert!(d < 1e-12, "legacy gradients drifted under the ROM: {d:.3e}");
+
+    // The N-port path (`sensitivity.frequencies` named), on a 4-point
+    // band whose 2-snapshot ROM (seeds 1 and 12 GHz) keeps both
+    // differentiated frequencies interpolated (their residual indicators
+    // sit near 0.6, so tolerance 0.9 leaves the worst-case ROM error in
+    // place; the run must still succeed with the non-fatal diagnostic).
+    let band = serde_json::json!({ "unit": "ghz", "values": [1.0, 5.0, 12.0, 20.0] });
+    let nport_edit = |v: &mut Value| {
+        v["frequencies"] = band.clone();
+        v["sensitivity"]["frequencies"] =
+            serde_json::json!({ "unit": "ghz", "values": [5.0, 20.0] });
+    };
+    let nport_dense = spec_from(
+        "driven_spiral_sensitivity_smoke.json",
+        "spiral_3p5_smoke.msh",
+        &dir,
+        "nport-dense.json",
+        nport_edit,
+    );
+    let nport_bypass = spec_from(
+        "driven_spiral_sensitivity_smoke.json",
+        "spiral_3p5_smoke.msh",
+        &dir,
+        "nport-bypass.json",
+        |v| {
+            nport_edit(v);
+            v["sweep"] =
+                serde_json::json!({ "adaptive": { "tolerance": 0.9, "max_snapshots": 2 } });
+        },
+    );
+    let (nd, _) = driven(&nport_dense, &["--jobs", "2"]);
+    let (na, _) = driven(&nport_bypass, &["--check-gradient"]);
+    assert!(nd["sensitivities"]["observable"] == "driven_observables");
+    let pd = nd["sensitivities"]["forward_parity"].as_f64().unwrap();
+    assert!(pd <= 1e-8, "dense forward_parity regressed: {pd:.3e}");
+    // The dense run's hard parity bound is unchanged: no bypass warnings.
+    assert!(dense_empty_warnings(&nd));
+    let d = max_grad_delta(&nd["sensitivities"], &na["sensitivities"]);
+    assert!(d < 1e-12, "N-port gradients drifted under the ROM: {d:.3e}");
+    let n_interp = na["solver"]["adaptive"]["n_interpolated"].as_u64().unwrap();
+    let pa = na["sensitivities"]["forward_parity"].as_f64().unwrap();
+    println!("bypass N-port: n_interpolated = {n_interp}, forward_parity = {pa:.3e}");
+    assert!(
+        pa.is_finite(),
+        "the non-fatal ROM delta must still be reported"
+    );
+    assert!(
+        n_interp >= 1,
+        "no interpolated row at a differentiated frequency"
+    );
+    assert!(
+        n_interp >= 1,
+        "no interpolated row at a differentiated frequency"
+    );
+    assert!(
+        pa > 1e-12,
+        "an interpolated row's ROM delta must be a real, non-fatal diagnostic"
+    );
+    let kn = kinds(&na["sensitivities"]);
+    assert!(
+        kn.iter().any(|k| k == "sensitivity_full_order_gradients"),
+        "{kn:?}"
+    );
+    assert!(
+        kn.iter().any(|k| k == "sensitivity_forward_parity"),
+        "{kn:?}"
+    );
+    assert!(
+        !kn.iter().any(|k| k == "sensitivity_full_order_cost"),
+        "{kn:?}"
+    );
 }
 
 /// The patch smoke as a Silver-Müller driven spec (UPML shell removed,

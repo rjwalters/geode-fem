@@ -24,7 +24,7 @@ mod touchstone_support;
 
 use scratch_support::{Scratch, ScratchFile};
 use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::process::Output;
 
 use geode_core::driven::ports::{ExtrudedWaveguideMesh, extruded_rect_waveguide_mesh};
 
@@ -34,12 +34,9 @@ const LEN: f64 = 1.2;
 /// Metres per mesh unit: a 2 cm × 1 cm guide (TE₁₀ cutoff ≈ 7.49 GHz).
 const LENGTH_UNIT_M: f64 = 1e-2;
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::{f64_at, geode};
 
 /// Fresh scratch dir for one test, removed on drop (also on panic).
 fn scratch(name: &str) -> Scratch {
@@ -104,10 +101,6 @@ fn json(out: &Output) -> serde_json::Value {
         String::from_utf8_lossy(&out.stdout)
     );
     serde_json::from_slice(&out.stdout).expect("report is JSON")
-}
-
-fn f64_at(v: &serde_json::Value) -> f64 {
-    v.as_f64().unwrap_or_else(|| panic!("not a number: {v}"))
 }
 
 fn error_message(out: &Output, cmd: &str, code: &str) -> String {

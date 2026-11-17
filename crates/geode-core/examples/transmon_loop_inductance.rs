@@ -49,14 +49,13 @@
 
 #[path = "../tests/common/transmon_util.rs"]
 mod transmon_util;
-use transmon_util::git_head;
+use transmon_util::{arr, git_head, tarr, tf, vals_to_host};
 
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use burn::tensor::Tensor;
 use faer::c64;
 
 use geode_core::assembly::nedelec::{
@@ -70,7 +69,7 @@ use geode_core::eigen::transmon::{
 };
 use geode_core::mesh::spiral::pec_interior_mask_from_triangles;
 use geode_core::mesh::transmon::{JUNCTION_CAPACITANCE_F, JUNCTION_INDUCTANCE_H};
-use geode_core::mesh::{TetMesh, TransmonFixture, read_transmon_smoke_fixture};
+use geode_core::mesh::{TransmonFixture, read_transmon_smoke_fixture};
 use geode_core::quantum::transmon::{
     DEVICELAYOUT_COUPLING_K, DEVICELAYOUT_COUPLING_K_BAND, DEVICELAYOUT_LOOP_INDUCTANCE_BAND_H,
     DEVICELAYOUT_LOOP_INDUCTANCE_H, DEVICELAYOUT_QUBIT_FREQUENCY_HZ,
@@ -186,22 +185,6 @@ const WIRE_W_UM: f64 = 1.0;
 const WIRE_LEN_UM: f64 = 12.0;
 const MU0: f64 = 1.256_637_062_12e-6;
 
-fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
-    t.into_data().iter::<f64>().collect()
-}
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
-}
-
 /// The fixture with the wire's port stretch set to `[y_lo, y_hi]` (µm).
 /// Returns the variant and the number of retagged triangles.
 fn with_patch(fx: &TransmonFixture, y_lo: f64, y_hi: f64) -> (TransmonFixture, usize) {
@@ -276,7 +259,7 @@ struct Geode {
 impl Geode {
     fn new(fx: &TransmonFixture) -> Self {
         let edges = fx.mesh.edges();
-        let (tet_edge_idx, tet_edge_sign) = edge_tables(&fx.mesh);
+        let (tet_edge_idx, tet_edge_sign) = fx.mesh.tet_edge_tables();
         let eps = fx.epsilon_tensor_r();
         let scatter = NedelecScatterMap::new(&tet_edge_idx);
         let (nodes_t, tets_t) = upload_mesh::<B>(&fx.mesh, &device());
@@ -466,16 +449,6 @@ fn ceil_dp(x: f64, dp: i32) -> f64 {
     (x * s).ceil() / s
 }
 
-fn arr(v: &[f64], prec: usize) -> String {
-    format!(
-        "[{}]",
-        v.iter()
-            .map(|x| format!("{x:.prec$}"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    )
-}
-
 fn arr_e(v: &[f64]) -> String {
     format!(
         "[{}]",
@@ -499,36 +472,6 @@ fn strs(v: &[&str]) -> String {
 fn toml_doc(path: &Path) -> toml::Value {
     let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     toml::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
-}
-
-fn tget<'a>(v: &'a toml::Value, path: &str) -> &'a toml::Value {
-    let mut cur = v;
-    for k in path.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {path} (at {k})"));
-    }
-    cur
-}
-
-fn tf(v: &toml::Value, path: &str) -> f64 {
-    let x = tget(v, path);
-    x.as_float()
-        .or_else(|| x.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("{path} is not a number"))
-}
-
-fn tarr(v: &toml::Value, path: &str) -> Vec<f64> {
-    tget(v, path)
-        .as_array()
-        .unwrap_or_else(|| panic!("{path} is not an array"))
-        .iter()
-        .map(|x| {
-            x.as_float()
-                .or_else(|| x.as_integer().map(|i| i as f64))
-                .unwrap()
-        })
-        .collect()
 }
 
 /// Complete elliptic integral of the first kind `K(k)` by the AGM.

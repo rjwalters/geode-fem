@@ -5,10 +5,13 @@
 //! become test binaries. Consumers pull it in with `mod common;` at
 //! the top of each test file.
 
-use std::path::{Path, PathBuf};
+pub mod box_fixtures;
+pub mod wave_port;
 
 use burn::tensor::backend::Backend;
 use burn::tensor::{ElementConversion, Tensor};
+use faer::c64;
+use geode_core::driven::solve::CurrentSource;
 use geode_core::mesh::TetMesh;
 
 /// Read a `D`-dimensional float Burn tensor back to host as `Vec<f64>`,
@@ -61,17 +64,6 @@ pub fn boundary_plane_faces(mesh: &TetMesh, axis: usize, value: f64) -> Vec<[u32
         .collect()
 }
 
-/// Split `mesh.tet_edges()` into the per-tet `(idx, sign)` tables the
-/// assemblers take.
-#[allow(dead_code)] // some test binaries only use a subset of helpers
-pub fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter().map(|r| std::array::from_fn(|i| r[i].0)).collect(),
-        te.iter().map(|r| std::array::from_fn(|i| r[i].1)).collect(),
-    )
-}
-
 /// PEC interior-edge mask eliminating every edge whose **both** endpoints lie
 /// on the same listed plane `(axis, value)`.
 #[allow(dead_code)] // some test binaries only use a subset of helpers
@@ -92,44 +84,10 @@ pub fn pec_mask_for_planes(
         .collect()
 }
 
-/// Absolute path of the repository root (two levels above this crate).
-#[allow(dead_code)] // some test binaries only use a subset of helpers
-pub fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("repo root resolves")
-}
-
-/// Deterministic 64-bit LCG so tests need no `rand` dependency.
-///
-/// All three output mappings share one state update and the same
-/// `>> 11` / `2^53` unit mapping, so a given seed yields the same underlying
-/// stream regardless of which range a test draws from.
-#[allow(dead_code)] // some test binaries only use a subset of helpers
-pub struct Lcg(pub u64);
-
-#[allow(dead_code)] // some test binaries only use a subset of helpers
-impl Lcg {
-    /// Next sample in `[0, 1)`.
-    pub fn next_unit(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        (self.0 >> 11) as f64 / (1u64 << 53) as f64
-    }
-
-    /// Next sample in `[-1, 1)`.
-    pub fn next(&mut self) -> f64 {
-        self.next_unit() * 2.0 - 1.0
-    }
-
-    /// Next sample in `[-0.5, 0.5)`.
-    pub fn next_centered(&mut self) -> f64 {
-        self.next_unit() - 0.5
-    }
-}
+#[allow(unused_imports)] // some test binaries only use a subset of helpers
+pub use geode_util::repo::repo_root;
+#[allow(unused_imports)] // some test binaries only use a subset of helpers
+pub use geode_util::rng::Lcg;
 
 /// Sparse CSC matrix–vector product `K x` (real).
 #[allow(dead_code)] // some test binaries only use a subset of helpers
@@ -148,4 +106,26 @@ pub fn spmv(k: &faer::sparse::SparseColMat<usize, f64>, x: &[f64]) -> Vec<f64> {
 #[allow(dead_code)] // some test binaries only use a subset of helpers
 pub fn norm(v: &[f64]) -> f64 {
     v.iter().map(|x| x * x).sum::<f64>().sqrt()
+}
+
+/// Vacuum relative permittivity (`1 + 0i`) on every tet of `mesh`.
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+pub fn vacuum_eps(mesh: &TetMesh) -> Vec<faer::c64> {
+    vec![faer::c64::new(1.0, 0.0); mesh.n_tets()]
+}
+
+/// Read a TOML number (float or integer) as `f64`, panicking otherwise.
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+pub fn toml_num(v: &toml::Value) -> f64 {
+    v.as_float()
+        .or_else(|| v.as_integer().map(|i| i as f64))
+        .unwrap_or_else(|| panic!("expected a number, got {v:?}"))
+}
+
+/// An all-zero (no-source) current distribution on `mesh`.
+#[allow(dead_code)] // some test binaries only use a subset of helpers
+pub fn zero_source(mesh: &TetMesh) -> CurrentSource {
+    CurrentSource {
+        j_tet: vec![[c64::new(0.0, 0.0); 3]; mesh.n_tets()],
+    }
 }

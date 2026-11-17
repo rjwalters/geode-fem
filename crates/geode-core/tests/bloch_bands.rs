@@ -614,8 +614,8 @@ fn overlap_tracking_follows_bands_through_a_crossing() {
     let analytic_fall = |kx: f64| ((kx - 2.0 * PI).powi(2) + ky * ky).sqrt();
     assert!(analytic_rise(0.2 * PI) < analytic_fall(0.2 * PI));
     // Bands 2, 3 start on the rising family, 4, 5 on the falling one.
-    for b in 2..6 {
-        let w = &bs.bands[b].omega;
+    for (b, band) in bs.bands.iter().enumerate().take(6).skip(2) {
+        let w = &band.omega;
         let rising = b < 4;
         for p in 1..w.len() {
             if rising {
@@ -624,10 +624,10 @@ fn overlap_tracking_follows_bands_through_a_crossing() {
                 assert!(w[p] < w[p - 1], "band {b} must fall at point {p}: {w:?}");
             }
         }
-        let min_ov = bs.bands[b].overlap.iter().copied().fold(1.0, f64::min);
+        let min_ov = band.overlap.iter().copied().fold(1.0, f64::min);
         assert!(min_ov > 0.5, "band {b} min overlap {min_ov}");
         // HF slope sign agrees.
-        for v in bs.bands[b].group_velocity.iter().flatten() {
+        for v in band.group_velocity.iter().flatten() {
             assert_eq!(*v > 0.0, rising, "band {b} slope {v}");
         }
     }

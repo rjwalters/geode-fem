@@ -49,7 +49,6 @@
 
 use std::f64::consts::PI;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
 
 use geode_core::assembly::current_path::open_path_current;
 use geode_core::assembly::magnetostatic3d::{MU_0, assemble_magnetostatic3d, extract_inductance};
@@ -78,12 +77,9 @@ fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::geode;
 
 fn run_ok(sub: &str, spec: &Path) -> serde_json::Value {
     let out = geode(&[sub, spec.to_str().unwrap()]);
@@ -452,20 +448,9 @@ fn benchmark_tier_holds_oracle_and_converges() {
 
 // ---- validation ----------------------------------------------------------
 
-/// Run `geode <sub>` on the JSON `spec` (written to a scratch file) and
-/// return the error report's `(code, message)`; asserts a non-zero exit.
+/// [`cli_support::run_err_in`] bound to this file's scratch directory.
 fn run_err(sub: &str, name: &str, spec: serde_json::Value) -> (String, String) {
-    let dir = scratch(name);
-    let path = dir.join("spec.json");
-    std::fs::write(&path, spec.to_string()).unwrap();
-    let out = geode(&[sub, path.to_str().unwrap()]);
-    assert!(!out.status.success(), "{name}: expected failure");
-    let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("error report");
-    assert_eq!(v["kind"], "error");
-    (
-        v["error"]["code"].as_str().unwrap().to_string(),
-        v["error"]["message"].as_str().unwrap().to_string(),
-    )
+    cli_support::run_err_in(&scratch(name), sub, name, spec)
 }
 
 /// A valid one-path inductance spec on `mesh`.

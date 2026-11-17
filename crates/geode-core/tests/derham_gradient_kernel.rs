@@ -88,6 +88,7 @@ use geode_core::derham::apply_gradient;
 use geode_core::eigen::dense::{apply_dirichlet_bc, burn_matrix_to_faer, cube_interior_mask};
 use geode_core::mesh::{R_BUFFER, TetMesh, cube_tet_mesh, read_sphere_fixture};
 use geode_core::testing::{TestBackend, test_device as device};
+use geode_util::rng::Lcg32;
 
 type B = TestBackend;
 
@@ -111,16 +112,13 @@ fn residual_tol() -> f64 {
 /// interior-node / interior-edge counts line up with the eigenmode story.
 const N_CUBE: usize = 8;
 
-/// Deterministic LCG, same constants and reduction as
+/// Deterministic [`Lcg32`], same stream as
 /// `tests/p1_local_matrices.rs::deterministic_tet`, so failures are
 /// reproducible across runs and machines. Returns a closure yielding
 /// values in `[0, 1)`.
 fn lcg(seed: u32) -> impl FnMut() -> f64 {
-    let mut state = seed.wrapping_mul(2_654_435_761);
-    move || {
-        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        (state as f64) / (u32::MAX as f64)
-    }
+    let mut rng = Lcg32::from_seed(seed);
+    move || rng.next_unit()
 }
 
 /// Build a discrete-`H¹₀` nodal field: random values in `[-1, 1)` at
@@ -141,16 +139,8 @@ fn cube_fixture() -> (Mat<f64>, Vec<bool>, Vec<bool>, TetMesh) {
     let mesh = cube_tet_mesh(N_CUBE, 1.0);
     let (nodes_t, tets_t) = upload_mesh::<B>(&mesh, &device());
 
-    let tet_edges_v = mesh.tet_edges();
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let n_edges = mesh.edges().len();
-    let tet_idx: Vec<[u32; 6]> = tet_edges_v
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges_v
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
 
     let sys = assemble_global_nedelec(nodes_t, tets_t, &tet_idx, &tet_sign, n_edges);
     let k_full = burn_matrix_to_faer(sys.k);
@@ -179,16 +169,8 @@ fn sphere_pml_fixture() -> (Mat<f64>, Vec<bool>, Vec<bool>, TetMesh) {
     let radii = tet_centroid_radii(&f.mesh);
     let eps_complex = build_complex_epsilon_r_pml(&f.tet_physical_tags, &radii, 1.5, 5.0);
 
-    let tet_edges_v = f.mesh.tet_edges();
+    let (tet_idx, tet_sign) = f.mesh.tet_edge_tables();
     let n_edges = f.mesh.edges().len();
-    let tet_idx: Vec<[u32; 6]> = tet_edges_v
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges_v
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
 
     let (nodes_t, tets_t) = upload_mesh::<B>(&f.mesh, &device());
     let sys = assemble_global_nedelec_with_complex_epsilon(

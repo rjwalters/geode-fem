@@ -45,7 +45,7 @@
 
 #[path = "../tests/common/transmon_util.rs"]
 mod transmon_util;
-use transmon_util::scaled_mesh;
+use transmon_util::{floor_fmt, scaled_mesh};
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -110,12 +110,6 @@ const P2_TWO_LEVEL_PEAK_RSS_GB: f64 = 8.02;
 const LU_H4_KILLED_RSS_GB: f64 = 51.63;
 const LU_H4_PEAK_FOOTPRINT_GB: f64 = 75.56;
 const LU_H4_KILLED_AFTER_S: f64 = 300.0;
-
-/// Format `x` floored to `dp` decimals (never rounded up).
-fn floor_fmt(x: f64, dp: usize) -> String {
-    let p = 10f64.powi(dp as i32);
-    format!("{:.dp$}", (x * p).floor() / p)
-}
 
 /// Format `x` rounded **up** to `dp` decimals (for upper bounds).
 fn ceil_fmt(x: f64, dp: usize) -> String {

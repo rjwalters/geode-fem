@@ -233,6 +233,116 @@ pub fn write_vtu(
     std::fs::write(path, s)
 }
 
+/// Serialise `mesh` plus per-tet (`CellData`) arrays to an ASCII XML
+/// `.vtu` file at `path`.
+///
+/// Sibling of [`write_vtu`] for fields that are piecewise constant on the
+/// tets (e.g. the P1 conduction current density): nothing is interpolated
+/// to the nodes, so a corner singularity is not smeared. Points are the
+/// mesh coordinates as stored (mesh units); the arrays carry whatever
+/// units the caller gives them.
+///
+/// * `scalars` — `(name, values)` one-component arrays, length `n_tets`.
+/// * `vectors` — `(name, values)` three-component arrays, length `n_tets`.
+///
+/// Scalars are written first, then vectors, each in the order given.
+///
+/// # Panics
+///
+/// Panics if any array length does not equal `mesh.n_tets()`.
+pub fn write_vtu_cell_data(
+    path: &Path,
+    mesh: &TetMesh,
+    scalars: &[(&str, &[f64])],
+    vectors: &[(&str, &[[f64; 3]])],
+) -> std::io::Result<()> {
+    let n_nodes = mesh.n_nodes();
+    let n_tets = mesh.n_tets();
+    for (name, v) in scalars {
+        assert_eq!(
+            v.len(),
+            n_tets,
+            "cell array {name} length must equal n_tets"
+        );
+    }
+    for (name, v) in vectors {
+        assert_eq!(
+            v.len(),
+            n_tets,
+            "cell array {name} length must equal n_tets"
+        );
+    }
+
+    let mut s = String::with_capacity(512 + n_nodes * 96 + n_tets * 128);
+    s.push_str("<?xml version=\"1.0\"?>\n");
+    s.push_str("<VTKFile type=\"UnstructuredGrid\" version=\"1.0\" byte_order=\"LittleEndian\">\n");
+    s.push_str("  <UnstructuredGrid>\n");
+    let _ = writeln!(
+        s,
+        "    <Piece NumberOfPoints=\"{n_nodes}\" NumberOfCells=\"{n_tets}\">"
+    );
+    s.push_str("      <Points>\n");
+    s.push_str("        <DataArray type=\"Float64\" NumberOfComponents=\"3\" format=\"ascii\">\n");
+    for [x, y, z] in &mesh.nodes {
+        let _ = writeln!(
+            s,
+            "          {} {} {}",
+            fmt_f64(*x),
+            fmt_f64(*y),
+            fmt_f64(*z)
+        );
+    }
+    s.push_str("        </DataArray>\n      </Points>\n");
+    s.push_str("      <Cells>\n");
+    s.push_str("        <DataArray type=\"Int64\" Name=\"connectivity\" format=\"ascii\">\n");
+    for [a, b, c, d] in &mesh.tets {
+        let _ = writeln!(s, "          {a} {b} {c} {d}");
+    }
+    s.push_str("        </DataArray>\n");
+    s.push_str("        <DataArray type=\"Int64\" Name=\"offsets\" format=\"ascii\">\n");
+    for cell in 0..n_tets {
+        let _ = writeln!(s, "          {}", 4 * (cell + 1));
+    }
+    s.push_str("        </DataArray>\n");
+    s.push_str("        <DataArray type=\"UInt8\" Name=\"types\" format=\"ascii\">\n");
+    for _ in 0..n_tets {
+        s.push_str("          10\n");
+    }
+    s.push_str("        </DataArray>\n      </Cells>\n");
+
+    s.push_str("      <CellData>\n");
+    for (name, vals) in scalars {
+        let _ = writeln!(
+            s,
+            "        <DataArray type=\"Float64\" Name=\"{name}\" NumberOfComponents=\"1\" format=\"ascii\">"
+        );
+        for v in *vals {
+            let _ = writeln!(s, "          {}", fmt_f64(*v));
+        }
+        s.push_str("        </DataArray>\n");
+    }
+    for (name, vals) in vectors {
+        let _ = writeln!(
+            s,
+            "        <DataArray type=\"Float64\" Name=\"{name}\" NumberOfComponents=\"3\" format=\"ascii\">"
+        );
+        for [x, y, z] in *vals {
+            let _ = writeln!(
+                s,
+                "          {} {} {}",
+                fmt_f64(*x),
+                fmt_f64(*y),
+                fmt_f64(*z)
+            );
+        }
+        s.push_str("        </DataArray>\n");
+    }
+    s.push_str("      </CellData>\n");
+    s.push_str("    </Piece>\n  </UnstructuredGrid>\n</VTKFile>\n");
+
+    std::fs::write(path, s)
+}
+
 /// Serialise a triangulated surface (points + `VTK_TRIANGLE` cells) plus
 /// one or more named scalar `PointData` arrays to an ASCII XML
 /// `UnstructuredGrid` (`.vtu`) file at `path`.

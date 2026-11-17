@@ -14,6 +14,7 @@ use burn::tensor::{Tensor, TensorData};
 use geode_core::elements::p1::batched_p1_local_matrices;
 use geode_core::mesh::{GmshReader, MeshReader};
 use geode_core::testing::{TestBackend, test_device as device};
+use geode_util::rng::Lcg32;
 
 mod common;
 use common::readback_f64;
@@ -86,11 +87,8 @@ fn p1_local_reference(verts: &[[f64; 3]; 4]) -> ([[f64; 4]; 4], [[f64; 4]; 4], f
 
 /// Deterministic "random" affine tet: translation + diagonally-dominant linear part.
 fn deterministic_tet(seed: u32) -> [[f64; 3]; 4] {
-    let mut state = seed.wrapping_mul(2_654_435_761);
-    let mut next = || {
-        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        (state as f64) / (u32::MAX as f64)
-    };
+    let mut rng = Lcg32::from_seed(seed);
+    let mut next = || rng.next_unit();
 
     let t = [next() - 0.5, next() - 0.5, next() - 0.5];
     let mut a = [[0.0f64; 3]; 3];

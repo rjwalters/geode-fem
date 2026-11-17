@@ -42,9 +42,9 @@ use crate::dispersion::DispersionModel;
 use crate::error::CliError;
 use crate::spec::{
     Analysis, BlochPathSpec, BlochPointSpec, BlochSpec, DEFAULT_N_TERMINATION_EVANESCENT,
-    DEFAULT_SENSITIVITY_MIN_REL_GAP, FrequencyUnit, ImpedanceDefinition, ProblemSpec,
-    RoughnessSpec, SPEC_SCHEMA_VERSION, SensitivityParameterKind, ShapeMotion, SolverSpec,
-    WavePortSpec,
+    DEFAULT_SENSITIVITY_MIN_REL_GAP, FrequencyUnit, ImpedanceDefinition, LumpedPortSpec,
+    ProblemSpec, RoughnessSpec, SPEC_SCHEMA_VERSION, SensitivityParameterKind, ShapeMotion,
+    SolverSpec, WavePortSpec,
 };
 
 /// How a volume region's permittivity was chosen.
@@ -149,6 +149,35 @@ impl PeriodicSetup {
 
 fn norm3(v: [f64; 3]) -> f64 {
     (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
+}
+
+/// One resolved Floquet port (Epic #837 Phase 4b).
+#[derive(Debug, Clone)]
+pub struct FloquetPortDef {
+    /// The open face.
+    pub surface: Surface,
+    /// Real relative permittivity of the half-space beyond it.
+    pub eps_r: f64,
+    /// Evanescent termination rings.
+    pub n_evanescent: usize,
+}
+
+/// The resolved Floquet-port analysis: the two ports and the incidence
+/// angles to solve.
+#[derive(Debug, Clone)]
+pub struct FloquetSetup {
+    /// The two open faces, in spec order.
+    pub ports: [FloquetPortDef; 2],
+    /// `(theta_deg, phi_deg)` per solved angle, in spec order (a scan is
+    /// theta-major).
+    pub angles: Vec<[f64; 2]>,
+    /// Incident polarizations solved at every point.
+    pub pols: Vec<geode_core::driven::floquet::FloquetPolarization>,
+    /// Whether the spec is an `incidence` (single angle) or a `scan`.
+    pub is_scan: bool,
+    /// The fixed transverse wave vector of a `fixed_k_t` spec (then
+    /// `angles` is empty).
+    pub fixed_k_t: Option<[f64; 3]>,
 }
 
 /// A resolved `eigen.bloch` request.
@@ -498,6 +527,62 @@ impl CapacitanceTarget {
     }
 }
 
+/// A resolved `conduction` section (issue #1479).
+#[derive(Debug, Clone)]
+pub struct ConductionTarget {
+    /// Terminals, in spec (= matrix row/column) order.
+    pub terminals: Vec<Conductor>,
+    /// Optional lumped series resistance (Ω) per terminal.
+    pub r_ext: Vec<Option<f64>>,
+    /// Per-tet conductivity (S/m); `0` in unlisted (insulating) regions.
+    pub sigma_s_m: Vec<f64>,
+}
+
+/// A named volume region (`materials[]` group) of an `eqs` spec, over which
+/// the mean field is reported (issue #1494).
+#[derive(Debug, Clone)]
+pub struct EqsRegionTarget {
+    /// Material physical-group name.
+    pub name: String,
+    /// Tet indices.
+    pub tets: Vec<usize>,
+}
+
+/// Time-domain or frequency-domain mode of a resolved `eqs` section.
+#[derive(Debug, Clone)]
+pub enum EqsMode {
+    /// θ-method transient with `n_steps` steps of `dt` seconds.
+    Transient {
+        /// Time step (s).
+        dt: f64,
+        /// Number of steps.
+        n_steps: usize,
+        /// θ-method weight.
+        theta: f64,
+    },
+    /// Small-signal admittance at these frequencies (Hz).
+    Frequencies(Vec<f64>),
+}
+
+/// A resolved `eqs` section (issue #1494).
+#[derive(Debug, Clone)]
+pub struct EqsTarget {
+    /// Driven terminals, in spec (= report) order.
+    pub terminals: Vec<Conductor>,
+    /// Floating conductors, in spec order.
+    pub floating: Vec<Conductor>,
+    /// Drive waveform per terminal (`Some` in transient mode).
+    pub waveforms: Vec<Option<crate::spec::WaveformSpec>>,
+    /// Per-tet absolute permittivity (F/m; vacuum in unlisted regions).
+    pub eps_f_m: Vec<f64>,
+    /// Per-tet conductivity (S/m); `0` in unlisted regions.
+    pub sigma_s_m: Vec<f64>,
+    /// `materials[]` volume groups, for the per-region field report.
+    pub regions: Vec<EqsRegionTarget>,
+    /// Transient or admittance.
+    pub mode: EqsMode,
+}
+
 /// One resolved open current path of an inductance spec.
 #[derive(Debug, Clone)]
 pub struct CurrentPath {
@@ -732,6 +817,10 @@ pub struct Problem {
     pub capacitance: Option<CapacitanceTarget>,
     /// The resolved `inductance` section (inductance specs only).
     pub inductance: Option<InductanceTarget>,
+    /// The resolved `conduction` section (conduction specs only).
+    pub conduction: Option<ConductionTarget>,
+    /// The resolved `eqs` section (eqs specs only).
+    pub eqs: Option<EqsTarget>,
     /// The resolved `sensitivity` section, if present (issue #707).
     pub sensitivity: Option<SensitivityTarget>,
     /// The resolved periodic boundary pairs (`boundary_conditions.periodic`;
@@ -740,6 +829,9 @@ pub struct Problem {
     /// The resolved `eigen.bloch` request (`None` for a cavity eigen
     /// spec).
     pub bloch: Option<BlochTarget>,
+    /// The resolved Floquet-port analysis (`None` without
+    /// `floquet_ports`).
+    pub floquet: Option<FloquetSetup>,
 }
 
 impl Problem {
@@ -1197,6 +1289,12 @@ pub fn p2_support(analysis: Analysis) -> P2Support {
             "`capacitance` specs have no CLI order-2 path: the electrostatic solve is scalar P1 \
              (the scalar P2 kernels exist in the library but are not wired to the CLI)",
         ),
+        Analysis::Conduction => P2Support::Unsupported(
+            "`conduction` specs have no CLI order-2 path: the DC conduction solve is scalar P1",
+        ),
+        Analysis::Eqs => P2Support::Unsupported(
+            "`eqs` specs have no CLI order-2 path: the EQS solve is scalar P1",
+        ),
         Analysis::Inductance => P2Support::Unsupported(
             "`inductance` specs have no CLI order-2 path: the magnetostatic P2 kernels are not \
              wired to the CLI",
@@ -1268,64 +1366,39 @@ pub fn validate_element_order(spec: &ProblemSpec) -> Result<(), CliError> {
     Ok(())
 }
 
-/// Parse, validate and resolve the spec at `spec_path` (no solve).
-///
-/// The spec is validated for the analysis it describes
-/// ([`ProblemSpec::analysis`]); `expect` (the running subcommand's
-/// analysis, `None` for `check`) must match it — checked before the
-/// mesh is read.
-pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliError> {
-    let spec = read_spec(spec_path)?;
-    let spec_dir = spec_path.parent().unwrap_or_else(|| Path::new("."));
-    load_parsed(spec, spec_dir, expect)
+/// What a `driven` or `extract` spec needs beyond the common checks: at
+/// least one port, a `frequencies` section, and — for `extract`, whose
+/// L / R / Q come from the lumped-port impedance Z_kk — no wave ports.
+fn validate_driven(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliError> {
+    let kind = analysis.name();
+    if analysis == Analysis::Extract && !spec.wave_ports.is_empty() {
+        return Err(invalid(
+            "an extract spec cannot have `wave_ports`: L / R / Q and L0 come from the \
+             lumped-port impedance Z_kk, which a wave port does not define (a mixed \
+             lumped + wave-port network has no Z-matrix either; mixed specs are \
+             `driven`-only) — use lumped `ports` only",
+        ));
+    }
+    if spec.ports.is_empty() && spec.wave_ports.is_empty() && spec.floquet_ports.is_empty() {
+        return Err(invalid(if analysis == Analysis::Driven {
+            format!("at least one lumped port (or wave port) is required for a `{kind}` spec")
+        } else {
+            format!("at least one lumped port is required for a `{kind}` spec")
+        }));
+    }
+    if spec.frequencies.is_none() {
+        return Err(invalid(format!(
+            "a `{kind}` spec needs a `frequencies` section"
+        )));
+    }
+    Ok(())
 }
 
-/// [`load`] for an already-parsed spec (`geode mesh` validates its
-/// starter spec this way, issue #720): a relative `mesh.path` is resolved
-/// against `spec_dir`.
-pub fn load_parsed(
-    spec: ProblemSpec,
-    spec_dir: &Path,
-    expect: Option<Analysis>,
-) -> Result<Problem, CliError> {
-    if spec.schema_version != SPEC_SCHEMA_VERSION {
-        return Err(CliError::SchemaVersion(spec.schema_version));
-    }
-    let sections: Vec<&str> = [
-        ("eigen", spec.eigen.is_some()),
-        ("extract", spec.extract.is_some()),
-        ("capacitance", spec.capacitance.is_some()),
-        ("inductance", spec.inductance.is_some()),
-    ]
-    .into_iter()
-    .filter_map(|(name, present)| present.then_some(name))
-    .collect();
-    if sections.len() > 1 {
-        return Err(invalid(format!(
-            "a spec describes one analysis: it cannot have more than one of the `eigen` / \
-             `extract` / `capacitance` / `inductance` sections (found `{}`)",
-            sections.join("` and `")
-        )));
-    }
-    let analysis = spec.analysis();
-    if let Some(want) = expect
-        && want != analysis
-    {
-        return Err(invalid(wrong_subcommand(want, analysis)));
-    }
-    validate_element_order(&spec)?;
-
-    // `adaptive_mesh` is rejected on the wrong analysis before any mesh
-    // work (issue #1267).
-    validate_adaptive_mesh(&spec, analysis)?;
-
-    // ---- scalar validation (before touching the mesh) ----------------
-    let lu = spec.mesh.length_unit_m;
-    if !(lu.is_finite() && lu > 0.0) {
-        return Err(invalid(format!(
-            "mesh.length_unit_m must be finite and > 0 (got {lu})"
-        )));
-    }
+/// Scalar checks on `materials[]`, before the mesh is read: finite
+/// `eps_r` under the exp(+jwt) sign convention, the per-analysis
+/// `conductivity_s_m` / `mu_r` support rules, and the diagonal-tensor
+/// and dispersion sub-specs.
+fn validate_materials(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliError> {
     for m in &spec.materials {
         let [re, im] = m.eps_r;
         if !(re.is_finite() && im.is_finite()) {
@@ -1349,7 +1422,12 @@ pub fn load_parsed(
                     m.physical_group
                 )));
             }
-            if sigma != 0.0 && !matches!(analysis, Analysis::Driven | Analysis::Extract) {
+            if sigma != 0.0
+                && !matches!(
+                    analysis,
+                    Analysis::Driven | Analysis::Extract | Analysis::Conduction | Analysis::Eqs
+                )
+            {
                 return Err(invalid(format!(
                     "materials[{}].conductivity_s_m is only supported by `geode driven` and \
                      `geode extract` in schema v1; the {} solver has no conduction term and \
@@ -1360,7 +1438,7 @@ pub fn load_parsed(
             }
         }
         if let Some(d) = &m.dispersion {
-            validate_dispersion(&m.physical_group, m.eps_r, d, &spec, analysis)?;
+            validate_dispersion(&m.physical_group, m.eps_r, d, spec, analysis)?;
         }
         if !(m.mu_r.is_finite() && m.mu_r > 0.0) {
             return Err(invalid(format!(
@@ -1378,6 +1456,12 @@ pub fn load_parsed(
             )));
         }
     }
+    Ok(())
+}
+
+/// Scalar checks on the Leontovich walls: a finite positive surface
+/// conductivity and, where given, a well-formed roughness model.
+fn validate_leontovich(spec: &ProblemSpec) -> Result<(), CliError> {
     for l in &spec.boundary_conditions.leontovich {
         if !(l.conductivity_s_m.is_finite() && l.conductivity_s_m > 0.0) {
             return Err(invalid(format!(
@@ -1389,43 +1473,13 @@ pub fn load_parsed(
             validate_roughness(&l.physical_group, r)?;
         }
     }
-    match analysis {
-        Analysis::Driven | Analysis::Extract => {
-            let kind = analysis.name();
-            if analysis == Analysis::Extract && !spec.wave_ports.is_empty() {
-                return Err(invalid(
-                    "an extract spec cannot have `wave_ports`: L / R / Q and L0 come from the \
-                     lumped-port impedance Z_kk, which a wave port does not define (a mixed \
-                     lumped + wave-port network has no Z-matrix either; mixed specs are \
-                     `driven`-only) — use lumped `ports` only",
-                ));
-            }
-            if spec.ports.is_empty() && spec.wave_ports.is_empty() {
-                return Err(invalid(if analysis == Analysis::Driven {
-                    format!(
-                        "at least one lumped port (or wave port) is required for a `{kind}` spec"
-                    )
-                } else {
-                    format!("at least one lumped port is required for a `{kind}` spec")
-                }));
-            }
-            if spec.frequencies.is_none() {
-                return Err(invalid(format!(
-                    "a `{kind}` spec needs a `frequencies` section"
-                )));
-            }
-        }
-        Analysis::Eigen => validate_eigen(&spec)?,
-        Analysis::Capacitance => validate_capacitance(&spec)?,
-        Analysis::Inductance => validate_inductance(&spec)?,
-    }
-    validate_sensitivity(&spec, analysis)?;
-    validate_sweep(&spec, analysis)?;
-    validate_open_boundaries(&spec)?;
-    let bloch = validate_periodic(&spec, analysis)?;
-    validate_surface_roles(&spec)?;
-    // Duplicate / conflicting surface roles were rejected above
-    // (`validate_surface_roles`).
+    Ok(())
+}
+
+/// Scalar checks on `ports[]` (lumped): a finite positive reference
+/// resistance, a non-zero `e_hat` and `v_inc`, and finite positive
+/// `width` / `length` overrides where they are given.
+fn validate_lumped_ports(spec: &ProblemSpec) -> Result<(), CliError> {
     for p in &spec.ports {
         let name = &p.physical_group;
         if !(p.resistance_ohm.is_finite() && p.resistance_ohm > 0.0) {
@@ -1454,53 +1508,42 @@ pub fn load_parsed(
             }
         }
     }
-    let raw_freqs = match &spec.frequencies {
-        Some(f) => f.expand().map_err(invalid)?,
-        None => Vec::new(),
-    };
-    // Frequencies to solve (SI + natural units) and, for an extract spec,
-    // the resolved L₀ anchors — all scalar, before the mesh is read.
-    let mut frequencies: Vec<Frequency> = match &spec.frequencies {
-        Some(fs) => raw_freqs
-            .iter()
-            .map(|&f| to_frequency(f, fs.unit, lu))
-            .collect(),
-        None => Vec::new(),
-    };
-    let extract = match &spec.extract {
-        Some(x) => {
-            let (target, solved) = resolve_extract(x, frequencies, lu)?;
-            frequencies = solved;
-            Some(target)
-        }
-        None => None,
-    };
-    let ams_material_conflict = validate_ams_materials(&spec, &frequencies)?;
-    let eigen = spec.eigen.as_ref().map(|e| EigenTarget {
-        n_modes: e.n_modes,
-        shift: to_frequency(e.shift, e.unit, lu),
-        max_iters: e.max_iters,
-        tol: e.tol,
-        residual_tol: e.residual_tol,
-    });
+    Ok(())
+}
 
-    // ---- mesh --------------------------------------------------------
-    let mesh_path = if spec.mesh.path.is_absolute() {
-        spec.mesh.path.clone()
-    } else {
-        spec_dir.join(&spec.mesh.path)
-    };
-    let bytes = std::fs::read(&mesh_path).map_err(|err| CliError::Io {
-        path: mesh_path.clone(),
-        err,
-    })?;
-    let mesh_sha256 = hex(&Sha256::digest(&bytes));
-    let mut tagged = read_tagged_tet_mesh(&bytes).map_err(|err| CliError::Mesh {
-        path: mesh_path.clone(),
-        err,
-    })?;
+/// Every physical group a spec names, resolved to its mesh tag.
+///
+/// The columns hold plain `i32`: [`resolve_group_tags`] returns `Err`
+/// unless every one of them resolved, so nothing downstream has to unwrap.
+///
+/// `sensitivity` is the sole exception, and its `None` is a value rather
+/// than a failure: a shape or wall parameter binds no volume group, so
+/// there is no name to resolve. `resolve_sensitivity` returns early for
+/// those kinds, and the column stays `Option<i32>` to carry the
+/// distinction.
+struct GroupTags {
+    material: Vec<i32>,
+    pec: Vec<i32>,
+    leontovich: Vec<i32>,
+    port: Vec<i32>,
+    silver_muller: Vec<i32>,
+    wave: Vec<i32>,
+    periodic: Vec<[i32; 2]>,
+    upml: Vec<i32>,
+    floquet: Vec<i32>,
+    capacitance_terminal: Vec<i32>,
+    capacitance_ground: Vec<i32>,
+    conduction_terminal: Vec<i32>,
+    eqs_terminal: Vec<i32>,
+    eqs_floating: Vec<i32>,
+    inductance_path: Vec<[i32; 3]>,
+    sensitivity: Vec<Option<i32>>,
+}
 
-    // ---- resolve every named group, collecting all failures ----------
+/// Resolve every named physical group against the mesh, collecting *all*
+/// the failures before returning: a spec with several bad names reports
+/// them in one [`CliError::UnresolvedGroups`], not one per run.
+fn resolve_group_tags(spec: &ProblemSpec, tagged: &TaggedTetMesh) -> Result<GroupTags, CliError> {
     let mut missing: Vec<String> = Vec::new();
     let mut resolve = |dim: i32, name: &str, role: &str| -> Option<i32> {
         let tag = tagged.physical_group_tag(dim, name);
@@ -1553,6 +1596,11 @@ pub fn load_parsed(
         .iter()
         .map(|u| resolve(3, &u.physical_group, "absorbing_region"))
         .collect();
+    let floquet_tags: Vec<Option<i32>> = spec
+        .floquet_ports
+        .iter()
+        .map(|f| resolve(2, &f.physical_group, "floquet_port"))
+        .collect();
     let wave_tags: Vec<Option<i32>> = spec
         .wave_ports
         .iter()
@@ -1572,6 +1620,28 @@ pub fn load_parsed(
         ),
         None => (Vec::new(), Vec::new()),
     };
+    let conduction_tags: Vec<Option<i32>> = match &spec.conduction {
+        Some(c) => c
+            .terminals
+            .iter()
+            .map(|n| resolve(2, n, "conduction terminal"))
+            .collect(),
+        None => Vec::new(),
+    };
+    let (eqs_terminal_tags, eqs_floating_tags): (Vec<Option<i32>>, Vec<Option<i32>>) =
+        match &spec.eqs {
+            Some(e) => (
+                e.terminals
+                    .iter()
+                    .map(|t| resolve(2, &t.name, "eqs terminal"))
+                    .collect(),
+                e.floating
+                    .iter()
+                    .map(|n| resolve(2, n, "eqs floating conductor"))
+                    .collect(),
+            ),
+            None => (Vec::new(), Vec::new()),
+        };
     let path_tags: Vec<[Option<i32>; 3]> = match &spec.inductance {
         Some(ind) => ind
             .paths
@@ -1629,64 +1699,90 @@ pub fn load_parsed(
         return Err(CliError::UnresolvedGroups { missing, available });
     }
 
-    // ---- periodic pairs (Epic #837 Phase 4a) -------------------------
-    // Matched before anything reads node coordinates: a near match snaps
-    // the slave nodes onto the exact translated images (the mesh is then
-    // exactly periodic; the warning reaches the report), and a mismatch
-    // fails here for `check` and the solve alike.
-    let periodic = if spec.boundary_conditions.periodic.is_empty() {
-        None
-    } else {
-        Some(build_periodic(
-            &spec.boundary_conditions.periodic,
-            &periodic_tags,
-            &mut tagged,
-        )?)
-    };
+    /// Drop the `Option` from a fully-resolved column. Sound only below
+    /// the `missing` check above: every `resolve` miss was collected there.
+    fn resolved(tags: Vec<Option<i32>>) -> Vec<i32> {
+        tags.into_iter()
+            .map(|t| t.expect("every unresolved group was collected into `missing` above"))
+            .collect()
+    }
 
-    // Faces (sorted node triples) of the tet mesh, built on first use.
-    let tet_faces = std::cell::OnceCell::new();
-    let surface = |name: &str, tag: i32, role: &str| -> Result<Surface, CliError> {
-        let triangles = tagged.triangles_with_tag(tag);
-        if triangles.is_empty() {
-            return Err(invalid(format!(
-                "{role} surface `{name}` has no tagged triangles in the mesh"
-            )));
-        }
-        // Surface integrals (Leontovich, Silver-Müller, ports) need every
-        // triangle to be a face of the tet mesh; a dangling one has no
-        // edges in the global edge table (issue #721). A PEC triangle
-        // only masks edges, so a dangling one is a no-op, not an error.
-        if role != "pec" {
-            let faces = tet_faces.get_or_init(|| sorted_tet_faces(&tagged.mesh.tets));
-            let dangling = triangles
-                .iter()
-                .filter(|t| !faces.contains(&sorted3(t)))
-                .count();
-            if dangling > 0 {
-                return Err(invalid(format!(
-                    "{role} surface `{name}`: {dangling} of its {} triangles are not a face \
-                     of any tet (a surface dangling outside the meshed volume)",
-                    triangles.len()
-                )));
-            }
-        }
-        Ok(Surface {
-            name: name.to_string(),
-            tag,
-            triangles,
-        })
-    };
+    /// [`resolved`] for a column whose rows are fixed-size groups of tags
+    /// (a periodic master/slave pair, an inductance conductor/source/sink).
+    fn resolved_n<const N: usize>(tags: Vec<[Option<i32>; N]>) -> Vec<[i32; N]> {
+        tags.into_iter()
+            .map(|row| {
+                row.map(|t| t.expect("every unresolved group was collected into `missing` above"))
+            })
+            .collect()
+    }
 
-    // ---- materials ---------------------------------------------------
+    Ok(GroupTags {
+        material: resolved(material_tags),
+        pec: resolved(pec_tags),
+        leontovich: resolved(leon_tags),
+        port: resolved(port_tags),
+        silver_muller: resolved(sm_tags),
+        wave: resolved(wave_tags),
+        periodic: resolved_n(periodic_tags),
+        upml: resolved(upml_tags),
+        floquet: resolved(floquet_tags),
+        capacitance_terminal: resolved(terminal_tags),
+        capacitance_ground: resolved(ground_tags),
+        conduction_terminal: resolved(conduction_tags),
+        eqs_terminal: resolved(eqs_terminal_tags),
+        eqs_floating: resolved(eqs_floating_tags),
+        inductance_path: resolved_n(path_tags),
+        sensitivity: sensitivity_tags,
+    })
+}
+
+/// The resolved material tables: the per-tet vectors the assembler reads,
+/// the dispersive regions, the per-region summary the report prints, and
+/// the per-tag conductivity the conduction / EQS phases index.
+struct MaterialTables {
+    eps: Vec<c64>,
+    mu_r: Vec<f64>,
+    sigma_tet: Vec<f64>,
+    eps_diag: Vec<Option<[c64; 3]>>,
+    mu_diag: Vec<Option<[f64; 3]>>,
+    dispersion: Vec<DispersiveRegion>,
+    regions: Vec<Region>,
+    sigma_by_tag: BTreeMap<i32, f64>,
+}
+
+/// Per-tet SI conductivity (S/m), zero outside every conducting region.
+///
+/// Both the conduction and the EQS phase assemble from this; a spec
+/// describes one analysis, so only ever one of them calls it.
+fn sigma_si_per_tet(tet_physical_tags: &[i32], sigma_by_tag: &BTreeMap<i32, f64>) -> Vec<f64> {
+    tet_physical_tags
+        .iter()
+        .map(|t| sigma_by_tag.get(t).copied().unwrap_or(0.0))
+        .collect()
+}
+
+/// Build the material tables from the spec's `materials[]` and their
+/// resolved tags: the scalar and diagonal-tensor permittivity and
+/// permeability per tag, the dispersive regions evaluated at their
+/// reference frequency, and the per-tet vectors derived from them.
+///
+/// Any region the spec does not name is vacuum.
+fn resolve_materials(
+    spec: &ProblemSpec,
+    material_tags: &[i32],
+    tagged: &TaggedTetMesh,
+    frequencies: &[Frequency],
+    lu: f64,
+) -> Result<MaterialTables, CliError> {
     let mut eps_by_tag: BTreeMap<i32, c64> = BTreeMap::new();
     let mut mu_by_tag: BTreeMap<i32, f64> = BTreeMap::new();
     let mut eps_diag_by_tag: BTreeMap<i32, [c64; 3]> = BTreeMap::new();
     let mut mu_diag_by_tag: BTreeMap<i32, [f64; 3]> = BTreeMap::new();
     let mut sigma_by_tag: BTreeMap<i32, f64> = BTreeMap::new();
     let mut dispersion: Vec<DispersiveRegion> = Vec::new();
-    for (m, tag) in spec.materials.iter().zip(&material_tags) {
-        let tag = tag.expect("resolved above");
+    for (m, tag) in spec.materials.iter().zip(material_tags) {
+        let tag = *tag;
         if let Some(s) = m.conductivity_s_m.filter(|&s| s > 0.0) {
             sigma_by_tag.insert(tag, s);
         }
@@ -1795,137 +1891,45 @@ pub fn load_parsed(
         })
         .collect();
 
-    // ---- boundary conditions -----------------------------------------
-    let pec = spec
-        .boundary_conditions
-        .pec
-        .iter()
-        .zip(&pec_tags)
-        .map(|(n, t)| surface(n, t.expect("resolved above"), "pec"))
-        .collect::<Result<Vec<_>, _>>()?;
-    let leontovich = spec
-        .boundary_conditions
-        .leontovich
-        .iter()
-        .zip(&leon_tags)
-        .map(|(l, t)| {
-            Ok(Leontovich {
-                surface: surface(&l.physical_group, t.expect("resolved above"), "leontovich")?,
-                sigma_s_m: l.conductivity_s_m,
-                sigma_natural: l.conductivity_s_m * ETA_0_OHM * lu,
-                roughness: l.roughness,
-                roughness_natural: l.roughness.map(|r| roughness_natural(r, lu)),
-            })
-        })
-        .collect::<Result<Vec<_>, CliError>>()?;
-    let silver_muller = spec
-        .boundary_conditions
-        .silver_muller
-        .iter()
-        .zip(&sm_tags)
-        .map(|(n, t)| surface(n, t.expect("resolved above"), "silver_muller"))
-        .collect::<Result<Vec<_>, _>>()?;
+    Ok(MaterialTables {
+        eps,
+        mu_r,
+        sigma_tet,
+        eps_diag,
+        mu_diag,
+        dispersion,
+        regions,
+        sigma_by_tag,
+    })
+}
 
-    // ---- matched box-UPML shells -------------------------------------
-    let (upml, upml_of_tet) = resolve_upml(&spec, &upml_tags, &tagged)?;
+/// The PEC mask and, at order 2, the H(curl) space it is taken over.
+///
+/// A current path's source and sink are PEC contacts too — the current
+/// enters and leaves through the return conductor there — so they join the
+/// spec's own PEC surfaces in the mask.
+struct PecMask {
+    edges: Vec<[u32; 2]>,
+    /// The edge mask at order 1; at order 2 the kept-DOF mask over
+    /// [`PecMask::hcurl_space`] (issue #1265).
+    pec_mask: Vec<bool>,
+    /// The edge mask, whatever the order.
+    pec_mask_p1: Vec<bool>,
+    element_order: ElementOrder,
+    hcurl_space: Option<HcurlSpace>,
+}
 
-    // ---- ports -------------------------------------------------------
-    let mut ports = Vec::with_capacity(spec.ports.len());
-    for (p, t) in spec.ports.iter().zip(&port_tags) {
-        let surf = surface(&p.physical_group, t.expect("resolved above"), "port")?;
-        let norm = p.e_hat.iter().map(|x| x * x).sum::<f64>().sqrt();
-        let e_hat = [p.e_hat[0] / norm, p.e_hat[1] / norm, p.e_hat[2] / norm];
-        let (area, extent) = port_area_and_extent(&tagged, &surf.triangles, e_hat);
-        let length = p.length.unwrap_or(extent);
-        if !(length.is_finite() && length > 0.0) {
-            return Err(invalid(format!(
-                "port `{}` has zero extent along e_hat — check e_hat or give `length`",
-                p.physical_group
-            )));
-        }
-        let width = p.width.unwrap_or(area / length);
-        ports.push(Port {
-            surface: surf,
-            e_hat,
-            width,
-            length,
-            geometry_derived: p.width.is_none() || p.length.is_none(),
-            resistance_ohm: p.resistance_ohm,
-            v_inc: c64::new(p.v_inc[0], p.v_inc[1]),
-        });
-    }
-
-    let mut wave_ports = Vec::with_capacity(spec.wave_ports.len());
-    let port_materials = PortMaterials {
-        tagged: &tagged,
-        eps: &eps,
-        eps_diag: &eps_diag,
-        mu_diag: &mu_diag,
-        mu_r: &mu_r,
-        dispersion: &dispersion,
-        frequencies: &frequencies,
-        upml: &upml,
-        upml_of_tet: &upml_of_tet,
-    };
-    // Conductor walls (PEC / Leontovich): a wave-port rim edge on one pins
-    // the TM field `E_z = 0` there (issue #808).
-    let conductor_edges: std::collections::HashSet<[u32; 2]> = pec
-        .iter()
-        .chain(leontovich.iter().map(|l| &l.surface))
-        .flat_map(|s| s.triangles.iter().flat_map(tri_edge_keys))
-        .collect();
-    for (w, t) in spec.wave_ports.iter().zip(&wave_tags) {
-        let surf = surface(&w.physical_group, t.expect("resolved above"), "wave_port")?;
-        let projection = project_port_face(&tagged.mesh, &surf.triangles).map_err(|e| {
-            invalid(format!(
-                "wave port `{}` cannot be projected to a 2-D cross-section: {e}",
-                w.physical_group
-            ))
-        })?;
-        let fill = port_materials.resolve_fill(&surf, projection.normal)?;
-        let a_inc = match &w.a_inc {
-            Some(a) => a.iter().map(|&[re, im]| c64::new(re, im)).collect(),
-            None => vec![c64::new(1.0, 0.0); w.n_modes],
-        };
-        wave_ports.push(WavePortDef {
-            surface: surf,
-            projection,
-            a_inc,
-            fill,
-            // Set below, once the Silver-Müller rim check has run.
-            tm: None,
-            tm_warning: None,
-            reference_ohm: w.reference_ohm,
-            // Set below, once the PEC mask is built.
-            hybrid: None,
-        });
-    }
-
-    // ---- capacitance conductors --------------------------------------
-    let capacitance = match &spec.capacitance {
-        Some(c) => Some(resolve_capacitance(
-            c,
-            &terminal_tags,
-            &ground_tags,
-            &surface,
-        )?),
-        None => None,
-    };
-
-    // ---- inductance current paths ------------------------------------
-    let inductance = match &spec.inductance {
-        Some(ind) => Some(resolve_inductance(
-            ind, &path_tags, &tagged, &pec, &surface,
-        )?),
-        None => None,
-    };
-
-    // ---- PEC mask ----------------------------------------------------
+fn build_pec_mask(
+    spec: &ProblemSpec,
+    tagged: &TaggedTetMesh,
+    pec: &[Surface],
+    inductance: Option<&InductanceTarget>,
+) -> Result<PecMask, CliError> {
     let edges = tagged.mesh.edges();
     let mut pec_lists: Vec<&[[u32; 3]]> = pec.iter().map(|s| s.triangles.as_slice()).collect();
     // Current-path terminals are PEC contacts (the current enters / leaves
     // through the return conductor there).
-    if let Some(ind) = &inductance {
+    if let Some(ind) = inductance {
         for path in &ind.paths {
             pec_lists.push(&path.source.triangles);
             pec_lists.push(&path.sink.triangles);
@@ -1949,35 +1953,351 @@ pub fn load_parsed(
             (Some(space), mask)
         }
     };
-    check_silver_muller_port_rims(&wave_ports, &silver_muller, &edges, &pec_mask)?;
-    // Route each wave port (issue #807): an inhomogeneous face, or one with
-    // a floating conductor, goes to the hybrid path; the rest stay
-    // geometric (homogeneous TE), unchanged.
-    for (w, ws) in wave_ports.iter_mut().zip(&spec.wave_ports) {
-        w.hybrid = port_materials.route_hybrid(w, ws, &edges, &pec_mask)?;
+
+    Ok(PecMask {
+        edges,
+        pec_mask,
+        pec_mask_p1,
+        element_order,
+        hcurl_space,
+    })
+}
+
+/// Parse, validate and resolve the spec at `spec_path` (no solve).
+///
+/// The spec is validated for the analysis it describes
+/// ([`ProblemSpec::analysis`]); `expect` (the running subcommand's
+/// analysis, `None` for `check`) must match it — checked before the
+/// mesh is read.
+pub fn load(spec_path: &Path, expect: Option<Analysis>) -> Result<Problem, CliError> {
+    let spec = read_spec(spec_path)?;
+    let spec_dir = spec_path.parent().unwrap_or_else(|| Path::new("."));
+    load_parsed(spec, spec_dir, expect)
+}
+
+/// [`load`] for an already-parsed spec (`geode mesh` validates its
+/// starter spec this way, issue #720): a relative `mesh.path` is resolved
+/// against `spec_dir`.
+pub fn load_parsed(
+    spec: ProblemSpec,
+    spec_dir: &Path,
+    expect: Option<Analysis>,
+) -> Result<Problem, CliError> {
+    if spec.schema_version != SPEC_SCHEMA_VERSION {
+        return Err(CliError::SchemaVersion(spec.schema_version));
     }
-    validate_hybrid_routes(&spec, &wave_ports, &port_materials)?;
-    // Hybrid ports carry TE, TM and hybrid modes and have core's own
-    // completeness check, so they bypass the TE-only guard below; their rim
-    // must still be all conductor.
-    for w in wave_ports.iter().filter(|w| w.hybrid.is_some()) {
-        check_hybrid_port_rim(w, &conductor_edges)?;
+    let sections: Vec<&str> = [
+        ("eigen", spec.eigen.is_some()),
+        ("extract", spec.extract.is_some()),
+        ("capacitance", spec.capacitance.is_some()),
+        ("inductance", spec.inductance.is_some()),
+        ("conduction", spec.conduction.is_some()),
+        ("eqs", spec.eqs.is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(name, present)| present.then_some(name))
+    .collect();
+    if sections.len() > 1 {
+        return Err(invalid(format!(
+            "a spec describes one analysis: it cannot have more than one of the `eigen` / \
+             `extract` / `capacitance` / `inductance` / `conduction` / `eqs` sections (found `{}`)",
+            sections.join("` and `")
+        )));
     }
-    // TE-only wave ports (issue #808): the rim must be all conductor and
-    // no sweep frequency may reach the TM limit. Runs after the
-    // Silver-Müller rim check, whose message is more specific for that
-    // wall. Geometric (homogeneous TE) ports only: the hybrid ports routed
-    // above (#807) bypass this guard, and so its mesh-aware margin (#824).
-    for w in wave_ports.iter_mut().filter(|w| w.hybrid.is_none()) {
-        let (tm, warning) = port_materials.check_te_port_guard(
-            &w.surface,
-            &w.projection,
-            &w.fill,
-            &conductor_edges,
-        )?;
-        w.tm = Some(tm);
-        w.tm_warning = warning;
+    let analysis = spec.analysis();
+    if let Some(want) = expect
+        && want != analysis
+    {
+        return Err(invalid(wrong_subcommand(want, analysis)));
     }
+    validate_element_order(&spec)?;
+
+    // `adaptive_mesh` is rejected on the wrong analysis before any mesh
+    // work (issue #1267).
+    validate_adaptive_mesh(&spec, analysis)?;
+
+    // ---- scalar validation (before touching the mesh) ----------------
+    let lu = spec.mesh.length_unit_m;
+    if !(lu.is_finite() && lu > 0.0) {
+        return Err(invalid(format!(
+            "mesh.length_unit_m must be finite and > 0 (got {lu})"
+        )));
+    }
+    validate_materials(&spec, analysis)?;
+    validate_leontovich(&spec)?;
+    match analysis {
+        Analysis::Driven | Analysis::Extract => validate_driven(&spec, analysis)?,
+        Analysis::Eigen => validate_eigen(&spec)?,
+        Analysis::Capacitance => validate_capacitance(&spec)?,
+        Analysis::Inductance => validate_inductance(&spec)?,
+        Analysis::Conduction => validate_conduction(&spec)?,
+        Analysis::Eqs => validate_eqs(&spec)?,
+    }
+    validate_sensitivity(&spec, analysis)?;
+    validate_sweep(&spec, analysis)?;
+    validate_open_boundaries(&spec)?;
+    validate_floquet(&spec, analysis)?;
+    let bloch = validate_periodic(&spec, analysis)?;
+    validate_surface_roles(&spec)?;
+    // Duplicate / conflicting surface roles were rejected above
+    // (`validate_surface_roles`).
+    validate_lumped_ports(&spec)?;
+    let raw_freqs = match &spec.frequencies {
+        Some(f) => f.expand().map_err(invalid)?,
+        None => Vec::new(),
+    };
+    // Frequencies to solve (SI + natural units) and, for an extract spec,
+    // the resolved L₀ anchors — all scalar, before the mesh is read.
+    let mut frequencies: Vec<Frequency> = match &spec.frequencies {
+        Some(fs) => raw_freqs
+            .iter()
+            .map(|&f| to_frequency(f, fs.unit, lu))
+            .collect(),
+        None => Vec::new(),
+    };
+    let extract = match &spec.extract {
+        Some(x) => {
+            let (target, solved) = resolve_extract(x, frequencies, lu)?;
+            frequencies = solved;
+            Some(target)
+        }
+        None => None,
+    };
+    let ams_material_conflict = validate_ams_materials(&spec, &frequencies)?;
+    let eigen = spec.eigen.as_ref().map(|e| EigenTarget {
+        n_modes: e.n_modes,
+        shift: to_frequency(e.shift, e.unit, lu),
+        max_iters: e.max_iters,
+        tol: e.tol,
+        residual_tol: e.residual_tol,
+    });
+
+    // ---- mesh --------------------------------------------------------
+    let mesh_path = if spec.mesh.path.is_absolute() {
+        spec.mesh.path.clone()
+    } else {
+        spec_dir.join(&spec.mesh.path)
+    };
+    let bytes = std::fs::read(&mesh_path).map_err(|err| CliError::Io {
+        path: mesh_path.clone(),
+        err,
+    })?;
+    let mesh_sha256 = hex(&Sha256::digest(&bytes));
+    let mut tagged = read_tagged_tet_mesh(&bytes).map_err(|err| CliError::Mesh {
+        path: mesh_path.clone(),
+        err,
+    })?;
+
+    // ---- resolve every named group, collecting all failures ----------
+    let tags = resolve_group_tags(&spec, &tagged)?;
+
+    // ---- periodic pairs (Epic #837 Phase 4a) -------------------------
+    // Matched before anything reads node coordinates: a near match snaps
+    // the slave nodes onto the exact translated images (the mesh is then
+    // exactly periodic; the warning reaches the report), and a mismatch
+    // fails here for `check` and the solve alike.
+    let periodic = if spec.boundary_conditions.periodic.is_empty() {
+        None
+    } else {
+        Some(build_periodic(
+            &spec.boundary_conditions.periodic,
+            &tags.periodic,
+            &mut tagged,
+        )?)
+    };
+
+    // Faces (sorted node triples) of the tet mesh, built on first use.
+    let tet_faces = std::cell::OnceCell::new();
+    let surface = |name: &str, tag: i32, role: &str| -> Result<Surface, CliError> {
+        let triangles = tagged.triangles_with_tag(tag);
+        if triangles.is_empty() {
+            return Err(invalid(format!(
+                "{role} surface `{name}` has no tagged triangles in the mesh"
+            )));
+        }
+        // Surface integrals (Leontovich, Silver-Müller, ports) need every
+        // triangle to be a face of the tet mesh; a dangling one has no
+        // edges in the global edge table (issue #721). A PEC triangle
+        // only masks edges, so a dangling one is a no-op, not an error.
+        if role != "pec" {
+            let faces = tet_faces.get_or_init(|| sorted_tet_faces(&tagged.mesh.tets));
+            let dangling = triangles
+                .iter()
+                .filter(|t| !faces.contains(&sorted3(t)))
+                .count();
+            if dangling > 0 {
+                return Err(invalid(format!(
+                    "{role} surface `{name}`: {dangling} of its {} triangles are not a face \
+                     of any tet (a surface dangling outside the meshed volume)",
+                    triangles.len()
+                )));
+            }
+        }
+        Ok(Surface {
+            name: name.to_string(),
+            tag,
+            triangles,
+        })
+    };
+
+    // ---- materials ---------------------------------------------------
+    let MaterialTables {
+        eps,
+        mu_r,
+        sigma_tet,
+        eps_diag,
+        mu_diag,
+        dispersion,
+        regions,
+        sigma_by_tag,
+    } = resolve_materials(&spec, &tags.material, &tagged, &frequencies, lu)?;
+
+    // ---- boundary conditions -----------------------------------------
+    let pec = spec
+        .boundary_conditions
+        .pec
+        .iter()
+        .zip(&tags.pec)
+        .map(|(n, t)| surface(n, *t, "pec"))
+        .collect::<Result<Vec<_>, _>>()?;
+    let leontovich = spec
+        .boundary_conditions
+        .leontovich
+        .iter()
+        .zip(&tags.leontovich)
+        .map(|(l, t)| {
+            Ok(Leontovich {
+                surface: surface(&l.physical_group, *t, "leontovich")?,
+                sigma_s_m: l.conductivity_s_m,
+                sigma_natural: l.conductivity_s_m * ETA_0_OHM * lu,
+                roughness: l.roughness,
+                roughness_natural: l.roughness.map(|r| roughness_natural(r, lu)),
+            })
+        })
+        .collect::<Result<Vec<_>, CliError>>()?;
+    let silver_muller = spec
+        .boundary_conditions
+        .silver_muller
+        .iter()
+        .zip(&tags.silver_muller)
+        .map(|(n, t)| surface(n, *t, "silver_muller"))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // ---- matched box-UPML shells -------------------------------------
+    let (upml, upml_of_tet) = resolve_upml(&spec, &tags.upml, &tagged)?;
+
+    // ---- ports -------------------------------------------------------
+    let ports = resolve_lumped_ports(&spec.ports, &tags.port, &tagged, &surface)?;
+
+    let floquet = resolve_floquet(&spec, &tags.floquet, &surface)?;
+
+    let port_materials = PortMaterials {
+        tagged: &tagged,
+        eps: &eps,
+        eps_diag: &eps_diag,
+        mu_diag: &mu_diag,
+        mu_r: &mu_r,
+        dispersion: &dispersion,
+        frequencies: &frequencies,
+        upml: &upml,
+        upml_of_tet: &upml_of_tet,
+    };
+    let conductor_edges = conductor_edge_set(&pec, &leontovich);
+    let mut wave_ports =
+        resolve_wave_ports(&spec.wave_ports, &tags.wave, &port_materials, &surface)?;
+
+    // ---- capacitance conductors --------------------------------------
+    let capacitance = match &spec.capacitance {
+        Some(c) => Some(resolve_capacitance(
+            c,
+            &tags.capacitance_terminal,
+            &tags.capacitance_ground,
+            &surface,
+        )?),
+        None => None,
+    };
+
+    // ---- conduction terminals ----------------------------------------
+    let conduction = match &spec.conduction {
+        Some(c) => {
+            let sigma = sigma_si_per_tet(&tagged.tet_physical_tags, &sigma_by_tag);
+            Some(resolve_conduction(
+                c,
+                &tags.conduction_terminal,
+                sigma,
+                &surface,
+            )?)
+        }
+        None => None,
+    };
+
+    // ---- eqs terminals / floating conductors ---------------------------
+    let eqs = match &spec.eqs {
+        Some(e) => {
+            let eps_f_m: Vec<f64> = eps
+                .iter()
+                .map(|x| x.re * geode_core::assembly::electrostatic::EPS_0)
+                .collect();
+            let sigma = sigma_si_per_tet(&tagged.tet_physical_tags, &sigma_by_tag);
+            let regions: Vec<EqsRegionTarget> = spec
+                .materials
+                .iter()
+                .zip(&tags.material)
+                .map(|(m, tag)| {
+                    let tag = *tag;
+                    EqsRegionTarget {
+                        name: m.physical_group.clone(),
+                        tets: tagged
+                            .tet_physical_tags
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(i, t)| (*t == tag).then_some(i))
+                            .collect(),
+                    }
+                })
+                .collect();
+            Some(resolve_eqs(
+                e,
+                &tags.eqs_terminal,
+                &tags.eqs_floating,
+                eps_f_m,
+                sigma,
+                regions,
+                &surface,
+            )?)
+        }
+        None => None,
+    };
+
+    // ---- inductance current paths ------------------------------------
+    let inductance = match &spec.inductance {
+        Some(ind) => Some(resolve_inductance(
+            ind,
+            &tags.inductance_path,
+            &tagged,
+            &pec,
+            &surface,
+        )?),
+        None => None,
+    };
+
+    // ---- PEC mask ----------------------------------------------------
+    let PecMask {
+        edges,
+        pec_mask,
+        pec_mask_p1,
+        element_order,
+        hcurl_space,
+    } = build_pec_mask(&spec, &tagged, &pec, inductance.as_ref())?;
+    route_wave_ports(
+        &spec,
+        &mut wave_ports,
+        &port_materials,
+        &silver_muller,
+        &edges,
+        &pec_mask,
+        &conductor_edges,
+    )?;
     if let SolverSpec::Iterative {
         preconditioner: crate::spec::PreconditionerSpec::Ams,
         ..
@@ -1994,7 +2314,7 @@ pub fn load_parsed(
     let sensitivity = match &spec.sensitivity {
         Some(sens) => Some(resolve_sensitivity(
             sens,
-            &sensitivity_tags,
+            &tags.sensitivity,
             &regions,
             &tagged,
             spec.analysis(),
@@ -2043,9 +2363,12 @@ pub fn load_parsed(
         extract,
         capacitance,
         inductance,
+        conduction,
+        eqs,
         sensitivity,
         periodic,
         bloch,
+        floquet,
     })
 }
 
@@ -2180,6 +2503,8 @@ fn wrong_subcommand(want: Analysis, got: Analysis) -> String {
         Analysis::Extract => "an extract spec (it has an `extract` section)",
         Analysis::Capacitance => "a capacitance spec (it has a `capacitance` section)",
         Analysis::Inductance => "an inductance spec (it has an `inductance` section)",
+        Analysis::Conduction => "a conduction spec (it has a `conduction` section)",
+        Analysis::Eqs => "an eqs spec (it has an `eqs` section)",
     };
     let fix = match want {
         Analysis::Driven => "drop the analysis section for a plain driven sweep",
@@ -2190,6 +2515,14 @@ fn wrong_subcommand(want: Analysis, got: Analysis) -> String {
         Analysis::Capacitance => {
             "`geode capacitance` needs a `capacitance` section (`terminals` + `ground`) and no \
              ports / frequencies"
+        }
+        Analysis::Eqs => {
+            "`geode eqs` needs an `eqs` section (`terminals` + exactly one of `transient` / \
+             `frequencies`), materials with `eps_r` and `conductivity_s_m` and no ports"
+        }
+        Analysis::Conduction => {
+            "`geode conduction` needs a `conduction` section (`terminals`), materials with \
+             `conductivity_s_m` and no ports / frequencies"
         }
         Analysis::Inductance => {
             "`geode inductance` needs an `inductance` section (`paths`), a \
@@ -2392,6 +2725,13 @@ fn validate_dispersion(
         Analysis::Inductance => {
             Some("the magnetostatic solve has no permittivity term and would silently ignore it")
         }
+        Analysis::Conduction => {
+            Some("the DC conduction solve has no permittivity term and would silently ignore it")
+        }
+        Analysis::Eqs => Some(
+            "the EQS solve takes a constant real `eps_r` (a dispersive eps would need a \
+             frequency-domain model not defined for the transient)",
+        ),
     };
     if let Some(why) = why {
         return Err(invalid(format!(
@@ -2618,13 +2958,12 @@ fn ams_material_conflict(
 /// slave nodes in place) and keep the map.
 fn build_periodic(
     specs: &[crate::spec::PeriodicSpec],
-    tags: &[[Option<i32>; 2]],
+    tags: &[[i32; 2]],
     tagged: &mut TaggedTetMesh,
 ) -> Result<PeriodicSetup, CliError> {
     let mut setups = Vec::with_capacity(specs.len());
     let mut pairs = Vec::with_capacity(specs.len());
-    for (spec, tag) in specs.iter().zip(tags) {
-        let [mt, st] = tag.map(|t| t.expect("resolved above"));
+    for (spec, &[mt, st]) in specs.iter().zip(tags) {
         let face = |name: &str, tag: i32| -> Result<Surface, CliError> {
             let triangles = tagged.triangles_with_tag(tag);
             if triangles.is_empty() {
@@ -2667,6 +3006,208 @@ fn bloch_label_k(label: &str, [a, b, c]: [f64; 3]) -> Option<[f64; 3]> {
     })
 }
 
+/// Scalar rules of a Floquet-port driven spec (Epic #837 Phase 4b): the
+/// pieces core's [`geode_core::driven::floquet::FloquetCell`] does not
+/// model are rejected rather than silently ignored.
+fn validate_floquet(spec: &ProblemSpec, analysis: Analysis) -> Result<(), CliError> {
+    if spec.floquet_ports.is_empty() {
+        if spec.incidence.is_some() || spec.scan.is_some() || spec.fixed_k_t.is_some() {
+            return Err(invalid(
+                "`incidence` / `scan` / `fixed_k_t` need `floquet_ports` (the two open faces of the unit cell)",
+            ));
+        }
+        return Ok(());
+    }
+    if analysis != Analysis::Driven {
+        return Err(invalid(format!(
+            "`floquet_ports` apply to `driven` specs only (this is a `{}` spec)",
+            analysis.name()
+        )));
+    }
+    if spec.floquet_ports.len() != 2 {
+        return Err(invalid(format!(
+            "`floquet_ports` needs exactly two open faces (got {})",
+            spec.floquet_ports.len()
+        )));
+    }
+    if !spec.ports.is_empty() || !spec.wave_ports.is_empty() {
+        return Err(invalid(
+            "`floquet_ports` cannot be combined with lumped `ports` or `wave_ports`",
+        ));
+    }
+    if spec.boundary_conditions.periodic.len() != 2 {
+        return Err(invalid(
+            "`floquet_ports` needs exactly two `boundary_conditions.periodic` pairs (the two \
+             lattice vectors)",
+        ));
+    }
+    let unsupported = |what: &str| {
+        Err(invalid(format!(
+            "`floquet_ports` do not support {what} (only PEC, real `eps_r`, optional \
+             `conductivity_s_m` and the periodic lattice)"
+        )))
+    };
+    if !spec.absorbing_regions.is_empty() {
+        return unsupported("`absorbing_regions`");
+    }
+    if !spec.boundary_conditions.leontovich.is_empty() {
+        return unsupported("Leontovich walls");
+    }
+    if !spec.boundary_conditions.silver_muller.is_empty() {
+        return unsupported("Silver-Müller walls");
+    }
+    if spec.sensitivity.is_some() {
+        return unsupported("a `sensitivity` section");
+    }
+    if spec.adaptive_mesh.is_some() {
+        return unsupported("`adaptive_mesh`");
+    }
+    if spec.optimize.is_some() {
+        return unsupported("an `optimize` section");
+    }
+    if spec.element_order == crate::spec::ElementOrderSpec::P2 {
+        return unsupported("`element_order` other than 1");
+    }
+    for m in &spec.materials {
+        if m.dispersion.is_some()
+            || m.eps_r_diag.is_some()
+            || m.mu_r_diag.is_some()
+            || m.mu_r != 1.0
+        {
+            return Err(invalid(format!(
+                "materials[{}]: `floquet_ports` need a plain `eps_r` (no dispersion, no \
+                 anisotropic `eps_r_diag` / `mu_r_diag`, `mu_r = 1`)",
+                m.physical_group
+            )));
+        }
+    }
+    for (i, f) in spec.floquet_ports.iter().enumerate() {
+        if let Some(name) = &f.medium {
+            let Some(m) = spec.materials.iter().find(|m| &m.physical_group == name) else {
+                return Err(invalid(format!(
+                    "floquet_ports[{i}].medium `{name}` is not a `materials` entry"
+                )));
+            };
+            if !(m.eps_r[0].is_finite() && m.eps_r[0] > 0.0 && m.eps_r[1] == 0.0) {
+                return Err(invalid(format!(
+                    "floquet_ports[{i}].medium `{name}` must have a real positive `eps_r` (a \
+                     lossless isotropic port medium)"
+                )));
+            }
+        }
+    }
+    let n_drive = usize::from(spec.incidence.is_some())
+        + usize::from(spec.scan.is_some())
+        + usize::from(spec.fixed_k_t.is_some());
+    if n_drive > 1 {
+        return Err(invalid(
+            "`incidence`, `scan` and `fixed_k_t` are mutually exclusive: give one",
+        ));
+    }
+    let (angles_ok, what) = match (&spec.incidence, &spec.scan) {
+        (Some(_), Some(_)) => unreachable!("n_drive <= 1"),
+        (None, None) if spec.fixed_k_t.is_none() => {
+            return Err(invalid(
+                "`floquet_ports` need an `incidence`, a `scan` or a `fixed_k_t` (the plane-wave \
+                 drive)",
+            ));
+        }
+        (None, None) => (
+            spec.fixed_k_t
+                .as_ref()
+                .is_some_and(|f| f.k_t.iter().all(|x| x.is_finite())),
+            "fixed_k_t.k_t must be three finite components",
+        ),
+        (Some(i), None) => (
+            i.theta_deg.is_finite() && (0.0..90.0).contains(&i.theta_deg) && i.phi_deg.is_finite(),
+            "incidence.theta_deg must be in [0, 90) and phi_deg finite",
+        ),
+        (None, Some(sc)) => (
+            sc.theta_deg.count >= 1
+                && sc.theta_deg.start.is_finite()
+                && sc.theta_deg.stop.is_finite()
+                && (0.0..90.0).contains(&sc.theta_deg.start)
+                && (0.0..90.0).contains(&sc.theta_deg.stop)
+                && !sc.phi_deg.is_empty()
+                && sc.phi_deg.iter().all(|x| x.is_finite()),
+            "scan.theta_deg needs count >= 1 with start / stop in [0, 90), and phi_deg a \
+             non-empty list of finite angles",
+        ),
+    };
+    if !angles_ok {
+        return Err(invalid(what));
+    }
+    Ok(())
+}
+
+/// Resolve the Floquet ports and the incidence angle list.
+fn resolve_floquet(
+    spec: &ProblemSpec,
+    tags: &[i32],
+    surface: &dyn Fn(&str, i32, &str) -> Result<Surface, CliError>,
+) -> Result<Option<FloquetSetup>, CliError> {
+    use geode_core::driven::floquet::FloquetPolarization::{Te, Tm};
+    if spec.floquet_ports.is_empty() {
+        return Ok(None);
+    }
+    let mut defs = Vec::with_capacity(2);
+    for (f, &t) in spec.floquet_ports.iter().zip(tags) {
+        let surf = surface(&f.physical_group, t, "floquet_port")?;
+        let eps_r = match &f.medium {
+            Some(n) => {
+                spec.materials
+                    .iter()
+                    .find(|m| &m.physical_group == n)
+                    .expect("checked by validate_floquet")
+                    .eps_r[0]
+            }
+            None => 1.0,
+        };
+        defs.push(FloquetPortDef {
+            surface: surf,
+            eps_r,
+            n_evanescent: f.n_evanescent,
+        });
+    }
+    let [a, b]: [FloquetPortDef; 2] = defs.try_into().expect("two ports checked");
+    let (angles, pol, is_scan) = match (&spec.incidence, &spec.scan) {
+        (Some(i), _) => (vec![[i.theta_deg, i.phi_deg]], i.polarization, false),
+        (None, None) => {
+            let f = spec.fixed_k_t.as_ref().expect("validate_floquet");
+            (Vec::new(), f.polarization, false)
+        }
+        (_, Some(sc)) => {
+            let r = &sc.theta_deg;
+            let thetas: Vec<f64> = (0..r.count)
+                .map(|k| {
+                    if r.count == 1 {
+                        r.start
+                    } else {
+                        r.start + (r.stop - r.start) * k as f64 / (r.count - 1) as f64
+                    }
+                })
+                .collect();
+            let angles = thetas
+                .iter()
+                .flat_map(|&t| sc.phi_deg.iter().map(move |&ph| [t, ph]))
+                .collect();
+            (angles, sc.polarization, true)
+        }
+    };
+    let pols = match pol {
+        crate::spec::IncidencePolarization::Te => vec![Te],
+        crate::spec::IncidencePolarization::Tm => vec![Tm],
+        crate::spec::IncidencePolarization::Both => vec![Te, Tm],
+    };
+    Ok(Some(FloquetSetup {
+        ports: [a, b],
+        angles,
+        pols,
+        is_scan,
+        fixed_k_t: spec.fixed_k_t.as_ref().map(|f| f.k_t),
+    }))
+}
+
 /// Rules of the periodic boundary conditions and `eigen.bloch`
 /// (Epic #837 Phase 4a); returns the resolved Bloch target. Everything
 /// that needs the mesh (pair coverage, translation consistency) is the
@@ -2694,7 +3235,8 @@ fn validate_periodic(
         }
     }
     if bloch.is_none() {
-        if periodic.is_empty() {
+        if periodic.is_empty() || (analysis == Analysis::Driven && !spec.floquet_ports.is_empty()) {
+            // A Floquet-port spec is checked by `validate_floquet`.
             return Ok(None);
         }
         return Err(invalid(if analysis == Analysis::Eigen {
@@ -2702,7 +3244,7 @@ fn validate_periodic(
              periodic eigen spec is a unit-cell band solve"
         } else {
             "`boundary_conditions.periodic` is supported by `eigen.bloch` specs only (periodic \
-             driven / Floquet-port analyses land with Epic #837 Phase 4b)"
+             driven specs need `floquet_ports` and an `incidence` / `scan`)"
         }));
     }
     let bloch = bloch.expect("checked above");
@@ -3240,12 +3782,31 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
         ),
         None => (Vec::new(), Vec::new()),
     };
-    let lists: [(&'static str, Vec<&str>); 10] = [
+    let conduction_terminals: Vec<&str> = match &spec.conduction {
+        Some(c) => c.terminals.iter().map(String::as_str).collect(),
+        None => Vec::new(),
+    };
+    let eqs_terminals: Vec<&str> = match &spec.eqs {
+        Some(e) => e.terminals.iter().map(|t| t.name.as_str()).collect(),
+        None => Vec::new(),
+    };
+    let eqs_floating: Vec<&str> = match &spec.eqs {
+        Some(e) => e.floating.iter().map(String::as_str).collect(),
+        None => Vec::new(),
+    };
+    let lists: [(&'static str, Vec<&str>); 14] = [
         (
             "port",
             spec.ports
                 .iter()
                 .map(|p| p.physical_group.as_str())
+                .collect(),
+        ),
+        (
+            "Floquet port",
+            spec.floquet_ports
+                .iter()
+                .map(|f| f.physical_group.as_str())
                 .collect(),
         ),
         (
@@ -3278,6 +3839,9 @@ fn validate_surface_roles(spec: &ProblemSpec) -> Result<(), CliError> {
         ("capacitance ground surface", ground),
         ("inductance source terminal", sources),
         ("inductance sink terminal", sinks),
+        ("conduction terminal", conduction_terminals),
+        ("eqs terminal", eqs_terminals),
+        ("eqs floating conductor", eqs_floating),
     ];
     for (role, names) in &lists {
         for &name in names {
@@ -3347,7 +3911,7 @@ fn tri_edge_keys(t: &[u32; 3]) -> [[u32; 2]; 3] {
 #[allow(clippy::type_complexity)]
 fn resolve_upml(
     spec: &ProblemSpec,
-    tags: &[Option<i32>],
+    tags: &[i32],
     tagged: &TaggedTetMesh,
 ) -> Result<(Vec<UpmlRegion>, Vec<Option<usize>>), CliError> {
     if spec.absorbing_regions.is_empty() {
@@ -3361,11 +3925,8 @@ fn resolve_upml(
             hi[k] = hi[k].max(q[k]);
         }
     }
-    let region_of_tag: BTreeMap<i32, usize> = tags
-        .iter()
-        .enumerate()
-        .map(|(i, t)| (t.expect("resolved above"), i))
-        .collect();
+    let region_of_tag: BTreeMap<i32, usize> =
+        tags.iter().enumerate().map(|(i, &t)| (t, i)).collect();
     let upml_of_tet: Vec<Option<usize>> = tagged
         .tet_physical_tags
         .iter()
@@ -3404,7 +3965,7 @@ fn resolve_upml(
         }
         regions.push(UpmlRegion {
             name: name.clone(),
-            tag: tags[i].expect("resolved above"),
+            tag: tags[i],
             n_tets,
             n_tets_stretched,
             thickness: u.thickness,
@@ -3487,10 +4048,14 @@ fn sorted_tet_faces(tets: &[[u32; 4]]) -> std::collections::HashSet<[u32; 3]> {
 }
 
 mod capacitance;
+mod conduction;
+mod eqs;
 mod ports;
 mod sensitivity;
 
 use capacitance::*;
+use conduction::*;
+use eqs::*;
 use ports::*;
 use sensitivity::*;
 #[allow(unused_imports)] // external paths kept valid (issue #1398)

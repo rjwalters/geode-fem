@@ -18,7 +18,7 @@ import picocli.CommandLine.Option;
  * Dirichlet boundary reduction on the JVM side, and dumps the reduced
  * (K_int, M_int) matrices to a JSON sidecar in the canonical
  * {@code reference/SCHEMA.md} v1 fixture format. A companion Python
- * driver ({@code reference/driver/eigensolve_from_tfjava.py}) consumes
+ * driver ({@code reference/driver/eigensolve_from_sidecar.py}) consumes
  * the sidecar and calls SciPy's eigensolver.
  *
  * <p>This split — TF-Java does the assembly, SciPy does the eigensolve —

@@ -47,7 +47,9 @@
 use std::fmt::Write as _;
 
 pub use crate::mesh_cmd::layout::ConductorBody;
-use crate::mesh_cmd::layout::{Axis, BoundaryDef, OUTER_BOUNDARY, PolyShape, Rect, ResolvedLayout};
+use crate::mesh_cmd::layout::{
+    Axis, BoundaryDef, OUTER_BOUNDARY, PolyShape, Rect, ResolvedLayout, RingSeg,
+};
 
 /// What a generated physical group is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +76,12 @@ pub enum GroupRole {
         /// The periodic axis.
         axis: Axis,
         /// Slave (`true`) or master (`false`).
+        hi: bool,
+    },
+    /// A Floquet port (dimension 2) of a periodic driven cell: the bottom
+    /// (`hi = false`, `z_lo`) or top (`hi = true`, `z_hi`) z wall.
+    FloquetPort {
+        /// Top (`true`) or bottom (`false`) wall.
         hi: bool,
     },
 }
@@ -199,6 +207,75 @@ fn bbox_lohi(kind: &str, lo: [f64; 3], hi: [f64; 3], eps: f64) -> String {
     )
 }
 
+/// Emit the outer ring with rounded convex corners as `Point` / `Line` /
+/// `Circle` (tangent arcs, start → centre → end) and a `Curve Loop`.
+fn rounded_loop(w: &mut String, p: &str, l: &str, ll: &str, shape: &PolyShape, z: f64) {
+    let segs = shape.rounded_outer();
+    let pt = |w: &mut String, idx: usize, q: [f64; 2]| {
+        let _ = writeln!(
+            w,
+            "Point({p}+{idx}) = {{{}, {}, {}}};",
+            num(q[0]),
+            num(q[1]),
+            num(z)
+        );
+    };
+    // Boundary points of each segment in ring order; an arc also has a
+    // centre point (not on the loop).
+    let mut idx = 0usize;
+    let mut ends: Vec<(usize, usize)> = Vec::new(); // (first, last) boundary point ids
+    let mut centres: Vec<Option<usize>> = Vec::new();
+    let _ = writeln!(w, "{p} = newp;");
+    for seg in &segs {
+        match *seg {
+            RingSeg::Corner(q) => {
+                pt(w, idx, q);
+                ends.push((idx, idx));
+                centres.push(None);
+                idx += 1;
+            }
+            RingSeg::Arc {
+                t_in,
+                centre,
+                t_out,
+            } => {
+                pt(w, idx, t_in);
+                pt(w, idx + 1, t_out);
+                pt(w, idx + 2, centre);
+                ends.push((idx, idx + 1));
+                centres.push(Some(idx + 2));
+                idx += 3;
+            }
+        }
+    }
+    let _ = writeln!(w, "{l} = newl;");
+    let n = segs.len();
+    let mut ids = Vec::new();
+    let mut c = 0usize;
+    for i in 0..n {
+        if let Some(cen) = centres[i] {
+            let _ = writeln!(
+                w,
+                "Circle({l}+{c}) = {{{p}+{}, {p}+{cen}, {p}+{}}};",
+                ends[i].0, ends[i].1
+            );
+            ids.push(format!("{l}+{c}"));
+            c += 1;
+        }
+        let next = ends[(i + 1) % n].0;
+        if ends[i].1 != next {
+            let _ = writeln!(w, "Line({l}+{c}) = {{{p}+{}, {p}+{next}}};", ends[i].1);
+            ids.push(format!("{l}+{c}"));
+            c += 1;
+        }
+    }
+    let _ = writeln!(
+        w,
+        "{ll} = newll; Curve Loop({ll}) = {{{}}};",
+        ids.join(", ")
+    );
+}
+
 /// Emit `shape` at height `z` as `Point` / `Line` / `Curve Loop` /
 /// `Plane Surface` (outer loop first, hole loops after) and bind the
 /// surface to the variable `s`.
@@ -214,6 +291,11 @@ fn plane_surface(w: &mut String, s: &str, shape: &PolyShape, z: f64) {
             format!("{s}_l{k}"),
             format!("{s}_ll{k}"),
         );
+        if k == 0 && shape.edge_radius > 0.0 {
+            rounded_loop(w, &p, &l, &ll, shape, z);
+            loops.push(ll);
+            continue;
+        }
         let _ = writeln!(w, "{p} = newp;");
         for (i, q) in ring.iter().enumerate() {
             let _ = writeln!(
@@ -350,12 +432,26 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
             });
         }
     }
-    groups.push(GroupDef {
-        dim: 2,
-        tag: next(),
-        name: OUTER_BOUNDARY.into(),
-        role: GroupRole::OuterBoundary,
-    });
+    // A periodic driven cell opens its z walls as Floquet ports; with both
+    // lateral axes periodic nothing is left for `outer_boundary`.
+    let floquet = r.meshes_floquet_ports();
+    if floquet {
+        for hi in [false, true] {
+            groups.push(GroupDef {
+                dim: 2,
+                tag: next(),
+                name: if hi { "z_hi" } else { "z_lo" }.into(),
+                role: GroupRole::FloquetPort { hi },
+            });
+        }
+    } else {
+        groups.push(GroupDef {
+            dim: 2,
+            tag: next(),
+            name: OUTER_BOUNDARY.into(),
+            role: GroupRole::OuterBoundary,
+        });
+    }
     let _ = writeln!(w, "//   | dim | tag | name | role |");
     for gd in &groups {
         let role = match gd.role {
@@ -371,6 +467,7 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
             GroupRole::OuterBoundary => "outer walls (PEC)",
             GroupRole::PeriodicWall { hi: false, .. } => "periodic master wall",
             GroupRole::PeriodicWall { hi: true, .. } => "periodic slave wall",
+            GroupRole::FloquetPort { .. } => "Floquet port (z wall)",
         };
         let _ = writeln!(w, "//   | {} | {} | {} | {role} |", gd.dim, gd.tag, gd.name);
     }
@@ -651,6 +748,7 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
                         let hb = PolyShape {
                             outer: hole.clone(),
                             holes: Vec::new(),
+                            edge_radius: 0.0,
                         }
                         .bbox();
                         let mut zs = vec![p.z0];
@@ -694,24 +792,40 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
         );
         let _ = writeln!(w, "Physical Surface(\"{}\", {t}) = {{g_{t}()}};", gd.name);
     }
-    let outer = groups.last().expect("outer boundary");
-    let t = outer.tag;
-    let mut walls = vec![(Rect { ..d }, z_min, z_min), (Rect { ..d }, z_max, z_max)];
-    for axis in [Axis::X, Axis::Y] {
-        if !l.periodic.contains(&axis) {
-            walls.push((wall(axis, false), z_min, z_max));
-            walls.push((wall(axis, true), z_min, z_max));
+    if floquet {
+        for gd in groups.iter().filter(|g| g.dim == 2) {
+            let GroupRole::FloquetPort { hi } = gd.role else {
+                continue;
+            };
+            let t = gd.tag;
+            let z = if hi { z_max } else { z_min };
+            let _ = writeln!(
+                w,
+                "g_{t}() = {};",
+                bbox_sel("Surface", &Rect { ..d }, z, z, eps)
+            );
+            let _ = writeln!(w, "Physical Surface(\"{}\", {t}) = {{g_{t}()}};", gd.name);
         }
+    } else {
+        let outer = groups.last().expect("outer boundary");
+        let t = outer.tag;
+        let mut walls = vec![(Rect { ..d }, z_min, z_min), (Rect { ..d }, z_max, z_max)];
+        for axis in [Axis::X, Axis::Y] {
+            if !l.periodic.contains(&axis) {
+                walls.push((wall(axis, false), z_min, z_max));
+                walls.push((wall(axis, true), z_min, z_max));
+            }
+        }
+        let _ = writeln!(w, "g_{t}() = {{}};");
+        for (q, z0, z1) in walls {
+            let _ = writeln!(w, "g_{t}() += {};", bbox_sel("Surface", &q, z0, z1, eps));
+        }
+        let _ = writeln!(w, "g_{t}() = Unique(g_{t}());");
+        let _ = writeln!(
+            w,
+            "Physical Surface(\"{OUTER_BOUNDARY}\", {t}) = {{g_{t}()}};"
+        );
     }
-    let _ = writeln!(w, "g_{t}() = {{}};");
-    for (q, z0, z1) in walls {
-        let _ = writeln!(w, "g_{t}() += {};", bbox_sel("Surface", &q, z0, z1, eps));
-    }
-    let _ = writeln!(w, "g_{t}() = Unique(g_{t}());");
-    let _ = writeln!(
-        w,
-        "Physical Surface(\"{OUTER_BOUNDARY}\", {t}) = {{g_{t}()}};"
-    );
     let _ = writeln!(w);
 
     // --- Periodic surfaces ----------------------------------------------
@@ -815,14 +929,21 @@ pub fn generate(r: &ResolvedLayout, generator: &str) -> GeoScript {
         let _ = writeln!(w, "Field[{field}].DistMax = {};", num(far.max(near)));
         thresholds.push(field.to_string());
     }
-    field += 1;
-    let _ = writeln!(w, "Field[{field}] = Min;");
-    let _ = writeln!(
-        w,
-        "Field[{field}].FieldsList = {{{}}};",
-        thresholds.join(", ")
-    );
-    let _ = writeln!(w, "Background Field = {field};");
+    if thresholds.is_empty() {
+        // No conductors or ports to refine around (e.g. a bare periodic
+        // driven cell): gmsh rejects an empty `FieldsList = {}`, so emit no
+        // background field and let `Mesh.MeshSizeMax` size the mesh.
+        let _ = writeln!(w, "// (nothing to refine: uniform Mesh.MeshSizeMax)");
+    } else {
+        field += 1;
+        let _ = writeln!(w, "Field[{field}] = Min;");
+        let _ = writeln!(
+            w,
+            "Field[{field}].FieldsList = {{{}}};",
+            thresholds.join(", ")
+        );
+        let _ = writeln!(w, "Background Field = {field};");
+    }
     let _ = writeln!(w);
     let _ = writeln!(
         w,
@@ -1182,6 +1303,46 @@ mod tests {
         assert_eq!(outer, 2, "{}", s.text);
     }
 
+    /// A periodic driven cell (issue #1530): `z_lo` / `z_hi` Floquet-port
+    /// groups replace `outer_boundary`.
+    #[test]
+    fn periodic_driven_emits_floquet_port_groups() {
+        let l = periodic_layout(serde_json::json!(["x", "y"]));
+        let r = l.resolve_for(super::super::MeshAnalysis::Driven).unwrap();
+        let s = generate(&r, "test");
+        let names: Vec<_> = s.groups.iter().map(|g| g.name.as_str()).collect();
+        assert!(names.ends_with(&["z_lo", "z_hi"]), "{names:?}");
+        assert!(!names.contains(&"outer_boundary"));
+        assert!(s.text.contains("Physical Surface(\"z_lo\""));
+        assert!(s.text.contains("Physical Surface(\"z_hi\""));
+        assert!(!s.text.contains("outer_boundary"));
+    }
+
+    /// A bare periodic driven cell has nothing to refine around: gmsh rejects
+    /// `FieldsList = {}` (a syntax error), so no empty field may be emitted.
+    #[test]
+    fn conductor_free_cell_emits_no_empty_size_field() {
+        let l: Layout = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [
+                {"name": "slab", "z_bottom": 0, "thickness": 4, "eps_r": [4.0, 0.0]},
+                {"name": "air", "z_bottom": 4, "thickness": 6}
+            ],
+            "conductors": [],
+            "margin": 5,
+            "periodic": ["x", "y"],
+            "mesh": {"size_max": 3, "size_conductor": 1}
+        }))
+        .unwrap();
+        let r = l.resolve_for(super::super::MeshAnalysis::Driven).unwrap();
+        let s = generate(&r, "test");
+        assert!(!s.text.contains("FieldsList = {}"), "{}", s.text);
+        assert!(!s.text.contains("Background Field"), "{}", s.text);
+        let (open, close) = (s.text.matches('{').count(), s.text.matches('}').count());
+        assert_eq!(open, close, "unbalanced braces:\n{}", s.text);
+    }
+
     #[test]
     fn one_periodic_axis_keeps_the_other_walls_in_the_outer_boundary() {
         let l = periodic_layout(serde_json::json!(["x"]));
@@ -1240,6 +1401,92 @@ mod tests {
             g.find("Physical Surface(\"pad\""),
         );
         assert!(pad < ring, "inner group first:\n{g}");
+    }
+
+    fn rounded_layout(radius: f64, outer: serde_json::Value) -> Layout {
+        serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "length_unit_m": 1e-6,
+            "dielectrics": [{"name": "air", "z_bottom": -1, "thickness": 12}],
+            "ground": [],
+            "conductors": [
+                {"name": "plate", "z_bottom": 1, "thickness": 0.5, "polygons": [
+                    {"outer": outer, "edge_radius": radius}]}
+            ],
+            "ports": [],
+            "margin": 3,
+            "mesh": {"size_max": 3, "size_conductor": 1}
+        }))
+        .unwrap()
+    }
+
+    const RECT: &str = "[[0,0],[10,0],[10,4],[0,4]]";
+
+    #[test]
+    fn edge_radius_emits_tangent_arcs_and_refines_the_mesh() {
+        let outer: serde_json::Value = serde_json::from_str(RECT).unwrap();
+        let r = rounded_layout(1.0, outer.clone())
+            .resolve_for(crate::mesh_cmd::layout::MeshAnalysis::Capacitance)
+            .unwrap();
+        let g = generate(&r, "test").text;
+        // Four arcs, four straight edges, one extruded plane surface.
+        assert_eq!(g.matches("Circle(").count(), 4, "{g}");
+        assert_eq!(g.matches("Line(sb_c0_0_l0+").count(), 4, "{g}");
+        assert!(g.contains("Plane Surface(sb_c0_0) = {sb_c0_0_ll0};"), "{g}");
+        assert!(g.contains("Extrude {0, 0, 0.5}"), "{g}");
+        // Corner (0,0): tangent points (0,1) and (1,0), centre (1,1).
+        assert!(g.contains("Point(sb_c0_0_p0+0) = {0, 1, 1};"), "{g}");
+        assert!(g.contains("Point(sb_c0_0_p0+1) = {1, 0, 1};"), "{g}");
+        assert!(g.contains("Point(sb_c0_0_p0+2) = {1, 1, 1};"), "{g}");
+        // The layer size (1) is refined to pi/2 * r / ARC_ELEMENTS.
+        let want = std::f64::consts::FRAC_PI_2 / crate::mesh_cmd::layout::ARC_ELEMENTS;
+        assert!(
+            (r.group_size(0) - want).abs() < 1e-12,
+            "{}",
+            r.group_size(0)
+        );
+        // Radius 0 is today's path: a Box, no arcs, no refinement.
+        let r0 = rounded_layout(0.0, outer)
+            .resolve_for(crate::mesh_cmd::layout::MeshAnalysis::Capacitance)
+            .unwrap();
+        let g0 = generate(&r0, "test").text;
+        assert!(g0.contains("Box(v_c0_0)") && !g0.contains("Circle("));
+        assert_eq!(r0.group_size(0), 1.0);
+    }
+
+    #[test]
+    fn edge_radius_rounds_only_convex_corners() {
+        // L shape: five convex corners, one reflex.
+        let outer = serde_json::json!([[0, 0], [6, 0], [6, 2], [2, 2], [2, 6], [0, 6]]);
+        let r = rounded_layout(0.5, outer)
+            .resolve_for(crate::mesh_cmd::layout::MeshAnalysis::Capacitance)
+            .unwrap();
+        let g = generate(&r, "test").text;
+        assert_eq!(g.matches("Circle(").count(), 5, "{g}");
+        // The reflex corner (2, 2) stays a sharp point.
+        assert!(g.contains("= {2, 2, 1};"), "{g}");
+    }
+
+    #[test]
+    fn edge_radius_is_validated() {
+        let rect: serde_json::Value = serde_json::from_str(RECT).unwrap();
+        let err = |radius: f64, outer: serde_json::Value| {
+            rounded_layout(radius, outer)
+                .resolve_for(crate::mesh_cmd::layout::MeshAnalysis::Capacitance)
+                .map(|_| ())
+                .unwrap_err()
+        };
+        // Shortest edge is 4: radius 2 is allowed (stadium end), 2.5 is not.
+        assert!(
+            rounded_layout(2.0, rect.clone())
+                .resolve_for(crate::mesh_cmd::layout::MeshAnalysis::Capacitance)
+                .is_ok()
+        );
+        let e = err(2.5, rect.clone());
+        assert!(e.contains("too large") && e.contains("plate"), "{e}");
+        assert!(err(-1.0, rect).contains("edge_radius"));
+        let e = err(0.5, serde_json::json!([[0, 0], [4, 0], [4, 4]]));
+        assert!(e.contains("axis-parallel"), "{e}");
     }
 
     #[test]

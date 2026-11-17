@@ -53,7 +53,7 @@ mod scratch_support;
 mod touchstone_support;
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use geode_core::analytic::loaded_guide::SlabLoadedGuide;
 use geode_core::analytic::microstrip::{
@@ -70,12 +70,9 @@ const MM: f64 = 1e-3;
 /// Substrate `ε_r` of the microstrip fixtures (FR-4-like).
 const EPS_SUB: f64 = 4.4;
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::{f64_at, geode};
 
 fn scratch(name: &str) -> Scratch {
     Scratch::new("geode-cli-hybrid-", name)
@@ -90,10 +87,6 @@ fn json_ok(out: &Output) -> Value {
         String::from_utf8_lossy(&out.stdout)
     );
     serde_json::from_slice(&out.stdout).expect("report is JSON")
-}
-
-fn f64_at(v: &Value) -> f64 {
-    v.as_f64().unwrap_or_else(|| panic!("not a number: {v}"))
 }
 
 fn cx(v: &Value) -> C {

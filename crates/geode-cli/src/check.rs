@@ -32,6 +32,12 @@ pub fn run(spec_path: &Path, provenance: Provenance) -> Result<CheckReport, CliE
     if p.periodic.is_some() {
         warnings.extend(periodic_warnings(&p)?);
     }
+    // Floquet-port validity (Epic #837 Phase 4b): assembling the cell checks
+    // the lattice, the two open faces, the homogeneous real port media and
+    // the periodic pairing without any solve; a failure is `invalid_spec`.
+    if let Some(setup) = &p.floquet {
+        crate::floquet::assemble(&p, setup)?;
+    }
     let (wave_ports, hybrid_warnings) = wave_port_previews(&p)?;
     warnings.extend(hybrid_warnings);
     Ok(CheckReport {
@@ -242,20 +248,10 @@ pub fn inductance_settings_summary(p: &Problem) -> Option<InductanceSettingsSumm
 /// (`None` unless a capacitance spec).
 pub fn capacitance_settings_summary(p: &Problem) -> Option<CapacitanceSettingsSummary> {
     let c = p.capacitance.as_ref()?;
-    let summary = |list: &[problem::Conductor]| -> Vec<ConductorSummary> {
-        list.iter()
-            .map(|k| ConductorSummary {
-                physical_group: k.surface.name.clone(),
-                tag: k.surface.tag,
-                n_triangles: k.surface.triangles.len(),
-                n_nodes: k.nodes.len(),
-            })
-            .collect()
-    };
     let n_dof = p.tagged.mesh.n_nodes();
     Some(CapacitanceSettingsSummary {
-        terminals: summary(&c.terminals),
-        ground: summary(&c.ground),
+        terminals: conductor_summaries(&c.terminals),
+        ground: conductor_summaries(&c.ground),
         conductor_model: "non_driven_grounded",
         element: "p1_tet",
         n_dof,
@@ -564,6 +560,19 @@ fn resource_estimate_with_nnz_n(
             }
         }
     }
+}
+
+/// The `ConductorSummary` echo of a conductor list (capacitance terminals and
+/// ground, conduction terminals, EQS terminals and floating conductors).
+pub fn conductor_summaries(list: &[problem::Conductor]) -> Vec<ConductorSummary> {
+    list.iter()
+        .map(|k| ConductorSummary {
+            physical_group: k.surface.name.clone(),
+            tag: k.surface.tag,
+            n_triangles: k.surface.triangles.len(),
+            n_nodes: k.nodes.len(),
+        })
+        .collect()
 }
 
 /// Volume regions with applied permittivities.

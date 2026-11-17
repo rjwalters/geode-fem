@@ -20,6 +20,7 @@ use geode_core::elements::nedelec::{
 };
 use geode_core::mesh::{TetMesh, cube_tet_mesh};
 use geode_core::testing::{TestBackend, test_device as device};
+use geode_util::rng::Lcg32;
 
 mod common;
 use common::readback_f64;
@@ -103,11 +104,8 @@ fn nedelec_local_reference(verts: &[[f64; 3]; 4]) -> ([[f64; 6]; 6], [[f64; 6]; 
 /// Deterministic "random" affine tet: translation + diagonally-dominant linear part.
 /// Same generator as `tests/p1_local_matrices.rs` for cross-comparability.
 fn deterministic_tet(seed: u32) -> [[f64; 3]; 4] {
-    let mut state = seed.wrapping_mul(2_654_435_761);
-    let mut next = || {
-        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        (state as f64) / (u32::MAX as f64)
-    };
+    let mut rng = Lcg32::from_seed(seed);
+    let mut next = || rng.next_unit();
 
     let t = [next() - 0.5, next() - 0.5, next() - 0.5];
     let mut a = [[0.0f64; 3]; 3];
@@ -488,17 +486,9 @@ fn shared_edge_assembly_signs_apply_correctly() {
 
     let edges = mesh.edges();
     let n_edges = edges.len();
-    let tet_edges = mesh.tet_edges();
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
 
     let (nodes_t, tets_t) = upload_mesh::<B>(&mesh, &device());
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
 
     let sys = assemble_global_nedelec(nodes_t, tets_t, &tet_idx, &tet_sign, n_edges);
     let k = readback_f64(sys.k);
@@ -528,16 +518,7 @@ fn cube_assembly_k_symmetric_and_m_total_mass_positive() {
     let mesh = cube_tet_mesh(n, 1.0);
     let edges = mesh.edges();
     let n_edges = edges.len();
-    let tet_edges = mesh.tet_edges();
-
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
 
     let (nodes, tets) = upload_mesh::<B>(&mesh, &device());
     let sys = assemble_global_nedelec(nodes, tets, &tet_idx, &tet_sign, n_edges);
@@ -635,16 +616,7 @@ fn assembly_preserves_autodiff_smoke() {
     let mesh = cube_tet_mesh(2, 1.0);
     let edges = mesh.edges();
     let n_edges = edges.len();
-    let tet_edges_v = mesh.tet_edges();
-
-    let tet_idx: Vec<[u32; 6]> = tet_edges_v
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges_v
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
 
     let n = mesh.n_nodes();
     let n_elem = mesh.n_tets();

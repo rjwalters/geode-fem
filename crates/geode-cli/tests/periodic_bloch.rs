@@ -20,8 +20,6 @@ mod msh;
 mod scratch_support;
 
 use std::f64::consts::PI;
-use std::path::Path;
-use std::process::{Command, Output};
 
 use geode_core::constants::C_M_PER_S;
 use scratch_support::Scratch;
@@ -105,22 +103,9 @@ fn cube_msh(n: usize) -> String {
     msh::write_msh_volumes(&nodes, &[(1, "cell", tets.as_slice())], &surfaces)
 }
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
-
-fn json_of(out: &Output) -> Value {
-    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
-        panic!(
-            "not JSON ({e}): {}\nstderr: {}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        )
-    })
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::{error_of, geode, json, write_spec_str};
 
 /// A scratch directory holding `cell.msh` (the unit cube, `n` cells a side).
 fn cell_dir(name: &str, n: usize) -> Scratch {
@@ -147,19 +132,6 @@ fn spec(bloch: Value) -> Value {
     })
 }
 
-fn write_spec(dir: &Path, file: &str, v: &Value) -> String {
-    let path = dir.join(file);
-    std::fs::write(&path, serde_json::to_vec_pretty(v).unwrap()).unwrap();
-    path.display().to_string()
-}
-
-fn error_of(out: &Output, code: &str) -> String {
-    let v = json_of(out);
-    assert!(!out.status.success(), "expected failure: {v:#}");
-    assert_eq!(v["error"]["code"], code, "report: {v:#}");
-    v["error"]["message"].as_str().unwrap().to_string()
-}
-
 /// `f = k₀ c / (2π L)` for a unit length.
 fn hz(k0: f64) -> f64 {
     k0 * C_M_PER_S / (2.0 * PI)
@@ -168,9 +140,9 @@ fn hz(k0: f64) -> f64 {
 #[test]
 fn bloch_point_matches_the_empty_cell_light_line() {
     let dir = cell_dir("point", 6);
-    let s = write_spec(&dir, "s.json", &spec(json!({"k": [PI, 0.0, 0.0]})));
+    let s = write_spec_str(&dir, "s.json", &spec(json!({"k": [PI, 0.0, 0.0]})));
     let out = geode(&["eigen", &s]);
-    let v = json_of(&out);
+    let v = json(&out);
     assert!(out.status.success(), "{v:#}");
     assert_eq!(v["kind"], "eigen");
     assert_eq!(v["modes"].as_array().unwrap().len(), 0);
@@ -223,9 +195,9 @@ fn given_and_inferred_translations_agree_and_one_axis_works() {
         "pec": ["y_lo", "y_hi", "z_lo", "z_hi"],
         "periodic": pairs(&["x"])
     });
-    let inferred = json_of(&geode(&["eigen", &write_spec(&dir, "a.json", &v)]));
+    let inferred = json(&geode(&["eigen", &write_spec_str(&dir, "a.json", &v)]));
     v["boundary_conditions"]["periodic"][0]["translation"] = json!([1.0, 0.0, 0.0]);
-    let given = json_of(&geode(&["eigen", &write_spec(&dir, "b.json", &v)]));
+    let given = json(&geode(&["eigen", &write_spec_str(&dir, "b.json", &v)]));
     assert_eq!(given["status"], "ok", "{given:#}");
     assert_eq!(given["periodic"]["pairs"][0]["translation_inferred"], false);
     assert_eq!(
@@ -247,8 +219,8 @@ fn gamma_point_returns_the_harmonic_fields_as_static_bands() {
     // Shift near 2π so the four closest are the folded ω = 2π light lines
     // (the three Γ harmonic fields sit at 0).
     v["eigen"]["shift"] = json!(0.5);
-    let out = geode(&["eigen", &write_spec(&dir, "g.json", &v)]);
-    let r = json_of(&out);
+    let out = geode(&["eigen", &write_spec_str(&dir, "g.json", &v)]);
+    let r = json(&out);
     assert!(out.status.success(), "{r:#}");
     let f = r["bands"]["rows"][0]["frequency_hz"].as_array().unwrap();
     assert_eq!(f.len(), 4);
@@ -262,7 +234,7 @@ fn gamma_point_returns_the_harmonic_fields_as_static_bands() {
 #[test]
 fn bloch_path_reports_tracked_bands_with_group_velocity() {
     let dir = cell_dir("path", 4);
-    let s = write_spec(
+    let s = write_spec_str(
         &dir,
         "p.json",
         &spec(json!({
@@ -272,7 +244,7 @@ fn bloch_path_reports_tracked_bands_with_group_velocity() {
         })),
     );
     let out = geode(&["eigen", &s]);
-    let v = json_of(&out);
+    let v = json(&out);
     assert!(out.status.success(), "{v:#}");
     let bands = &v["bands"];
     assert_eq!(bands["mode"], "path");
@@ -297,9 +269,9 @@ fn bloch_path_reports_tracked_bands_with_group_velocity() {
 #[test]
 fn check_reports_the_pairing_before_solving() {
     let dir = cell_dir("check", 4);
-    let s = write_spec(&dir, "c.json", &spec(json!({"k": [PI, 0.0, 0.0]})));
+    let s = write_spec_str(&dir, "c.json", &spec(json!({"k": [PI, 0.0, 0.0]})));
     let out = geode(&["check", &s]);
-    let v = json_of(&out);
+    let v = json(&out);
     assert!(out.status.success(), "{v:#}");
     assert_eq!(v["kind"], "check");
     assert_eq!(v["analysis"], "eigen");
@@ -323,7 +295,7 @@ fn check_rejects_bad_periodic_specs() {
     let mut v = spec(k.clone());
     v["boundary_conditions"]["pec"] = json!(["x_lo"]);
     let m = error_of(
-        &geode(&["check", &write_spec(&dir, "a.json", &v)]),
+        &geode(&["check", &write_spec_str(&dir, "a.json", &v)]),
         "invalid_spec",
     );
     assert!(m.contains("`x_lo`") && m.contains("periodic face"), "{m}");
@@ -332,7 +304,7 @@ fn check_rejects_bad_periodic_specs() {
     let mut v = spec(k.clone());
     v["boundary_conditions"]["periodic"][0]["slave"] = json!("x_hi_missing");
     let m = error_of(
-        &geode(&["check", &write_spec(&dir, "b.json", &v)]),
+        &geode(&["check", &write_spec_str(&dir, "b.json", &v)]),
         "unresolved_physical_group",
     );
     assert!(m.contains("x_hi_missing"), "{m}");
@@ -341,7 +313,7 @@ fn check_rejects_bad_periodic_specs() {
     let mut v = spec(k.clone());
     v["boundary_conditions"]["periodic"][0]["translation"] = json!([2.0, 0.0, 0.0]);
     let m = error_of(
-        &geode(&["check", &write_spec(&dir, "c.json", &v)]),
+        &geode(&["check", &write_spec_str(&dir, "c.json", &v)]),
         "invalid_spec",
     );
     assert!(
@@ -353,14 +325,14 @@ fn check_rejects_bad_periodic_specs() {
     let mut v = spec(k.clone());
     v["boundary_conditions"]["periodic"][0]["slave"] = json!("x_lo");
     let m = error_of(
-        &geode(&["check", &write_spec(&dir, "d.json", &v)]),
+        &geode(&["check", &write_spec_str(&dir, "d.json", &v)]),
         "invalid_spec",
     );
     assert!(m.contains("both `x_lo`"), "{m}");
     let mut v = spec(k.clone());
     v["boundary_conditions"]["periodic"][0]["translation"] = json!([0.0, 0.0, 0.0]);
     let m = error_of(
-        &geode(&["check", &write_spec(&dir, "e.json", &v)]),
+        &geode(&["check", &write_spec_str(&dir, "e.json", &v)]),
         "invalid_spec",
     );
     assert!(m.contains("non-zero"), "{m}");
@@ -369,7 +341,7 @@ fn check_rejects_bad_periodic_specs() {
     let mut v = spec(k.clone());
     v["absorbing_regions"] = json!([{"physical_group": "cell", "thickness": 0.1, "sigma_0": 25.0}]);
     let m = error_of(
-        &geode(&["check", &write_spec(&dir, "f.json", &v)]),
+        &geode(&["check", &write_spec_str(&dir, "f.json", &v)]),
         "invalid_spec",
     );
     assert!(m.contains("UPML") && m.contains("periodic"), "{m}");
@@ -378,14 +350,14 @@ fn check_rejects_bad_periodic_specs() {
     let mut v = spec(k.clone());
     v["eigen"].as_object_mut().unwrap().remove("bloch");
     let m = error_of(
-        &geode(&["check", &write_spec(&dir, "g.json", &v)]),
+        &geode(&["check", &write_spec_str(&dir, "g.json", &v)]),
         "invalid_spec",
     );
     assert!(m.contains("needs `eigen.bloch`"), "{m}");
     let mut v = spec(k.clone());
     v["boundary_conditions"] = json!({"pec": ["x_lo"]});
     let m = error_of(
-        &geode(&["check", &write_spec(&dir, "h.json", &v)]),
+        &geode(&["check", &write_spec_str(&dir, "h.json", &v)]),
         "invalid_spec",
     );
     assert!(m.contains("at least one"), "{m}");
@@ -394,13 +366,13 @@ fn check_rejects_bad_periodic_specs() {
     let mut v = spec(k.clone());
     v["materials"] = json!([{"physical_group": "cell", "eps_r": [2.0, -0.1]}]);
     let m = error_of(
-        &geode(&["check", &write_spec(&dir, "i.json", &v)]),
+        &geode(&["check", &write_spec_str(&dir, "i.json", &v)]),
         "invalid_spec",
     );
     assert!(m.contains("lossless"), "{m}");
     let v = spec(json!({"path": ["G", "Q"], "lattice": {"a": 1.0}}));
     let m = error_of(
-        &geode(&["check", &write_spec(&dir, "j.json", &v)]),
+        &geode(&["check", &write_spec_str(&dir, "j.json", &v)]),
         "invalid_spec",
     );
     assert!(m.contains("unknown vertex label `Q`"), "{m}");
@@ -410,7 +382,7 @@ fn check_rejects_bad_periodic_specs() {
     let mut v = spec(k.clone());
     v["adaptive_mesh"] = json!({"target_error": 0.01, "goal": "eigenfrequency"});
     let m = error_of(
-        &geode(&["check", &write_spec(&dir, "adaptive.json", &v)]),
+        &geode(&["check", &write_spec_str(&dir, "adaptive.json", &v)]),
         "invalid_spec",
     );
     assert!(
@@ -427,7 +399,7 @@ fn check_rejects_bad_periodic_specs() {
         "frequencies": {"unit": "ghz", "values": [1.0]}
     });
     let m = error_of(
-        &geode(&["check", &write_spec(&dir, "k.json", &driven)]),
+        &geode(&["check", &write_spec_str(&dir, "k.json", &driven)]),
         "invalid_spec",
     );
     assert!(m.contains("eigen.bloch"), "{m}");
@@ -444,8 +416,8 @@ fn specs_without_periodic_keys_are_unchanged() {
         "boundary_conditions": {"pec": ["x_lo", "x_hi", "y_lo", "y_hi", "z_lo", "z_hi"]},
         "eigen": {"n_modes": 2, "unit": "k0", "shift": 3.0}
     });
-    let out = geode(&["check", &write_spec(&dir, "plain.json", &v)]);
-    let r = json_of(&out);
+    let out = geode(&["check", &write_spec_str(&dir, "plain.json", &v)]);
+    let r = json(&out);
     assert!(out.status.success(), "{r:#}");
     assert!(r.get("periodic").is_none(), "{r:#}");
     assert!(r["eigen"].get("bloch").is_none(), "{r:#}");

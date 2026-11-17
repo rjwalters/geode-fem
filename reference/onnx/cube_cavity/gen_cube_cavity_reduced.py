@@ -4,7 +4,7 @@ Epic #88, Phase F.2 (issue #123). Mirror of
 ``reference/tf_java/cube_cavity/.../CubeCavityMain.java`` — programmatic
 mesh, ``onnxruntime`` over the static graph, JSON sidecar in the same
 schema the TF-Java driver emits and that
-``reference/driver/eigensolve_from_onnx.py`` consumes.
+``reference/driver/eigensolve_from_sidecar.py`` consumes.
 
 Per the F.1 audit's recommendation, the Dirichlet ``idx`` is computed
 host-side via ``np.where(mask)[0]`` and fed into the graph as an int64
@@ -124,7 +124,7 @@ def main() -> int:
             "Dirichlet-reduced (K_int, M_int) matrices for the unit-cube "
             "scalar Helmholtz problem, produced by the ONNX static-graph "
             "assembly pipeline (Epic #88 Phase F.2 / issue #123). Consumed "
-            "by reference/driver/eigensolve_from_onnx.py to close the "
+            "by reference/driver/eigensolve_from_sidecar.py to close the "
             "eigenproblem at the same SciPy seam TF-Java uses."
         ),
         "units": "dimensionless",

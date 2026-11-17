@@ -1,0 +1,32 @@
+# Design A min-max run (#1579)
+mesh: 10080 tets, 2160 nodes
+design: n_edge=13 -> 52 outline variables, superstrate fixed
+grid: 50 points, z_ref=0.15
+build: 0.1 s
+forward (50 points): 227.0 s  -> worst -3.50 dB at point 49 (recorded -3.50)
+adjoint (1 point): 5.1 s  -> |grad|_inf = 4.362e-2 per mm
+projected: 479.6 s per MMA iteration (50 adjoint passes), 4.00 h for 30 iterations
+constraints: 50 worst-case rows + 4 manufacturability rows
+  iter   1: t = 0.313992 (-5.03 dB)  worst = -5.48 dB  max_g = -3.057e-2  step = 5.467e-1  evals = 2  [553.2 s]
+  iter   2: t = 0.258320 (-5.88 dB)  worst = -6.07 dB  max_g = -1.096e-2  step = 4.592e-1  evals = 3  [921.8 s]
+  iter   3: t = 0.240444 (-6.19 dB)  worst = -6.21 dB  max_g = -1.099e-3  step = 1.963e-1  evals = 4  [1314.1 s]
+  iter   4: t = 0.238434 (-6.23 dB)  worst = -6.23 dB  max_g = -2.644e-4  step = 1.846e-1  evals = 5  [1667.1 s]
+  iter   5: t = 0.237071 (-6.25 dB)  worst = -6.26 dB  max_g = -2.509e-4  step = 1.931e-1  evals = 6  [2054.0 s]
+  iter   6: t = 0.236175 (-6.27 dB)  worst = -6.27 dB  max_g = +7.949e-5  step = 1.235e-1  evals = 7  [2409.0 s]
+  iter   7: t = 0.235934 (-6.27 dB)  worst = -6.27 dB  max_g = +3.568e-4  step = 1.165e-1  evals = 9  [2825.2 s]
+  iter   8: t = 0.235702 (-6.28 dB)  worst = -6.27 dB  max_g = +4.131e-4  step = 1.157e-1  evals = 11  [3172.8 s]
+  iter   9: t = 0.235553 (-6.28 dB)  worst = -6.27 dB  max_g = +4.189e-4  step = 5.368e-2  evals = 14  [3501.5 s]
+  iter  10: t = 0.235373 (-6.28 dB)  worst = -6.27 dB  max_g = +6.525e-4  step = 4.026e-2  evals = 17  [3835.8 s]
+  iter  11: t = 0.235301 (-6.28 dB)  worst = -6.27 dB  max_g = +6.619e-4  step = 1.312e-2  evals = 22  [4175.6 s]
+  iter  12: t = 0.235256 (-6.28 dB)  worst = -6.27 dB  max_g = +6.563e-4  step = 8.043e-3  evals = 28  [4513.4 s]
+  iter  13: t = 0.235242 (-6.28 dB)  worst = -6.27 dB  max_g = +6.553e-4  step = 2.181e-3  evals = 36  [4848.4 s]
+  iter  14: t = 0.489396 (-3.10 dB)  worst = -5.30 dB  max_g = -1.944e-1  step = 5.000e-1  evals = 38  [5058.5 s]
+  iter  15: t = 0.301602 (-5.21 dB)  worst = -5.30 dB  max_g = -6.558e-3  step = 1.878e-1  evals = 39  [5348.3 s]
+  iter  16: t = 0.284166 (-5.46 dB)  worst = -5.59 dB  max_g = -7.832e-3  step = 1.982e-1  evals = 42  [5639.1 s]
+  wall-clock budget of 5400 s reached: stopping
+best feasible iterate: #13 at -6.27 dB (last iterate -5.59 dB)
+stopped after 16 iterations: wall_clock_budget (5400 s); optimizer status Running
+final worst case: -6.27 dB (baseline -3.50, improvement 2.77 dB) -> pass
+passive = true, min_tet_volume_ratio = 0.0000, manufacturable = true
+cost: 16 iterations, 42 evaluations (25 failed), 372 adjoint passes, 5639.1 s wall clock
+wrote benchmarks/tcda_design/results.toml

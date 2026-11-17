@@ -65,9 +65,9 @@ use std::process::Command;
 use geode_core::analytic::patch::PatchCavity;
 use scratch_support::Scratch;
 
-fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::{f64_at, manifest_dir};
 
 /// Balanis cavity-model geometry of the bundled fixture
 /// (`examples/patch_antenna`'s `FIXTURE_PATCH`): W = 38, L = 29,
@@ -110,10 +110,6 @@ fn run_geode_args(cmd: &str, spec: &std::path::Path, extra: &[&str]) -> serde_js
 
 fn fixture_spec(name: &str) -> PathBuf {
     manifest_dir().join("tests/fixtures").join(name)
-}
-
-fn f64_at(v: &serde_json::Value) -> f64 {
-    v.as_f64().unwrap_or_else(|| panic!("not a number: {v}"))
 }
 
 /// Port-0 `(f_hz, k0, Z_ohm, |S11|, residual_rel)` per report row.

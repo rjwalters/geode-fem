@@ -1,6 +1,6 @@
 {
-  "loom_version": "0.19.1283",
-  "loom_commit": "a2145eda8eb9ace6b2c6d4c4f0c9addfec8f45a3",
+  "loom_version": "0.19.1305",
+  "loom_commit": "9589b4a0c59e0dff1b4e3f2b7b8e9a17f3c72e12",
   "install_date": "2026-10-06",
   "loom_source_remote": "git@github.com:rjwalters/loom.git",
   "installed_files": [
@@ -799,8 +799,11 @@
     ".loom/scripts/tests/test-guide-transient-first-at.sh",
     ".loom/scripts/tests/test-resync-installed-agents-md-create.sh",
     ".claude/commands/loom/accelerate.md",
-    ".loom/scripts/tests/test-guide-split-parent-unblock.sh"
+    ".loom/scripts/tests/test-guide-split-parent-unblock.sh",
+    ".loom/docs/guard-confinement-evidence.md",
+    ".loom/scripts/tests/test-spawn-session-env.sh",
+    ".loom/scripts/tests/test-sweep-lease-renew-fd-hygiene.sh"
   ],
-  "last_resync": "2026-11-10",
+  "last_resync": "2026-11-17",
   "requires_daemon": "0.19.1146"
 }

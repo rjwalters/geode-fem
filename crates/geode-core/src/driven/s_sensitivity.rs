@@ -2369,7 +2369,6 @@ impl<'n> Prepared<'n> {
 
         let shape = match (&design.shape, moving) {
             (Some(s), Some(mv)) => {
-                let tet_edges = mesh.tet_edges();
                 let lookup = crate::elements::whitney::edge_lookup(&edges);
                 let mut wall_faces = Vec::new();
                 for (wall, bc) in net.surfaces.iter().enumerate() {
@@ -2388,18 +2387,13 @@ impl<'n> Prepared<'n> {
                         });
                     }
                 }
+                let (tet_idx, tet_sign) = mesh.tet_edge_tables();
                 Some(ShapeData {
                     wall_faces,
                     columns: s.columns.clone(),
                     moving: mv,
-                    tet_idx: tet_edges
-                        .iter()
-                        .map(|row| std::array::from_fn(|i| row[i].0))
-                        .collect(),
-                    tet_sign: tet_edges
-                        .iter()
-                        .map(|row| std::array::from_fn(|i| row[i].1))
-                        .collect(),
+                    tet_idx,
+                    tet_sign,
                 })
             }
             _ => None,
@@ -3435,10 +3429,9 @@ impl<'n> Prepared<'n> {
     fn mode_notes(&self, at: &NetAt<'_>) -> Vec<HybridModeNote> {
         let mut out = Vec::new();
         let mut local = vec![0usize; self.ports.len()];
-        let chans_of_port = |c: usize| -> Option<usize> { at.hyb[c].as_ref().map(|h| h.port) };
-        for c in 0..at.n_ch {
-            let Some(p) = chans_of_port(c) else { continue };
-            let h = at.hyb[c].as_ref().expect("checked");
+        for hc in at.hyb.iter().take(at.n_ch) {
+            let Some(h) = hc.as_ref() else { continue };
+            let p = h.port;
             for w in h.deriv.warnings() {
                 out.push(HybridModeNote {
                     port: p,

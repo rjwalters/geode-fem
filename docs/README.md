@@ -23,6 +23,7 @@ under [`crates/`](../crates/README.md) has its own README.
 | [`gpu-eigensolve-path-design.md`](research/gpu-eigensolve-path-design.md) | Which GPU eigensolve to build, if any. Design decision (issue #503) |
 | [`2026-07-20-distributed-collectives-ir-vs-ffi.md`](research/2026-07-20-distributed-collectives-ir-vs-ffi.md) | Tensor-IR vs FFI boundary for distributed collectives. Decided (Epic #546 Phase B) |
 | [`transmon-paper-reframe.md`](research/transmon-paper-reframe.md) | Outline of the transmon paper: LOM optimization now, eigenmode as roadmap (Epic #476) |
+| [`self-heating-thermoelastic-electromigration.md`](research/self-heating-thermoelastic-electromigration.md) | Build plan: heat conduction, thermo-elastic stress, EM lifetime models. Plan only (#1555; children #1556-#1558) |
 
 The tearsheet images in `images/` are regenerated with the `geode_viz`
 package in [`tools/viz/`](../tools/viz/README.md).

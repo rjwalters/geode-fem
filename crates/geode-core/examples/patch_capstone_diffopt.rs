@@ -46,6 +46,10 @@
 //! the mesh-distortion budget the length morph hit, and the passivity bound).
 //! Both are complete deliverables; the number is reported as measured.
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::signed_det6;
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
@@ -97,15 +101,6 @@ const MAX_STEPS: usize = 10;
 /// — below this a tet is deemed over-distorted (heading toward the inverted /
 /// `Dual::abs` det-kink regime the shape kernel assumes is bounded away from 0).
 const MIN_DET_RATIO: f64 = 0.25;
-
-/// Six-times the signed tet volume `det[v1−v0, v2−v0, v3−v0]` (sign = orientation).
-fn signed_det6(v: &[[f64; 3]; 4]) -> f64 {
-    let e1 = [v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]];
-    let e2 = [v[2][0] - v[0][0], v[2][1] - v[0][1], v[2][2] - v[0][2]];
-    let e3 = [v[3][0] - v[0][0], v[3][1] - v[0][1], v[3][2] - v[0][2]];
-    e1[0] * (e2[1] * e3[2] - e2[2] * e3[1]) - e1[1] * (e2[0] * e3[2] - e2[2] * e3[0])
-        + e1[2] * (e2[0] * e3[1] - e2[1] * e3[0])
-}
 
 /// One recorded descent step.
 struct Step {

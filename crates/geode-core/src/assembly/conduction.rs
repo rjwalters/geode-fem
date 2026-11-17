@@ -47,8 +47,9 @@
 use faer::Mat;
 use faer::sparse::{SparseColMat, Triplet};
 
-use crate::assembly::electrostatic::{ElectrostaticError, tet_bary_grads, tet_p1_local};
+use crate::assembly::electrostatic::{ElectrostaticError, coords_of, tet_bary_grads, tet_p1_local};
 use crate::mesh::TetMesh;
+use crate::sparse_ops::{norm2, spmv};
 
 /// A conduction terminal: a named node set, either pinned (`r_ext = None`)
 /// or held through a lumped resistance (Ω).
@@ -178,32 +179,6 @@ pub struct ConductionSolution {
 
 fn shape(msg: String) -> ElectrostaticError {
     ElectrostaticError::ShapeMismatch(msg)
-}
-
-fn coords_of(mesh: &TetMesh, tet: &[u32; 4]) -> [[f64; 3]; 4] {
-    [
-        mesh.nodes[tet[0] as usize],
-        mesh.nodes[tet[1] as usize],
-        mesh.nodes[tet[2] as usize],
-        mesh.nodes[tet[3] as usize],
-    ]
-}
-
-/// `y = A x` for a CSC matrix.
-fn csc_matvec(a: &SparseColMat<usize, f64>, x: &[f64]) -> Vec<f64> {
-    let r = a.as_ref();
-    let (cp, ri, v) = (r.col_ptr(), r.row_idx(), r.val());
-    let mut y = vec![0.0; r.nrows()];
-    for (j, &xj) in x.iter().enumerate() {
-        for k in cp[j]..cp[j + 1] {
-            y[ri[k]] += v[k] * xj;
-        }
-    }
-    y
-}
-
-fn norm2(v: &[f64]) -> f64 {
-    v.iter().map(|x| x * x).sum::<f64>().sqrt()
 }
 
 /// Assemble and factor the conduction problem.
@@ -418,7 +393,7 @@ impl ConductionSystem {
         let mut u = apply(b);
         let mut rel = 0.0;
         for step in 0..=self.opts.max_refine {
-            let ku = csc_matvec(&self.k_red, &u);
+            let ku = spmv(self.k_red.as_ref(), &u);
             let r: Vec<f64> = b.iter().zip(&ku).map(|(b, k)| b - k).collect();
             rel = norm2(&r) / bn;
             if rel <= self.opts.refine_above || step == self.opts.max_refine {
@@ -526,7 +501,7 @@ impl ConductionSystem {
         }
 
         // Terminal currents: nodal reactions (K phi) of the physical K.
-        let kphi = csc_matvec(&self.k_full, &phi);
+        let kphi = spmv(self.k_full.as_ref(), &phi);
         let mut terminal_current = Vec::with_capacity(self.n_terminals());
         let mut power_resistors = 0.0;
         for (ti, nodes) in self.nodes.iter().enumerate() {

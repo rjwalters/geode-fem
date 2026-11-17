@@ -139,9 +139,12 @@
 //! - `GEODE_INNER_MAXITERS=<n>` — cap each inner solve so several outer steps
 //!   fit a bounded run instead of one solve consuming the whole budget.
 
+#[path = "../tests/common/transmon_util.rs"]
+mod transmon_util;
+use transmon_util::vals_to_host;
+
 use std::time::Instant;
 
-use burn::tensor::Tensor;
 use faer::c64;
 
 use geode_core::assembly::nedelec::{
@@ -174,23 +177,6 @@ const JUNCTION_C_F: f64 = 5.5e-15;
 /// The DeviceLayout transmon mesh is in **micrometres** (substrate 4 mm ≈ 4000
 /// mesh units; see the provenance file).
 const M_PER_UNIT: f64 = 1e-6;
-
-/// Read a `[nnz]` Burn value tensor to a host `Vec<f64>`.
-fn vals_to_host(t: Tensor<B, 1>) -> Vec<f64> {
-    t.into_data().iter::<f64>().collect()
-}
-
-fn edge_tables(mesh: &TetMesh) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-    let te = mesh.tet_edges();
-    (
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect(),
-        te.iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect(),
-    )
-}
 
 /// Assemble the REAL transmon pencil value vectors `(k_vals, m_vals)` via the
 /// sparse full-tensor path, asserting the imaginary parts vanish (the pencil is
@@ -365,7 +351,7 @@ fn main() {
     // ---- Phase 2: setup + assembly (identical to the release test path). --
     let t_setup = Instant::now();
     let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
 
     // PEC on metal + exterior boundary.
     let metal = f.metal_triangles();

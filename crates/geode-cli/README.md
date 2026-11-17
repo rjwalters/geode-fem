@@ -46,6 +46,7 @@ one worked example per analysis, with the output to expect.
 | `extract` | live (#682) — the `driven` sweep post-processed per port into L / R / Q, the quasi-static `L₀` (f → 0 Richardson extrapolation, with a consistency error estimate and an optional convergence gate) and the SRF |
 | `capacitance` | live (#705) — static **Maxwell capacitance matrix** (farads) between named conductor surfaces, from one electrostatic solve per terminal (P1 scalar, direct LU); non-driven conductors are **grounded**, never floating (see [Capacitance](#static-capacitance-geode-capacitance-issue-705)); optional SPICE `.subckt` (#715) |
 | `inductance` | live (#714) — static **Maxwell inductance matrix** (henries) between named open current paths (conductor volume + source / sink faces returning through one connected PEC conductor), from a P1 conduction solve per path for the current density and one tree-cotree-gauged magnetostatic solve per path (Nédélec edges, direct LU); **not** `extract`'s RF `l0_h` (see [Inductance](#static-inductance-geode-inductance-issue-714)); optional SPICE `.subckt` (#719) |
+| `eqs` | live (#1494) — **electro-quasi-static** solve `∇·(σ∇φ + ∂ₜ(ε∇φ)) = 0` between named terminals with optional floating conductors: a θ-method transient under per-terminal step / pulse / piecewise-linear waveforms (conduction and displacement currents, floating potentials, region-mean `E`, delivered energy) or the small-signal admittance `Y = G + jωC` per frequency (see [EQS](#electro-quasi-static-geode-eqs-issue-1494)) |
 | `mesh`    | live (#704) — layout (2-D rectilinear polygons + layer stack, JSON/TOML) → tagged Gmsh MSH 4.1 mesh with automatically named physical groups + a starter problem spec (`--analysis driven`, `capacitance`, `inductance` (#720) or `eigen` (periodic Bloch cells, #837)), via the external `gmsh` binary (see [Layout → mesh](#layout--mesh-geode-mesh-issue-704)) |
 | `schema`  | live (#709) — print the JSON Schema (draft 2020-12) of the problem spec, the report or the layout (`geode schema spec\|report\|layout [-o PATH]`), derived from the same serde types the binary parses and emits; committed under [`schemas/`](schemas/) (see [JSON Schema](#json-schema-geode-schema-issue-709)) |
 
@@ -263,7 +264,7 @@ Driven example (the spiral-inductor golden input,
 | `solver.tol` / `solver.max_iters` | iterative only; default `1e-10` / `5000` | relative-residual tolerance / per-RHS budget; exceeding the budget is a hard error (`solve_failed`, non-zero exit). Jacobi-preconditioned COCG can stall on ill-conditioned low-frequency conductor problems (e.g. the spiral fixture); the default `auto` preconditioner uses AMS there, or use `direct` |
 | `solver.preconditioner` | iterative only; `"auto"` (default) \| `"jacobi"` \| `"ilu0"` \| `"ams"` | `auto` (issue #930) = `ams` wherever it is supported, else `jacobi` with a `"preconditioner_fallback"` warning (report `warnings[]` and stderr) that says why: a material with `Re ε_r ≤ 0` at a solved frequency, matched-UPML `absorbing_regions`, or floating PEC conductors, the three cases below where `ams` is rejected or measured to fail. The warning is printed by `check`, `driven` and `extract`, and is in the `warnings[]` of all three reports. With matched UPML the fallback is the lesser failure, not a fix: on the radiating UPML patch AMS stalls far above where Jacobi gets (with only the outer boundary PEC, after 5 000 iterations at tol 1e-8, residual 4.3e-2 vs Jacobi's 1.6e-6), but Jacobi does not converge that fixture at the default budget either (≈ 1.9e-4 at tol 1e-10, PR #752); use `direct` there. No mesh-size threshold. The evidence for the switch is the at-scale run of PR #967 ([`benchmarks/gpu_driven_scaling/README.md`](../../benchmarks/gpu_driven_scaling/README.md)); `ams` holds more memory than `jacobi` (`geode check` models it). An explicit value is always used as given, with no warning; set `"jacobi"` for the pre-#930 default. The report's `solver.preconditioner` names the preconditioner actually used. Jacobi = diagonal scaling. `ilu0` = incomplete LU with zero fill on `A(ω)`'s own pattern (+32 B per nonzero of factor storage; ≈ 3.4× the per-iteration time of Jacobi on the spiral smoke mesh). Neither is uniformly better (issue #708, measured 2026-09-30): on the lossy spiral smoke mesh `ilu0` converges at 10 / 20 GHz (17 278 / 12 669 iterations, Z matches direct LU to 1e-10) where Jacobi stalls at every frequency, but it still stalls at 1 / 5 GHz; on the radiating UPML patch `ilu0` stalls far above where Jacobi gets, and neither converges (PR #973 review, 5 000 iterations at tol 1e-8: `ilu0` residual 0.20 vs Jacobi 1.6e-6 with only the outer boundary PEC; with full PEC `ilu0` reaches 0.64, against Jacobi's 1.9e-4 recorded by PR #752 at tol 1e-10). Pick per problem; `direct` remains the robust choice below the LU memory wall. `"ams"` (issue #744) = Hiptmair–Xu auxiliary-space Maxwell V-cycle on a real SPD proxy of `A(ω)`, built from the mesh's discrete gradient: exact sparse LU of the nodal `GᵀPG` at every mesh size (an approximate AMG nodal solve is measured to drift; `geode check` reports the LU's modelled memory) plus 4 Gauss–Seidel sweeps on the vector-nodal block. It converges the lossy spiral where `jacobi` / `ilu0` stall — smoke 1 / 5 / 10 / 20 GHz in 112 / 131 / 145 / 159 iterations, 54k-edge benchmark at 1 GHz in 114 iterations (3.9 s, 0.34 GB peak RSS vs direct LU 5.0 s, 2.03 GB; Z matches LU to 1e-12). On meshes above ~200k edges set `solver.tol = 1e-9`: the default `1e-10` sits below the explicit-residual floor there (measured 1.6–2.5e-10 on a 228k-edge spiral), so the solve drifts and reports `solve_failed`. Known negatives: it does **not** converge the radiating UPML patch (and stalls far above Jacobi there), nor layouts whose conductors are floating PEC shells — a spec whose `pec` surfaces form more than one connected component is rejected up front as `invalid_spec`, naming the floating groups (use Leontovich conductors, or `direct`) |
 | `sweep` | driven / extract only; optional section (additive in v1, #708) | sweep strategy; omitted = the dense sweep (one full-order solve per frequency) |
-| `sweep.adaptive` | optional section | opt-in **adaptive sweep**: a reduced-order model from a few greedy full-order snapshot solves, every other frequency interpolated (see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)). Needs `solver.mode = "direct"`; rejected (`invalid_spec`) with `absorbing_regions`, a dispersive material (`materials[].dispersion`) or a hybrid wave port (#807: its port operator is not affine in ω). Lumped `ports`, geometric `wave_ports` and mixed port sets (#774), Leontovich and Silver-Müller walls are supported |
+| `sweep.adaptive` | optional section | opt-in **adaptive sweep**: a reduced-order model from a few greedy full-order snapshot solves, every other frequency interpolated (see [Adaptive sweep](#adaptive-sweep-parallel-frequencies-and-progress-issue-708)). Needs `solver.mode = "direct"`; rejected (`invalid_spec`) with `absorbing_regions`, a dispersive material (`materials[].dispersion`) or a hybrid wave port (#807: its port operator is not affine in ω). Lumped `ports`, geometric `wave_ports` and mixed port sets (#774), Leontovich and Silver-Müller walls are supported. With a `sensitivity` section the combination is rejected on wave / hybrid ports and runs the Phase 4 bypass on lumped ports (ROM sweep rows, full-order gradients — see [Material sensitivities](#material-sensitivities-sensitivity-issue-707)) |
 | `sweep.adaptive.tolerance` | float in `(0, 1)`, default `1e-6` | residual-indicator target `η = ‖A(ω)x_rom − b‖/‖b‖` (worst over the port excitations) — a bound on the relative **residual**, not directly on `Z` / `S` |
 | `sweep.adaptive.max_snapshots` | int ≥ 1, default `20` | budget of greedy snapshot frequencies (full-order factorizations, seeds included); frequencies still above `tolerance` when it runs out are solved full-order |
 | `solver.mode` (eigen) | `"direct"` only | the eigen path always factors `K − σM` once with sparse LU; `"iterative"` is rejected |
@@ -1191,6 +1192,53 @@ export. Lossy / open-cavity eigenmodes (complex `ε_r` and
 Leontovich / Silver-Müller walls stay driven-only (nonlinear in the
 eigenfrequency).
 
+## Electro-quasi-static (`geode eqs`, issue #1494)
+
+```sh
+geode eqs <spec.json|spec.toml> [-o report.json] [--threads N]
+```
+
+For structures with both a permittivity and a small conductivity
+(leaky capacitors, layered insulation), solves
+`∇·(σ∇φ + ∂ₜ(ε∇φ)) = 0` on P1 tets
+([`geode_core::assembly::eqs_transient`]). `eps_r` and `conductivity_s_m`
+come from `materials[]` (every material must give `conductivity_s_m`; `0`
+for a pure dielectric; unlisted regions are vacuum, `σ = 0`). The `eqs`
+section:
+
+| key | meaning |
+|---|---|
+| `terminals` | `[{name, waveform?}]`: dimension-2 physical groups pinned to `V(t)` (report order) |
+| `floating` | dimension-2 groups merged into one equipotential with zero net current, initially uncharged |
+| `transient` | `{dt \| n_steps, t_end, theta}`: θ-method (`theta` in `[0.5, 1]`, default `1` backward Euler; `0.5` Crank-Nicolson); `dt` and `n_steps` are exclusive |
+| `frequencies` | list of Hz (`≥ 0`); small-signal admittance |
+
+Give exactly one of `transient` and `frequencies`. Every terminal of a
+transient needs a `waveform`: `{"kind": "step", t0, v}`,
+`{"kind": "pulse", delay, rise, width, fall, v}` (SPICE-style trapezoid
+from 0) or `{"kind": "pl", points: [[t, v], ..]}` (times strictly
+increasing; first / last value held outside the table). `check` rejects
+`theta` outside `[0.5, 1]`, `dt ≤ 0`, both / neither mode, and a
+non-monotone table before any solve.
+
+The initial state is the electrostatic solution for the waveform at
+`t = 0` (a step at `t = 0` starts on the capacitive divider); with a
+constant drive the solution tends to the `geode conduction` one. The
+report (`kind = "eqs"`) holds `transient` (`t_end` must be an integer multiple of `dt`, else the spec is rejected; per step: `t_s`, `v`,
+`floating_phi_v`, `i_cond_a`, `i_disp_a` — amperes into the network, the
+displacement current being impulsive and reported as 0 at `t = 0` —
+`floating_current_a`, `region_e_v_m` per `materials[]` group,
+`charge_residual`; plus `delivered_energy_cond_j` /
+`delivered_energy_disp_j` per terminal: the **trapezoid** of `V·I_cond`, and
+for displacement the **midpoint** form (mean step-end voltage × the step's
+charge increment, so a closed lossless pulse nets to round-off); named in
+`energy_quadrature`) or `admittance` (per frequency `g_siemens = Re Y`,
+`y_im_siemens`, `c_farad = Im Y / ω`, `null` at 0 Hz). Currents, `Y`, `G`
+and `C` carry the mesh length unit; `E` is in V/m. Not supported:
+`sensitivity`, order 2, dispersive / anisotropic materials, field-dependent
+conductivity. Worked example:
+[`examples/eqs/`](examples/eqs/README.md).
+
 ## Static inductance (`geode inductance`, issue #714)
 
 ```sh
@@ -1394,12 +1442,26 @@ consumed by that subcommand.
   specs (no `Z` / `L₀` / SRF / `Q` gradient); driven specs with
   `absorbing_regions` (the UPML stretched tensors are not
   differentiated, Epic #841 Phase 2a), dispersive or anisotropic
-  materials (Phase 2a), `sweep.adaptive` (its rows are reduced-order
-  interpolations, Phase 4) or `solver.mode = "iterative"` (the adjoint is
-  a sparse LU, an Epic #841 non-goal); N-terminal capacitance matrices
+  materials (Phase 2a), `sweep.adaptive` **with wave or hybrid ports**
+  (their PROM is non-affine, #804, and its rows are reduced-order
+  interpolations with no gradient, Phase 4) or `solver.mode =
+  "iterative"` (the adjoint is a sparse LU, an Epic #841 non-goal);
+  N-terminal capacitance matrices
   (the library adjoint is two-terminal); lossy / open eigen specs (no
   complex-eigenvalue `Q` / frequency gradient); the loss and shape kinds
   on any analysis but `driven`.
+- **`sweep.adaptive` on lumped ports runs** (Epic #841 Phase 4,
+  issue #1627): the sweep keeps its reduced-order rows, and the gradients
+  are full-order solves at `sensitivity.frequencies` (every swept
+  frequency when the section omits it, with a cost warning). The report
+  says which rows carry gradients (`sensitivities.warnings`, kinds
+  `sensitivity_full_order_gradients` / `sensitivity_full_order_cost`), and
+  on the N-port path `forward_parity` reports the ROM-vs-full-order delta
+  at the differentiated frequencies as a non-fatal diagnostic (warning
+  `sensitivity_forward_parity`) instead of the round-off-level
+  full-order parity — whose hard `1e-8` bound is unchanged on a dense
+  run. `--check-gradient` under `sweep.adaptive` re-solves the perturbed
+  forwards dense, so the FD estimate is never polluted by ROM error.
 
 The report block (`kind = "capacitance" | "inductance" | "eigen" |
 "driven"`):
@@ -1593,7 +1655,12 @@ lumped-port spec whose parameters are all `eps_r` and that has no
   report's `ε_eff` / `z_line_ohm` to `1e-6`, so a gradient always belongs
   to the reported forward. A hybrid spec differentiates over the whole
   sweep internally (its mode tracking is a sweep-wide assignment) and
-  reports the selected `frequencies`.
+  reports the selected `frequencies`. Under the `sweep.adaptive` bypass
+  on lumped ports (Phase 4, issue #1627) the report's rows are ROM
+  interpolations, so the `1e-8` parity runs against a freshly solved
+  dense reference at the differentiated frequencies instead, and
+  `forward_parity` carries the ROM-vs-full-order delta as a non-fatal
+  diagnostic (warning `sensitivity_forward_parity`).
 - **`--check-gradient` / `fd_check`.** Each parameter is re-run through
   the **shipped** `geode driven` forward at `p ± h` — a material
   parameter with its region's `ε_r` changed; a shape parameter with every
@@ -1627,7 +1694,9 @@ The report block (`observable = "driven_observables"`, `method =
 "adjoint_s_matrix"`) adds `observables[]` (`quantity`, `form`, `label`,
 `unit`, `entries` or `wave_port` / `mode` / `impedance_definition`),
 `forward_parity` and `warnings[]` (a near-degenerate face mode of a hybrid
-port the design touches; a rigid or wall-moving shape parameter), and each entry gains `observable` (index into
+port the design touches; a rigid or wall-moving shape parameter; under
+the `sweep.adaptive` bypass, which rows carry full-order gradients and
+the ROM-vs-full-order parity diagnostic), and each entry gains `observable` (index into
 `observables[]`) and `frequency_hz`; `index = [i]` into `results[]`.
 Parameters gain `unit` (`"1"` / `"m"`) and, for shape, `name`, `motion`,
 `axis`, `pinned` and `moved_groups`. Entries are ordered parameter-major,
@@ -2159,6 +2228,22 @@ coefficient re-evaluated per frequency. Requires the direct solver; not
 available with `absorbing_regions` (the UPML is re-assembled per
 frequency) or dispersive materials — remove `sweep.adaptive` to run the
 dense sweep.
+
+**Floquet ports** (issue #1521, Epic #837 Phase 4b). On a `floquet_ports`
+spec the drive is exactly one of `incidence`, `scan` or `fixed_k_t`
+(`{"k_t": [kx, ky, kz], "polarization": "both"}`, rad per mesh length unit,
+in the lattice plane). `sweep.adaptive` applies to `fixed_k_t` only: the
+Bloch phase is the same at every frequency, so the port vectors `h_q` are
+ω-independent, the channel admittances `c_q(ω)` are closed-form scalars, and
+the cell projects once (`geode_core::driven::floquet::FloquetProm`). The
+report then has one `floquet.angles[]` entry carrying `k_t` (no
+`theta_deg` / `phi_deg`), and `solver.adaptive` holds the usual diagnostics.
+`incidence` / `scan` keep the dense sweep (a fixed angle moves `k_t` with
+frequency) and a `floquet` warning. A band over which the channel *set*
+changes (a new diffraction order enters outside the `n_evanescent` rings)
+also falls back to the dense sweep with a warning. The residual indicator
+has a round-off floor near `2e-9` on the slab fixture (true `|ΔS|` against
+the dense sweep is `~1e-12`), so keep `tolerance` above it.
 
 **Wave and mixed ports** (issue #774). With `wave_ports` (alone or mixed
 with lumped `ports`) the model has one excitation per channel. Each
@@ -3054,6 +3139,15 @@ micron-scale cell and not converge. It is a starting point; edit `shift`
 to look at other bands. Without `periodic`, `--analysis eigen` gives a
 plain PEC-cavity eigen starter spec (1 GHz placeholder shift).
 
+With `--analysis driven` and **both** axes periodic (no lumped `ports`),
+the z walls become the Floquet-port groups `z_lo` / `z_hi` instead of
+`outer_boundary`, and the starter spec carries the periodic pairs,
+`floquet_ports` on `z_lo` / `z_hi`, a normal-incidence `incidence` and a
+1 GHz placeholder sweep (edit it). Each port's `medium` is taken from
+the dielectric slab at that wall (omitted, i.e. vacuum, when it is air),
+so a slab touching a z wall is not a vacuum-port mismatch. Periodic with `capacitance` /
+`inductance` stays rejected.
+
 ```sh
 geode mesh cell.layout.json --analysis eigen --spec-out cell.json && geode check cell.json
 ```
@@ -3105,6 +3199,7 @@ the m1 underpass and the vias):
 | `….polygons[].net` | name, optional | puts the polygon in the conductor group named after the net (any layer) instead of the layer's group; net names share the group namespace |
 | `….polygons[].outer` | `[[x, y], …]` | simple ring, ≥ 3 vertices, every edge parallel to x or y or at ±45°, either orientation, closing vertex optional. A rectilinear ring without holes is decomposed into rectangles exactly as before; any other polygon is meshed as one polygon extrusion (sheet: one planar surface) |
 | `….polygons[].holes` | list of rings, default `[]` | interior rings with the same edge rules; each must lie strictly inside `outer` and clear of the other holes, and must not meet the footprint of a same-net polygon on a layer whose z-range touches the polygon's (a via must land on metal). Errors name the conductor and polygon |
+| `….polygons[].edge_radius` | length ≥ 0, default `0` | rounds every **convex** corner of `outer` with a tangent circular arc of this radius (in the layer plane, extruded through the thickness; reflex corners and hole rings stay sharp). `0` is the unchanged sharp path. Only axis-parallel outer rings can be rounded, and the radius must not exceed half the shortest outer edge (rejected otherwise, naming the conductor and polygon). The layer's target size is refined near the arcs to a quarter arc / 4 elements (`π r / 8`). A rounded polygon is meshed as a polygon extrusion, so, like holes and 45° edges, it cannot be an `--analysis inductance` path conductor or contact group |
 | `conductors[].mesh_size` | length > 0, optional | per-layer target size (default `mesh.size_conductor`) |
 | `ports[]` | ≥ 1 for `--analysis driven`, else optional (not meshed) | lumped **gap** ports, horizontal, at the layer's mid-height |
 | `ports[].name` | name | surface group name |

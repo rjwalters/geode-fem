@@ -133,6 +133,17 @@ case "$HRC $HC" in
   "0 "*" state=clear "*|"0 "*" state=champion-hold "*|"2 ") ;;
   "0 "*" state=stray-operator "*) gh pr edit "$PR_NUMBER" --remove-label "loom:operator" ;;
   "0 "*" state=contradiction "*) OTHER_VERDICT_LABEL=${HC##* detail=} ;;
+  "0 "*" state=stacked-on-loom-branch "*)
+    # Stacked child (#12761): never merged; say why once per head (#13737).
+    # The work finder passes these as `stacked`, so only a targeted run lands here.
+    STACK_BASE=${HC##* detail=}
+    STACK_HEAD=$("$GH_READ" pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)
+    STACK_MARKER="<!-- champion:stacked-skip base=$STACK_BASE head=$STACK_HEAD -->"
+    if [ "$("$GH_READ" pr view "$PR_NUMBER" --json comments --jq "[.comments[].body] | any(startswith(\"$STACK_MARKER\"))")" != "true" ]; then
+      ./.loom/scripts/post-comment.sh "$PR_NUMBER" --pr --body "$STACK_MARKER
+**Champion**: not merging. This PR is stacked on \`$STACK_BASE\`, a Loom stack branch. It merges after its parent lands and the base is retargeted to the default branch."
+    fi
+    echo "SKIP #$PR_NUMBER: stacked on $STACK_BASE"; continue ;;  # outcome=skipped reason=janitor_rc3
   *) echo "SKIP #$PR_NUMBER: ${HC:-rc=$HRC} — no merge, no comment"; continue ;;  # single-PR step: outcome=skipped reason=janitor_rc3
 esac
 
@@ -4378,13 +4389,42 @@ LATEST_REJECTION_ID=$(gh pr view "$PR_NUMBER" --json comments \
          | select((.body | contains("champion:capped-pr")) | not)
          | select(.body | test("Changes Requested"; "i"))]
         | last | .id // "none"')
+# The key is the id printed by the command above, copied VERBATIM. A head SHA,
+# an abbreviation, or any other spelling is NOT a key: on gf180-parasynth#647
+# four passes keyed on four spellings of one head SHA, so the exact-match guard
+# never fired and five identical verdicts landed on one rejection (#13903).
 PARK_MARKER="<!-- champion:capped-pr-parked:$LATEST_REJECTION_ID -->"
 
-# Cached ("$GH_READ") — idempotency-marker grep.
-# `startswith`, not a bare substring match — a later comment quoting this
-# marker in prose must never be mistaken for the verdict's own comment and
-# wrongly suppress the real post (#5371).
-if [ "$("$GH_READ" pr view "$PR_NUMBER" --json comments --jq "[.comments[].body] | any(startswith(\"$PARK_MARKER\"))")" = "true" ]; then
+# Key-spelling-tolerant guard (#13903) — this is the ONLY suppression guard.
+# Skip if ANY comment starting with `<!-- champion:capped-pr-parked:` was
+# posted at or after the newest Judge rejection's last EDIT time (REST
+# `updated_at`: `gh pr view --json comments` has no edit time, and an edited
+# rejection with changed findings must still get a fresh verdict). A rejection
+# newer than every park marker never matches. There is no separate exact-key
+# arm: an edit does not change a comment's id, so a correctly-keyed marker
+# still matched `PARK_MARKER` verbatim after a rejection edit and
+# re-suppressed the fresh verdict the episode check had correctly cleared
+# (removed in the #13968 review).
+# `startswith`, not a bare substring match — a later comment quoting the
+# marker in prose must never be mistaken for a park marker and wrongly
+# suppress the real post (#5371).
+# The read is uncached `gh api --paginate` on purpose: it needs REST
+# `updated_at` (edit time), which the cached `gh pr view` read cannot see,
+# and Champion's 10-minute cron draws on the independent REST pool, which
+# has headroom.
+# `$rejected` takes `updated_at | max` across ALL rejections, deliberately
+# NOT the key's `last`: an older rejection edited today also opens a fresh
+# episode, which errs toward posting — do not "align" the two selectors.
+PARKED_SINCE_REJECTION=$(gh api --paginate "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" --jq '.[]' \
+  | jq -s '([.[]
+             | select((.body | contains("champion:capped-pr")) | not)
+             | select(.body | test("Changes Requested"; "i"))
+             | .updated_at] | max) as $rejected
+           | $rejected != null
+             and any(.[]; (.body | startswith("<!-- champion:capped-pr-parked:"))
+                          and .created_at >= $rejected)')
+
+if [ "$PARKED_SINCE_REJECTION" = "true" ]; then
   echo "Keep-parked verdict already posted for #$PR_NUMBER on this rejection — skipping"
 else
   ./.loom/scripts/post-comment.sh "$PR_NUMBER" --pr --body "$PARK_MARKER

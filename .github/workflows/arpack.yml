@@ -328,7 +328,16 @@ jobs:
     # Gmsh-dependent tests' local skip-if-absent into a hard failure:
     # `tests/mesh_golden.rs` must actually run in CI.
     name: cargo test -p geode-cli (linux)
-    runs-on: ubuntu-latest
+    # Issue #1632: the apt Gmsh install below is unpinned, so its version
+    # tracks whatever suite `ubuntu-latest` points at. When that image rolled
+    # noble → resolute (2026-11-13/14) it swapped apt Gmsh 4.12.1 → 4.14.0
+    # (OCC 7.9), and gmsh's OCC boolean kernel began rejecting the emitted
+    # `Difference` (`BOPAlgo_AlertTooFewArguments`, spiral_inductor.geo
+    # line 54). Pin to ubuntu-24.04 (= noble, Gmsh 4.12.x — the measured
+    # green pairing) instead of pinning the apt package: the 4.12.1 build is
+    # absent from the resolute archive, so a version pin cannot resolve on
+    # the rolled image.
+    runs-on: ubuntu-24.04
     # Cold dependency build + the debug default tier. The release
     # `--ignored` benchmark tiers run in the parallel `geode-cli-release`
     # job below. The apt Gmsh install alone has taken ~11 min on a slow
@@ -353,7 +362,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gmsh
-          gmsh --version
+          V="$(gmsh --version 2>&1 | tr -d '\r')"
+          echo "gmsh --version: $V"
+          case "$V" in
+            4.12.*) ;;
+            *) echo "::error::Gmsh $V is not the measured-green 4.12.x (see #1632); the runner image or apt suite moved."; exit 1 ;;
+          esac
 
       - name: Cache cargo registry + target
         uses: actions/cache@v6
@@ -389,7 +403,13 @@ jobs:
     # benchmark build run in parallel. Together they had outgrown the
     # 30-minute bound, and main runs were being cancelled.
     name: cargo test -p geode-cli --release --ignored (linux)
-    runs-on: ubuntu-latest
+    # Issue #1632: same pin as the `geode-cli` job above — the unpinned apt
+    # Gmsh tracks the `ubuntu-latest` apt suite, and the noble → resolute
+    # roll (Gmsh 4.12.1 → 4.14.0, OCC 7.9) made the OCC boolean kernel
+    # reject the emitted `Difference` (`BOPAlgo_AlertTooFewArguments`,
+    # ms0.geo line 38, the microstrip-convergence tier). ubuntu-24.04 is
+    # noble — the measured green Gmsh 4.12.x pairing.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
@@ -405,7 +425,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gmsh
-          gmsh --version
+          V="$(gmsh --version 2>&1 | tr -d '\r')"
+          echo "gmsh --version: $V"
+          case "$V" in
+            4.12.*) ;;
+            *) echo "::error::Gmsh $V is not the measured-green 4.12.x (see #1632); the runner image or apt suite moved."; exit 1 ;;
+          esac
 
       - name: Cache cargo registry + target
         uses: actions/cache@v6
@@ -444,6 +469,12 @@ jobs:
       # Issue #760 adds the anisotropic-materials AMS golden (spiral smoke
       # with a uniaxial substrate and diagonal mu, AMS-COCG vs direct LU;
       # ~4 s in release).
+      #
+      # Issue #1627 adds the `sweep.adaptive` + `sensitivity` bypass golden
+      # to `adaptive_sweep_golden` (Epic #841 Phase 4: adaptive vs dense
+      # gradients on the spiral sensitivity smoke fixture, ROM parity
+      # diagnostic, `--check-gradient`; ~2.5 min in release, picked up by
+      # the `-- --ignored` run below).
       - name: geode static-extraction benchmark tiers (release, --ignored)
         run: |
           cargo test -p geode-cli --release --test inductance_golden \
@@ -451,6 +482,15 @@ jobs:
               --test roughness_golden --test dispersive_golden \
               --test anisotropic_golden -- --ignored
           cargo test -p geode-cli --release --test spiral_golden -- --ignored
+          # Issue #1514: Floquet-port slab scan golden (Fresnel + per-angle
+          # Touchstone); ignored only under debug_assertions, so it runs in the
+          # default tier of a --release build (no `-- --ignored`, which would
+          # match zero tests here).
+          cargo test -p geode-cli --release --test floquet_slab_golden
+          # Issue #1521: fixed-k_t Floquet PROM adaptive-sweep acceptance tests;
+          # same debug_assertions-only ignore as above, so the default tier of a
+          # --release build runs them.
+          cargo test -p geode-cli --release --test floquet_prom
 
       # Issue #793: the remaining geode-cli benchmark tiers (every one
       # #[ignore]d as heavy in debug). Measured release times on

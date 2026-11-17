@@ -110,6 +110,7 @@ use geode_core::eigen::dense::{
 };
 use geode_core::mesh::cube_tet_mesh;
 use geode_core::testing::{TestBackend, test_device as device};
+use geode_util::rng::Lcg32;
 
 type B = TestBackend;
 
@@ -142,15 +143,12 @@ const KERNEL_FRAC_OF_MAX: f64 = 1e-3;
 /// at n=8 (mirrors the bound in `nedelec_cavity.rs:227`).
 const TM11_TOL: f64 = 0.15;
 
-/// Deterministic LCG (same constants as `derham_gradient_kernel.rs::lcg`
+/// Deterministic [`Lcg32`] (same stream as `derham_gradient_kernel.rs::lcg`
 /// and `p1_local_matrices.rs::deterministic_tet`). Distinct seed family
 /// (`0x_6A0E_0000`) keeps this test independent of #59's `0x_C0BE_0000`.
 fn lcg(seed: u32) -> impl FnMut() -> f64 {
-    let mut state = seed.wrapping_mul(2_654_435_761);
-    move || {
-        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        (state as f64) / (u32::MAX as f64)
-    }
+    let mut rng = Lcg32::from_seed(seed);
+    move || rng.next_unit()
 }
 
 /// Random `φ ∈ H¹₀`: values in `[-1, 1)` on interior nodes, exactly `0`
@@ -180,16 +178,8 @@ fn cube_pec_cavity_system_with_meta() -> (
     let mesh = cube_tet_mesh(N_CUBE, 1.0);
     let (nodes_t, tets_t) = upload_mesh::<B>(&mesh, &device());
 
-    let tet_edges_v = mesh.tet_edges();
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let n_edges = mesh.edges().len();
-    let tet_idx: Vec<[u32; 6]> = tet_edges_v
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges_v
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
 
     let sys = assemble_global_nedelec(nodes_t, tets_t, &tet_idx, &tet_sign, n_edges);
 

@@ -105,7 +105,7 @@ use crate::assembly::p1::upload_mesh;
 use crate::mesh::TetMesh;
 use crate::mesh::partition::Partition;
 use crate::solver::ksp::{KspError, KspReport};
-use crate::solver::ksp_burn::SplitComplex;
+use crate::solver::ksp_burn::{SplitComplex, bd_check};
 
 // ---------------------------------------------------------------------------
 // DistributedVector
@@ -488,15 +488,7 @@ impl<B: Backend> DistributedOperator<B> {
             assert_eq!(m.len(), n_edges, "interior_mask length must equal n_edges");
         }
 
-        let te = mesh.tet_edges();
-        let full_idx: Vec<[u32; 6]> = te
-            .iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect();
-        let full_sign: Vec<[i8; 6]> = te
-            .iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect();
+        let (full_idx, full_sign) = mesh.tet_edge_tables();
 
         // Shared global node coordinates (the sub-operators index into these
         // through their own subset connectivity).
@@ -829,22 +821,6 @@ fn true_residual_rel<Op: DistributedLinearOperator<B>, B: Backend>(
     distributed_norm(coll, &resid) / b_norm
 }
 
-/// Breakdown guard on a bilinear inner-product scalar — mirrors the
-/// single-process `bd_check`.
-fn bd_check(val: c64, iter: usize, kind: &'static str, tol: f64) -> Result<(), KspError> {
-    let mag2 = val.re * val.re + val.im * val.im;
-    if !val.re.is_finite() || !val.im.is_finite() || mag2 < tol * tol {
-        Err(KspError::Breakdown {
-            iter,
-            kind,
-            value_re: val.re,
-            value_im: val.im,
-        })
-    } else {
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -986,9 +962,7 @@ mod tests {
         let g = seed_global(n);
 
         // Single-process reference operator over all elements.
-        let te = mesh.tet_edges();
-        let idx: Vec<[u32; 6]> = te.iter().map(|r| std::array::from_fn(|i| r[i].0)).collect();
-        let sign: Vec<[i8; 6]> = te.iter().map(|r| std::array::from_fn(|i| r[i].1)).collect();
+        let (idx, sign) = mesh.tet_edge_tables();
         let (nodes, tets) = upload_mesh::<Bk>(&mesh, &dev());
         let single = MatrixFreeNedelecOperator::<Bk>::new(nodes, tets, &idx, &sign, n, &eps);
         let xg: Tensor<Bk, 1> = Tensor::from_data(

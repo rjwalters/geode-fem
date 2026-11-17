@@ -33,9 +33,7 @@ mod scratch_support;
 
 use scratch_support::Scratch;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
-
-use sha2::{Digest, Sha256};
+use std::process::Command;
 
 fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -46,12 +44,9 @@ fn scratch(name: &str) -> Scratch {
     Scratch::new("geode-lspice-test-", name)
 }
 
-fn geode(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_geode"))
-        .args(args)
-        .output()
-        .expect("spawn geode")
-}
+#[path = "support/cli.rs"]
+mod cli_support;
+use cli_support::{assert_file_ref, geode};
 
 /// Run `geode inductance <spec> --spice <out>` and return the report.
 fn inductance_with_spice(spec: &Path, out: &Path) -> serde_json::Value {
@@ -215,20 +210,6 @@ fn reversed_triax_spec(dir: &Path) -> PathBuf {
     let spec = dir.join("triax_reversed.toml");
     std::fs::write(&spec, spec_text).unwrap();
     spec
-}
-
-fn assert_file_ref(report: &serde_json::Value, path: &Path) -> String {
-    let text = std::fs::read_to_string(path).unwrap();
-    let sf = &report["spice_file"];
-    assert_eq!(sf["path"], path.display().to_string());
-    assert_eq!(
-        sf["sha256"],
-        Sha256::digest(text.as_bytes())
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>()
-    );
-    text
 }
 
 fn assert_reproduces(report: &serde_json::Value, net: &Net, rel: f64) {

@@ -6,8 +6,8 @@
 # semantics move between ONNX releases.
 #
 # All probes target ONNX opset 18. onnxruntime is the reference
-# execution layer; onnxscript is used for the readable graph builders.
+# execution layer; graphs are authored with raw `onnx.helper` for
+# IR-level transparency (see audit/cube_cavity_operator_audit.md).
 onnx==1.22.0
 onnxruntime==1.26.0
-onnxscript==0.7.0
 numpy>=1.26

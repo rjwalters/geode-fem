@@ -33,7 +33,6 @@
 //! EC2 box, never in CI.
 
 mod common;
-use common::edge_tables;
 
 use burn::tensor::backend::BackendTypes;
 use burn::tensor::{Tensor, TensorData};
@@ -70,17 +69,8 @@ fn dense_matvec(a: &[f64], x: &[f64], n: usize) -> Vec<f64> {
 /// Deterministic pseudo-random f64 vector in `[-1, 1)` from a 64-bit LCG seed
 /// (reproducible, no `rand` dependency).
 fn pseudo_random_vec(n: usize, seed: u64) -> Vec<f64> {
-    let mut state = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-    (0..n)
-        .map(|_| {
-            state = state
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
-            // Top 53 bits → [0, 1) → shift to [-1, 1).
-            let u = (state >> 11) as f64 / (1u64 << 53) as f64;
-            2.0 * u - 1.0
-        })
-        .collect()
+    let mut rng = geode_util::rng::Lcg(seed.wrapping_mul(6364136223846793005).wrapping_add(1));
+    (0..n).map(|_| rng.next()).collect()
 }
 
 /// Upload a host `Vec<f64>` as a `[n]` Burn tensor.
@@ -119,7 +109,7 @@ const TOL_REL: f64 = 1e-12;
 fn matrix_free_matches_assembled_vacuum() {
     let mesh = cube_tet_mesh(3, 1.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let eps_r = vec![1.0_f64; mesh.n_tets()];
     let dev = device();
 
@@ -173,7 +163,7 @@ fn matrix_free_matches_assembled_vacuum() {
 fn matrix_free_matches_assembled_varying_epsilon() {
     let mesh = cube_tet_mesh(3, 1.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     // Real spatially varying ε (isotropic), same flavor as nedelec_sparse.rs.
     let eps_r: Vec<f64> = (0..mesh.n_tets())
         .map(|t| 1.0 + 0.13 * (t % 7) as f64)
@@ -212,7 +202,7 @@ fn matrix_free_matches_assembled_varying_epsilon() {
 fn matrix_free_sign_convention_matches_assembled() {
     let mesh = cube_tet_mesh(2, 2.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
 
     // Confirm the fixture actually exercises both signs (otherwise the test
     // is vacuous).
@@ -247,7 +237,7 @@ fn matrix_free_sign_convention_matches_assembled() {
 fn matrix_free_interior_masking_matches_reduced_assembled() {
     let mesh = cube_tet_mesh(3, 1.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let eps_r = vec![1.0_f64; mesh.n_tets()];
     let dev = device();
 
@@ -306,7 +296,7 @@ fn matrix_free_interior_masking_matches_reduced_assembled() {
 fn matrix_free_wrong_length_operand_panics() {
     let mesh = cube_tet_mesh(2, 1.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let eps_r = vec![1.0_f64; mesh.n_tets()];
     let dev = device();
 
@@ -337,7 +327,7 @@ fn matrix_free_cuda_f32_smoke() {
 
     let mesh = cube_tet_mesh(3, 1.0);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let eps_r = vec![1.0_f64; mesh.n_tets()];
 
     // ndarray-f64 reference matvec.
