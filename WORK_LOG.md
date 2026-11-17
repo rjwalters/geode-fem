@@ -5,6 +5,10 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-16
 
+- **Issue #1705** (closed): p=2 Floquet: a caller-supplied PEC mask eliminating a lone face (bubble) DOF is still unvalidated
+- **PR #1717**: feat(floquet): reject a PEC mask eliminating a lone face-DOF half at p=2
+- **Issue #1664** (closed): Share the ICEM sweep report helpers between the icem_cp_gradient and icem_design_gradient examples (~100 lines)
+- **PR #1666**: refactor(geode-core): share the ICEM gradient step-sweep report via example_io
 - **Issue #1712** (closed): ci(zip-compat): stop the recurring Dependabot bump of the version-shaped dtolnay/rust-toolchain pin
 - **PR #1714**: ci(zip-compat): use floating rust-toolchain@stable to stop Dependabot bump loop
 - **Issue #1607** (closed): Consolidate 7 duplicated box_mesh test meshers into one shared helper
