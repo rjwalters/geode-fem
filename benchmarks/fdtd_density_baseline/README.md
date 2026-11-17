@@ -14,16 +14,15 @@ represent it as faithfully at feasible cost.
 Per the paper BRIEF, the 3-way head-to-head is a **planned evaluation / future
 work** — this harness is the substrate for it. **No fabricated comparative
 numbers.** The one thing quantified deterministically today is the *geometric*
-staircasing floor (`staircasing_demo.py`); the field-solve baselines are a
-runnable 2D representative (ceviche) plus an operator-gated definitive 3D run
-(Meep).
+staircasing floor (`staircasing_demo.py`); the definitive field-solve baseline
+is an operator-gated 3D run (Meep).
 
 ## The head-to-head design (three methods)
 
 | Method | Geometry representation | Curved conductor | Status |
 | --- | --- | --- | --- |
 | **GEODE** shape adjoint (the −10 dB result) | Unstructured tets; boundary nodes **on** the curve; node-motion (moving-boundary) adjoint, single factorization | Nodes on the curve (~1e-14 mm); linear facets 4.4 µm max on L0, 1.1 µm on L1 (`staircasing_demo.py`) | **Done** — committed artifact |
-| **FDTD-density** (Meep-adjoint / ceviche) | Fixed Yee/Cartesian grid; permittivity/density field, later binarized | **Staircased** — O(h) boundary error, cubic 3D refinement cost | 2D **runnable now** (ceviche); 3D **operator-gated** (Meep) |
+| **FDTD-density** (Meep-adjoint) | Fixed Yee/Cartesian grid; permittivity/density field, later binarized | **Staircased** — O(h) boundary error, cubic 3D refinement cost | **Operator-gated** (Meep) |
 | **Low-DOF parametric** | A handful of shape scalars swept / FD-optimized | Can be conformal; measured gap to freeform is small at 16–48 DOFs (see table) | **Assembled from committed artifacts**: [`../patch_antenna_conformal/head_to_head/`](../patch_antenna_conformal/head_to_head/README.md) (mesh-level-conditional) |
 
 The claim the baseline supports: a density method optimizes a **grid-locked
@@ -34,15 +33,15 @@ shrinks only with grid refinement (cubic cost in 3D), never with iterations.
 ## Runnable now
 
 Everything here uses only Python ≥ 3.11. A pinned venv is described by
-`requirements.txt`. **Python 3.14 works for this 2D/ceviche track** (verified).
+`requirements.txt`.
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-### 1. `staircasing_demo.py` — deterministic geometric floor (PRIMARY)
+### `staircasing_demo.py` — deterministic geometric floor (PRIMARY)
 
-Self-contained (numpy + matplotlib; no ceviche, no field solve). Takes the
+Self-contained (numpy + matplotlib; no field solve). Takes the
 physical 2.4 GHz bent-patch geometry (R = 100 mm, h = 1.6 mm, patch 38 mm,
 ground 62 mm), rasterizes the patch (top) and ground (bottom) arc profiles onto
 Yee grids at 1–16 cells/mm, and measures the facet error of the actual L0/L1
@@ -107,35 +106,14 @@ the cost-to-accuracy table and the verdict). That verdict covers the forward sol
 on the initial geometry only: the optimized-geometry runs are not done and the
 optimizer comparison is #1090. See `reference/meep/docker/HARNESS_V2.md` § 7.
 
-### 2. `ceviche_fdfd_baseline.py` — 2D FDFD density inverse-design (representative)
-
-A runnable 2D frequency-domain density baseline in ceviche. Constructs the grid,
-rasterizes the same curved conductor into a permittivity field, builds the
-`fdfd_ez` operator + source, runs a forward solve, and wires an autograd
-adjoint gradient around an |S11|-analog objective.
-
-```bash
-python ceviche_fdfd_baseline.py          # construct + one forward solve
-python ceviche_fdfd_baseline.py --grad   # + one end-to-end autograd gradient
-```
-
-Verified in-env (ceviche 0.1.3, Python 3.14): builds a 119×77 Yee grid,
-rasterizes 152 "metal" cells, forward-solves (|Ez|max ≈ 0.19), and computes a
-reverse-mode autograd gradient (‖dJ/dε‖ ≈ 1.1×10⁻³). The heavy binarized
-topology-optimization sweep is intentionally left as a `# TODO(run)` with a
-documented description of what a converged run shows (grid-locked density,
-projection re-introduces staircasing every step, |S11|-analog bounded away from
-the conformal result).
-
 ## Operator-gated: Meep-3D (the *definitive* baseline)
 
-The ceviche result is **2D and photonics-oriented** — representative, not
-apples-to-apples with the 3D **metal open radiator** (box-UPML + lumped port +
-lossy complex-ε + passive |S11|) GEODE solves. The definitive FDTD-density
-baseline is a **3D Meep adjoint-FDTD** run on the curved conformal geometry.
-This is **OPERATOR-ONLY**: `pymeep` ships only via conda-forge and does **not**
-support Python 3.14 (this Mac's default) — it needs a separate conda env not
-present here.
+The definitive FDTD-density baseline is a **3D Meep adjoint-FDTD** run on the
+curved conformal geometry — apples-to-apples with the 3D **metal open
+radiator** (box-UPML + lumped port + lossy complex-ε + passive |S11|) GEODE
+solves. This is **OPERATOR-ONLY**: `pymeep` ships only via conda-forge and
+does **not** support Python 3.14 (this Mac's default) — it needs a separate
+conda env not present here.
 
 Matched-geometry records for #1088 (physical 2.4 GHz bent patch): R1/R2 in
 `../../reference/meep/docker/MATCHED.md` and `AWS_PILOT.md`; the R4 run, the
@@ -192,9 +170,6 @@ Mirror the GEODE `bent_conformal` geometry (below) as a Meep `Simulation`:
   |S11|** ("not run — operator-gated"): this dir still publishes no comparative
   FDTD S11 numbers, and the paper text (BRIEF §"Scope & honesty constraints")
   is unchanged.
-- The ceviche 2D FDFD result is **representative** (2D, photonics-oriented), not
-  apples-to-apples with the 3D metal open radiator. **Meep-3D is the definitive
-  baseline.**
 - No fabricated comparative numbers anywhere. The only committed numbers are the
   *geometric* staircasing metrics in `staircasing_results.json`, which are pure
   computational geometry (no physics claim beyond the labeled first-order Δf/f
@@ -220,8 +195,7 @@ so a horizontal metal line wraps onto a **circular arc** of radius
 `R_bend + (z - z0)` centered at `(0, z0 - R_bend)`. Committed parameters:
 `R_bend = 40 mm` (`CURVED_SMOKE_BEND_RADIUS`), `h_sub = 1.6 mm` (FR-4 `h`),
 `x_halfwidth ≈ 12 mm` ⇒ `phi_max = 0.30 rad` (patch.rs doc: "half-width (~12 mm)
-subtends ~0.3 rad of arc"). Both `staircasing_demo.py` and
-`ceviche_fdfd_baseline.py` rasterize this exact arc.
+subtends ~0.3 rad of arc"). `staircasing_demo.py` rasterizes this exact arc.
 
 ## Mapping to the paper's "planned evaluation" section
 
@@ -233,9 +207,6 @@ work)") promises the 3-way head-to-head. These artifacts feed it:
   ~14 % perimeter (electrical-length) staircase-paradox error that a conformal
   tet mesh does not, at ~5×10⁴× the 3D cost to close. Committed, deterministic —
   citeable today as the *geometry* half of the contrast.
-- `ceviche_fdfd_baseline.py` → the **representative** differentiable-density
-  baseline (2D); a runnable illustration of "optimizes a grid-locked field, not
-  the boundary."
 - Meep-3D runbook → the **definitive** baseline the paper will report once run
   (operator-gated). Until then the paper's honest claim stands: GEODE *reaches*
   the freeform curved-conformal −10 dB design; the *quantified* superiority over
