@@ -5,6 +5,7 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-18
 
+- **Issue #1568** (closed): Shared blocks, material schema, structure file and two interchange formats: proposals touching geode-fem
 - **Issue #1733** (closed): Re-rule the #1620 remainder: Epigraph::with_active_margin has a live example caller
 - **PR #1743**: ci: add merge_group trigger and head-sha concurrency to relied-on workflows
 - **PR #1647**: test: share one Gauss-Legendre edge interpolant across four geode-core tests

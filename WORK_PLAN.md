@@ -4,11 +4,12 @@ Roadmap generated from the current GitHub label state by the Loom Guide role.
 Everything between the markers below is regenerated; do not edit it by hand.
 
 <!-- guide:plan-body:start -->
+_Generated: 2026-11-18T19:53:54Z (snapshot; compare against live labels)_
 ## Operator Attention: Merge-Risk-Hold Pileup
 
 Judge-approved PRs under a hold (`loom:blocked` or `loom:operator`) — only a human merge decision is missing.
 
-- **#1376**: feat: add default-on tensor feature so geode-core builds without burn/bunsen
+_None._
 
 ## Very Important
 
@@ -24,7 +25,7 @@ _None._
 
 ## Ready
 
-Human-approved issues ready for implementation (`loom:issue`).
+Human-approved issues (`loom:issue`) ready for implementation — excluding held (`loom:blocked`/`loom:operator`/`loom:frozen`), `loom:building`, and issues closed by an open `loom:pr` PR (listed under Approved).
 
 - **#1267**: [#835 P6] CLI adaptive_mesh — spec block, per-iteration report, geode check bound, MSH 4.1 writer
 - **#1299**: mshio: error Display dumps unbounded hex of remaining input
@@ -33,36 +34,32 @@ Human-approved issues ready for implementation (`loom:issue`).
 - **#1393**: Consolidate duplicated onnx/tfjava sphere-PEC reference harnesses
 - **#1488**: Honest GEODE-vs-Palace comparison (manuscript section)
 - **#1626**: Bring CHANGELOG [Unreleased] up to date with features merged since v0.9.0
+- **#1729**: CI: integration a-m default-tier step overran its 30-min step bound (#1713) uncut; job cancelled at 65 min and log discarded again
 
 ## In Progress
 
 Issues currently being built (`loom:building`).
 
 - **#1391**: Remove flex_precision_spike example and flex feature: spike #451/#374 closed
-- **#1546**: Remove complex_slice_to_vec: trivial to_vec wrapper in geode-util
-- **#1623**: Consolidate four copies of the Gauss-Legendre edge interpolant and its hand-typed quadrature table in geode-core tests
-- **#1634**: Consolidate the duplicated ICEM design-gradient machinery: 280 of icem_cp_design.rs's 429 lines are icem_design.rs renamed
-- **#1644**: Remove examples/fiber_smf28_solve_timing: one-off AFTER-timing harness for closed #327, no artifact and no caller
-- **#1729**: CI: integration a-m default-tier step overran its 30-min step bound (#1713) uncut; job cancelled at 65 min and log discarded again
-- **#1734**: Docs: "a handful of shape scalars" overclaims parsimony for the 16/48-DOF parametric rows
+- **#1565**: Consolidate duplicated forward-mode Dual number: shape.rs copy is a subset of driven/shape.rs
+- **#1567**: Remove 19 superseded PyTorch Declarations YAMLs from vendored tch (75 MB tracked, read by nothing)
 
 ## PRs Awaiting Review
 
 PRs waiting on Judge (`loom:review-requested`).
 
-- **#1313**: fix: cap hex dump in mshio parse error Display
-- **#1341**: feat: export per-tet eta in adaptive field VTU and add adaptive_mesh cookbook spec
-- **#1395**: test: share onnx/tfjava sphere-PEC harness body in common module
-- **#1489**: docs(papers): add GEODE-vs-Palace measured-performance section (transmon-benchmark.26)
-- **#1648**: docs: cover every feature merged since v0.9.0 in CHANGELOG [Unreleased]
-- **#1727**: refactor: remove one-off fiber_smf28_solve_timing timing example
-- **#1736**: docs: correct low-DOF parametric leg to scalars-or-B-spline-fields (1-48 DOFs)
+- **#1313**: fix: cap hex dump in mshio parse error Display *(held)*
+- **#1341**: feat: export per-tet eta in adaptive field VTU and add adaptive_mesh cookbook spec *(held)*
+- **#1395**: test: share onnx/tfjava sphere-PEC harness body in common module *(held)*
+- **#1489**: docs(papers): add GEODE-vs-Palace measured-performance section (transmon-benchmark.26) *(held)*
+- **#1648**: docs: cover every feature merged since v0.9.0 in CHANGELOG [Unreleased] *(held)*
+- **#1749**: chore: drop 19 superseded tch Declarations YAMLs with a checked omission record
 
 ## Approved (Awaiting Merge)
 
 PRs that passed review and are queued for Champion auto-merge (`loom:pr`).
 
-- **#1376**: feat: add default-on tensor feature so geode-core builds without burn/bunsen
+_None._
 
 ## Proposed
 
@@ -83,22 +80,21 @@ Issues carrying `loom:curated`.
 - **#1299**: mshio: error Display dumps unbounded hex of remaining input *(curated)*
 - **#1340**: adaptive_mesh: support interior lumped-port sheets in geode-core::adapt (adapt_driven) *(curated)* *(held)*
 - **#1363**: postproc: sample piecewise-constant E onto cells or points (point location, cell averages) *(curated)*
-- **#1365**: geode-core: electrostatics-only build without Burn/Bunsen (3 min cold build, MPL-2.0 colored via burn-tensor) *(curated)*
 - **#1428**: Meep R2.5/R5 Spot runs on the optimized E4 geometry with harness v3 (split from #1427) *(curated)* *(held)*
 - **#1488**: Honest GEODE-vs-Palace comparison (manuscript section) *(curated)*
+- **#1565**: Consolidate duplicated forward-mode Dual number: shape.rs copy is a subset of driven/shape.rs *(curated)*
+- **#1567**: Remove 19 superseded PyTorch Declarations YAMLs from vendored tch (75 MB tracked, read by nothing) *(curated)*
 - **#1626**: Bring CHANGELOG [Unreleased] up to date with features merged since v0.9.0 *(curated)*
 - **#1629**: Research note: can Palace model the Design A Floquet cell for the #1581 cross-check? *(curated)* *(held)*
 - **#1729**: CI: integration a-m default-tier step overran its 30-min step bound (#1713) uncut; job cancelled at 65 min and log discarded again *(curated)*
-- **#1734**: Docs: "a handful of shape scalars" overclaims parsimony for the 16/48-DOF parametric rows *(curated)*
 
 ## Proposed (Architect / Hermit)
 
 - **#1416**: Prune superseded papers version snapshots (~440 MB tracked) *(hermit)* *(held)*
-- **#1565**: Consolidate duplicated forward-mode Dual number: shape.rs copy is a subset of driven/shape.rs *(hermit)* *(held)*
-- **#1567**: Remove 19 superseded PyTorch Declarations YAMLs from vendored tch (75 MB tracked, read by nothing) *(hermit)* *(held)*
 - **#1621**: Split geode-cli problem/mod.rs (4,064 lines): move the validate_* and resolve_* groups into sibling modules *(hermit)* *(held)*
 - **#1649**: Consolidate the duplicated mie_roots fixture helpers onto tests/common: the julia harness is a verbatim copy of the numpy one (~118 lines) *(hermit)* *(held)*
 - **#1651**: Consolidate duplicated Burn helpers between nedelec_local and p1_local numpy reference harnesses *(hermit)* *(held)*
+- **#1748**: Consolidate duplicated _git_commit/_interleave_c128 helpers across reference fixture generators (~220 LOC) *(hermit)*
 
 ## Epics
 
@@ -113,14 +109,14 @@ Issues carrying `loom:curated`.
 
 | Bucket | Count |
 |------|-------|
-| Operator merge-risk holds | 1 |
+| Operator merge-risk holds | 0 |
 | Very important | 1 |
 | Important | 0 |
-| Ready (`loom:issue`) | 7 |
-| In Progress (`loom:building`) | 7 |
-| PRs awaiting review | 7 |
-| Approved PRs awaiting merge | 1 |
+| Ready (`loom:issue`, net of holds/building/merge-pending) | 8 |
+| In Progress (`loom:building`) | 3 |
+| PRs awaiting review | 6 |
+| Approved PRs awaiting merge | 0 |
 | Curated | 22 |
-| Architect / Hermit proposals | 6 |
+| Architect / Hermit proposals | 5 |
 | Active epics | 6 |
 <!-- guide:plan-body:end -->
