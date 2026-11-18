@@ -14,8 +14,11 @@
 //! intentional and matches the curator's #3 plan ("dense for v0 as a
 //! correctness oracle").
 
+#[cfg(feature = "tensor")]
 use bunsen::contracts::{define_shape_contract, unpack_shape_contract};
+#[cfg(feature = "tensor")]
 use burn::tensor::Tensor;
+#[cfg(feature = "tensor")]
 use burn::tensor::backend::Backend;
 use faer::mat::MatRef;
 use faer::{Mat, c64};
@@ -41,6 +44,7 @@ use crate::eigen::complex::dense::{
 // matrix); the contract's role is to name the `[rows, cols]` read that drives
 // the row-major `from_fn` reconstruction, replacing the anonymous
 // `let dims = t.dims();` with a checked, self-documenting unpack.
+#[cfg(feature = "tensor")]
 define_shape_contract!(BURN_MATRIX_BRIDGE_CONTRACT, ["rows", "cols"]);
 
 /// Errors produced by the eigensolver layer.
@@ -588,6 +592,7 @@ impl EigenSolver for FaerDenseEigensolver {
 /// (f32 on the wgpu/cuda GPU backends, f64 on the ndarray CPU backend),
 /// so this is genuinely backend-agnostic — the f32 GPU path upcasts and
 /// the f64 CPU path is read losslessly.
+#[cfg(feature = "tensor")]
 pub fn burn_matrix_to_faer<B: Backend>(t: Tensor<B, 2>) -> Mat<f64> {
     // Dense operator `A \in \mathbb{R}^{rows × cols}` — name the `[rows, cols]`
     // read via the shared contract so the row-major `from_fn` reconstruction
@@ -648,7 +653,7 @@ pub fn cube_interior_mask(nodes: &[[f64; 3]], side: f64) -> Vec<bool> {
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "tensor"))]
 mod contract_tests {
     //! Bunsen shape-contract firing test (Epic #355, Phase 3).
     //!

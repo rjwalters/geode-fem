@@ -65,6 +65,7 @@ use crate::eigen::lanczos::{HISTORICAL_BREAKDOWN_REL, krylov_breakdown, tridiag_
 use crate::eigen::shift_guard::{
     DEGENERATE_SHIFT_REL_TOL, check_degenerate_shift, check_gradient_probe, median_diag_ratio,
 };
+#[cfg(feature = "tensor")]
 use crate::eigen::transmon::{JunctionPortModel, junction_participation, reduced_transmon_system};
 use crate::sparse_ops::{lu_solve, spmv, spmv_into, spmv_transpose_into};
 
@@ -1308,6 +1309,7 @@ impl ProjectedShiftInvertLanczos {
 ///
 /// Propagates [`EigenError`] from the reduced assembly, the projector build
 /// (`GᵀMG` LU), or the projected Lanczos solve.
+#[cfg(feature = "tensor")]
 pub fn solve_transmon_eigenmodes_projected(
     pencil: &crate::eigen::transmon::TransmonPencil<'_>,
     sigma: f64,
@@ -1360,6 +1362,7 @@ pub fn solve_transmon_eigenmodes_projected(
 /// # Errors
 ///
 /// As [`solve_transmon_eigenmodes_projected`].
+#[cfg(feature = "tensor")]
 pub fn solve_transmon_eigenmodes_projected_with_port_model(
     pencil: &crate::eigen::transmon::TransmonPencil<'_>,
     port_model: crate::eigen::transmon::JunctionPortModel,
@@ -1391,6 +1394,7 @@ pub fn solve_transmon_eigenmodes_projected_with_port_model(
 /// # Errors
 ///
 /// As [`solve_transmon_eigenmodes_projected`].
+#[cfg(feature = "tensor")]
 pub fn solve_transmon_eigenmodes_projected_with_port_model_full(
     pencil: &crate::eigen::transmon::TransmonPencil<'_>,
     port_model: crate::eigen::transmon::JunctionPortModel,
@@ -1409,6 +1413,7 @@ pub fn solve_transmon_eigenmodes_projected_with_port_model_full(
 
 /// Shared body of the bulk-projected transmon solves; `drop_null` selects
 /// [`ProjectedShiftInvertLanczos::smallest_nonnull_eigenpairs`].
+#[cfg(feature = "tensor")]
 fn projected_transmon_impl(
     pencil: &crate::eigen::transmon::TransmonPencil<'_>,
     port_model: crate::eigen::transmon::JunctionPortModel,
@@ -1518,6 +1523,7 @@ fn projected_transmon_impl(
 ///
 /// Propagates [`EigenError`] from the reduced assembly, either projector build,
 /// or either Lanczos solve.
+#[cfg(feature = "tensor")]
 pub fn solve_transmon_eigenmodes_port_aware(
     pencil: &crate::eigen::transmon::TransmonPencil<'_>,
     sigma: f64,
@@ -1643,6 +1649,7 @@ pub fn solve_transmon_eigenmodes_port_aware(
 ///
 /// Propagates [`EigenError`] from the reduced assembly, the projector builds
 /// or the projected Lanczos solve.
+#[cfg(feature = "tensor")]
 pub fn solve_transmon_eigenmodes_port_subspace(
     pencil: &crate::eigen::transmon::TransmonPencil<'_>,
     sigma: f64,
@@ -1747,6 +1754,7 @@ pub struct UngaugedModeDivergence {
 ///
 /// Propagates [`EigenError`] from the reduced assembly, the projector build,
 /// or the ungauged Lanczos solve.
+#[cfg(feature = "tensor")]
 pub fn ungauged_mode_divergences(
     pencil: &crate::eigen::transmon::TransmonPencil<'_>,
     sigma: f64,

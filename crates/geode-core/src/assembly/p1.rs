@@ -42,6 +42,7 @@ use burn::tensor::backend::Backend;
 use burn::tensor::{Int, TensorData};
 
 use crate::assembly::dense_scatter::DenseScatter;
+pub use crate::assembly::sparsity::SparsityPattern;
 use crate::elements::p1::batched_p1_local_matrices;
 use crate::mesh::TetMesh;
 
@@ -92,21 +93,6 @@ pub struct GlobalSystem<B: Backend> {
     /// `(row, col)` index pairs touched during assembly. Useful for a
     /// later CSR projection without re-walking the connectivity.
     pub sparsity: SparsityPattern,
-}
-
-/// CPU-side sparsity pattern: every `(row, col)` pair touched at least
-/// once by the assembly. Always symmetric for P1 stiffness/mass.
-#[derive(Debug, Clone, Default)]
-pub struct SparsityPattern {
-    pub rows: Vec<u32>,
-    pub cols: Vec<u32>,
-}
-
-impl SparsityPattern {
-    /// Returns the number of unique non-zero entries.
-    pub fn nnz(&self) -> usize {
-        self.rows.len()
-    }
 }
 
 /// Push a `TetMesh` onto the given device as `(nodes, tets)` Burn tensors.

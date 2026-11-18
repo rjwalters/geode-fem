@@ -76,13 +76,17 @@
 
 pub(crate) mod amg;
 pub mod ams;
+#[cfg(feature = "tensor")]
 pub mod bloch;
+#[cfg(feature = "tensor")]
 pub mod cavity;
 pub mod complex;
 pub mod dense;
 pub mod gauge;
+#[cfg(feature = "tensor")]
 pub mod hcurl_null;
 pub mod lanczos;
+#[cfg(feature = "tensor")]
 pub mod lossy_cavity;
 // `pub(crate)`: the ordering primitives are for internal reuse by the eigen /
 // driven direct-LU paths, not a public API. Keeping the module crate-private
@@ -90,12 +94,17 @@ pub mod lossy_cavity;
 // `pub(crate)`), which `rustdoc::private_intra_doc_links` (-D warnings) requires.
 pub(crate) mod ordering;
 pub mod parallel;
+#[cfg(feature = "tensor")]
 pub mod pec_cavity;
+#[cfg(feature = "tensor")]
 pub mod periodic_cavity;
 pub mod projection;
+#[cfg(feature = "tensor")]
 pub mod self_consistent;
+#[cfg(feature = "tensor")]
 pub mod sensitivity;
 pub mod shift_guard;
+#[cfg(feature = "tensor")]
 pub mod transmon;
 pub mod wavenumber;
 

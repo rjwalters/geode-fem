@@ -102,7 +102,7 @@ use faer::sparse::{SparseColMat, Triplet};
 /// re-exported from [`crate::assembly::electrostatic`] so existing
 /// `magnetostatic3d::tet_bary_grads` paths keep resolving.
 pub use crate::assembly::electrostatic::tet_bary_grads;
-pub use crate::assembly::p1::SparsityPattern;
+pub use crate::assembly::sparsity::SparsityPattern;
 use crate::eigen::gauge::TreeCotreeGauge;
 use crate::mesh::{TET_LOCAL_EDGES, TetMesh};
 

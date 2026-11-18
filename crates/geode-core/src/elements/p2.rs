@@ -46,8 +46,8 @@
 //! live here in `elements/` rather than inline in the assembler, per the
 //! issue-#602 scoping.
 
-use crate::elements::nedelec::{TET_QUAD4_A, TET_QUAD4_B};
 use crate::elements::nedelec_p2::tet_barycentric_gradients;
+use crate::elements::quadrature::{TET_QUAD4_A, TET_QUAD4_B};
 use crate::mesh::TET_LOCAL_EDGES;
 use crate::vec3::dot3 as dot;
 
