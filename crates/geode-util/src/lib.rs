@@ -56,8 +56,9 @@ mod tests {
         // repo: an absolute workspace root resolved from the crate root path.
         assert!(crate::repo::repo_root().is_absolute());
 
-        // convert: empty input round-trips to an empty Vec.
-        assert!(crate::convert::complex_slice_to_vec(&[]).is_empty());
+        // convert: no rows flatten to an empty Vec.
+        let no_rows: &[Vec<num_complex::Complex64>] = &[];
+        assert!(crate::convert::flatten_complex_rows(no_rows).is_empty());
 
         // interop: empty interleaved payload decodes to no complex values.
         assert!(crate::interop::decode_real_imag_interleave(&[]).is_empty());
