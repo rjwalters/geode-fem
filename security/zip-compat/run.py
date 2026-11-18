@@ -39,6 +39,17 @@ def verify_sources():
         expected = {p for p in provenance["vendored"] if p.startswith(name + "/")}
         if actual != expected:
             raise RuntimeError(f"unexpected or missing files in vendored {name}")
+        # Recorded omissions: baseline - vendored - Cargo.lock must equal the list.
+        prefix = name + "/"
+        omitted = {p for p in provenance["omitted_from_vendor"]["paths"]
+                   if p.startswith(prefix)}
+        unpublished = {p for p in omitted if p not in provenance["baseline"]}
+        present = {p for p in omitted if p in provenance["vendored"]}
+        derived = {p for p in provenance["baseline"]
+                   if p.startswith(prefix) and p not in provenance["vendored"]
+                   and Path(p).name != "Cargo.lock"}
+        if unpublished or present or derived != omitted:
+            raise RuntimeError(f"omitted_from_vendor does not match baseline for {name}")
     for relative, expected in provenance["test_support"].items():
         if digest(HERE / relative) != expected:
             raise RuntimeError(f"test support digest mismatch: {relative}")
