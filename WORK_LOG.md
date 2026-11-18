@@ -3,6 +3,22 @@
 Chronological record of merged pull requests and closed issues, newest first.
 Maintained automatically by the Loom Guide role; entries are appended, never edited.
 
+### 2026-11-18
+
+- **PR #1743**: ci: add merge_group trigger and head-sha concurrency to relied-on workflows
+- **PR #1647**: test: share one Gauss-Legendre edge interpolant across four geode-core tests
+- **PR #1645**: refactor: make the ICEM design-gradient machinery generic over the design space
+- **PR #1630**: refactor: drop complex_slice_to_vec wrapper for direct .to_vec() calls
+- **PR #1376**: feat: add default-on tensor feature so geode-core builds without burn/bunsen
+- **Issue #1745** (closed): ci: CodeQL default-setup checks cannot report on a merge group — decide before queue activation
+- **Issue #1742** (closed): ci: qualify PR checks for GitHub merge queues
+- **Issue #1719** (closed): forge doctor-handback deterministically returns RACED on PR #1647 although loom:changes-requested was never re-applied
+- **Issue #1715** (closed): doctor-handback livelock: re-anchored ci-gate-only verdict blocks handback on a green head (PR #1666 wedged ~36h, 4 doctor passes)
+- **Issue #1634** (closed): Consolidate the duplicated ICEM design-gradient machinery: 280 of icem_cp_design.rs's 429 lines are icem_design.rs renamed
+- **Issue #1623** (closed): Consolidate four copies of the Gauss-Legendre edge interpolant and its hand-typed quadrature table in geode-core tests
+- **Issue #1546** (closed): Remove complex_slice_to_vec: trivial to_vec wrapper in geode-util
+- **Issue #1365** (closed): geode-core: electrostatics-only build without Burn/Bunsen (3 min cold build, MPL-2.0 colored via burn-tensor)
+
 ### 2026-11-17
 
 - **PR #1740**: test: share spiral benchmark sweep/results helpers between test binaries
