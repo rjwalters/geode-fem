@@ -124,8 +124,9 @@ use burn::tensor::backend::Backend;
 use faer::c64;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
-use crate::driven::shape::{Dual, nedelec_local_dual, nedelec_local_dual_tensor};
+use crate::driven::shape::{nedelec_local_dual, nedelec_local_dual_tensor};
 use crate::driven::solve::SurfaceImpedanceModel;
+use crate::dual::Dual;
 use crate::eigen::lossy_cavity::{LossyCavityMaterials, assemble_lossy_pencil};
 use crate::mesh::TetMesh;
 

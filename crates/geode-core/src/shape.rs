@@ -87,6 +87,7 @@ use faer::sparse::{SparseColMat, Triplet};
 use crate::assembly::electrostatic::{
     EPS_0, Electrode, ElectrostaticError, assemble_electrostatic, tet_p1_local,
 };
+use crate::dual::{Dual, dcross3, ddot3, dsub3};
 use crate::mesh::TetMesh;
 
 pub mod conformal_basis;
@@ -94,102 +95,6 @@ pub mod floquet_element;
 pub mod refined_capacitance;
 pub mod transmon_morph;
 pub mod transmon_remorph;
-
-// ─────────────────────────────────────────────────────────────────────────
-// Minimal forward-mode dual number for exact differentiation of the P1
-// element-stiffness kernel w.r.t. a single seeded node coordinate.
-// ─────────────────────────────────────────────────────────────────────────
-
-/// A first-order **dual number** `re + du·ϵ` (`ϵ² = 0`) for exact
-/// forward-mode automatic differentiation of the closed-form P1 element
-/// kernel. Seeding one node coordinate with `du = 1` (all others `du = 0`)
-/// and evaluating [`stiffness_bilinear_dual`] returns, in its `du` field,
-/// the exact partial derivative of the element-stiffness bilinear form
-/// w.r.t. that coordinate.
-#[derive(Clone, Copy, Debug)]
-struct Dual {
-    re: f64,
-    du: f64,
-}
-
-impl Dual {
-    #[inline]
-    fn cst(re: f64) -> Self {
-        Self { re, du: 0.0 }
-    }
-    #[inline]
-    fn var(re: f64) -> Self {
-        Self { re, du: 1.0 }
-    }
-    #[inline]
-    fn add(self, o: Self) -> Self {
-        Self {
-            re: self.re + o.re,
-            du: self.du + o.du,
-        }
-    }
-    #[inline]
-    fn sub(self, o: Self) -> Self {
-        Self {
-            re: self.re - o.re,
-            du: self.du - o.du,
-        }
-    }
-    #[inline]
-    fn mul(self, o: Self) -> Self {
-        Self {
-            re: self.re * o.re,
-            du: self.du * o.re + self.re * o.du,
-        }
-    }
-    #[inline]
-    fn div(self, o: Self) -> Self {
-        let inv = 1.0 / o.re;
-        Self {
-            re: self.re * inv,
-            du: (self.du * o.re - self.re * o.du) * inv * inv,
-        }
-    }
-    #[inline]
-    fn neg(self) -> Self {
-        Self {
-            re: -self.re,
-            du: -self.du,
-        }
-    }
-    /// `|x|`, with the sub-gradient at the (measure-zero) kink taken as the
-    /// right derivative. The element determinant is bounded away from zero
-    /// on any valid mesh, so the kink is never hit here.
-    #[inline]
-    fn abs(self) -> Self {
-        if self.re >= 0.0 { self } else { self.neg() }
-    }
-    /// Multiply by an `f64` constant (a lifted scalar with zero tangent).
-    #[inline]
-    fn scale(self, c: f64) -> Self {
-        Self {
-            re: self.re * c,
-            du: self.du * c,
-        }
-    }
-}
-
-#[inline]
-fn dsub3(a: [Dual; 3], b: [Dual; 3]) -> [Dual; 3] {
-    [a[0].sub(b[0]), a[1].sub(b[1]), a[2].sub(b[2])]
-}
-#[inline]
-fn dcross3(a: [Dual; 3], b: [Dual; 3]) -> [Dual; 3] {
-    [
-        a[1].mul(b[2]).sub(a[2].mul(b[1])),
-        a[2].mul(b[0]).sub(a[0].mul(b[2])),
-        a[0].mul(b[1]).sub(a[1].mul(b[0])),
-    ]
-}
-#[inline]
-fn ddot3(a: [Dual; 3], b: [Dual; 3]) -> Dual {
-    a[0].mul(b[0]).add(a[1].mul(b[1])).add(a[2].mul(b[2]))
-}
 
 /// The P1 element-stiffness **bilinear form** `Σ_{p,q} λ_p K_local[p][q] φ_q`
 /// evaluated in dual arithmetic on dual-valued `coords`, so its `.du` is the

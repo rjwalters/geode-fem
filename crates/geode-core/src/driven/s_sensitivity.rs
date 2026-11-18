@@ -225,13 +225,12 @@ use crate::driven::ports::{
     ChanAt, ChanOrigin, FaceModeSet, HybridWavePort, LumpedPort, WavePort, WavePortSpec,
     assemble_modal_flux, assemble_port_flux, hybrid_port_channel_sweep,
 };
-use crate::driven::shape::{
-    Dual, nedelec_local_dual, nedelec_local_dual_tensor, wall_face_mass_dual,
-};
+use crate::driven::shape::{nedelec_local_dual, nedelec_local_dual_tensor, wall_face_mass_dual};
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, DrivenSource,
     ElementOrder, SolverMode, SurfaceImpedanceBc, WallParam, validate_driven_surfaces,
 };
+use crate::dual::Dual;
 use crate::mesh::{TET_LOCAL_FACES, TaggedTetMesh, TetMesh};
 use crate::shape::{BoundaryMotionDof, FreeformBoundaryMorph};
 
