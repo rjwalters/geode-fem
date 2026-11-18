@@ -21,7 +21,7 @@
 //!   type, and the cross-evaluations are pinned.
 
 mod common;
-use common::toml_artifact::{f, get, pin, s};
+use common::toml_artifact::{f_dbg as f, get, pin, s};
 use common::toml_num as num;
 use std::path::PathBuf;
 

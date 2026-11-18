@@ -22,7 +22,7 @@
 //! See `designc/README.md`.
 
 mod common;
-use common::toml_artifact::{f, get, pin, s};
+use common::toml_artifact::{f_dbg as f, get, pin, s};
 use common::{repo_root as repo, toml_num as num};
 
 use sha2::{Digest, Sha256};

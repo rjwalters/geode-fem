@@ -22,6 +22,13 @@ pub fn f(v: &toml::Value, dotted: &str) -> f64 {
         .unwrap_or_else(|| panic!("{dotted} is not a number"))
 }
 
+/// Like [`f`], but a non-numeric value panics with the offending TOML value
+/// (`expected a number, got ..`) via [`super::toml_num`]. The design C, Palace
+/// loop and tuned targets pinned that diagnostic before the helpers were shared.
+pub fn f_dbg(v: &toml::Value, dotted: &str) -> f64 {
+    super::toml_num(get(v, dotted))
+}
+
 /// The string at `dotted`.
 pub fn s<'a>(v: &'a toml::Value, dotted: &str) -> &'a str {
     get(v, dotted)

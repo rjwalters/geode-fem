@@ -21,7 +21,7 @@
 //!   `scripts/tuned_summary.py --write` fails here.
 
 mod common;
-use common::toml_artifact::{f, get, s};
+use common::toml_artifact::{f_dbg as f, get, s};
 use common::toml_num as num;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
