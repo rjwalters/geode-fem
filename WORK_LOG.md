@@ -5,6 +5,11 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-17
 
+- **PR #1740**: test: share spiral benchmark sweep/results helpers between test binaries
+- **PR #1730**: ci: enforce a-m integration step bound in-script with coreutils timeout
+- **PR #1727**: refactor: remove one-off fiber_smf28_solve_timing timing example
+- **Issue #1739** (closed): Consolidate duplicated sweep/committed_results helpers between spiral_inductor_benchmark and slcfet_3hp_benchmark tests (~130 lines)
+- **Issue #1644** (closed): Remove examples/fiber_smf28_solve_timing: one-off AFTER-timing harness for closed #327, no artifact and no caller
 - **PR #1736**: docs: correct low-DOF parametric leg to scalars-or-B-spline-fields (1-48 DOFs)
 - **Issue #1734** (closed): Docs: "a handful of shape scalars" overclaims parsimony for the 16/48-DOF parametric rows
 - **PR #1732**: docs: replace stale ceviche-2D leg with low-DOF parametric sweep in Meep docker README
