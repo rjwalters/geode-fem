@@ -52,7 +52,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -70,6 +69,7 @@ MESH_PATH = FIXTURE_DIR / "unit_cube.msh"
 _REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT_STR not in sys.path:
     sys.path.insert(0, _REPO_ROOT_STR)
+from reference.fixture_utils import git_commit  # noqa: E402
 from reference.numpy.cube_cavity import (  # noqa: E402
     analytic_lowest_five,
     cube_tet_mesh,
@@ -113,18 +113,6 @@ DIAG_TOL_ABS_M = 1e-14
 # tight enough to catch a backend that drifted off the physics
 # entirely.
 ANALYTIC_REL_TOL = 0.12  # 12% — see README in fixture dir
-
-
-def _git_commit() -> str:
-    try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=REPO_ROOT,
-            stderr=subprocess.DEVNULL,
-        )
-        return out.decode().strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown"
 
 
 def _pin_eigvec_signs(eigvecs):
@@ -342,7 +330,7 @@ def main():
         },
         "provenance": {
             "source": (
-                f"reference/numpy/cube_cavity.py @ commit {_git_commit()} ; "
+                f"reference/numpy/cube_cavity.py @ commit {git_commit(REPO_ROOT)} ; "
                 f"scipy {scipy.__version__}, numpy {np.__version__}, "
                 f"python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
             ),

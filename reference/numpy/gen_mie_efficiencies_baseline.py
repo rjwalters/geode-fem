@@ -27,7 +27,6 @@ Reproduction
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -43,6 +42,7 @@ FIXTURE_PATH = FIXTURE_DIR / "baseline.json"
 _REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT_STR not in sys.path:
     sys.path.insert(0, _REPO_ROOT_STR)
+from reference.fixture_utils import git_commit  # noqa: E402
 from reference.numpy.mie_efficiencies import (  # noqa: E402
     N_INSIDE,
     R_SPHERE,
@@ -61,18 +61,6 @@ KA_CURVE = np.round(np.linspace(0.1, 6.0, 60), 10).tolist()
 # accurate to ~1e-12 relative over this range. Q values are O(1), so
 # 1e-10 absolute is the equivalent bound.
 Q_TOLERANCE_ABS = 1e-10
-
-
-def _git_commit() -> str:
-    try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=REPO_ROOT,
-            stderr=subprocess.DEVNULL,
-        )
-        return out.decode().strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown"
 
 
 def _f64_field(description: str, values, tol: float) -> dict:
@@ -188,7 +176,7 @@ def main() -> None:
                 "mie_efficiencies_numpy_reference.rs — pointwise Q_ext/"
                 "Q_sca join at <= 1e-10 absolute on both grids."
             ),
-            "issue": f"#195 (Epic #193, Phase 1); generated at git commit {_git_commit()}",
+            "issue": f"#195 (Epic #193, Phase 1); generated at git commit {git_commit(REPO_ROOT)}",
         },
     }
 

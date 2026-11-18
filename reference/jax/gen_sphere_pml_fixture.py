@@ -64,7 +64,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -77,18 +76,7 @@ REPO_ROOT = HERE.parent.parent
 _REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT_STR not in sys.path:
     sys.path.insert(0, _REPO_ROOT_STR)
-
-
-def _git_commit() -> str:
-    try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=REPO_ROOT,
-            stderr=subprocess.DEVNULL,
-        )
-        return out.decode().strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown"
+from reference.fixture_utils import git_commit, interleave_c128  # noqa: E402
 
 
 def _numpy_baseline_path() -> Path:
@@ -97,13 +85,6 @@ def _numpy_baseline_path() -> Path:
 
 def _default_out_path() -> Path:
     return REPO_ROOT / "reference" / "fixtures" / "sphere_pml" / "jax_baseline.json"
-
-
-def _interleave_c128(z: np.ndarray) -> list[float]:
-    """Real-imag interleaved encoding per `reference/SCHEMA.md` "Complex
-    encoding (c128)"."""
-    z = np.ascontiguousarray(z, dtype=np.complex128)
-    return z.view(np.float64).tolist()
 
 
 def _build_fixture_dict(
@@ -201,7 +182,7 @@ def _build_fixture_dict(
                     "(geode_core::build_complex_epsilon_r_pml). On-disk: "
                     "real-imag interleaved per reference/SCHEMA.md."
                 ),
-                "data": _interleave_c128(epsilon_r_complex),
+                "data": interleave_c128(epsilon_r_complex),
             },
         },
         "outputs": {
@@ -259,7 +240,7 @@ def _build_fixture_dict(
                     "pairs that the non-Hermitian solver returns."
                 ),
                 "tolerance_abs": 1.0e-3,
-                "data": _interleave_c128(eigenvalues_lowest_complex),
+                "data": interleave_c128(eigenvalues_lowest_complex),
             },
             "physical_eigenvalues_complex": {
                 "shape": [int(physical_eigenvalues_complex.shape[0])],
@@ -271,7 +252,7 @@ def _build_fixture_dict(
                     "representative per near-conjugate pair."
                 ),
                 "tolerance_abs": 1.0e-3,
-                "data": _interleave_c128(physical_eigenvalues_complex),
+                "data": interleave_c128(physical_eigenvalues_complex),
             },
             "q_factor_lowest_physical": {
                 "shape": [1],
@@ -288,7 +269,7 @@ def _build_fixture_dict(
         },
         "provenance": {
             "source": (
-                f"reference/jax/sphere_pml.py @ commit {_git_commit()} "
+                f"reference/jax/sphere_pml.py @ commit {git_commit(REPO_ROOT)} "
                 f"(Epic #88 / Phase H.3 / Issue #148)"
             ),
             "verified_against": verified_note,
@@ -466,7 +447,7 @@ def main():
         json.dump(fixture, f, indent=2)
         f.write("\n")
     print(f"\nWrote {out_path} ({os.path.getsize(out_path)} bytes)")
-    print(f"  generator_commit = {_git_commit()}")
+    print(f"  generator_commit = {git_commit(REPO_ROOT)}")
 
 
 if __name__ == "__main__":
