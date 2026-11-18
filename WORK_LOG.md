@@ -5,6 +5,12 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-18
 
+- **PR #1752**: refactor: share git_commit/interleave_c128 across reference fixture generators
+- **PR #1751**: refactor: share one forward-mode Dual in a crate-root module
+- **PR #1749**: chore: drop 19 superseded tch Declarations YAMLs with a checked omission record
+- **Issue #1748** (closed): Consolidate duplicated _git_commit/_interleave_c128 helpers across reference fixture generators (~220 LOC)
+- **Issue #1567** (closed): Remove 19 superseded PyTorch Declarations YAMLs from vendored tch (75 MB tracked, read by nothing)
+- **Issue #1565** (closed): Consolidate duplicated forward-mode Dual number: shape.rs copy is a subset of driven/shape.rs
 - **Issue #1568** (closed): Shared blocks, material schema, structure file and two interchange formats: proposals touching geode-fem
 - **Issue #1733** (closed): Re-rule the #1620 remainder: Epigraph::with_active_margin has a live example caller
 - **PR #1743**: ci: add merge_group trigger and head-sha concurrency to relied-on workflows
