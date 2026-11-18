@@ -21,6 +21,7 @@
 //!   type, and the cross-evaluations are pinned.
 
 mod common;
+use common::toml_artifact::{f, get, pin, s};
 use common::toml_num as num;
 use std::path::PathBuf;
 
@@ -37,38 +38,10 @@ fn load(rel: &str) -> toml::Value {
         .unwrap_or_else(|e| panic!("parse {}: {e}", p.display()))
 }
 
-fn get<'a>(v: &'a toml::Value, dotted: &str) -> &'a toml::Value {
-    let mut cur = v;
-    for k in dotted.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {dotted} (at {k})"));
-    }
-    cur
-}
-
-fn f(v: &toml::Value, dotted: &str) -> f64 {
-    num(get(v, dotted))
-}
-
-fn s<'a>(v: &'a toml::Value, dotted: &str) -> &'a str {
-    get(v, dotted)
-        .as_str()
-        .unwrap_or_else(|| panic!("{dotted} is not a string"))
-}
-
 fn arr<'a>(v: &'a toml::Value, dotted: &str) -> &'a Vec<toml::Value> {
     get(v, dotted)
         .as_array()
         .unwrap_or_else(|| panic!("{dotted} is not an array"))
-}
-
-#[track_caller]
-fn pin(got: f64, want: f64, tol: f64, what: &str) {
-    assert!(
-        (got - want).abs() <= tol,
-        "{what}: {got} differs from the pinned {want} by more than {tol}"
-    );
 }
 
 /// The Palace sep-CMA-ES runs and the geode X4 run with the same seed.

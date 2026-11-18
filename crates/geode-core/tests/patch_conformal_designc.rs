@@ -22,6 +22,7 @@
 //! See `designc/README.md`.
 
 mod common;
+use common::toml_artifact::{f, get, pin, s};
 use common::{repo_root as repo, toml_num as num};
 
 use sha2::{Digest, Sha256};
@@ -48,26 +49,6 @@ fn summary() -> toml::Value {
     load("designc_summary.toml")
 }
 
-fn get<'a>(v: &'a toml::Value, dotted: &str) -> &'a toml::Value {
-    let mut cur = v;
-    for k in dotted.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {dotted} (at {k})"));
-    }
-    cur
-}
-
-fn f(v: &toml::Value, dotted: &str) -> f64 {
-    num(get(v, dotted))
-}
-
-fn s<'a>(v: &'a toml::Value, dotted: &str) -> &'a str {
-    get(v, dotted)
-        .as_str()
-        .unwrap_or_else(|| panic!("{dotted} is not a string"))
-}
-
 fn arr(v: &toml::Value, dotted: &str) -> Vec<f64> {
     get(v, dotted)
         .as_array()
@@ -75,14 +56,6 @@ fn arr(v: &toml::Value, dotted: &str) -> Vec<f64> {
         .iter()
         .map(num)
         .collect()
-}
-
-#[track_caller]
-fn pin(got: f64, want: f64, tol: f64, what: &str) {
-    assert!(
-        (got - want).abs() <= tol,
-        "{what}: {got} differs from the pinned {want} by more than {tol}"
-    );
 }
 
 /// A Palace CSV (`eig.csv`, `domain-E.csv`, `port-S.csv`) as header + rows.

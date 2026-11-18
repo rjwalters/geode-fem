@@ -7,6 +7,7 @@
 
 pub mod box_fixtures;
 pub mod spiral_benchmark;
+pub mod toml_artifact;
 pub mod wave_port;
 
 use burn::tensor::backend::Backend;
