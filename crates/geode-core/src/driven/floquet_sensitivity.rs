@@ -115,7 +115,8 @@ use crate::driven::floquet::{
     FloquetSolution,
 };
 use crate::driven::s_sensitivity::{MaterialDesign, SParam, ShapeDesign};
-use crate::driven::shape::{Dual, nedelec_local_dual, nedelec2_local_dual};
+use crate::driven::shape::{nedelec_local_dual, nedelec2_local_dual};
+use crate::dual::Dual;
 use crate::elements::ElementOrder;
 use crate::elements::nedelec_p2::TET_NEDELEC2_DOFS;
 use crate::mesh::TetMesh;

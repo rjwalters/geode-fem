@@ -20,6 +20,8 @@ pub(crate) mod dense_ops;
 pub mod derham;
 #[cfg(feature = "tensor")]
 pub mod driven;
+#[cfg(feature = "tensor")]
+pub(crate) mod dual;
 pub mod eigen;
 pub mod elements;
 #[cfg(feature = "tensor")]
