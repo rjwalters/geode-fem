@@ -4,12 +4,20 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch: {}
+  # Issue #1742: merge queue — run on each merge group's combined tree.
+  # The default checkout (github.sha) is the group's commit, not the PR
+  # head or main.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
 
+# Issue #1742: merge-group runs are keyed by the group's unique head SHA, so
+# a PR or push run can neither supersede nor cancel them; runs are never
+# cancelled in progress.
 concurrency:
-  group: zip-compat-${{ github.event.pull_request.number || github.ref }}
+  group: zip-compat-${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || (github.event.pull_request.number || github.ref) }}
   cancel-in-progress: false
 
 jobs:
