@@ -5,6 +5,8 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-19
 
+- **PR #1778**: fix: accumulate electrostatic P1 face shares over sorted faces for bitwise reproducible eta
+- **Issue #1772** (closed): electrostatic_p1: eta_t2 accumulates in HashMap iteration order, so eta is not bitwise reproducible (~1 ULP)
 - **PR #1773**: ci: retry apt installs on transient mirror failures via Acquire::Retries=3
 - **PR #1770**: feat: windowed peak averages of current and Joule density in geode conduction
 - **PR #1768**: feat: scalar P1 electrostatic residual estimator with signed cell/face terms
