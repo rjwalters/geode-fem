@@ -425,16 +425,19 @@ fn tet_volume(mesh: &TetMesh, t: usize) -> f64 {
 
 /// The indicator accumulation follows the **sorted** `faces` order (cell
 /// term last): `eta_t2` must equal that reference bitwise, not merely to a
-/// tolerance. On these fixtures every summation ordering of the per-tet
-/// share sets rounds identically (checked by exhaustive permutation during
-/// triage of #1775), so this pins the documented contract explicitly
-/// rather than witnessing the old map-order drift.
+/// tolerance. The fixture is a **zero-charge** cube: with `rho = 0` the
+/// per-tet cell term vanishes, so last-bit differences between face-sum
+/// orderings are no longer masked. On the pre-fix map-order accumulation
+/// this fixture split into two adjacent `eta_t2[4]` bit patterns across 50
+/// separate processes (measured during the #1775 review, parent
+/// `3b4037b1`); the sorted-order accumulation matches the reference
+/// bitwise.
 #[test]
 fn eta_t2_accumulates_in_sorted_faces_order_bitwise() {
     let mesh = cube();
     let phi = vec![0.1, 0.3, 0.2, 0.7, 0.9, 1.1, 1.3, 1.6, 0.5];
     let eps_r = vec![1.0, 2.0, 1.5, 2.5, 1.2, 1.8, 2.2, 1.1, 1.4, 2.1, 1.7, 1.3];
-    let rho = vec![0.5, 1.0, 0.2, 0.7, 0.9, 0.3, 0.6, 1.2, 0.4, 0.8, 1.1, 0.25];
+    let rho = vec![0.0; 12];
     let ground = [0_u32, 1, 2, 3];
     let electrodes = [electrode("top", &[4, 5, 6, 7], 1.0)];
 
@@ -493,6 +496,11 @@ fn eta_t2_accumulates_in_sorted_faces_order_bitwise() {
 /// accumulating in the sorted `faces` order makes every call identical.
 /// (The `cube` fixture's 30 `face_tets` keys produced 200 distinct
 /// iteration orders across 200 fresh maps during triage of #1775.)
+///
+/// Both fixtures use **zero charge**: with the cell term out of the way
+/// the cube's face sums split into two adjacent bit patterns under
+/// map-order accumulation — this test failed 20/20 runs on the parent
+/// (`3b4037b1`) and passes only with the sorted-order accumulation.
 #[test]
 fn repeated_estimator_calls_are_bitwise_stable() {
     let ground_bipy = [3_u32];
@@ -508,7 +516,7 @@ fn repeated_estimator_calls_are_bitwise_stable() {
     let cube_inputs = (
         vec![0.1, 0.3, 0.2, 0.7, 0.9, 1.1, 1.3, 1.6, 0.5],
         vec![1.0, 2.0, 1.5, 2.5, 1.2, 1.8, 2.2, 1.1, 1.4, 2.1, 1.7, 1.3],
-        vec![0.5, 1.0, 0.2, 0.7, 0.9, 0.3, 0.6, 1.2, 0.4, 0.8, 1.1, 0.25],
+        vec![0.0; 12],
     );
     let ground_cube = [0_u32, 1, 2, 3];
     let electrodes_cube = [electrode("top", &[4, 5, 6, 7], 1.0)];
