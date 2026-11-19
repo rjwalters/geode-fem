@@ -3,6 +3,14 @@
 Chronological record of merged pull requests and closed issues, newest first.
 Maintained automatically by the Loom Guide role; entries are appended, never edited.
 
+### 2026-11-19
+
+- **PR #1757**: fix: reject omitted_from_vendor entries that match no vendored crate
+- **PR #1755**: test: share TOML artifact helpers across patch_conformal tests
+- **Issue #1759** (closed): zip-compat: test_verify_sources.py is not run by CI or documented
+- **Issue #1754** (closed): Consolidate duplicated TOML test helpers across patch_conformal tests
+- **Issue #1753** (closed): zip-compat: omitted_from_vendor entries with no matching crate prefix are never checked
+
 ### 2026-11-18
 
 - **PR #1752**: refactor: share git_commit/interleave_c128 across reference fixture generators
