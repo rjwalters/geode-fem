@@ -5,6 +5,9 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-19
 
+- **PR #1764**: chore: refresh Squad block and skill so unattended roles do not stop
+- **PR #1763**: feat: box-averaged peak-field observable for corner fields
+- **Issue #1480** (closed): Electrostatics: ball/box-averaged peak-field observable with location and enhancement factor (#1477 slice A)
 - **PR #1368**: feat: add cell-average and point sampling of tet fields onto user grids
 - **Issue #1363** (closed): postproc: sample piecewise-constant E onto cells or points (point location, cell averages)
 - **PR #1387**: refactor(mixed_pencil): remove dead dense assembler, test sparse path
