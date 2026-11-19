@@ -442,6 +442,7 @@ jobs:
               --test patch_conformal_v6 \
               --test patch_diffopt \
               --test patch_mesh \
+              --test peak_field_corner \
               --test pec_cavity_unit_invariance \
               --test pec_mask_face_exact \
               --test periodic_cavity \
@@ -546,6 +547,7 @@ jobs:
               --test patch_conformal_v6 \
               --test patch_diffopt \
               --test patch_mesh \
+              --test peak_field_corner \
               --test pec_cavity_unit_invariance \
               --test pec_mask_face_exact \
               --test periodic_cavity \
