@@ -24,6 +24,7 @@
 
 mod common;
 use common::repo_root as repo;
+use common::toml_artifact::{f, get, pin, s};
 use std::path::PathBuf;
 
 fn v6() -> PathBuf {
@@ -37,37 +38,6 @@ fn load(rel: &str) -> toml::Value {
         .parse::<toml::Table>()
         .map(toml::Value::Table)
         .unwrap_or_else(|e| panic!("parse {}: {e}", p.display()))
-}
-
-fn get<'a>(v: &'a toml::Value, dotted: &str) -> &'a toml::Value {
-    let mut cur = v;
-    for k in dotted.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {dotted} (at {k})"));
-    }
-    cur
-}
-
-fn f(v: &toml::Value, dotted: &str) -> f64 {
-    let c = get(v, dotted);
-    c.as_float()
-        .or_else(|| c.as_integer().map(|i| i as f64))
-        .unwrap_or_else(|| panic!("{dotted} is not a number"))
-}
-
-fn s<'a>(v: &'a toml::Value, dotted: &str) -> &'a str {
-    get(v, dotted)
-        .as_str()
-        .unwrap_or_else(|| panic!("{dotted} is not a string"))
-}
-
-#[track_caller]
-fn pin(got: f64, want: f64, tol: f64, what: &str) {
-    assert!(
-        (got - want).abs() <= tol,
-        "{what}: {got} differs from the pinned {want} by more than {tol}"
-    );
 }
 
 /// The fixture sha256 a generator provenance file records.
