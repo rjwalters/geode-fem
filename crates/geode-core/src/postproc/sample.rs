@@ -331,6 +331,19 @@ fn for_each_cell_overlap(
     }
 }
 
+/// Exact `tet ∩ cell` overlap volumes for one cell: `(tet_index, volume)`
+/// for every tet with a positive overlap, in ascending tet index (the same
+/// visit order and clipping as [`for_each_cell_overlap`]). Crate-internal
+/// helper of the goal estimator (#1766): summing the weights reproduces the
+/// `volume_covered` denominator [`sample_cell_average`] reports for the
+/// same cell, bit for bit.
+pub(crate) fn cell_overlap_weights(mesh: &TetMesh, cell: &Aabb) -> Vec<(usize, f64)> {
+    let grid = BinGrid::new(mesh);
+    let mut out = Vec::new();
+    for_each_cell_overlap(mesh, &grid, cell, |ti, w| out.push((ti, w)));
+    out
+}
+
 // ------------------------------------------------------------------ public
 
 /// Volume-weighted average of a per-tet field over axis-aligned cells.
