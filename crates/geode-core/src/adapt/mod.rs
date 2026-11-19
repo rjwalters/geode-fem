@@ -20,7 +20,8 @@
 //!   [`crate::assembly::hcurl_space::HcurlSpace`]).
 //! - [`electrostatic_p1`]: the scalar P1 electrostatic residual estimator
 //!   (issue #1765, the first slice of #1481): per-tet indicators `η_T² =
-//!   h_T²‖ρ_T‖² + ½Σ h_F‖J_F‖²` from the element charge residual and the
+//!   h_T²‖ρ_T‖² + ½Σ_{interior} h_F‖J_F‖² + Σ_{natural} h_F‖J_F‖²` from
+//!   the element charge residual and the
 //!   normal displacement-flux jumps of the
 //!   [`crate::assembly::electrostatic`] solve, with the signed `ρ_T` / `J_F`
 //!   terms exposed before norms for the goal estimator (#1766).

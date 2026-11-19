@@ -55,11 +55,12 @@
 //!       = D_{T⁻}·n̂ − D_{T⁺}·n̂ = −[[D·n̂]],
 //!   ```
 //!
-//!   i.e. the jump of the normal flux of `−D`: the net outward
-//!   displacement flux out of a thin Gauss box straddling `F`, the
-//!   interface charge the discrete solution implies. `J_F = 0` is the
-//!   continuity of normal displacement the exact solution satisfies
-//!   across a material interface.
+//!   i.e. the jump of the normal flux of `−D`: the **negative** of the
+//!   net outward displacement flux density of a thin Gauss (pillbox)
+//!   box straddling `F` (`J_F = −(D_{T⁺} − D_{T⁻})·n̂`, the interface
+//!   charge the discrete solution implies up to that sign). `J_F = 0`
+//!   is the continuity of normal displacement the exact solution
+//!   satisfies across a material interface.
 //! - *Natural boundary face F* of tet `T`: with `n̂` the **outward**
 //!   unit normal (away from `T`'s off-face vertex),
 //!   `J_F = −ε_T ∇φ_h|_T·n̂ = D·n_out` (C/m²); the homogeneous natural
@@ -103,12 +104,19 @@ pub enum ElectrostaticP1Error {
     /// Input length mismatch (`phi` against the node count; per-tet
     /// `eps_r` / `rho` against the tet count).
     ShapeMismatch(String),
+    /// Non-manifold adjacency: a face is incident to **more than two**
+    /// tets, so it has no unique two-sided neighbor orientation.
+    /// Reported with the face's sorted node ids.
+    NonManifoldFace(String),
 }
 
 impl std::fmt::Display for ElectrostaticP1Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ShapeMismatch(s) => write!(f, "electrostatic P1 estimator shape mismatch: {s}"),
+            Self::NonManifoldFace(s) => {
+                write!(f, "electrostatic P1 estimator non-manifold face: {s}")
+            }
         }
     }
 }
@@ -190,7 +198,9 @@ const TET_FACES: [[usize; 3]; 4] = [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]];
 ///
 /// # Errors
 ///
-/// [`ElectrostaticP1Error::ShapeMismatch`] on any length mismatch.
+/// [`ElectrostaticP1Error::ShapeMismatch`] on any length mismatch;
+/// [`ElectrostaticP1Error::NonManifoldFace`] when a face is incident to
+/// more than two tets (checked in every build profile).
 pub fn estimate_electrostatic_p1(
     mesh: &TetMesh,
     phi: &[f64],
@@ -270,10 +280,14 @@ pub fn estimate_electrostatic_p1(
                     slot.insert((t, None));
                 }
                 Entry::Occupied(mut slot) => {
-                    debug_assert!(
-                        slot.get().1.is_none(),
-                        "non-manifold face {key:?}: more than two incident tets"
-                    );
+                    if slot.get().1.is_some() {
+                        // Checked in every build profile: a third tet on
+                        // this face would silently overwrite the second
+                        // neighbor and drop its share of the face term.
+                        return Err(ElectrostaticP1Error::NonManifoldFace(format!(
+                            "face {key:?} is incident to more than two tets"
+                        )));
+                    }
                     slot.get_mut().1 = Some(t);
                 }
             }

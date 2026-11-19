@@ -128,7 +128,7 @@ fn uniform_gradient_with_compatible_data_has_zero_residual() {
 }
 
 /// AC 1 (test plan), two-material version: with `ε_r = [1, 2]` and
-/// `φ_E = 0.5` the normal displacement `D·n̂ = ε ∇φ·n̂` is continuous
+/// `φ_E = 0.5` the normal displacement `D·n̂ = −ε ∇φ·n̂` is continuous
 /// across the shared face (`2ε₀·0.5 = 1ε₀·1`), so the interior jump is
 /// zero despite the material contrast.
 #[test]
@@ -315,6 +315,28 @@ fn internal_sheet_face_excluded_but_two_of_three_still_counted() {
         counted.eta * counted.eta - sheet.eta * sheet.eta,
         2.0 * share,
         EPS_0 * EPS_0,
+    );
+}
+
+/// A face shared by **three** tets (non-manifold adjacency) is an error
+/// in every build profile: the third tet must not silently overwrite the
+/// second neighbor. Regression for the review's bipyramid-plus-apex
+/// fixture, where the old `debug_assert!` panicked in debug but a
+/// release build dropped tet 1's share of face ABC and reported
+/// `J_ABC/ε₀ = 3` as `Ok`.
+#[test]
+fn non_manifold_face_is_an_error() {
+    let mut mesh = bipyramid();
+    mesh.nodes.push([0.0, 0.0, 2.0]); // 5: apex above E, sharing face ABC
+    mesh.tets.push([0, 1, 2, 5]); // third tet incident to ABC
+    let phi = vec![0.0, 0.0, 0.0, -1.0, 1.0, 2.0]; // φ = z
+    let eps_r = vec![1.0, 2.0, 4.0];
+    let rho = vec![0.0; 3];
+
+    let r = estimate_electrostatic_p1(&mesh, &phi, &eps_r, &rho, &[], &[]);
+    assert!(
+        matches!(r, Err(ElectrostaticP1Error::NonManifoldFace(_))),
+        "a face incident to three tets must error in every build profile, got {r:?}"
     );
 }
 
