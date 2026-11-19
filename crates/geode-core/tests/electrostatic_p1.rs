@@ -380,7 +380,11 @@ fn length_mismatch_is_a_shape_error() {
 
 /// Crate-internal `vec3` formulas are `pub(crate)`; these local copies use
 /// identical operations in identical order so the reference accumulation
-/// below is bitwise-equal to the estimator's own arithmetic.
+/// below is bitwise-equal to the estimator's own arithmetic. They are hand
+/// copies and must be kept in sync with the crate helpers (`vec3`
+/// `norm`/`cross`/`dot`, `tet_diameter`, `tet_volume` in
+/// `crates/geode-core/src/`) — if a crate formula changes, update the
+/// matching copy here or this test silently stops mirroring the estimator.
 fn v_norm(a: [f64; 3]) -> f64 {
     (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt()
 }
@@ -501,6 +505,14 @@ fn eta_t2_accumulates_in_sorted_faces_order_bitwise() {
 /// the cube's face sums split into two adjacent bit patterns under
 /// map-order accumulation — this test failed 20/20 runs on the parent
 /// (`3b4037b1`) and passes only with the sorted-order accumulation.
+///
+/// Property ownership: this test pins **in-process repeated-call
+/// stability** (same thread, fresh map per call).
+/// `eta_t2_is_bitwise_reproducible_independent_of_hash_order` below pins
+/// the complementary property — independence of the **cross-thread**
+/// `RandomState` seed — and `eta_t2_accumulates_in_sorted_faces_order_bitwise`
+/// above pins the accumulation **order** against a hand-computed reference.
+/// Neither is a duplicate of the others.
 #[test]
 fn repeated_estimator_calls_are_bitwise_stable() {
     let ground_bipy = [3_u32];
@@ -566,6 +578,12 @@ fn repeated_estimator_calls_are_bitwise_stable() {
 /// `RandomState` — a different face iteration order in the pre-fix
 /// code — and the generic potential below makes every face's jump share
 /// nonzero, so the sums actually cross rounding boundaries.
+///
+/// Property ownership: this test pins **cross-thread `RandomState`
+/// independence** (3 threads, each seeding its own hasher).
+/// `repeated_estimator_calls_are_bitwise_stable` above pins the
+/// complementary in-process property — repeated-call stability on one
+/// thread with a fresh map per call.
 #[test]
 fn eta_t2_is_bitwise_reproducible_independent_of_hash_order() {
     let build = || {
