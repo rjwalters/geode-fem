@@ -54,7 +54,15 @@ No production source was changed to obtain this result.
 
 ## Reproduce the tests
 
-Use Python 3.11+, Cargo, a C++ compiler, and native LibTorch **2.9**. The
+Before setting up the native suite, run the Python-only source-verification
+regression tests from the repository root. CI runs the same command in the
+`verify-sources-tests` job; it needs no LibTorch or Cargo:
+
+```sh
+python3 -I security/zip-compat/test_verify_sources.py -v
+```
+
+For the full native suite, use Python 3.11+, Cargo, a C++ compiler, and native LibTorch **2.9**. The
 [official CPU archive index](https://download.pytorch.org/libtorch/cpu) supplies
 the Linux ZIP used in CI. Its pinned SHA256 is
 `22de42abde933be46ce843467930bd0190b72271bfa2c11f84db95591a9834f1`, computed

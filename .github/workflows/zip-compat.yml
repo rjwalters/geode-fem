@@ -21,6 +21,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Issue #1758: Python-only regression tests for verify_sources(). Needs just
+  # a full checkout (the test reads the vendored tree), so it is deliberately
+  # independent of native-archive-tests and its LibTorch download.
+  verify-sources-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run source-verification regression tests
+        run: python3 -I security/zip-compat/test_verify_sources.py -v
+
   native-archive-tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
