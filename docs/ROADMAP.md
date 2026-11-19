@@ -46,7 +46,7 @@ Can start today, or is already in review. Each is one PR.
 | Cell-average and point sampling of tet fields | `sample_cell_average` exists in `geode-core::postproc` with its tests | #1363, PR #1368 | In review |
 | Design A adjoint min-max run and kill-criterion verdict | `benchmarks/tcda_design/results.toml` and README are on `main`; #1579 closes | #1579, PR #1615 | Approved, awaiting merge |
 | Cleanup with no open PR | Each issue's listed duplicates are gone and the test suite is unchanged | #1546, #1610, #1613, #1607 | Ready (`loom:issue`); check #1607 against PR #1603 first, which shares the same box mesher |
-| Cleanup and CI gates already in review | PRs merged | #1588, #1595, #1596, #1599, #1602, #1617, #1382, #1391 | PRs #1603–#1618, #1387, #1392 open |
+| Cleanup and CI gates already in review | PRs merged | #1588, #1595, #1596, #1599, #1602, #1617, #1382, #1391 | PRs #1606, #1608, #1605, #1603, #1614, #1618, #1387, #1392 open |
 | Bring `CHANGELOG.md` `[Unreleased]` up to date | Every user-visible feature merged since v0.9.0 has an entry; today `[Unreleased]` has none for `geode conduction`, `geode eqs`, heat, thermo-elastic, electromigration, `adaptive_mesh`, `element_order`, Bloch bands or the dataset export | none (seed 1) | Unfiled |
 | #841 P4 default: gradients with `sweep.adaptive` (full-order bypass) | The `sweep.adaptive` rejection in `crates/geode-cli/src/problem/sensitivity.rs` becomes a working mode with an FD-checked golden | none (seed 2) | Unfiled; the epic's Phase 4 spec depends only on the merged Phase 1 |
 | p=2 Floquet cell | `FloquetCell` builds at `ElementOrder::P2` and a slab golden shows the p=2 error below p=1 on the same mesh | none (seed 3) | Unfiled; `driven/floquet.rs` builds its space at P1 only |
@@ -66,7 +66,7 @@ Unblocked once a named item above lands.
 | Design A: adjoint vs CMA-ES at three parameter counts | Table of solves-to-target per method and parameter count | #1580 | #1579 |
 | Design A: p=2 re-centre and Palace cross-check | Final design re-solved at p=2; Palace difference recorded, or the missing capability named | #1581 | #1579, the p=2 Floquet cell and the Palace note |
 | Point four log-log slope fits at the shared `fit_slope` | One definition remains | #1616 | PR #1603 |
-| Layout schema v2 parent | `geode mesh` meshes the IHP 400 pH inductor example; `geode check` passes | #1255 | #1288 (manual run, below) |
+| Layout schema v2 parent | `geode mesh` meshes the IHP 400 pH inductor example; `geode check` passes | #1255 | #1288 manual run — preparation for the #1251 Phase 2 comparison (below) |
 
 ## Later
 
@@ -76,7 +76,7 @@ Direction; each needs its question answered first.
 - **#836 P6, curved / isoparametric geometry.** Needed for O(h⁴) eigenvalue rates on curved boundaries. Question: which design needs it first?
 - **#841 P4 opt-in ROM gradient, P5b and P7.** P5b (CLI coverage) follows its library phases one sub-item at a time; P7 (a showcase design through `geode optimize` with a Palace cross-check) depends on 2a, 2b, 3b, 5b and 6. Question: which showcase, the coupled-line filter or the microstrip-fed patch?
 - **#835 P5 (port-face-driven refinement) and P7 (hp).** Question: does goal-oriented marking pay at all? #1266's Golden 2 measured no consistent DOF advantage.
-- **#1251 Phase 2 onward:** forward baseline against Palace on the IHP 400 pH inductor (|ΔL/L| ≤ 2%, |ΔQ/Q| ≤ 5% through 40 GHz), which is the kill gate for everything after it in that epic. Question: answered by the manual run on #1288.
+- **#1251 Phase 2 onward:** forward baseline against Palace on the IHP 400 pH inductor — GEODE and Palace frequency sweeps on the same stack, |ΔL/L| ≤ 2%, |ΔQ/Q| ≤ 5% through 40 GHz. The kill gate is the tapeout only: if Q misses 5%, phases 3–5 and 7 still ship as features. Question: answered by that comparison itself; the manual run on #1288 ends at `geode check` with a DOF count and is preparation for it.
 - **#1252 Phase 5, waveguide-simulator measurement.** Operator-gated. Question: does Design A reach its target after #1580 and #1581?
 - **CLI exposure of heat conduction, thermo-elastic stress and electromigration.** Library only today. Question: what spec shape, and is there a user for it?
 - **Unplanned, no issue yet** (file one when a design needs it): wave-port field export; runtime GPU backend dispatch; hybrid ports in the adaptive sweep (the port mode is non-affine in ω, so research first).
@@ -85,7 +85,7 @@ Direction; each needs its question answered first.
 
 - **Operator decisions:** close or keep #836 (unfiled P3b/P5b/P6); how #1266 closes after the negative Golden 2; the positions asked for on #1568; paper decisions #1063 and #1231; #955 (TM cutoff from the 3-D model) and with it #1032; removals #1416, #1567, #1565 and #1591.
 - **#1259 (#841 P2a remainder):** `ε_xx/yy/zz` in the CLI, `μ_xx/yy/zz` columns and the dispersive filled wave port. Stopped on a design question recorded on the issue: one `eps_r` parameter on an `eps_r_diag` group must become three columns or the user must pick an axis, and the issue forbids a new spec key.
-- **#1288:** only a manual run on the real IHP inductor GDS remains, which needs that GDS and Gmsh.
+- **#1288:** two tasks remain for a human (both recorded 2026-11-05): the manual run on the real IHP inductor GDS — script → `geode mesh --stackup` → `geode check`, needs that GDS and Gmsh — which is preparation for the #1251 Phase 2 comparison (it yields a DOF count, not L or Q), and the partial stackup format-name check against the public gds2palace docs (the `Dielectrics` block, `ELayers`, `Semiconductor` unmapped).
 - **Held or parked PRs:** #1376 (build without Burn/Bunsen, #1365) is approved but held for a human merge and now conflicts; #1489 (#1488) has no TeX toolchain to verify the paper build; #1313 (#1299) and #1395 (#1393) are parked; #1076 (`toml` 0.9).
 - **Dependencies upstream:** #1237, advisories reached through parent crates (`nom` via `mshio`, `tch`, `candle-core`, `ratatui-core`). Also parked: #891 and #1372.
 - **Operator-run or hardware-gated:** #1428, #926, #763, #638–#641 and the conformal-antenna experiments #1083/#1086/#1090.
