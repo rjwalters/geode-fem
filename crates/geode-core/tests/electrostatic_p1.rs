@@ -367,3 +367,184 @@ fn length_mismatch_is_a_shape_error() {
         Err(ElectrostaticP1Error::ShapeMismatch(_))
     ));
 }
+
+// --- Determinism (issue #1775) -----------------------------------------
+//
+// `face_tets` is a `HashMap` keyed by the default `RandomState`, whose
+// iteration order is randomized per process (and per fresh map: each
+// `estimate_electrostatic_p1` call below therefore samples a different
+// summation order). Floating-point addition is not associative, so the
+// per-tet indicators must not be accumulated in map order. The estimator
+// accumulates them in the sorted `faces` order instead; these tests pin
+// that contract.
+
+/// Crate-internal `vec3` formulas are `pub(crate)`; these local copies use
+/// identical operations in identical order so the reference accumulation
+/// below is bitwise-equal to the estimator's own arithmetic.
+fn v_norm(a: [f64; 3]) -> f64 {
+    (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt()
+}
+
+fn v_cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn v_dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+/// Tet diameter `h_T` (longest edge), same accumulation as the estimator.
+fn tet_diameter(mesh: &TetMesh, t: usize) -> f64 {
+    let c: Vec<[f64; 3]> = mesh.tets[t]
+        .iter()
+        .map(|v| mesh.nodes[*v as usize])
+        .collect();
+    let mut h = 0.0_f64;
+    for i in 0..4 {
+        for j in i + 1..4 {
+            let d = [c[i][0] - c[j][0], c[i][1] - c[j][1], c[i][2] - c[j][2]];
+            h = h.max(v_norm(d));
+        }
+    }
+    h
+}
+
+/// Tet volume `V_T`, same formula as the estimator.
+fn tet_volume(mesh: &TetMesh, t: usize) -> f64 {
+    let c: Vec<[f64; 3]> = mesh.tets[t]
+        .iter()
+        .map(|v| mesh.nodes[*v as usize])
+        .collect();
+    let sub = |i: usize, j: usize| [c[i][0] - c[j][0], c[i][1] - c[j][1], c[i][2] - c[j][2]];
+    (v_dot(sub(1, 0), v_cross(sub(2, 0), sub(3, 0)))).abs() / 6.0
+}
+
+/// The indicator accumulation follows the **sorted** `faces` order (cell
+/// term last): `eta_t2` must equal that reference bitwise, not merely to a
+/// tolerance. On these fixtures every summation ordering of the per-tet
+/// share sets rounds identically (checked by exhaustive permutation during
+/// triage of #1775), so this pins the documented contract explicitly
+/// rather than witnessing the old map-order drift.
+#[test]
+fn eta_t2_accumulates_in_sorted_faces_order_bitwise() {
+    let mesh = cube();
+    let phi = vec![0.1, 0.3, 0.2, 0.7, 0.9, 1.1, 1.3, 1.6, 0.5];
+    let eps_r = vec![1.0, 2.0, 1.5, 2.5, 1.2, 1.8, 2.2, 1.1, 1.4, 2.1, 1.7, 1.3];
+    let rho = vec![0.5, 1.0, 0.2, 0.7, 0.9, 0.3, 0.6, 1.2, 0.4, 0.8, 1.1, 0.25];
+    let ground = [0_u32, 1, 2, 3];
+    let electrodes = [electrode("top", &[4, 5, 6, 7], 1.0)];
+
+    let r = estimate_electrostatic_p1(&mesh, &phi, &eps_r, &rho, &electrodes, &ground).unwrap();
+    assert_eq!(
+        r.faces.len(),
+        18,
+        "18 interior apex faces; all boundary faces are prescribed"
+    );
+    assert!(
+        r.faces.windows(2).all(|w| w[0].nodes <= w[1].nodes),
+        "faces must be sorted by nodes"
+    );
+    assert!(
+        r.eta_t2.iter().all(|v| *v > 0.0),
+        "fixture must have nonzero indicators"
+    );
+
+    // Reference: shares in sorted-faces order, then the cell term — the
+    // exact arithmetic the documented contract prescribes.
+    let mut reference = vec![0.0_f64; mesh.n_tets()];
+    for f in &r.faces {
+        let share = if f.is_interior() {
+            0.5 * f.h * f.jump * f.jump * f.area
+        } else {
+            f.h * f.jump * f.jump * f.area
+        };
+        reference[f.minus] += share;
+        if let Some(tp) = f.plus {
+            reference[tp] += share;
+        }
+    }
+    for t in 0..mesh.n_tets() {
+        let h = tet_diameter(&mesh, t);
+        reference[t] += h * h * rho[t] * rho[t] * tet_volume(&mesh, t);
+    }
+
+    for (t, (&got, &want)) in r.eta_t2.iter().zip(&reference).enumerate() {
+        assert_eq!(
+            got.to_bits(),
+            want.to_bits(),
+            "tet {t}: eta_t2 must equal the sorted-order accumulation bitwise"
+        );
+    }
+    let eta_ref = reference.iter().sum::<f64>().sqrt();
+    assert_eq!(
+        r.eta.to_bits(),
+        eta_ref.to_bits(),
+        "eta must be the root of the tets-order sum bitwise"
+    );
+}
+
+/// Repeated calls must be bitwise-reproducible. Each call builds a fresh
+/// `face_tets` map with a fresh `RandomState` counter, so a map-order
+/// accumulation would sample a different summation order per call;
+/// accumulating in the sorted `faces` order makes every call identical.
+/// (The `cube` fixture's 30 `face_tets` keys produced 200 distinct
+/// iteration orders across 200 fresh maps during triage of #1775.)
+#[test]
+fn repeated_estimator_calls_are_bitwise_stable() {
+    let ground_bipy = [3_u32];
+    let electrodes_bipy = [electrode("top", &[4], 1.0)];
+    let bipy = bipyramid();
+    let bipy_inputs = (
+        vec![0.0, 0.0, 0.0, -1.0, 1.0],
+        vec![1.0, 2.0],
+        vec![0.0, 0.0],
+    );
+
+    let cube_mesh = cube();
+    let cube_inputs = (
+        vec![0.1, 0.3, 0.2, 0.7, 0.9, 1.1, 1.3, 1.6, 0.5],
+        vec![1.0, 2.0, 1.5, 2.5, 1.2, 1.8, 2.2, 1.1, 1.4, 2.1, 1.7, 1.3],
+        vec![0.5, 1.0, 0.2, 0.7, 0.9, 0.3, 0.6, 1.2, 0.4, 0.8, 1.1, 0.25],
+    );
+    let ground_cube = [0_u32, 1, 2, 3];
+    let electrodes_cube = [electrode("top", &[4, 5, 6, 7], 1.0)];
+
+    for (mesh, (phi, eps_r, rho), electrodes, ground) in [
+        (
+            &bipy,
+            bipy_inputs,
+            electrodes_bipy.as_slice(),
+            ground_bipy.as_slice(),
+        ),
+        (
+            &cube_mesh,
+            cube_inputs,
+            electrodes_cube.as_slice(),
+            ground_cube.as_slice(),
+        ),
+    ] {
+        let first =
+            estimate_electrostatic_p1(mesh, &phi, &eps_r, &rho, electrodes, ground).unwrap();
+        for i in 0..50 {
+            let r =
+                estimate_electrostatic_p1(mesh, &phi, &eps_r, &rho, electrodes, ground).unwrap();
+            for (t, (g, w)) in r.eta_t2.iter().zip(&first.eta_t2).enumerate() {
+                assert_eq!(
+                    g.to_bits(),
+                    w.to_bits(),
+                    "call {i}: tet {t} indicator drifted"
+                );
+            }
+            assert_eq!(
+                r.eta.to_bits(),
+                first.eta.to_bits(),
+                "call {i}: global eta drifted"
+            );
+            assert_eq!(r.faces, first.faces, "call {i}: face terms drifted");
+        }
+    }
+}

@@ -157,7 +157,10 @@ impl FaceJump {
 #[derive(Debug, Clone, PartialEq)]
 pub struct P1ElectrostaticResidual {
     /// Per-tet squared indicator `η_T²` (C²/m, nonnegative), parallel to
-    /// `mesh.tets`.
+    /// `mesh.tets`. The face terms are accumulated in the sorted
+    /// [`P1ElectrostaticResidual::faces`] order (cell term last), so the
+    /// values are bitwise-reproducible across runs despite `HashMap`'s
+    /// per-process iteration order.
     pub eta_t2: Vec<f64>,
     /// Global estimate `η = (Σ_T η_T²)^{1/2}` (C·m^{−1/2}).
     pub eta: f64,
@@ -167,7 +170,9 @@ pub struct P1ElectrostaticResidual {
     /// `mesh.tets`.
     pub cell_rho: Vec<f64>,
     /// Signed face terms, one per non-prescribed face, sorted by
-    /// [`FaceJump::nodes`] for determinism.
+    /// [`FaceJump::nodes`] for determinism — the same order the face
+    /// shares are accumulated into `eta_t2` in, so the indicators are
+    /// bitwise-reproducible across runs.
     pub faces: Vec<FaceJump>,
 }
 
@@ -331,10 +336,6 @@ pub fn estimate_electrostatic_p1(
                 // Signed jump: ε_{T⁺}∇φ|_{T⁺}·n̂ − ε_{T⁻}∇φ|_{T⁻}·n̂.
                 let j =
                     EPS_0 * (eps_r[*tp] * dot(grad_phi[*tp], n) - eps_r[tm] * dot(grad_phi[tm], n));
-                // Counted once, split ½/½ between the two incident tets.
-                let share = 0.5 * h_face * j * j * area;
-                eta_t2[tm] += share;
-                eta_t2[*tp] += share;
                 faces.push(FaceJump {
                     nodes: *key,
                     jump: j,
@@ -358,7 +359,6 @@ pub fn estimate_electrostatic_p1(
                     n_unit
                 };
                 let j = -EPS_0 * eps_r[tm] * dot(grad_phi[tm], n);
-                eta_t2[tm] += h_face * j * j * area;
                 faces.push(FaceJump {
                     nodes: *key,
                     jump: j,
@@ -371,6 +371,25 @@ pub fn estimate_electrostatic_p1(
         }
     }
     faces.sort_by_key(|f| f.nodes);
+
+    // Face-term accumulation — second pass over the **sorted** `faces`, so
+    // the summation order is process-independent. (`face_tets`' iteration
+    // order is randomized per process by `RandomState`, and float addition
+    // is not associative, so accumulating inside the map loop above would
+    // let `eta_t2` — and `eta` — drift in the last ULPs between runs.)
+    // The share expressions match the documented weights: an interior face
+    // counted once and split ½/½, a natural face in full.
+    for f in &faces {
+        let share = if f.is_interior() {
+            0.5 * f.h * f.jump * f.jump * f.area
+        } else {
+            f.h * f.jump * f.jump * f.area
+        };
+        eta_t2[f.minus] += share;
+        if let Some(tp) = f.plus {
+            eta_t2[tp] += share;
+        }
+    }
 
     // Cell term: h_T² ‖ρ_T‖²_{L²(T)} = h_T² · ρ_T² · V_T.
     for t in 0..n_tets {
