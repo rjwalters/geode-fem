@@ -66,7 +66,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -84,6 +83,7 @@ MESH_PATH = FIXTURE_DIR / "sphere.msh"
 _REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT_STR not in sys.path:
     sys.path.insert(0, _REPO_ROOT_STR)
+from reference.fixture_utils import git_commit, interleave_c128  # noqa: E402
 from reference.numpy.sphere_pml import (  # noqa: E402
     R_BUFFER,
     R_PML_INNER,
@@ -134,34 +134,6 @@ defensible round-number floor."""
 N_INDEX = 1.5
 SIGMA_0 = 5.0
 """Matches ``crates/geode-core/tests/sphere_pml_eigenmode.rs:196``."""
-
-
-def _git_commit() -> str:
-    try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=REPO_ROOT,
-            stderr=subprocess.DEVNULL,
-        )
-        return out.decode().strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown"
-
-
-def _interleave_c128(z: np.ndarray) -> list[float]:
-    """Serialize a complex128 array to the canonical real-imag interleaved
-    flat list described in ``reference/SCHEMA.md``.
-
-    Identical to the helper in the scaffolding stub generator
-    (``gen_sphere_pml_baseline.py`` at #145). Promoted here verbatim so
-    the file stays self-contained.
-    """
-    z = np.ascontiguousarray(z, dtype=np.complex128)
-    # `.view(np.float64)` reinterprets the underlying memory as pairs
-    # of f64s laid out [re0, im0, re1, im1, ...]. This is the exact
-    # wire format the Rust loader expects (Fixture::output_c128 /
-    # input_c128).
-    return z.view(np.float64).tolist()
 
 
 def main() -> None:
@@ -283,7 +255,7 @@ def main() -> None:
                     "real-imag interleaved flat array per "
                     "reference/SCHEMA.md."
                 ),
-                "data": _interleave_c128(eps_complex),
+                "data": interleave_c128(eps_complex),
             },
         },
         "outputs": {
@@ -371,7 +343,7 @@ def main() -> None:
                     "reference/SCHEMA.md."
                 ),
                 "tolerance_abs": EIG_C128_TOL_ABS,
-                "data": _interleave_c128(eigvals_all),
+                "data": interleave_c128(eigvals_all),
             },
             "physical_eigenvalues_complex": {
                 "shape": [int(len(physical))],
@@ -390,7 +362,7 @@ def main() -> None:
                     "|Δ| (eigenvalue comparator)."
                 ),
                 "tolerance_abs": PHYSICAL_C128_TOL_ABS,
-                "data": _interleave_c128(physical),
+                "data": interleave_c128(physical),
             },
             "q_factor_lowest_physical": {
                 "shape": [1],
@@ -411,7 +383,7 @@ def main() -> None:
         },
         "provenance": {
             "source": (
-                f"reference/numpy/sphere_pml.py @ commit {_git_commit()} ; "
+                f"reference/numpy/sphere_pml.py @ commit {git_commit(REPO_ROOT)} ; "
                 f"scipy {scipy.__version__}, numpy {np.__version__}, "
                 f"python {sys.version_info.major}.{sys.version_info.minor}"
                 f".{sys.version_info.micro} ; dense LAPACK ZGGEV "

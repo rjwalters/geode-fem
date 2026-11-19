@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -35,18 +34,7 @@ REPO_ROOT = HERE.parent.parent  # reference/ -> repo root
 _REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT_STR not in sys.path:
     sys.path.insert(0, _REPO_ROOT_STR)
-
-
-def _git_commit() -> str:
-    try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=REPO_ROOT,
-            stderr=subprocess.DEVNULL,
-        )
-        return out.decode().strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown"
+from reference.fixture_utils import git_commit  # noqa: E402
 
 
 def _numpy_baseline_path() -> Path:
@@ -222,7 +210,7 @@ def _build_fixture_dict(
         },
         "provenance": {
             "source": "reference/jax/sphere_pec.py (Epic #88 / Phase G.3 / Issue #128)",
-            "generator_commit": _git_commit(),
+            "generator_commit": git_commit(REPO_ROOT),
             "verified_against": verified_note,
         },
     }
@@ -323,7 +311,7 @@ def main():
         json.dump(fixture, f, indent=2)
         f.write("\n")
     print(f"\nWrote {out_path} ({os.path.getsize(out_path)} bytes)")
-    print(f"  generator_commit = {_git_commit()}")
+    print(f"  generator_commit = {git_commit(REPO_ROOT)}")
 
 
 if __name__ == "__main__":

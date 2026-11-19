@@ -15,7 +15,7 @@ Examples that need an artifact directory accept the shared `geode-app` flag via
 default `artifacts/`). That flag is omitted
 from the per-example invocations below.
 
-## Example index (12 crates)
+## Example index (11 crates)
 
 > `--release` note: run the examples in release mode; the assembly and
 > eigensolves are slow unoptimized. (This used to be required:
@@ -104,13 +104,6 @@ from the per-example invocations below.
   cargo run -p step_index_fiber --release
   ```
 
-- **`fiber_smf28_solve_timing`** — `--release` — Performance harness timing
-  the SMF-28 fiber `p=2` modal solve on the sparse-direct assembly path
-  (issue #327).
-  ```sh
-  cargo run -p fiber_smf28_solve_timing --release
-  ```
-
 ### Convergence / tooling
 
 - **`eigen_convergence`** — `--release` — Quick convergence probe: prints
@@ -148,7 +141,7 @@ Verify the wiring with:
 
 ```sh
 cargo metadata --no-deps --format-version 1 | grep -o '"name":"[^"]*"'
-# … should list all 12 example crates …
+# … should list all 11 example crates …
 cargo build --workspace            # builds every example crate
 cargo build --workspace --all-targets
 ```

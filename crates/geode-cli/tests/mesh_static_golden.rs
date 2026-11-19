@@ -67,14 +67,17 @@
 //! failure.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 const EPS0: f64 = 8.8541878128e-12;
 const MU0: f64 = 1.25663706212e-6;
 
 #[path = "support/cli.rs"]
 mod cli_support;
-use cli_support::geode;
+#[path = "support/gmsh.rs"]
+mod gmsh;
+use cli_support::{geode, json, ok_status};
+use gmsh::gmsh_or_skip;
 
 /// Fresh scratch dir for one test.
 fn scratch(name: &str) -> PathBuf {
@@ -84,64 +87,12 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
-fn json(out: &Output) -> serde_json::Value {
-    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
-        panic!(
-            "stdout is not JSON ({e}): {}\nstderr: {}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        )
-    })
-}
-
-fn ok(out: Output, what: &str) -> serde_json::Value {
-    assert!(
-        out.status.success(),
-        "{what} failed ({}):\nstderr: {}\nstdout: {}",
-        out.status,
-        String::from_utf8_lossy(&out.stderr),
-        String::from_utf8_lossy(&out.stdout)
-    );
-    let v = json(&out);
-    assert_eq!(v["status"], "ok");
-    v
-}
-
 fn assert_error(out: &Output, code: &str) -> String {
     assert!(!out.status.success(), "expected failure");
     let v = json(out);
     assert_eq!(v["kind"], "error");
     assert_eq!(v["error"]["code"], code, "report: {v:#}");
     v["error"]["message"].as_str().unwrap().to_owned()
-}
-
-/// `true` if a Gmsh binary is runnable. Otherwise skip loudly — or fail
-/// when `GEODE_REQUIRE_GMSH=1` (CI).
-fn gmsh_or_skip(test: &str) -> bool {
-    let bin = std::env::var_os("GEODE_GMSH")
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| "gmsh".into());
-    let found = Command::new(&bin)
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success());
-    if found {
-        return true;
-    }
-    let msg = format!(
-        "gmsh ({}) is not runnable: install Gmsh (`apt-get install gmsh` / `brew install gmsh`) \
-         or set GEODE_GMSH",
-        bin.to_string_lossy()
-    );
-    if std::env::var("GEODE_REQUIRE_GMSH").is_ok_and(|v| v == "1") {
-        panic!("GEODE_REQUIRE_GMSH=1 but {msg}");
-    }
-    eprintln!(
-        "\n########################################################################\n\
-         ## SKIPPING {test}: {msg}\n\
-         ########################################################################\n"
-    );
-    false
 }
 
 fn write_json(path: &Path, v: &serde_json::Value) {
@@ -244,8 +195,8 @@ fn guard_ring_relative_error(dir: &Path, stem: &str, size_conductor: f64) -> (f6
         dir.join(format!("{stem}.msh")),
         dir.join(format!("{stem}.spec.json")),
     );
-    let report = ok(
-        geode(&[
+    let report = ok_status(
+        &geode(&[
             "mesh",
             s(&layout),
             "--analysis",
@@ -257,7 +208,7 @@ fn guard_ring_relative_error(dir: &Path, stem: &str, size_conductor: f64) -> (f6
         ]),
         "geode mesh --analysis capacitance",
     );
-    let cap = ok(geode(&["capacitance", s(&spec)]), "geode capacitance");
+    let cap = ok_status(&geode(&["capacitance", s(&spec)]), "geode capacitance");
     let c_sigma = cap["c_sigma_farad"][0].as_f64().unwrap();
     (
         c_sigma / kelvin_reference() - 1.0,
@@ -274,8 +225,8 @@ fn guard_ring_capacitance_matches_kelvin_and_exports_spice() {
     let layout = dir.join("guard.json");
     write_json(&layout, &guard_ring_layout(0.1));
     let (mesh, spec) = (dir.join("guard.msh"), dir.join("guard.spec.json"));
-    let report = ok(
-        geode(&[
+    let report = ok_status(
+        &geode(&[
             "mesh",
             s(&layout),
             "--analysis",
@@ -313,12 +264,12 @@ fn guard_ring_capacitance_matches_kelvin_and_exports_spice() {
         serde_json::json!([4.0, 0.0])
     );
 
-    let check = ok(geode(&["check", s(&spec)]), "geode check");
+    let check = ok_status(&geode(&["check", s(&spec)]), "geode check");
     assert_eq!(check["kind"], "check");
 
     let cir = dir.join("guard.cir");
-    let cap = ok(
-        geode(&["capacitance", s(&spec), "--spice", s(&cir)]),
+    let cap = ok_status(
+        &geode(&["capacitance", s(&spec), "--spice", s(&cir)]),
         "geode capacitance",
     );
     assert_eq!(cap["terminals"], serde_json::json!(["plate", "guard"]));
@@ -544,8 +495,8 @@ fn mesh_and_extract(dir: &Path, stem: &str, layout: &serde_json::Value) -> (f64,
         dir.join(format!("{stem}.spec.json")),
         dir.join(format!("{stem}.sp")),
     );
-    let report = ok(
-        geode(&[
+    let report = ok_status(
+        &geode(&[
             "mesh",
             s(&lp),
             "--analysis",
@@ -585,7 +536,7 @@ fn mesh_and_extract(dir: &Path, stem: &str, layout: &serde_json::Value) -> (f64,
         serde_json::json!(["outer_boundary", "gnd", "lid", "walls", "cap_in", "cap_out"])
     );
     assert!(starter["materials"].as_array().unwrap().is_empty());
-    ok(geode(&["check", s(&spec)]), "geode check");
+    ok_status(&geode(&["check", s(&spec)]), "geode check");
 
     // The path conductor is a meshed solid; each contact triangle is a
     // face of exactly one tet, and that tet is a conductor tet.
@@ -612,8 +563,8 @@ fn mesh_and_extract(dir: &Path, stem: &str, layout: &serde_json::Value) -> (f64,
         }
     }
 
-    let ind = ok(
-        geode(&["inductance", s(&spec), "--spice", s(&cir)]),
+    let ind = ok_status(
+        &geode(&["inductance", s(&spec), "--spice", s(&cir)]),
         "geode inductance",
     );
     assert_eq!(ind["paths"], serde_json::json!(["sig"]));
@@ -743,7 +694,7 @@ fn default_analysis_is_driven_byte_for_byte() {
             s(&spec),
         ];
         args.extend_from_slice(extra);
-        let report = ok(geode(&args), "geode mesh");
+        let report = ok_status(&geode(&args), "geode mesh");
         assert_eq!(report["analysis"], "driven");
         (
             std::fs::read(&mesh).unwrap(),

@@ -66,7 +66,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -79,6 +78,7 @@ REPO_ROOT = HERE.parent.parent.parent
 _REPO_ROOT_STR = str(Path(__file__).resolve().parents[3])
 if _REPO_ROOT_STR not in sys.path:
     sys.path.insert(0, _REPO_ROOT_STR)
+from reference.fixture_utils import git_commit, interleave_c128  # noqa: E402
 
 # Strict cross-IR window (#160 cluster closure): the TM_1,1 triplet.
 STRICT_MODE_WINDOW_LEN = 3
@@ -98,18 +98,6 @@ ANALYTIC_K_TOL_ABS = 1.0e-9
 SIGMA_ZERO_RE_TOL_ABS = 5.0e-5
 
 
-def _git_commit() -> str:
-    try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=REPO_ROOT,
-            stderr=subprocess.DEVNULL,
-        )
-        return out.decode().strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown"
-
-
 def _numpy_baseline_path() -> Path:
     return REPO_ROOT / "reference" / "fixtures" / "sphere_mie_small" / "baseline.json"
 
@@ -121,13 +109,6 @@ def _default_out_path() -> Path:
 def _default_mesh_path() -> Path:
     # Shared with the #158 sphere_pml_small fixture — not duplicated.
     return REPO_ROOT / "reference" / "fixtures" / "sphere_pml_small" / "sphere.msh"
-
-
-def _interleave_c128(z: np.ndarray) -> list[float]:
-    """Real-imag interleaved encoding (row-major flattened) per
-    `reference/SCHEMA.md` "Complex encoding (c128)"."""
-    z = np.ascontiguousarray(z, dtype=np.complex128).reshape(-1)
-    return z.view(np.float64).tolist()
 
 
 def main():
@@ -406,7 +387,7 @@ def main():
                     "On-disk: row-major (tet, axis) flattened, real-imag "
                     "interleaved per reference/SCHEMA.md."
                 ),
-                "data": _interleave_c128(result["epsilon_tensor_diag"]),
+                "data": interleave_c128(result["epsilon_tensor_diag"]),
             },
         },
         "outputs": {
@@ -472,7 +453,7 @@ def main():
                     "interleaved per reference/SCHEMA.md."
                 ),
                 "tolerance_abs": EIG_C128_TOL_ABS,
-                "data": _interleave_c128(eigvals_all),
+                "data": interleave_c128(eigvals_all),
             },
             "physical_eigenvalues_complex": {
                 "shape": [int(len(physical))],
@@ -486,7 +467,7 @@ def main():
                     "triplet, #160 cluster-closure convention)."
                 ),
                 "tolerance_abs": PHYSICAL_C128_TOL_ABS,
-                "data": _interleave_c128(physical),
+                "data": interleave_c128(physical),
             },
             "strict_mode_window_len": {
                 "shape": [1],
@@ -569,7 +550,7 @@ def main():
         },
         "provenance": {
             "source": (
-                f"reference/tf_java/sphere_mie @ commit {_git_commit()} "
+                f"reference/tf_java/sphere_mie @ commit {git_commit(REPO_ROOT)} "
                 f"(Epic #88 / Phase J.5 / Issue #174). Numerically "
                 f"equivalent to reference/numpy/sphere_mie.py through the "
                 f"tensor-ε assembly + ZGGEV seam; TF-Java scatterNd "
@@ -589,7 +570,7 @@ def main():
         json.dump(fixture, f, indent=2)
         f.write("\n")
     print(f"\nWrote {out_path} ({os.path.getsize(out_path)} bytes)")
-    print(f"  generator_commit = {_git_commit()}")
+    print(f"  generator_commit = {git_commit(REPO_ROOT)}")
 
 
 if __name__ == "__main__":

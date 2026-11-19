@@ -903,8 +903,10 @@ pub fn dielectric_mode_field_shape(
 /// p=2 pencil `A = k₀²M_ε − K`, `M₁`, PEC-reduce with the p=2 interior-DOF
 /// mask, and recover up to `n_request` raw eigenpairs (β², relative curl
 /// energy, eigenvector), sorted by decreasing β². No bound-window/curl
-/// filtering. The shift placement (guided-band target vs `n_core`) matches
-/// the p=1 core exactly — only the assembly order differs.
+/// filtering. The post-assembly tail is the shared
+/// [`dielectric_raw_candidates_tail`] — the p=1 core calls the same helper —
+/// so the shift placement (guided-band target vs `n_core`) is structurally in
+/// lockstep with the p=1 core; only the assembly order differs.
 pub(super) fn dielectric_raw_candidates_p2(
     mesh: &TriMesh,
     eps_r: &[f64],
@@ -938,64 +940,16 @@ pub(super) fn dielectric_raw_candidates_p2(
     // 8×8 local blocks (no dense N×N round-trip). Nonzeros equal the previous
     // dense `apply_pec_2d(&assemble_2d_nedelec2_with_epsilon …)` output entry
     // for entry.
-    let k0_sq = k0 * k0;
     let ops = assemble_2d_nedelec2_sparse_interior(mesh, eps_r, interior_dof_mask)?;
-    let dim = ops.dim;
-    if dim == 0 {
-        return Ok(RawDielectricSolve {
-            cands: Vec::new(),
-            withheld: 0,
-            withheld_in_window: 0,
-            localized_withheld: Vec::new(),
-            sigma: 0.0,
-            lanczos_steps: 0,
-        });
-    }
-    let k_int = ops.k;
-    let m_eps_int = ops.m_eps;
-
-    let a_sparse = sparse_pencil_a(k_int.as_ref(), m_eps_int.as_ref(), k0_sq)?;
-    let m1_sparse = ops.m1;
-
-    let sigma_target_beta_sq = match n_eff_target {
-        Some(ceiling) if ceiling < n_core => ceiling * ceiling * k0 * k0,
-        _ => beta_sq_ceiling,
-    };
-    let sigma = sigma_target_beta_sq * (1.0 - 1e-3);
-
-    let curl_ratio = |x_interior: &[f64]| -> f64 {
-        let xkx = sparse_quadratic_form(k_int.as_ref(), x_interior);
-        let xmx = sparse_quadratic_form(m_eps_int.as_ref(), x_interior);
-        let denom = (k0_sq * xmx).abs().max(1e-300);
-        xkx.abs() / denom
-    };
-    // ⟨ε⟩_x = (xᵀ M_ε x)/(xᵀ M₁ x), the field-weighted permittivity.
-    let eps_weighted = |x_interior: &[f64]| -> f64 {
-        let xmx = sparse_quadratic_form(m_eps_int.as_ref(), x_interior);
-        let xm1x = sparse_quadratic_form(m1_sparse.as_ref(), x_interior);
-        xmx / xm1x.abs().max(1e-300)
-    };
-
-    // The guided β² window the classifier keeps (`n_clad²k₀²`, ceiling²k₀²):
-    // only unconverged pairs inside it are worth extending the run for.
-    let eps_min = eps_r.iter().cloned().fold(f64::MAX, f64::min);
-    let n_eff_ceiling = n_eff_target.unwrap_or(n_core).min(n_core);
-    let guided_window = (eps_min * k0_sq, n_eff_ceiling * n_eff_ceiling * k0_sq);
-    let checked = dielectric_checked_eigenpairs(
-        a_sparse.as_ref(),
-        m1_sparse.as_ref(),
-        sigma,
+    dielectric_raw_candidates_tail(
+        ops,
+        eps_r,
+        k0,
+        n_core,
+        beta_sq_ceiling,
         n_request,
-        dim,
-        guided_window,
-    )?;
-    Ok(raw_dielectric_solve(
-        checked,
-        sigma,
-        guided_window,
-        curl_ratio,
-        eps_weighted,
-    ))
+        n_eff_target,
+    )
 }
 
 /// Solve the **p=2** metallic curl-curl transverse modal eigenproblem on a

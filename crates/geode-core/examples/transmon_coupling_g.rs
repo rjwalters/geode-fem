@@ -75,7 +75,7 @@
 
 #[path = "../tests/common/transmon_util.rs"]
 mod transmon_util;
-use transmon_util::{arr, edge_tables, git_head, vals_to_host};
+use transmon_util::{arr, git_head, vals_to_host};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -531,7 +531,7 @@ fn crossing_g_ghz(fit: &Fit) -> f64 {
 
 fn eigen_sweep(fx: &TransmonFixture, lj_nh: &[f64]) -> Vec<Point> {
     let edges = fx.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&fx.mesh);
+    let (tet_edge_idx, tet_edge_sign) = fx.mesh.tet_edge_tables();
     let metal = fx.metal_triangles();
     let exterior = fx.exterior_boundary_triangles();
     let interior_mask =

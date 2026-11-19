@@ -31,7 +31,6 @@ Reproduction
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -47,6 +46,7 @@ FIXTURE_PATH = FIXTURE_DIR / "baseline.json"
 _REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT_STR not in sys.path:
     sys.path.insert(0, _REPO_ROOT_STR)
+from reference.fixture_utils import git_commit  # noqa: E402
 from reference.numpy.mie_roots import (  # noqa: E402
     K_MAX,
     K_MIN,
@@ -70,18 +70,6 @@ POL_INDEX = {TE: 0, TM: 1}
 # absolute is the equivalent schema-v1 bound (the Rust harness applies
 # the relative check itself — this field documents the intent).
 K_TOLERANCE_ABS = 2e-9
-
-
-def _git_commit() -> str:
-    try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=REPO_ROOT,
-            stderr=subprocess.DEVNULL,
-        )
-        return out.decode().strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown"
 
 
 def _int_field(description: str, values) -> dict:
@@ -272,7 +260,7 @@ def main() -> None:
                 "crates/geode-validation/tests/mie_roots_numpy_reference.rs "
                 "— root-for-root (pol, l, n) join at <= 1e-10 relative."
             ),
-            "issue": f"#170 (Epic #88, Phase J.1); generated at git commit {_git_commit()}",
+            "issue": f"#170 (Epic #88, Phase J.1); generated at git commit {git_commit(REPO_ROOT)}",
         },
     }
 

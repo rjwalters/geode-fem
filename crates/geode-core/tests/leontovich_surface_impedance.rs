@@ -41,14 +41,16 @@
 //! backing PEC wall).
 
 mod common;
-use common::edge_tables;
+#[path = "common/slab_fixture.rs"]
+mod slab_fixture;
 use common::vacuum_eps as vacuum;
+use slab_fixture::{TruncatedSlab, slab_source, truncated_slab};
 
 use burn::tensor::Tensor;
 use faer::c64;
-use std::collections::BTreeMap;
 use std::f64::consts::PI;
 
+use geode_core::assembly::electrostatic::tet_bary_grads;
 use geode_core::assembly::nedelec::{
     assemble_global_nedelec_with_complex_epsilon, assemble_nedelec_current_rhs,
     assemble_nedelec_sigma_damping, cube_pec_interior_edges,
@@ -67,103 +69,6 @@ type B = TestBackend;
 
 fn readback_f64<const D: usize>(t: Tensor<B, D>) -> Vec<f64> {
     t.into_data().iter::<f64>().collect()
-}
-
-const GEOM_TOL: f64 = 1e-9;
-
-/// The unit cube truncated to the vacuum half `x ≤ x_cut`, with the
-/// truncation wall exposed as a list of conforming surface triangles.
-///
-/// Node coordinates (and hence node indices) are shared with the full
-/// `cube_tet_mesh(n, 1.0)`, so centerline edges can be compared between
-/// the truncated and full meshes by node-pair key.
-struct TruncatedSlab {
-    mesh: TetMesh,
-    /// Triangles on the `x = x_cut` wall.
-    wall_tris: Vec<[u32; 3]>,
-    /// Index (into `mesh.tets`) of the tet owning each wall triangle.
-    wall_tet: Vec<usize>,
-    /// PEC mask: side/back walls eliminated, `x = x_cut` wall KEPT
-    /// (impedance surface).
-    interior_mask: Vec<bool>,
-    /// PEC mask with the `x = x_cut` wall eliminated too (full PEC box).
-    interior_mask_pec_wall: Vec<bool>,
-}
-
-fn truncated_slab(n: usize, x_cut: f64) -> TruncatedSlab {
-    let full = cube_tet_mesh(n, 1.0);
-    let tets: Vec<[u32; 4]> = full
-        .tets
-        .iter()
-        .filter(|t| {
-            t.iter()
-                .all(|&v| full.nodes[v as usize][0] <= x_cut + GEOM_TOL)
-        })
-        .copied()
-        .collect();
-    assert!(!tets.is_empty(), "truncation removed every tet");
-    let mesh = TetMesh {
-        nodes: full.nodes,
-        tets,
-        physical_groups: BTreeMap::new(),
-    };
-
-    // Wall triangles: tet faces whose three vertices all sit on x = x_cut.
-    let mut wall_tris = Vec::new();
-    let mut wall_tet = Vec::new();
-    for (ti, tet) in mesh.tets.iter().enumerate() {
-        for omit in 0..4 {
-            let tri: [u32; 3] = {
-                let mut it = (0..4).filter(|&v| v != omit).map(|v| tet[v]);
-                std::array::from_fn(|_| it.next().unwrap())
-            };
-            if tri
-                .iter()
-                .all(|&v| (mesh.nodes[v as usize][0] - x_cut).abs() < GEOM_TOL)
-            {
-                wall_tris.push(tri);
-                wall_tet.push(ti);
-            }
-        }
-    }
-    assert_eq!(
-        wall_tris.len(),
-        2 * n * n,
-        "expected 2 wall triangles per hex face"
-    );
-
-    let edges = mesh.edges();
-    let on = |v: u32, k: usize, val: f64| (mesh.nodes[v as usize][k] - val).abs() < GEOM_TOL;
-    let on_pec_side = |e: &[u32; 2]| {
-        let planes = [(0usize, 0.0), (1, 0.0), (1, 1.0), (2, 0.0), (2, 1.0)];
-        planes
-            .iter()
-            .any(|&(k, val)| on(e[0], k, val) && on(e[1], k, val))
-    };
-    let interior_mask: Vec<bool> = edges.iter().map(|e| !on_pec_side(e)).collect();
-    let interior_mask_pec_wall: Vec<bool> = edges
-        .iter()
-        .zip(interior_mask.iter())
-        .map(|(e, &keep)| keep && !(on(e[0], 0, x_cut) && on(e[1], 0, x_cut)))
-        .collect();
-
-    TruncatedSlab {
-        mesh,
-        wall_tris,
-        wall_tet,
-        interior_mask,
-        interior_mask_pec_wall,
-    }
-}
-
-/// The slab-fixture source `J = ẑ sin(πy)` on the first element layer
-/// `x < h` (identical closure for the full and truncated meshes — the
-/// truncated mesh simply has no tets beyond `x_cut`).
-fn slab_source(mesh: &TetMesh, h: f64) -> CurrentSource {
-    CurrentSource::from_centroids(mesh, |c| {
-        let jz = if c[0] < h { (PI * c[1]).sin() } else { 0.0 };
-        [c64::new(0.0, 0.0), c64::new(0.0, 0.0), c64::new(jz, 0.0)]
-    })
 }
 
 /// `e^H S e` for a real symmetric `S` given as a flat row-major
@@ -212,32 +117,6 @@ fn leontovich_loss_power(
     0.5 * re_inv_zbar * quad_form_faer(s_wall, e)
 }
 
-/// Barycentric gradients `∇λ_0..3` of a tet.
-fn tet_grad_lambda(p: &[[f64; 3]; 4]) -> [[f64; 3]; 4] {
-    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-    let cross = |a: [f64; 3], b: [f64; 3]| {
-        [
-            a[1] * b[2] - a[2] * b[1],
-            a[2] * b[0] - a[0] * b[2],
-            a[0] * b[1] - a[1] * b[0],
-        ]
-    };
-    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-    let e1 = sub(p[1], p[0]);
-    let e2 = sub(p[2], p[0]);
-    let e3 = sub(p[3], p[0]);
-    let v6 = dot(e1, cross(e2, e3)); // 6 × signed volume
-    let g1 = cross(e2, e3).map(|x| x / v6);
-    let g2 = cross(e3, e1).map(|x| x / v6);
-    let g3 = cross(e1, e2).map(|x| x / v6);
-    let g0 = [
-        -(g1[0] + g2[0] + g3[0]),
-        -(g1[1] + g2[1] + g3[1]),
-        -(g1[2] + g2[2] + g3[2]),
-    ];
-    [g0, g1, g2, g3]
-}
-
 /// Element-constant `∇×E` of the Whitney edge field on tet `ti`.
 ///
 /// `∇×(λ_a ∇λ_b − λ_b ∇λ_a) = 2 ∇λ_a × ∇λ_b`, scattered with the same
@@ -246,7 +125,7 @@ fn tet_grad_lambda(p: &[[f64; 3]; 4]) -> [[f64; 3]; 4] {
 fn tet_curl_e(mesh: &TetMesh, tet_edge_rows: &[[(u32, i8); 6]], ti: usize, e: &[c64]) -> [c64; 3] {
     let tet = mesh.tets[ti];
     let p: [[f64; 3]; 4] = std::array::from_fn(|v| mesh.nodes[tet[v] as usize]);
-    let g = tet_grad_lambda(&p);
+    let g = tet_bary_grads(&p);
     let mut curl = [c64::new(0.0, 0.0); 3];
     for (k, &(la, lb)) in TET_LOCAL_EDGES.iter().enumerate() {
         let (gidx, sign) = tet_edge_rows[ti][k];
@@ -336,7 +215,7 @@ fn complex_symmetry_preserved_with_leontovich_term() {
     let slab = truncated_slab(4, 0.5);
     let mesh = &slab.mesh;
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let dev = device();
     let (nodes_t, tets_t) = upload_mesh::<B>(mesh, &dev);
 
@@ -418,7 +297,7 @@ fn fixed_eta0_recovers_silver_muller_system() {
     let mesh = &slab.mesh;
     let edges = mesh.edges();
     let n_edges = edges.len();
-    let (tet_idx, tet_sign) = edge_tables(mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let dev = device();
 
     let omega = 1.3;
@@ -636,7 +515,7 @@ fn leontovich_loss_matches_volumetric_sigma_oracle() {
 
     // P_vol = ½ ∫ σ|E|² dV = ½ eᴴ C(σ) e.
     let n_edges_full = full.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&full);
+    let (tet_idx, tet_sign) = full.tet_edge_tables();
     let dev = device();
     let (nodes_t, tets_t) = upload_mesh::<B>(&full, &dev);
     let c_mat = assemble_nedelec_sigma_damping::<B>(

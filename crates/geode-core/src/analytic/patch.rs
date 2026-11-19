@@ -168,13 +168,6 @@ impl PatchCavity {
         r_ohm
     }
 
-    /// Inset-fed input resistance at probe/inset depth `y0` from a
-    /// radiating edge (Balanis 14-20a): `R_in(y0) = R_in(0) cos²(π y0/L)`.
-    pub fn inset_resistance(&self, y0: f64) -> f64 {
-        let taper = (PI * y0 / self.length).cos();
-        self.edge_resistance() * taper * taper
-    }
-
     /// Loss-limited quality factor `Q ≈ 1 / tan δ` — the dielectric
     /// dissipation factor that dominates the patch loaded-Q for a lossy
     /// FR-4 substrate (radiation and conductor Q are higher, so the
@@ -266,16 +259,6 @@ impl PatchCavity {
         // Broadside intensity is amp(0, ·)² = 1.
         4.0 * PI / integral
     }
-
-    /// Resonant physical length that places `f_res` at the target
-    /// frequency `f_r` for this `W`/`h`/`ε_r` (Balanis 14-6 design
-    /// inversion): `L = c/(2 f_r √ε_eff) − 2ΔL`. (ΔL and ε_eff depend
-    /// only on `W/h` and `ε_r`, not on `L`, so `self.length` is
-    /// ignored.)
-    pub fn design_length(&self, f_r: f64) -> f64 {
-        let e = self.epsilon_eff();
-        C_M_PER_S / (2.0 * f_r * e.sqrt()) - 2.0 * self.delta_l()
-    }
 }
 
 #[cfg(test)]
@@ -340,21 +323,9 @@ mod tests {
         );
     }
 
-    /// The design inversion (Balanis 14-6) recovers the published
-    /// L = 0.906 cm for the 10 GHz target.
-    #[test]
-    fn balanis_design_length() {
-        let l_cm = balanis_example_14_1().design_length(10e9) * 100.0;
-        assert!(
-            (l_cm - 0.906).abs() < 1e-3,
-            "design L = {l_cm:.5} cm, Balanis Ex 14.1 reports 0.906 cm"
-        );
-    }
-
     /// The edge input resistance of the Balanis example sits in the
     /// textbook hundreds-of-ohms range for a half-wave patch (Balanis
-    /// notes edge resistances of ~200–300 Ω, tapered down by an inset
-    /// to match 50 Ω).
+    /// notes edge resistances of ~200–300 Ω).
     #[test]
     fn balanis_edge_resistance_in_range() {
         let r = balanis_example_14_1().edge_resistance();
@@ -362,16 +333,6 @@ mod tests {
             (100.0..400.0).contains(&r),
             "edge R_in(0) = {r:.1} Ω outside the expected (100, 400) Ω band"
         );
-        // An inset to the patch center shorts the radiating-edge field,
-        // driving R_in → 0.
-        let r_center = balanis_example_14_1().inset_resistance(0.906e-2 / 2.0);
-        assert!(
-            r_center < 1.0,
-            "R_in at the patch center should taper to ~0, got {r_center:.3} Ω"
-        );
-        // The inset taper is monotone decreasing from the edge inward.
-        let r_quarter = balanis_example_14_1().inset_resistance(0.906e-2 / 4.0);
-        assert!(r_quarter < r && r_quarter > r_center);
     }
 
     /// Pinned cavity-model resonance for the FR-4 fixture geometry

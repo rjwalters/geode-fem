@@ -603,10 +603,32 @@ fn unsupported_driven_and_extract_sensitivity_are_rejected() {
         msg.contains("does not support `absorbing_regions`"),
         "{msg}"
     );
-    // Adaptive sweep (ROM-interpolated rows).
-    let msg = check_err(&edited(drv, "adaptive", |v| {
-        v["sweep"] = json!({"adaptive": {}});
-    }));
+    // Lumped + adaptive + sensitivity now runs: the Phase 4 bypass
+    // (issue #1627) reports the ROM sweep rows next to full-order
+    // gradients (run through in `adaptive_sweep_golden.rs`).
+    let ok = geode(&[
+        "check",
+        edited(drv, "adaptive-bypass", |v| {
+            v["sweep"] = json!({"adaptive": {}});
+        })
+        .to_str()
+        .unwrap(),
+    ]);
+    assert!(
+        ok.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ok.stdout)
+    );
+    // Wave / hybrid ports keep the Phase 4 rejection (their PROM is
+    // non-affine, #804): message unchanged.
+    let msg = check_err(&edited(
+        "waveguide_mixed_smoke.json",
+        "adaptive-wave",
+        |v| {
+            v["sensitivity"] = json!({"parameters": [{"kind": "eps_r", "physical_group": "x"}]});
+            v["sweep"] = json!({"adaptive": {}});
+        },
+    ));
     assert!(msg.contains("does not support `sweep.adaptive`"), "{msg}");
     // Iterative solver.
     let msg = check_err(&edited(drv, "iterative", |v| {

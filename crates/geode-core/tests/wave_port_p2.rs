@@ -52,6 +52,9 @@
 //! cargo test -p geode-core --release --test wave_port_p2 -- --nocapture
 //! ```
 
+mod common;
+use common::box_fixtures::fit_slope;
+
 use std::f64::consts::PI;
 
 use faer::c64;
@@ -87,16 +90,6 @@ const ORDERS: [ElementOrder; 2] = [ElementOrder::P1, ElementOrder::P2];
 
 fn one() -> c64 {
     c64::new(1.0, 0.0)
-}
-
-/// Least-squares slope of `log e` against `log h`.
-fn slope(h: &[f64], e: &[f64]) -> f64 {
-    let n = h.len() as f64;
-    let (lx, ly): (Vec<f64>, Vec<f64>) = h.iter().zip(e).map(|(h, e)| (h.ln(), e.ln())).unzip();
-    let (mx, my) = (lx.iter().sum::<f64>() / n, ly.iter().sum::<f64>() / n);
-    let num: f64 = lx.iter().zip(&ly).map(|(x, y)| (x - mx) * (y - my)).sum();
-    let den: f64 = lx.iter().map(|x| (x - mx) * (x - mx)).sum();
-    num / den
 }
 
 /// The space and face-exact PEC mask (side walls only: the port faces stay
@@ -223,7 +216,7 @@ fn p2_face_cutoff_converges_at_order_four() {
         e1.push(r1);
         e2.push(r2);
     }
-    let (s1, s2) = (slope(&h, &e1), slope(&h, &e2));
+    let (s1, s2) = (fit_slope(&h, &e1), fit_slope(&h, &e2));
     eprintln!("k_c² slopes: p=1 {s1:.2}, p=2 {s2:.2}");
     assert!((1.7..2.6).contains(&s1), "p=1 slope {s1}");
     assert!(s2 >= 3.5, "p=2 slope {s2}");
@@ -345,7 +338,7 @@ fn p2_straight_section_s21_phase_converges_faster() {
         }
     }
     let h: Vec<f64> = ks.iter().map(|&k| 1.0 / k as f64).collect();
-    let (s1, s2) = (slope(&h, &err[0]), slope(&h, &err[1]));
+    let (s1, s2) = (fit_slope(&h, &err[0]), fit_slope(&h, &err[1]));
     eprintln!("|S21 − e^(−jβL)| slopes: p=1 {s1:.2}, p=2 {s2:.2}");
     assert!(s2 >= 3.0, "p=2 slope {s2}");
     // The p=1 sequence is erratic (its volume and port β errors partly

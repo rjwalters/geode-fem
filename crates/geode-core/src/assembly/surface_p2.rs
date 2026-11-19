@@ -58,7 +58,7 @@
 
 use crate::analytic::waveguide::TRI_QUAD_DEG4;
 use crate::assembly::hcurl_space::HcurlSpace;
-use crate::driven::shape::{Dual, dcross3, ddot3, dlc3, dscale3, dsub3};
+use crate::dual::{Dual, dcross3, ddot3, dlc3, dscale3, dsub3};
 use crate::elements::ElementOrder;
 use crate::mesh::TetMesh;
 use crate::vec3::{cross3 as cross, dot3 as dot, sub3 as sub};

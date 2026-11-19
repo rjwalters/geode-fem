@@ -66,7 +66,6 @@
 //! refinement harness in CI without the release-tier cost.
 
 mod common;
-use common::edge_tables;
 
 use burn::tensor::backend::BackendTypes;
 use faer::c64;
@@ -451,7 +450,7 @@ fn build(grid: usize, seed: u64) -> (ComplexMatrixFreeOperator<B>, Vec<c64>, usi
     let omega = 0.1;
     let mesh = cube_tet_mesh(grid, side);
     let n_edges = mesh.edges().len();
-    let (tet_idx, tet_sign) = edge_tables(&mesh);
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let n_tets = mesh.n_tets();
     let eps = vec![1.0_f64; n_tets];
     let sigma = vec![2.0_f64; n_tets];

@@ -9,7 +9,13 @@ archive semantics. The accepted 15-file patch has SHA256
 
 `provenance.json` records each crates.io archive checksum, all published
 baseline file hashes, every vendored file hash, and the test-support hashes.
-The complete published source and MIT/Apache notices are retained. The
+The published source and MIT/Apache notices are retained, except the files
+listed in `omitted_from_vendor` in `provenance.json`: 19 superseded PyTorch
+`Declarations-v1.4.0` to `v2.8.0` YAML files (~75 MB) under
+`tch-0.22.0/third_party/pytorch/`, which only the unrunnable OCaml generator
+could read (it names v2.9.0 only, which is kept). This is a size exception,
+following #1452. `run.py` checks that the omitted list equals the baseline
+files that are not vendored (apart from lockfiles). The
 published consumer lockfiles are not vendored (Cargo ignores a dependency's
 own lockfile, and cargo regenerates ignored ones in place, so they are
 untracked and skipped by the file-set check; the baseline hashes still record

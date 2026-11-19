@@ -124,8 +124,9 @@ use burn::tensor::backend::Backend;
 use faer::c64;
 use faer::sparse::{SparseColMat, SparseColMatRef, Triplet};
 
-use crate::driven::shape::{Dual, nedelec_local_dual, nedelec_local_dual_tensor};
+use crate::driven::shape::{nedelec_local_dual, nedelec_local_dual_tensor};
 use crate::driven::solve::SurfaceImpedanceModel;
+use crate::dual::Dual;
 use crate::eigen::lossy_cavity::{LossyCavityMaterials, assemble_lossy_pencil};
 use crate::mesh::TetMesh;
 
@@ -337,21 +338,6 @@ impl EigenSensitivity<'_> {
         Ok(xf)
     }
 
-    /// Per-tet global edge index + orientation-sign tables
-    /// (`TET_LOCAL_EDGES` order), matching the assembly convention.
-    fn tet_edge_tables(&self) -> (Vec<[u32; 6]>, Vec<[i8; 6]>) {
-        let te = self.mesh.tet_edges();
-        let idx = te
-            .iter()
-            .map(|row| std::array::from_fn(|i| row[i].0))
-            .collect();
-        let sign = te
-            .iter()
-            .map(|row| std::array::from_fn(|i| row[i].1))
-            .collect();
-        (idx, sign)
-    }
-
     /// **Material** sensitivity `∂λ/∂ε_k` for every region `k ∈ 0..n_regions`.
     ///
     /// `region_of[t]` is the region label of tet `t` (length `n_tets`;
@@ -388,7 +374,7 @@ impl EigenSensitivity<'_> {
             });
         }
         let xf = self.full_edge_vector()?;
-        let (tet_idx, tet_sign) = self.tet_edge_tables();
+        let (tet_idx, tet_sign) = self.mesh.tet_edge_tables();
 
         let mut grad = vec![0.0_f64; n_regions];
         for t in 0..n_tets {
@@ -509,7 +495,7 @@ impl EigenSensitivity<'_> {
             });
         }
         let xf = self.full_edge_vector()?;
-        let (tet_idx, tet_sign) = self.tet_edge_tables();
+        let (tet_idx, tet_sign) = self.mesh.tet_edge_tables();
 
         let mut grad_node = vec![[0.0_f64; 3]; self.mesh.n_nodes()];
         for (t, tet) in self.mesh.tets.iter().enumerate() {
@@ -621,7 +607,7 @@ impl EigenSensitivity<'_> {
             });
         }
         let xf = self.full_edge_vector()?;
-        let (tet_idx, tet_sign) = self.tet_edge_tables();
+        let (tet_idx, tet_sign) = self.mesh.tet_edge_tables();
         let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
         let mut total = 0.0_f64;
