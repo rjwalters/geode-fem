@@ -50,9 +50,12 @@ fn bipyramid() -> TetMesh {
 /// The unit cube with its center node 8 = (½,½,½) as the common apex of
 /// the 12 boundary triangles (2 per cube face). The bottom plate
 /// `{0,1,2,3}` is ground and the top plate `{4,5,6,7}` is an electrode, so
-/// every boundary face is prescribed (all-Dirichlet) — the interesting
-/// faces are the 18 **interior** ones `(8, edge)`, all of which contain
-/// the free apex and are therefore evaluated.
+/// the 4 plate boundary faces are prescribed (one conductor group) — the
+/// interesting faces are the 18 **interior** ones `(8, edge)`, all of
+/// which contain the free apex and are therefore evaluated, plus the 8
+/// **mixed** side-wall faces (two nodes of one plate, one of the other):
+/// their nodes are all Dirichlet but from *different* conductors, so they
+/// are natural-boundary flux faces, not prescribed ones.
 ///
 /// With `φ = z` (0 V on the bottom, 1 V on the top, ½ at the apex) the
 /// gradient is exactly `ẑ` on all 12 tets.
@@ -99,8 +102,9 @@ fn electrode(name: &str, nodes: &[u32], voltage: f64) -> Electrode {
 /// data has zero residual to roundoff. `φ = z` on the apex cube (½ V at
 /// the center), ground plate at `z = 0`, electrode plate at `z = 1`:
 /// every tet's gradient is exactly `ẑ`, so the 12 evaluated interior
-/// faces have zero jump (one gradient, one ε), the all-Dirichlet boundary
-/// faces are prescribed, and `ρ = 0`.
+/// faces have zero jump (one gradient, one ε), the plate faces are
+/// prescribed, the 8 mixed side-wall faces carry zero natural flux
+/// (`D = −ε₀ẑ` is parallel to every side normal), and `ρ = 0`.
 #[test]
 fn uniform_gradient_with_compatible_data_has_zero_residual() {
     let mesh = cube();
@@ -121,10 +125,12 @@ fn uniform_gradient_with_compatible_data_has_zero_residual() {
     assert!(r.eta_t2.iter().all(|&t| t >= 0.0));
     // The 18 interior apex faces (12 cube edges + 6 face diagonals, each
     // shared by exactly two tets, each containing the free apex node) are
-    // all present and counted exactly once; every boundary face is
-    // all-Dirichlet (prescribed) and skipped.
+    // all present and counted exactly once; the 4 plate faces are
+    // prescribed (one conductor group each) and skipped, while the 8
+    // mixed side-wall faces are natural-boundary flux faces with zero
+    // flux for the uniform vertical field.
     assert_eq!(r.faces.iter().filter(|f| f.is_interior()).count(), 18);
-    assert_eq!(r.faces.len(), 18);
+    assert_eq!(r.faces.len(), 26);
 }
 
 /// AC 1 (test plan), two-material version: with `ε_r = [1, 2]` and

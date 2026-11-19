@@ -25,6 +25,13 @@
 //!   normal displacement-flux jumps of the
 //!   [`crate::assembly::electrostatic`] solve, with the signed `ρ_T` / `J_F`
 //!   terms exposed before norms for the goal estimator (#1766).
+//! - [`goal_peak_field`]: the goal-oriented (DWR) error estimate of the
+//!   box-averaged peak-field observable (issue #1766, parent #1481): the
+//!   [`crate::postproc::peak_field::peak_field`] value with a signed
+//!   first-order error estimate and one signed contribution per coarse
+//!   tet, from the linearized winning-window derivative and one
+//!   homogeneous-Dirichlet P1 adjoint on a conforming refinement, weighting
+//!   [`electrostatic_p1`]'s signed residual by the enriched adjoint defect.
 //! - [`goal`]: the [`goal::GoalFunctional`] trait, the interface shared with
 //!   the differentiable-EDA epic (#841) that the goal-oriented DWR phase
 //!   (#835 Phase 4) will consume. Only the trait and a linear reference goal
@@ -51,4 +58,5 @@ pub mod dwr_wave;
 pub mod electrostatic_p1;
 pub mod estimator;
 pub mod goal;
+pub mod goal_peak_field;
 pub mod refine;
