@@ -5,6 +5,12 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-19
 
+- **PR #1368**: feat: add cell-average and point sampling of tet fields onto user grids
+- **Issue #1363** (closed): postproc: sample piecewise-constant E onto cells or points (point location, cell averages)
+- **PR #1387**: refactor(mixed_pencil): remove dead dense assembler, test sparse path
+- **Issue #1382** (closed): Remove dense mixed-pencil assembly (assemble_mixed_pencil, MixedOperators, restrict_mixed): test-only, production uses sparse path
+- **PR #1760**: ci: run zip-compat source-verification tests in a lightweight job
+- **Issue #1758** (closed): zip-compat: test_verify_sources.py is run by no CI workflow
 - **PR #1757**: fix: reject omitted_from_vendor entries that match no vendored crate
 - **PR #1755**: test: share TOML artifact helpers across patch_conformal tests
 - **Issue #1759** (closed): zip-compat: test_verify_sources.py is not run by CI or documented
