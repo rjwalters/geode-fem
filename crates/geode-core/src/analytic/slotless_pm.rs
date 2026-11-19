@@ -127,19 +127,6 @@ impl SlotlessPm {
         (radial * ang.cos(), radial * ang.sin())
     }
 
-    /// Exact exterior flux density in **Cartesian** components
-    /// `(B_x, B_y)` at `(x, y)`, for `√(x²+y²) ≥ R2`. Convenience wrapper
-    /// around [`exterior_field`](Self::exterior_field) for comparison
-    /// against the FEM solver's Cartesian `B`.
-    pub fn exterior_field_xy(&self, x: f64, y: f64) -> (f64, f64) {
-        let r = (x * x + y * y).sqrt();
-        let theta = y.atan2(x);
-        let (b_r, b_th) = self.exterior_field(r, theta);
-        let (c, s) = (theta.cos(), theta.sin());
-        // (B_x, B_y) = B_r r̂ + B_θ θ̂, r̂ = (c, s), θ̂ = (−s, c).
-        (b_r * c - b_th * s, b_r * s + b_th * c)
-    }
-
     /// Mean magnet radius `R = (R1 + R2)/2` and thickness `t = R2 − R1`.
     pub fn mean_radius_thickness(&self) -> (f64, f64) {
         (
@@ -436,24 +423,6 @@ mod tests {
             );
             assert!(err < prev, "self-validation not monotone in t/R");
             prev = err;
-        }
-    }
-
-    #[test]
-    fn cartesian_matches_polar_conversion() {
-        let pm = SlotlessPm::new(0.030, 0.040, 5.0e5, 3);
-        let r = 0.050;
-        for k in 0..8 {
-            let theta = 2.0 * PI * k as f64 / 8.0;
-            let (br, bth) = pm.exterior_field(r, theta);
-            let (c, s) = (theta.cos(), theta.sin());
-            let (bx_e, by_e) = (br * c - bth * s, br * s + bth * c);
-            let (bx, by) = pm.exterior_field_xy(r * c, r * s);
-            // Scale the tolerance by the field magnitude (individual
-            // Cartesian components can be near zero while the total is not).
-            let scale = (bx_e * bx_e + by_e * by_e).sqrt().max(1e-12);
-            assert!((bx - bx_e).abs() <= 1e-12 * scale);
-            assert!((by - by_e).abs() <= 1e-12 * scale);
         }
     }
 

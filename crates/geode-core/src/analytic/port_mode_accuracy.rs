@@ -68,8 +68,6 @@ pub struct UniformRefinement {
     pub free_node_mask: Vec<bool>,
     /// Refined edge → up to three `(coarse edge, coefficient)` terms.
     prolong_t: Vec<[(usize, f64); 3]>,
-    /// Refined node → two `(coarse node, weight)` terms.
-    prolong_z: Vec<[(usize, f64); 2]>,
 }
 
 impl UniformRefinement {
@@ -101,12 +99,10 @@ impl UniformRefinement {
             (n0 + edge_idx[&key]) as u32
         };
         let mut nodes = mesh.nodes.clone();
-        let mut prolong_z: Vec<[(usize, f64); 2]> = (0..n0).map(|k| [(k, 1.0), (k, 0.0)]).collect();
         let mut free_node_mask_f = free_node_mask.to_vec();
         for (i, e) in edges.iter().enumerate() {
             let (p, q) = (mesh.nodes[e[0] as usize], mesh.nodes[e[1] as usize]);
             nodes.push([0.5 * (p[0] + q[0]), 0.5 * (p[1] + q[1])]);
-            prolong_z.push([(e[0] as usize, 0.5), (e[1] as usize, 0.5)]);
             free_node_mask_f.push(interior_edge_mask[i]);
         }
         let mut tris = Vec::with_capacity(4 * mesh.n_tris());
@@ -211,7 +207,6 @@ impl UniformRefinement {
             interior_edge_mask: interior_edge_mask_f,
             free_node_mask: free_node_mask_f,
             prolong_t,
-            prolong_z,
         }
     }
 
@@ -221,14 +216,6 @@ impl UniformRefinement {
         self.prolong_t
             .iter()
             .map(|t| t.iter().map(|&(e, w)| w * coarse[e]).sum())
-            .collect()
-    }
-
-    /// Prolong a coarse P1 node vector to the refined nodes (exact).
-    pub fn prolong_nodes(&self, coarse: &[f64]) -> Vec<f64> {
-        self.prolong_z
-            .iter()
-            .map(|t| t.iter().map(|&(k, w)| w * coarse[k]).sum())
             .collect()
     }
 }
@@ -390,21 +377,6 @@ pub(crate) fn solve_refined(
     )
 }
 
-/// `D_h/2 · P_z = P_t · D_h` (the prolongations commute with the gradient)
-/// — exposed for the unit tests.
-#[cfg(test)]
-fn gradient_commutes(refinement: &UniformRefinement, coarse: &TriMesh, z: &[f64]) -> f64 {
-    use super::port_modes::discrete_gradient;
-    let dc = discrete_gradient(coarse);
-    let df = discrete_gradient(&refinement.mesh);
-    let lhs = sparse_matvec(df.as_ref(), &refinement.prolong_nodes(z));
-    let rhs = refinement.prolong_edges(&sparse_matvec(dc.as_ref(), z));
-    lhs.iter()
-        .zip(&rhs)
-        .map(|(a, b)| (a - b).abs())
-        .fold(0.0, f64::max)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -427,9 +399,9 @@ mod tests {
         mesh
     }
 
-    /// Nested spaces: the prolongation commutes with the gradient and
-    /// preserves the Whitney mass and curl-curl forms exactly; the refined
-    /// PEC masks equal the rim masks of the refined rectangle.
+    /// Nested spaces: the prolongation preserves the Whitney mass and
+    /// curl-curl forms exactly; the refined PEC masks equal the rim masks
+    /// of the refined rectangle.
     #[test]
     fn prolongation_is_exact_on_nested_spaces() {
         let mesh = jittered();
@@ -438,10 +410,6 @@ mod tests {
         let nm = rect_pec_interior_nodes(&mesh, 2.0, 1.0);
         let r = UniformRefinement::new(&mesh, &eps, &em, &nm);
         assert_eq!(r.mesh.n_tris(), 4 * mesh.n_tris());
-        let z: Vec<f64> = (0..mesh.n_nodes())
-            .map(|k| ((k as f64) * 0.37).sin())
-            .collect();
-        assert!(gradient_commutes(&r, &mesh, &z) < 1e-13);
 
         let n_e = mesh.edges().len();
         let u: Vec<f64> = (0..n_e).map(|k| ((k as f64) * 0.71).cos()).collect();

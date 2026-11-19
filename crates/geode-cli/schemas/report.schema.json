@@ -1301,6 +1301,17 @@
           "description": "Total dissipated power (W) at the operating point (volume Joule\nheat plus any `r_ext` resistors).",
           "format": "double",
           "type": "number"
+        },
+        "windowed_peaks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConductionWindowedPeaks"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Windowed box averages of the current density and Joule density\n(issue #1496; present only with the `--window-edge-m` argument\ngroup). The per-element maxima above stay and remain the\nmesh-dependent diagnostics."
         }
       },
       "required": [
@@ -1444,6 +1455,92 @@
       },
       "required": [
         "terminals"
+      ],
+      "type": "object"
+    },
+    "ConductionWindowPeak": {
+      "description": "One named windowed peak of the conduction observable (issue #1496,\npresent only with the `--window-edge-m` argument group).",
+      "properties": {
+        "conducting_volume_fraction": {
+          "description": "Conducting overlap of the winning window divided by its full box\nvolume: `1` when the window sits entirely inside conducting tets,\nsmaller when it spills past the conductor surface or into\ninsulating tets.",
+          "format": "double",
+          "type": "number"
+        },
+        "location_m": {
+          "description": "Centre (m) of the winning window.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "metric": {
+          "description": "Which average this entry reports, over candidate windows centred on\nthe conducting tets:\n- `\"vector_mean\"`: magnitude of the volume-averaged current-density\n  vector `|<J>|` (A/m²);\n- `\"magnitude_mean\"`: volume-averaged current-density magnitude\n  `<|J|>` (A/m²);\n- `\"magnitude_rms\"`: root-mean-square current-density magnitude\n  `sqrt(<|J|²>)` (A/m²);\n- `\"joule_mean\"`: volume-averaged Joule density `<σ|∇φ|²>` (W/m³).",
+          "type": "string"
+        },
+        "reference_ratio": {
+          "description": "`value` divided by the reference of matching units\n(`j_ref_a_m2` for the current-density metrics, `joule_ref_w_m3`\nfor `joule_mean`); dimensionless.",
+          "format": "double",
+          "type": "number"
+        },
+        "undersampled": {
+          "description": "Under-sampling warning: `true` when `window_edge_m` is below the\nlargest element edge among the tets whose bounding box intersects\nthe winning window — the average then spans fewer than the local\nelements and does not resolve the local field.",
+          "type": "boolean"
+        },
+        "value": {
+          "description": "Peak value of the metric over the candidate windows, in the unit\nnamed by [`ConductionWindowPeak::metric`].",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "metric",
+        "value",
+        "location_m",
+        "conducting_volume_fraction",
+        "reference_ratio",
+        "undersampled"
+      ],
+      "type": "object"
+    },
+    "ConductionWindowedPeaks": {
+      "description": "Windowed box averages of the current density and Joule density at the\nreported operating point (issue #1496; present only with the\n`--window-edge-m` argument group).\n\nPer-element maxima are mesh-dependent at a re-entrant corner (`|J| ~\nr^(-1/3)`); the windowed averages over a **fixed physical window**\nconverge under uniform refinement and are the reportable quantities.\nCandidate windows are cubes of edge `window_edge_m` centred on the\nconducting tets; each metric reports its own winning window (lowest\ntet index on ties).",
+      "properties": {
+        "j_ref_a_m2": {
+          "description": "Reference current density (A/m²) for the current-density\n`reference_ratio`s.",
+          "format": "double",
+          "type": "number"
+        },
+        "joule_ref_w_m3": {
+          "description": "Reference Joule density (W/m³) for the `joule_mean`\n`reference_ratio`.",
+          "format": "double",
+          "type": "number"
+        },
+        "normalization": {
+          "description": "Normalization convention, always\n`\"conductor_intersection\"`: every average's numerator and\ndenominator count only exact `tet ∩ window` overlaps with\npositive-conductivity tets, and\n`conducting_volume_fraction` divides that conducting overlap by\nthe full window volume (zero outside counts nothing, not zero\ndensity).",
+          "type": "string"
+        },
+        "peaks": {
+          "description": "The four named peaks, in the order `vector_mean`, `magnitude_mean`,\n`magnitude_rms`, `joule_mean`.",
+          "items": {
+            "$ref": "#/$defs/ConductionWindowPeak"
+          },
+          "type": "array"
+        },
+        "window_edge_m": {
+          "description": "Edge (m) of the cubic averaging window, the same for every\ncandidate centre and every refinement.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "window_edge_m",
+        "normalization",
+        "j_ref_a_m2",
+        "joule_ref_w_m3",
+        "peaks"
       ],
       "type": "object"
     },
@@ -7988,7 +8085,7 @@
           "description": "The finite-difference self-check (present only with\n`sensitivity.fd_check` or `--check-gradient`). A run whose check\nfails is a `solve_failed` error, so a present block always passed."
         },
         "forward_parity": {
-          "description": "N-port driven path: the largest relative difference between the S\nmatrix the sensitivity solved and the report's own `results[].s`\n(and, for port-mode observables, the forward's `ε_eff` / line\nimpedance) over the differentiated frequencies — the two are separate\nforwards of one operator, and a run above `1e-8` is a `solve_failed`\nerror.",
+          "description": "N-port driven path: the largest relative difference between the S\nmatrix the sensitivity solved and the report's own `results[].s`\n(and, for port-mode observables, the forward's `ε_eff` / line\nimpedance) over the differentiated frequencies — the two are separate\nforwards of one operator, and a run above `1e-8` is a `solve_failed`\nerror. Under the `sweep.adaptive` bypass (Epic #841 Phase 4,\nissue #1627) the report's rows are ROM interpolations, so this is\ninstead the largest ROM-vs-full-order delta at the differentiated\nfrequencies (a non-fatal diagnostic; the full-order parity against a\nfreshly solved dense reference still holds at `1e-8` and is the\nhard `solve_failed` bound there).",
           "format": "double",
           "type": [
             "number",
@@ -8027,7 +8124,7 @@
           "type": "number"
         },
         "warnings": {
-          "description": "N-port driven path: non-fatal conditions of the gradient (a\nnear-degenerate face mode of a hybrid port the design touches, an\nill-conditioned bordered solve, a shape parameter that translates\nthe whole model rigidly or moves an unpinned wall), each with its\nremedy.",
+          "description": "N-port driven path: non-fatal conditions of the gradient (a\nnear-degenerate face mode of a hybrid port the design touches, an\nill-conditioned bordered solve, a shape parameter that translates\nthe whole model rigidly or moves an unpinned wall; under the\n`sweep.adaptive` bypass also which rows carry gradients, their\nfull-order cost and the ROM-vs-full-order parity diagnostic), each\nwith its remedy.",
           "items": {
             "$ref": "#/$defs/WarningResult"
           },
@@ -8475,7 +8572,7 @@
       "description": "A report-level warning (issue #807; additive in v1): never an error,\nalso printed on stderr as `warning: …`.",
       "properties": {
         "kind": {
-          "description": "What it is about: `\"complex_pair_terminated\"`,\n`\"complex_pair_dropped\"`, `\"accuracy_above_threshold\"`,\n`\"attenuation_accuracy_above_threshold\"`, `\"accuracy_unavailable\"`,\n`\"impedance_accuracy_above_threshold\"`,\n`\"impedance_accuracy_unavailable\"`, `\"no_net_conductor_current\"`\n(issue #953: a hybrid channel whose conductor currents cancel to\nround-off, a TE / TM waveguide mode with no line impedance; not a\nmesh problem), `\"multiplicity_uncertified\"`, `\"cluster_split\"`,\n`\"non_canonical_cluster_basis\"`, `\"preconditioner_fallback\"` (issue\n#930: the default `solver.preconditioner = \"auto\"` used `jacobi`\ninstead of `ams`; the message says why), `\"passivity\"` (a lossy spec's\nmeasured `σ_max(S) > 1`), `\"termination_clamped\"`, a **geometric**\nwave port's degeneracy notes (issue #923, `driven`; also `check`,\nissue #959, with the same messages; the message names the port, the mode pair and its numbers, and how to\nrefine): `\"wave_port_degeneracy_ambiguous\"` (a candidate degenerate\npair whose p=1 / p=2 gap ratio is in `[0.3, 0.8]` around the 0.5\ndecision threshold, so another mesh of the cross-section, such as\nthe guide's other port, may decide it the other way),\n`\"wave_port_degeneracy_near_degenerate\"` (a pair kept distinct whose\nface discretization error is at least 0.1 of its p=2 gap: its\ncross-mode S is not mesh-stable),\n`\"wave_port_degeneracy_unconfirmed\"` (a candidate pair kept distinct\nbecause its confirming solve failed) and\n`\"wave_port_degeneracy_unavailable\"` (the check itself could not\nrun; `driven` reports it only once its sweep succeeds), or (driven\n`sensitivities.warnings`, issue #883) `\"sensitivity_port_mode\"`,\n`\"sensitivity_shape_rigid\"` (a shape parameter translating the whole\nmodel: gradients zero by construction),\n`\"sensitivity_shape_moves_boundary\"` (a shape parameter moving a\nwall it does not own off its plane, or resizing a finite plate's\nfree perimeter in its plane: pin it if it is fixed),\n`\"sensitivity_shape_tangential\"` (issue #893: every surface of the\nmodel only slides within itself — the mesh moves, the geometry does\nnot, so the gradients are discretisation sensitivity) and\n`\"sensitivity_shape_moves_interface\"` (issue #893: the motion's\nextension drags a material interface the parameter does not own\nalong its normal; `physical_group` is `null`, the message names the\ntwo volume groups) and `\"sensitivity_wall_saturated\"` (issue #1330:\na wall roughness parameter whose loss factor sits on its plateau, so\nits column is ~0 by saturation; `physical_group` is the wall).",
+          "description": "What it is about: `\"complex_pair_terminated\"`,\n`\"complex_pair_dropped\"`, `\"accuracy_above_threshold\"`,\n`\"attenuation_accuracy_above_threshold\"`, `\"accuracy_unavailable\"`,\n`\"impedance_accuracy_above_threshold\"`,\n`\"impedance_accuracy_unavailable\"`, `\"no_net_conductor_current\"`\n(issue #953: a hybrid channel whose conductor currents cancel to\nround-off, a TE / TM waveguide mode with no line impedance; not a\nmesh problem), `\"multiplicity_uncertified\"`, `\"cluster_split\"`,\n`\"non_canonical_cluster_basis\"`, `\"preconditioner_fallback\"` (issue\n#930: the default `solver.preconditioner = \"auto\"` used `jacobi`\ninstead of `ams`; the message says why), `\"passivity\"` (a lossy spec's\nmeasured `σ_max(S) > 1`), `\"termination_clamped\"`, a **geometric**\nwave port's degeneracy notes (issue #923, `driven`; also `check`,\nissue #959, with the same messages; the message names the port, the mode pair and its numbers, and how to\nrefine): `\"wave_port_degeneracy_ambiguous\"` (a candidate degenerate\npair whose p=1 / p=2 gap ratio is in `[0.3, 0.8]` around the 0.5\ndecision threshold, so another mesh of the cross-section, such as\nthe guide's other port, may decide it the other way),\n`\"wave_port_degeneracy_near_degenerate\"` (a pair kept distinct whose\nface discretization error is at least 0.1 of its p=2 gap: its\ncross-mode S is not mesh-stable),\n`\"wave_port_degeneracy_unconfirmed\"` (a candidate pair kept distinct\nbecause its confirming solve failed) and\n`\"wave_port_degeneracy_unavailable\"` (the check itself could not\nrun; `driven` reports it only once its sweep succeeds), or (driven\n`sensitivities.warnings`, issue #883) `\"sensitivity_port_mode\"`,\n`\"sensitivity_shape_rigid\"` (a shape parameter translating the whole\nmodel: gradients zero by construction),\n`\"sensitivity_shape_moves_boundary\"` (a shape parameter moving a\nwall it does not own off its plane, or resizing a finite plate's\nfree perimeter in its plane: pin it if it is fixed),\n`\"sensitivity_shape_tangential\"` (issue #893: every surface of the\nmodel only slides within itself — the mesh moves, the geometry does\nnot, so the gradients are discretisation sensitivity) and\n`\"sensitivity_shape_moves_interface\"` (issue #893: the motion's\nextension drags a material interface the parameter does not own\nalong its normal; `physical_group` is `null`, the message names the\ntwo volume groups) and `\"sensitivity_wall_saturated\"` (issue #1330:\na wall roughness parameter whose loss factor sits on its plateau, so\nits column is ~0 by saturation; `physical_group` is the wall).\nUnder the `sweep.adaptive` bypass on lumped ports (Epic #841 Phase\n4, issue #1627; report-level, `physical_group` / `wave_port` both\n`null`): `\"sensitivity_full_order_gradients\"` (the sweep's rows may\nbe ROM interpolations; the gradients at the named frequencies are\nfull-order solves), `\"sensitivity_full_order_cost\"` (no\n`sensitivity.frequencies` named: the gradients solve full-order at\nevery swept frequency) and `\"sensitivity_forward_parity\"` (N-port\npath: the ROM-vs-full-order delta reported as\n`sensitivities.forward_parity`).",
           "type": "string"
         },
         "message": {

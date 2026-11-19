@@ -21,6 +21,7 @@
 //!   `scripts/tuned_summary.py --write` fails here.
 
 mod common;
+use common::toml_artifact::{f_dbg as f, get, s};
 use common::toml_num as num;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -46,26 +47,6 @@ fn sha256(rel: &str) -> String {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
-}
-
-fn get<'a>(v: &'a toml::Value, dotted: &str) -> &'a toml::Value {
-    let mut cur = v;
-    for k in dotted.split('.') {
-        cur = cur
-            .get(k)
-            .unwrap_or_else(|| panic!("missing key {dotted} (at {k})"));
-    }
-    cur
-}
-
-fn f(v: &toml::Value, dotted: &str) -> f64 {
-    num(get(v, dotted))
-}
-
-fn s<'a>(v: &'a toml::Value, dotted: &str) -> &'a str {
-    get(v, dotted)
-        .as_str()
-        .unwrap_or_else(|| panic!("{dotted} is not a string"))
 }
 
 fn arr<'a>(v: &'a toml::Value, dotted: &str) -> &'a Vec<toml::Value> {

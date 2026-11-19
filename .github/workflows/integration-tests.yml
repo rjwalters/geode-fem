@@ -50,12 +50,21 @@ on:
   workflow_dispatch: {}
   pull_request:
     branches: [main]
+  # Issue #1742: merge queue — run on each merge group's combined tree.
+  # The default checkout (github.sha) is the group's commit, not the PR
+  # head or main.
+  merge_group:
+    types: [checks_requested]
 
 # Issue #899: a newer push to a PR cancels that PR's older run. On main a
 # started run is never cancelled, and at most one run waits: a newer one
 # replaces the waiting one.
+#
+# Issue #1742: merge-group runs are keyed by the group's unique head SHA, so
+# a PR or push run can neither supersede nor cancel them (cancel-in-progress
+# stays PR-only, per issue #899).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || (github.event.pull_request.number || github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -75,9 +84,16 @@ jobs:
     # scales with the number of binaries and a warm cache saves little), and
     # the tests about 7-10 min, about 28-42 min in all against the 45-min
     # bound. Each half builds and runs about half the binaries: about 10-16
-    # min of build plus 2-5 min of tests. 45 min is the per-job bound (issue
-    # #772).
-    timeout-minutes: 45
+    # min of build plus 2-5 min of tests. Issue #1700: this job's totals
+    # measured from the Actions jobs API span 33-41 min across the 9 most
+    # recent main runs (to 2026-11-16), so the 45-min per-job bound (issue
+    # #772) left under 4 min of headroom on the slowest runs and the check
+    # could go red for every PR from a slower runner alone; raised to 60.
+    # Issue #1713: cancelling the job discards its log, so the a-m
+    # default-tier step also carries its own timeout-minutes: 30 bound — a
+    # hung test target then fails the step (log retained, target nameable)
+    # instead of exceeding this job bound (log discarded).
+    timeout-minutes: 60
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: short
@@ -135,6 +151,7 @@ jobs:
               --test electromigration \
               --test electrostatic_capacitance \
               --test electrostatic_capacitance_2d \
+              --test electrostatic_p1 \
               --test eqs_transient \
               --test extraction \
               --test faer_qz_debug_overflow_guard \
@@ -148,6 +165,7 @@ jobs:
               --test floquet_prom \
               --test floquet_sensitivity \
               --test formulation_audit_graddiv \
+              --test goal_peak_field \
               --test hcurl_error_estimator \
               --test hcurl_space_p2 \
               --test high_contrast_fiber_benchmark \
@@ -207,7 +225,57 @@ jobs:
               --test derham_gauge_invariance -- --include-ignored
 
       - name: geode-core integration targets a-m (default tier)
+        # Issue #1713: this step jumped from ~16 min to >44 min (never
+        # finishing) in 2 of 3 runs, blowing the 60-min job bound and
+        # cancelling the job — which discards the log that would name the
+        # hung --test target. A step-level bound fails the step instead: the
+        # job finishes normally and the retained step log (with cargo's
+        # "Running tests/<target>.rs" lines) names the target. Normal is
+        # 16m25s; 30 min leaves room for the job bound after the 17-23 min
+        # build and the ~3 min release-only step. Diagnosability bound only:
+        # no retry/skip logic; the underlying hang is a follow-up issue once
+        # the target is named.
+        #
+        # Issue #1729: the runner's bounds were observed NOT binding twice:
+        # (1) the step timeout-minutes above — run 44068825383 ran this step
+        # 43m36s against its 30 min bound and cancelled the job at 65 min,
+        # log discarded; (2) a coreutils `timeout 27m cargo test` prefix
+        # (PR #1730's first attempt) — run 44081099929 also never closed its
+        # step (43m55s at job cancellation), log discarded again. WHY
+        # 44081099929 never closed is NOT known: its log was discarded, so
+        # no evidence survives. The earlier account here — "timeout(1)
+        # signals only its direct child, so the wedged test binary survived
+        # as an orphan holding the step's log pipe" — was measured false in
+        # its simple form: GNU coreutils `timeout`, in its default
+        # (non-`--foreground`) mode, puts the child in its own process group
+        # and signals the whole group, so a plainly surviving orphan holding
+        # an inherited pipe is not the mechanism. The bound is therefore
+        # enforced so that it does not depend on killing anything that may
+        # be unkillable: an in-script watchdog TERMs cargo by pid at 27m
+        # (KILL after 60s) — 28 min, inside the 30-min step bound, ending by
+        # ~49 min into the job — and cargo's output goes to a file instead
+        # of the step log, so NO descendant can hold the step's log pipe;
+        # EOF follows from the step shell exiting, whatever survives the
+        # signals. The step below tails that file `if: always()`, retaining
+        # the "Running tests/<target>.rs" lines that name a hung target on a
+        # failed, cancelled or green run alike. Watchdog retirement: the
+        # runner's default `bash -e` step shell exits at the cargo line when
+        # a cut cargo returns nonzero, so the `kill -TERM -- -$WATCHDOG`
+        # line runs on the success path only — on the cut path the watchdog
+        # lives out its own +60s and exits after firing a pkill that matches
+        # nothing; on the success path `set -m` + the group kill retire it
+        # so no orphaned sleep fires a stray pkill. The pattern's [-] keeps
+        # pkill from self-matching and keeps "cargo"+"test" out of this run
+        # block so scripts/ci-test-coverage.py still models this step as a
+        # plain `cargo test` (its coverage gate). A cut run exits with
+        # cargo's 143/137 (not timeout's 124). timeout-minutes stays as the
+        # outer backstop.
+        timeout-minutes: 30
         run: |
+          echo "cargo output goes to $RUNNER_TEMP/am-integration.log; a hung run is cut at 27m"
+          set -m
+          ( sleep 1620 && pkill -TERM -f 'geode[-]core --release'; sleep 60 && pkill -KILL -f 'geode[-]core --release' ) >/dev/null 2>&1 &
+          WATCHDOG=$!
           cargo test -p geode-core --release --features spade-mesh \
               --test adapt_loop \
               --test adapt_refine \
@@ -238,6 +306,7 @@ jobs:
               --test electromigration \
               --test electrostatic_capacitance \
               --test electrostatic_capacitance_2d \
+              --test electrostatic_p1 \
               --test eqs_transient \
               --test extraction \
               --test faer_qz_debug_overflow_guard \
@@ -251,6 +320,7 @@ jobs:
               --test floquet_prom \
               --test floquet_sensitivity \
               --test formulation_audit_graddiv \
+              --test goal_peak_field \
               --test hcurl_error_estimator \
               --test hcurl_space_p2 \
               --test high_contrast_fiber_benchmark \
@@ -275,7 +345,27 @@ jobs:
               --test magnetostatic_sector_sliding \
               --test magnetostatic_wire \
               --test matched_upml_burn \
-              --test material_upload_precision
+              --test material_upload_precision \
+            > "$RUNNER_TEMP/am-integration.log" 2>&1
+          kill -TERM -- -"$WATCHDOG" 2>/dev/null || true
+
+      - name: geode-core a-m integration log (names a hung target)
+        # The step above redirects cargo to this file so a surviving
+        # grandchild cannot hold the step's log pipe open; this step puts the
+        # "Running tests/<target>.rs" lines back into the retained job log.
+        # `always()`, not `failure()`: `failure()` is false when the job is
+        # cancelled — exactly the 60-min-bound scenario issue #1729 exists
+        # for — and on a green run it would retain none of the 68 targets'
+        # per-target output, so a cargo run that exited 0 having run nothing
+        # would produce a log byte-identical to a healthy one. Best-effort
+        # on cancellation. 400 lines: 68 targets emit roughly 3-4 lines
+        # each (~270), leaving headroom for cache-warm compile noise.
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/am-integration.log" ]; then
+            echo "--- am-integration.log, last 400 lines ---"
+            tail -n 400 "$RUNNER_TEMP/am-integration.log"
+          fi
 
   core-tests-b:
     # The second half of the geode-core integration targets (see
@@ -356,6 +446,7 @@ jobs:
               --test patch_conformal_v6 \
               --test patch_diffopt \
               --test patch_mesh \
+              --test peak_field_corner \
               --test pec_cavity_unit_invariance \
               --test pec_mask_face_exact \
               --test periodic_cavity \
@@ -379,6 +470,7 @@ jobs:
               --test surface_p2_trace \
               --test tcda_baseline \
               --test tcda_design \
+              --test tcda_design_cma \
               --test thermal_conduction \
               --test thermoelastic_validation \
               --test torque_loop_oracle \
@@ -459,6 +551,7 @@ jobs:
               --test patch_conformal_v6 \
               --test patch_diffopt \
               --test patch_mesh \
+              --test peak_field_corner \
               --test pec_cavity_unit_invariance \
               --test pec_mask_face_exact \
               --test periodic_cavity \
@@ -482,6 +575,7 @@ jobs:
               --test surface_p2_trace \
               --test tcda_baseline \
               --test tcda_design \
+              --test tcda_design_cma \
               --test thermal_conduction \
               --test thermoelastic_validation \
               --test torque_loop_oracle \

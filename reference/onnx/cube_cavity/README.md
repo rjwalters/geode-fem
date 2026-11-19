@@ -52,11 +52,11 @@ it explicit.
 
 The graph **stops at** `K_int`/`M_int`. The eigensolve is the host-side
 sidecar boundary, identical convention to JAX (`scipy.linalg.eigh`
-outside the jit) and TF-Java (`eigensolve_from_tfjava.py` over a JSON
+outside the jit) and TF-Java (`eigensolve_from_sidecar.py` over a JSON
 sidecar). The Phase F.2 driver
 ([`gen_cube_cavity_reduced.py`](gen_cube_cavity_reduced.py)) emits a
 schema-v1 sidecar; the companion
-[`reference/driver/eigensolve_from_onnx.py`](../../driver/eigensolve_from_onnx.py)
+[`reference/driver/eigensolve_from_sidecar.py`](../../driver/eigensolve_from_sidecar.py)
 runs the SciPy eigensolve over that sidecar.
 
 ## Re-running
@@ -67,8 +67,9 @@ python3 -m pip install -r requirements.txt   # onnx 1.21.0, onnxruntime 1.26.0
 mkdir -p ../../target/out
 python3 cube_cavity/gen_cube_cavity_reduced.py \
     --n 10 --side 1.0 --out ../../target/out/reduced_kM.json
-python3 ../driver/eigensolve_from_onnx.py \
-    ../../target/out/reduced_kM.json --k 5 \
+python3 ../driver/eigensolve_from_sidecar.py \
+    ../../target/out/reduced_kM.json --backend onnx --problem cube-cavity \
+    --k 5 \
     --out ../../target/out/eigenresult_onnx.json
 ```
 
@@ -100,5 +101,5 @@ ONNX reference to remain green.
 - TF-Java sibling (the pattern F.2 mirrors):
   [`../../tf_java/cube_cavity/`](../../tf_java/cube_cavity/).
 - JAX sibling: [`../../jax/cube_cavity.py`](../../jax/cube_cavity.py).
-- Sidecar driver: [`../../driver/eigensolve_from_onnx.py`](../../driver/eigensolve_from_onnx.py).
+- Sidecar driver: [`../../driver/eigensolve_from_sidecar.py`](../../driver/eigensolve_from_sidecar.py).
 - CI gate: [`../../../.github/workflows/onnx-cube-cavity.yml`](../../../.github/workflows/onnx-cube-cavity.yml).

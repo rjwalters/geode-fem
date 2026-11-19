@@ -732,6 +732,53 @@ const MANIFEST: &[Entry] = &[
          `the_recorded_design_run_reproduces_its_worst_case` pin in tests/tcda_design.rs \
          re-solves three of its points, see benchmarks/tcda_design/README.md)",
     ),
+    a(
+        "benchmarks/tcda_design/cma/cmaes_n52.toml",
+        "python3 benchmarks/patch_antenna_conformal/scripts/cma_loop.py --exe \
+         <target>/release/examples/tcda_design_cma --budget 60 --sigma0 0.3 --seed 11 \
+         --label tcda_cmaes_n52 --problem tcda --bound 1.0 --rank-ref 0 --out <out> -- \
+         --grid reduced --n-edge 13 (issue #1580; the CMA-ES cell of the comparison at \
+         n_params = 52, see benchmarks/tcda_design/README.md)",
+    ),
+    a(
+        "benchmarks/tcda_design/cma/cmaes_n100.toml",
+        "python3 benchmarks/patch_antenna_conformal/scripts/cma_loop.py --exe \
+         <target>/release/examples/tcda_design_cma --budget 60 --sigma0 0.3 --seed 11 \
+         --label tcda_cmaes_n100 --problem tcda --bound 1.0 --rank-ref 0 --out <out> -- \
+         --grid reduced --n-edge 25 (issue #1580; the CMA-ES cell at n_params = 100)",
+    ),
+    a(
+        "benchmarks/tcda_design/cma/cmaes_n200.toml",
+        "python3 benchmarks/patch_antenna_conformal/scripts/cma_loop.py --exe \
+         <target>/release/examples/tcda_design_cma --budget 60 --sigma0 0.3 --seed 11 \
+         --label tcda_cmaes_n200 --problem tcda --bound 1.0 --rank-ref 0 --out <out> -- \
+         --grid reduced --n-edge 50 (issue #1580; the CMA-ES cell at n_params = 200)",
+    ),
+    a(
+        "benchmarks/tcda_design/cma/adjoint_n52/results.toml",
+        "TCDA_DESIGN_GRID=reduced TCDA_DESIGN_N_EDGE=13 TCDA_DESIGN_MAX_ITER=8 \
+         TCDA_DESIGN_BUDGET_S=1200 TCDA_DESIGN_ACTIVE_MARGIN=0.15 \
+         TCDA_DESIGN_DIR=benchmarks/tcda_design/cma/adjoint_n52 \
+         cargo run --release -j2 -p geode-core --example tcda_design_run (issue #1580; the \
+         adjoint cell of the comparison at n_params = 52 on the same reduced grid as the \
+         CMA-ES cell, see benchmarks/tcda_design/README.md)",
+    ),
+    a(
+        "benchmarks/tcda_design/cma/adjoint_n100/results.toml",
+        "TCDA_DESIGN_GRID=reduced TCDA_DESIGN_N_EDGE=25 TCDA_DESIGN_MAX_ITER=8 \
+         TCDA_DESIGN_BUDGET_S=1200 TCDA_DESIGN_ACTIVE_MARGIN=0.15 \
+         TCDA_DESIGN_DIR=benchmarks/tcda_design/cma/adjoint_n100 \
+         cargo run --release -j2 -p geode-core --example tcda_design_run (issue #1580; the \
+         adjoint cell at n_params = 100)",
+    ),
+    a(
+        "benchmarks/tcda_design/cma/adjoint_n200/results.toml",
+        "TCDA_DESIGN_GRID=reduced TCDA_DESIGN_N_EDGE=50 TCDA_DESIGN_MAX_ITER=8 \
+         TCDA_DESIGN_BUDGET_S=1200 TCDA_DESIGN_ACTIVE_MARGIN=0.15 \
+         TCDA_DESIGN_DIR=benchmarks/tcda_design/cma/adjoint_n200 \
+         cargo run --release -j2 -p geode-core --example tcda_design_run (issue #1580; the \
+         adjoint cell at n_params = 200)",
+    ),
     // ---- Bucket B: exempt, no Burn backend in the numeric path ----------
     b(
         "benchmarks/soi_waveguide/results.toml",

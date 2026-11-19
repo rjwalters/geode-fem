@@ -47,7 +47,6 @@ from __future__ import annotations
 import json
 import math
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -62,6 +61,7 @@ FIXTURE_DIR = REPO_ROOT / "reference" / "fixtures" / "nedelec_local"
 _REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT_STR not in sys.path:
     sys.path.insert(0, _REPO_ROOT_STR)
+from reference.fixture_utils import git_commit  # noqa: E402
 from reference.numpy.nedelec_local_matrices import batched_nedelec_local_matrices  # noqa: E402
 
 
@@ -191,26 +191,13 @@ CASES = [
 ]
 
 
-def _git_commit() -> str:
-    """Return current git HEAD short SHA, or 'unknown'."""
-    try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=REPO_ROOT,
-            stderr=subprocess.DEVNULL,
-        )
-        return out.decode().strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown"
-
-
 def _nested(a: np.ndarray) -> list:
     return a.tolist()
 
 
 def main():
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
-    sha = _git_commit()
+    sha = git_commit(REPO_ROOT)
 
     summary = []
     for slug, builder, description, tols in CASES:

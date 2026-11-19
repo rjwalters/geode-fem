@@ -62,7 +62,7 @@
 use burn::tensor::backend::Backend;
 use faer::c64;
 
-use crate::driven::ports::{LumpedPort, port_current, port_voltage};
+use crate::driven::ports::{LumpedPort, invert_complex_dense, port_current, port_voltage};
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, SolverMode,
     SurfaceImpedanceBc,
@@ -243,71 +243,11 @@ impl SMatrix {
     }
 }
 
-/// Gauss-Jordan inverse with partial pivoting of a row-major `n × n`
-/// complex matrix. Returns `None` on an exactly singular pivot. The
-/// port-count matrices this serves are tiny (n = number of ports), so
-/// a dense elimination is the right tool.
-fn invert_complex(m: &[c64], n: usize) -> Option<Vec<c64>> {
-    debug_assert_eq!(m.len(), n * n);
-    let mut a = m.to_vec();
-    let mut inv: Vec<c64> = (0..n * n)
-        .map(|idx| {
-            if idx % (n + 1) == 0 {
-                c64::new(1.0, 0.0)
-            } else {
-                c64::new(0.0, 0.0)
-            }
-        })
-        .collect();
-    for col in 0..n {
-        // Partial pivot on the largest |a[r][col]|, r ≥ col.
-        let mut piv = col;
-        let mut piv_norm = a[col * n + col].norm();
-        for r in (col + 1)..n {
-            let v = a[r * n + col].norm();
-            if v > piv_norm {
-                piv = r;
-                piv_norm = v;
-            }
-        }
-        if piv_norm == 0.0 || piv_norm.is_nan() {
-            return None;
-        }
-        if piv != col {
-            for c in 0..n {
-                a.swap(col * n + c, piv * n + c);
-                inv.swap(col * n + c, piv * n + c);
-            }
-        }
-        let d = a[col * n + col];
-        for c in 0..n {
-            a[col * n + c] /= d;
-            inv[col * n + c] /= d;
-        }
-        for r in 0..n {
-            if r == col {
-                continue;
-            }
-            let f = a[r * n + col];
-            if f.re == 0.0 && f.im == 0.0 {
-                continue;
-            }
-            for c in 0..n {
-                let av = a[col * n + c] * f;
-                a[r * n + c] -= av;
-                let iv = inv[col * n + c] * f;
-                inv[r * n + c] -= iv;
-            }
-        }
-    }
-    Some(inv)
-}
-
 /// Right matrix division `A · B⁻¹` of row-major `n × n` complex
 /// matrices. Returns `None` if `B` is singular.
 fn right_divide(a: &[c64], b: &[c64], n: usize) -> Option<Vec<c64>> {
     debug_assert_eq!(a.len(), n * n);
-    let b_inv = invert_complex(b, n)?;
+    let b_inv = invert_complex_dense(b, n)?;
     let mut out = vec![c64::new(0.0, 0.0); n * n];
     for r in 0..n {
         for c in 0..n {
@@ -1068,7 +1008,7 @@ mod tests {
         }
         // Rank-1 (singular) matrix.
         let s = [c(1.0, 0.0), c(2.0, 0.0), c(2.0, 0.0), c(4.0, 0.0)];
-        assert!(invert_complex(&s, 2).is_none());
+        assert!(invert_complex_dense(&s, 2).is_none());
     }
 
     /// SRF detection on a series-LC impedance `Im Z = ωL − 1/(ωC)`:

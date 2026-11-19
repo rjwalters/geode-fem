@@ -77,6 +77,7 @@ fn scratch(req: StackReq, what: &str) -> Result<MemBuffer, EigenError> {
 /// axis. Operates on arbitrary index sets into `coords`, so it serves both
 /// per-DOF (edge-midpoint) and per-element (centroid) coordinate arrays.
 /// Returns `0` for an empty subset.
+#[cfg(feature = "tensor")]
 pub(crate) fn longest_bbox_axis(subset: &[usize], coords: &[[f64; 3]]) -> usize {
     let mut lo = [f64::INFINITY; 3];
     let mut hi = [f64::NEG_INFINITY; 3];
@@ -107,6 +108,7 @@ pub(crate) fn longest_bbox_axis(subset: &[usize], coords: &[[f64; 3]]) -> usize 
 /// value-threshold split degenerates into a near-linear ordering. The `index`
 /// tie-break makes the split deterministic. `cut` is clamped to
 /// `0..=subset.len()`.
+#[cfg(feature = "tensor")]
 pub(crate) fn rank_split_along_axis(
     subset: &[usize],
     coords: &[[f64; 3]],

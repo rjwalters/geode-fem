@@ -672,6 +672,15 @@ pub struct WarningResult {
     /// two volume groups) and `"sensitivity_wall_saturated"` (issue #1330:
     /// a wall roughness parameter whose loss factor sits on its plateau, so
     /// its column is ~0 by saturation; `physical_group` is the wall).
+    /// Under the `sweep.adaptive` bypass on lumped ports (Epic #841 Phase
+    /// 4, issue #1627; report-level, `physical_group` / `wave_port` both
+    /// `null`): `"sensitivity_full_order_gradients"` (the sweep's rows may
+    /// be ROM interpolations; the gradients at the named frequencies are
+    /// full-order solves), `"sensitivity_full_order_cost"` (no
+    /// `sensitivity.frequencies` named: the gradients solve full-order at
+    /// every swept frequency) and `"sensitivity_forward_parity"` (N-port
+    /// path: the ROM-vs-full-order delta reported as
+    /// `sensitivities.forward_parity`).
     pub kind: &'static str,
     /// Wave-port index (spec order), if the warning is about one port.
     pub wave_port: Option<usize>,
@@ -1041,6 +1050,75 @@ pub struct ConductionSolverStats {
     pub wall_time_s: f64,
 }
 
+/// One named windowed peak of the conduction observable (issue #1496,
+/// present only with the `--window-edge-m` argument group).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ConductionWindowPeak {
+    /// Which average this entry reports, over candidate windows centred on
+    /// the conducting tets:
+    /// - `"vector_mean"`: magnitude of the volume-averaged current-density
+    ///   vector `|<J>|` (A/m²);
+    /// - `"magnitude_mean"`: volume-averaged current-density magnitude
+    ///   `<|J|>` (A/m²);
+    /// - `"magnitude_rms"`: root-mean-square current-density magnitude
+    ///   `sqrt(<|J|²>)` (A/m²);
+    /// - `"joule_mean"`: volume-averaged Joule density `<σ|∇φ|²>` (W/m³).
+    pub metric: &'static str,
+    /// Peak value of the metric over the candidate windows, in the unit
+    /// named by [`ConductionWindowPeak::metric`].
+    pub value: f64,
+    /// Centre (m) of the winning window.
+    pub location_m: [f64; 3],
+    /// Conducting overlap of the winning window divided by its full box
+    /// volume: `1` when the window sits entirely inside conducting tets,
+    /// smaller when it spills past the conductor surface or into
+    /// insulating tets.
+    pub conducting_volume_fraction: f64,
+    /// `value` divided by the reference of matching units
+    /// (`j_ref_a_m2` for the current-density metrics, `joule_ref_w_m3`
+    /// for `joule_mean`); dimensionless.
+    pub reference_ratio: f64,
+    /// Under-sampling warning: `true` when `window_edge_m` is below the
+    /// largest element edge among the tets whose bounding box intersects
+    /// the winning window — the average then spans fewer than the local
+    /// elements and does not resolve the local field.
+    pub undersampled: bool,
+}
+
+/// Windowed box averages of the current density and Joule density at the
+/// reported operating point (issue #1496; present only with the
+/// `--window-edge-m` argument group).
+///
+/// Per-element maxima are mesh-dependent at a re-entrant corner (`|J| ~
+/// r^(-1/3)`); the windowed averages over a **fixed physical window**
+/// converge under uniform refinement and are the reportable quantities.
+/// Candidate windows are cubes of edge `window_edge_m` centred on the
+/// conducting tets; each metric reports its own winning window (lowest
+/// tet index on ties).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ConductionWindowedPeaks {
+    /// Edge (m) of the cubic averaging window, the same for every
+    /// candidate centre and every refinement.
+    pub window_edge_m: f64,
+    /// Normalization convention, always
+    /// `"conductor_intersection"`: every average's numerator and
+    /// denominator count only exact `tet ∩ window` overlaps with
+    /// positive-conductivity tets, and
+    /// `conducting_volume_fraction` divides that conducting overlap by
+    /// the full window volume (zero outside counts nothing, not zero
+    /// density).
+    pub normalization: &'static str,
+    /// Reference current density (A/m²) for the current-density
+    /// `reference_ratio`s.
+    pub j_ref_a_m2: f64,
+    /// Reference Joule density (W/m³) for the `joule_mean`
+    /// `reference_ratio`.
+    pub joule_ref_w_m3: f64,
+    /// The four named peaks, in the order `vector_mean`, `magnitude_mean`,
+    /// `magnitude_rms`, `joule_mean`.
+    pub peaks: Vec<ConductionWindowPeak>,
+}
+
 /// `geode conduction` report (`kind = "conduction"`, additive in v1).
 ///
 /// The conductance matrix is real, in siemens (SI: the mesh length unit is
@@ -1099,6 +1177,12 @@ pub struct ConductionReport {
     /// mesh units. Present only with `--outdir` (additive in v1).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fields_file: Option<FileRef>,
+    /// Windowed box averages of the current density and Joule density
+    /// (issue #1496; present only with the `--window-edge-m` argument
+    /// group). The per-element maxima above stay and remain the
+    /// mesh-dependent diagnostics.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub windowed_peaks: Option<ConductionWindowedPeaks>,
     /// Solver statistics.
     pub solver: ConductionSolverStats,
 }
@@ -2367,14 +2451,21 @@ pub struct SensitivityReport {
     /// (and, for port-mode observables, the forward's `ε_eff` / line
     /// impedance) over the differentiated frequencies — the two are separate
     /// forwards of one operator, and a run above `1e-8` is a `solve_failed`
-    /// error.
+    /// error. Under the `sweep.adaptive` bypass (Epic #841 Phase 4,
+    /// issue #1627) the report's rows are ROM interpolations, so this is
+    /// instead the largest ROM-vs-full-order delta at the differentiated
+    /// frequencies (a non-fatal diagnostic; the full-order parity against a
+    /// freshly solved dense reference still holds at `1e-8` and is the
+    /// hard `solve_failed` bound there).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forward_parity: Option<f64>,
     /// N-port driven path: non-fatal conditions of the gradient (a
     /// near-degenerate face mode of a hybrid port the design touches, an
     /// ill-conditioned bordered solve, a shape parameter that translates
-    /// the whole model rigidly or moves an unpinned wall), each with its
-    /// remedy.
+    /// the whole model rigidly or moves an unpinned wall; under the
+    /// `sweep.adaptive` bypass also which rows carry gradients, their
+    /// full-order cost and the ROM-vs-full-order parity diagnostic), each
+    /// with its remedy.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<WarningResult>,
 }

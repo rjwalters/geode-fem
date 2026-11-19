@@ -4,9 +4,15 @@
 //! library code here cannot use it. Streams are bit-identical to the
 //! hand-rolled copies this replaces.
 
+// Every lib consumer (`eigen::bloch`, `analytic::port_modes`,
+// `analytic::lossy_port_modes`) is `tensor`-gated, so the generator must
+// be too or the slim (`--no-default-features`) build flags it as
+// dead code under `-D warnings`.
+#[cfg(feature = "tensor")]
 /// Deterministic xorshift64* generator (non-zero state).
 pub(crate) struct Xorshift64Star(u64);
 
+#[cfg(feature = "tensor")]
 impl Xorshift64Star {
     /// Seed with `seed.max(1)` so a zero seed does not stick at zero.
     pub(crate) fn new_nonzero(seed: u64) -> Self {
@@ -35,7 +41,7 @@ impl Xorshift64Star {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "tensor"))]
 mod tests {
     use super::*;
 

@@ -4,6 +4,7 @@
 //! modules previously each re-declared privately.
 
 #[inline]
+#[cfg(feature = "tensor")]
 pub(crate) fn add3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }

@@ -4,11 +4,12 @@ Roadmap generated from the current GitHub label state by the Loom Guide role.
 Everything between the markers below is regenerated; do not edit it by hand.
 
 <!-- guide:plan-body:start -->
+_Generated: 2026-11-18T22:16:08Z (snapshot; compare against live labels)_
 ## Operator Attention: Merge-Risk-Hold Pileup
 
 Judge-approved PRs under a hold (`loom:blocked` or `loom:operator`) — only a human merge decision is missing.
 
-- **#1376**: feat: add default-on tensor feature so geode-core builds without burn/bunsen
+_None._
 
 ## Very Important
 
@@ -24,7 +25,7 @@ _None._
 
 ## Ready
 
-Human-approved issues ready for implementation (`loom:issue`).
+Human-approved issues (`loom:issue`) ready for implementation — excluding held (`loom:blocked`/`loom:operator`/`loom:frozen`), `loom:building`, and issues closed by an open `loom:pr` PR (listed under Approved).
 
 - **#1267**: [#835 P6] CLI adaptive_mesh — spec block, per-iteration report, geode check bound, MSH 4.1 writer
 - **#1299**: mshio: error Display dumps unbounded hex of remaining input
@@ -32,89 +33,70 @@ Human-approved issues ready for implementation (`loom:issue`).
 - **#1382**: Remove dense mixed-pencil assembly (assemble_mixed_pencil, MixedOperators, restrict_mixed): test-only, production uses sparse path
 - **#1393**: Consolidate duplicated onnx/tfjava sphere-PEC reference harnesses
 - **#1488**: Honest GEODE-vs-Palace comparison (manuscript section)
-- **#1546**: Remove complex_slice_to_vec: trivial to_vec wrapper in geode-util
-- **#1607**: Consolidate 7 duplicated box_mesh test meshers into one shared helper
-- **#1610**: Dedupe byte-identical test helpers in geode-cli integration tests onto the shared support modules (~395 lines)
-- **#1613**: Move inline test modules out of five 3,000+-line geode-core source files into tests.rs child modules (5,655 lines)
+- **#1626**: Bring CHANGELOG [Unreleased] up to date with features merged since v0.9.0
+- **#1729**: CI: integration a-m default-tier step overran its 30-min step bound (#1713) uncut; job cancelled at 65 min and log discarded again
 
 ## In Progress
 
 Issues currently being built (`loom:building`).
 
 - **#1391**: Remove flex_precision_spike example and flex feature: spike #451/#374 closed
-- **#1579**: [#1537 P4c-2] Design A adjoint min-max run and kill-criterion verdict
-- **#1588**: Consolidate eight byte-identical helper functions duplicated across geode-core src modules
-- **#1595**: Split eigen/ams.rs (4,218 lines): move inline tests to ams/tests.rs and the scalar AMG to eigen/amg.rs
-- **#1596**: Consolidate duplicated port shape-adjoint cores in driven/shape.rs: matched_upml_ports_core is a ~330-line copy of driven_shape_gradient_ports_complex_core
-- **#1599**: Consolidate six copies of the box_mesh tet mesher (and jitter/box_walls/fit_slope) in geode-core tests into a shared module
-- **#1602**: Add a CI drift gate for the sphere_pec JAX fixture (sibling of jax-sphere-pml.yml)
-- **#1617**: CI never compiles the ~40 crates/geode-core/examples/ binaries
+- **#1754**: Consolidate duplicated TOML test helpers across patch_conformal tests
 
 ## PRs Awaiting Review
 
 PRs waiting on Judge (`loom:review-requested`).
 
-- **#1313**: fix: cap hex dump in mshio parse error Display
-- **#1341**: feat: export per-tet eta in adaptive field VTU and add adaptive_mesh cookbook spec
-- **#1368**: feat: add cell-average and point sampling of tet fields onto user grids
-- **#1387**: refactor(mixed_pencil): remove dead dense assembler, test sparse path
-- **#1392**: chore: remove closed flex_precision_spike example and flex feature
-- **#1395**: test: share onnx/tfjava sphere-PEC harness body in common module
-- **#1489**: docs(papers): add GEODE-vs-Palace measured-performance section (transmon-benchmark.26)
-- **#1605**: refactor: merge the two duplicated port shape-adjoint cores in driven/shape.rs
-- **#1618**: ci: compile-gate geode-core example targets
+- **#1313**: fix: cap hex dump in mshio parse error Display *(held)*
+- **#1341**: feat: export per-tet eta in adaptive field VTU and add adaptive_mesh cookbook spec *(held)*
+- **#1395**: test: share onnx/tfjava sphere-PEC harness body in common module *(held)*
+- **#1489**: docs(papers): add GEODE-vs-Palace measured-performance section (transmon-benchmark.26) *(held)*
+- **#1648**: docs: cover every feature merged since v0.9.0 in CHANGELOG [Unreleased] *(held)*
+- **#1755**: test: share TOML artifact helpers across patch_conformal tests
 
 ## Approved (Awaiting Merge)
 
 PRs that passed review and are queued for Champion auto-merge (`loom:pr`).
 
-- **#1376**: feat: add default-on tensor feature so geode-core builds without burn/bunsen
-- **#1603**: refactor(tests): share the box tet mesher and slope fit via common/box_fixtures
-- **#1606**: refactor: keep one definition of eight helpers duplicated across geode-core
-- **#1608**: refactor: split eigen/ams.rs into ams.rs, ams/tests.rs and eigen/amg.rs
-- **#1614**: ci: add jax-sphere-pec drift gate for the sphere-PEC JAX snapshot
-- **#1615**: feat(benchmarks): record the Design A min-max run and its kill-criterion verdict
+_None._
 
 ## Proposed
 
 Issues carrying `loom:curated`.
 
-- **#926**: CUDA f32 matmul runs as TF32 on Ampere+: matrix-free driven COCG stagnates on A100 (audit remaining f32 matmul sites) *(curated)*
-- **#955**: p=2 TM guard: compute the guide section's TM cutoff from the 3-D model to recover the coarse-mesh band *(curated)*
-- **#1032**: TM guard: extend the acceptance tables to guides longer than the guard's reach (#955 option B) *(curated)*
+- **#926**: CUDA f32 matmul runs as TF32 on Ampere+: matrix-free driven COCG stagnates on A100 (audit remaining f32 matmul sites) *(curated)* *(held)*
+- **#955**: p=2 TM guard: compute the guide section's TM cutoff from the 3-D model to recover the coarse-mesh band *(curated)* *(held)*
+- **#1032**: TM guard: extend the acceptance tables to guides longer than the guard's reach (#955 option B) *(curated)* *(held)*
 - **#1083**: [conformal v5] New experiments for conformal-antenna-diffopt v5 (umbrella) *(curated)*
-- **#1086**: [conformal v5] E3: Dense S11 sweep plus radiated/dissipated power balance for initial and optimized designs *(curated)*
-- **#1090**: [conformal v5] E5b: Meep dielectric-density optimization of the substrate (structured-grid optimizer vs GEODE) *(curated)*
-- **#1237**: Resolve remaining archive and parser dependency security advisories *(curated)*
-- **#1255**: [#1251 P1b] Layout schema v2 for IC stacks — holes, 45°, via nets, finite-σ shells, SG13G2 stackup import *(curated)*
-- **#1259**: [#841 P2a] Material physics gradients — tan δ, dispersive-model (DS/Debye/Drude) and anisotropic ε/μ parameters *(curated)*
-- **#1266**: [#835 P4] Goal-oriented DWR for S-parameters and eigenfrequency — GoalFunctional shared with the adjoint gradients *(curated)*
+- **#1086**: [conformal v5] E3: Dense S11 sweep plus radiated/dissipated power balance for initial and optimized designs *(curated)* *(held)*
+- **#1090**: [conformal v5] E5b: Meep dielectric-density optimization of the substrate (structured-grid optimizer vs GEODE) *(curated)* *(held)*
+- **#1237**: Resolve remaining archive and parser dependency security advisories *(curated)* *(held)*
+- **#1255**: [#1251 P1b] Layout schema v2 for IC stacks — holes, 45°, via nets, finite-σ shells, SG13G2 stackup import *(curated)* *(held)*
+- **#1259**: [#841 P2a] Material physics gradients — tan δ, dispersive-model (DS/Debye/Drude) and anisotropic ε/μ parameters *(curated)* *(held)*
+- **#1266**: [#835 P4] Goal-oriented DWR for S-parameters and eigenfrequency — GoalFunctional shared with the adjoint gradients *(curated)* *(held)*
 - **#1267**: [#835 P6] CLI adaptive_mesh — spec block, per-iteration report, geode check bound, MSH 4.1 writer *(curated)*
-- **#1288**: layout v2: gds2palace XML stackup importer and scripts/gds2geode-layout.py (IHP 400 pH inductor) *(curated)*
+- **#1288**: layout v2: gds2palace XML stackup importer and scripts/gds2geode-layout.py (IHP 400 pH inductor) *(curated)* *(held)*
 - **#1299**: mshio: error Display dumps unbounded hex of remaining input *(curated)*
-- **#1340**: adaptive_mesh: support interior lumped-port sheets in geode-core::adapt (adapt_driven) *(curated)*
+- **#1340**: adaptive_mesh: support interior lumped-port sheets in geode-core::adapt (adapt_driven) *(curated)* *(held)*
 - **#1363**: postproc: sample piecewise-constant E onto cells or points (point location, cell averages) *(curated)*
-- **#1365**: geode-core: electrostatics-only build without Burn/Bunsen (3 min cold build, MPL-2.0 colored via burn-tensor) *(curated)*
-- **#1428**: Meep R2.5/R5 Spot runs on the optimized E4 geometry with harness v3 (split from #1427) *(curated)*
+- **#1428**: Meep R2.5/R5 Spot runs on the optimized E4 geometry with harness v3 (split from #1427) *(curated)* *(held)*
 - **#1488**: Honest GEODE-vs-Palace comparison (manuscript section) *(curated)*
-- **#1579**: [#1537 P4c-2] Design A adjoint min-max run and kill-criterion verdict *(curated)*
-- **#1602**: Add a CI drift gate for the sphere_pec JAX fixture (sibling of jax-sphere-pml.yml) *(curated)*
-- **#1617**: CI never compiles the ~40 crates/geode-core/examples/ binaries *(curated)*
+- **#1626**: Bring CHANGELOG [Unreleased] up to date with features merged since v0.9.0 *(curated)*
+- **#1629**: Research note: can Palace model the Design A Floquet cell for the #1581 cross-check? *(curated)* *(held)*
+- **#1729**: CI: integration a-m default-tier step overran its 30-min step bound (#1713) uncut; job cancelled at 65 min and log discarded again *(curated)*
 
 ## Proposed (Architect / Hermit)
 
-- **#1416**: Prune superseded papers version snapshots (~440 MB tracked) *(hermit)*
-- **#1565**: Consolidate duplicated forward-mode Dual number: shape.rs copy is a subset of driven/shape.rs *(hermit)*
-- **#1567**: Remove 19 superseded PyTorch Declarations YAMLs from vendored tch (75 MB tracked, read by nothing) *(hermit)*
-- **#1591**: Remove ceviche_fdfd_baseline.py: 2D FDFD scaffold with a never-run TODO loop, superseded by the Meep baselines *(hermit)*
-- **#1609**: Consolidate 4 inlined copies of the transmon reduced-system preamble onto the existing reduced_transmon_system helper *(hermit)*
-- **#1612**: Consolidate six copies of the tet barycentric-gradient formula onto tet_barycentric_gradients *(hermit)*
+- **#1416**: Prune superseded papers version snapshots (~440 MB tracked) *(hermit)* *(held)*
+- **#1621**: Split geode-cli problem/mod.rs (4,064 lines): move the validate_* and resolve_* groups into sibling modules *(hermit)* *(held)*
+- **#1649**: Consolidate the duplicated mie_roots fixture helpers onto tests/common: the julia harness is a verbatim copy of the numpy one (~118 lines) *(hermit)* *(held)*
+- **#1651**: Consolidate duplicated Burn helpers between nedelec_local and p1_local numpy reference harnesses *(hermit)* *(held)*
 
 ## Epics
 
-- **#546**: Epic: distributed EM solve over NVLink GPU clusters — domain decomposition + distributed sparse Krylov (tensor-compilation scale thesis, Leg 3)
+- **#546**: Epic: distributed EM solve over NVLink GPU clusters — domain decomposition + distributed sparse Krylov (tensor-compilation scale thesis, Leg 3) *(held)*
 - **#835**: Epic: adaptive meshing — a-posteriori error estimation + AMR loop (v0.9.0)
-- **#836**: Epic: higher-order accuracy — p=2 Nédélec through driven/eigen/ports/CLI (v0.9.0)
+- **#836**: Epic: higher-order accuracy — p=2 Nédélec through driven/eigen/ports/CLI (v0.9.0) *(held)*
 - **#841**: Epic: differentiable EDA — sensitivities through ports/materials/hybrid modes + geode optimize (v0.9.0)
 - **#1251**: Epic: open-PDK IC flow — differentiable mm-wave passives on IHP SG13G2, calibrate + corners, taped out and measured
 - **#1252**: Epic: wide-scan phased-array element by Floquet shape adjoint, measured in a waveguide simulator
@@ -123,14 +105,14 @@ Issues carrying `loom:curated`.
 
 | Bucket | Count |
 |------|-------|
-| Operator merge-risk holds | 1 |
+| Operator merge-risk holds | 0 |
 | Very important | 1 |
 | Important | 0 |
-| Ready (`loom:issue`) | 10 |
-| In Progress (`loom:building`) | 8 |
-| PRs awaiting review | 9 |
-| Approved PRs awaiting merge | 6 |
-| Curated | 21 |
-| Architect / Hermit proposals | 6 |
+| Ready (`loom:issue`, net of holds/building/merge-pending) | 8 |
+| In Progress (`loom:building`) | 2 |
+| PRs awaiting review | 6 |
+| Approved PRs awaiting merge | 0 |
+| Curated | 20 |
+| Architect / Hermit proposals | 4 |
 | Active epics | 6 |
 <!-- guide:plan-body:end -->

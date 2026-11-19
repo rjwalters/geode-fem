@@ -37,12 +37,21 @@ on:
   workflow_dispatch: {}
   pull_request:
     branches: [main]
+  # Issue #1742: merge queue — run on each merge group's combined tree.
+  # The default checkout (github.sha) is the group's commit, not the PR
+  # head or main.
+  merge_group:
+    types: [checks_requested]
 
 # Issue #899: a newer push to a PR cancels that PR's older run. On main a
 # started run is never cancelled, and at most one run waits: a newer one
 # replaces the waiting one.
+#
+# Issue #1742: merge-group runs are keyed by the group's unique head SHA, so
+# a PR or push run can neither supersede nor cancel them (cancel-in-progress
+# stays PR-only, per issue #899).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || (github.event.pull_request.number || github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -67,8 +76,8 @@ jobs:
 
       - name: Install libarpack2-dev and pkg-config
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libarpack2-dev pkg-config
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y libarpack2-dev pkg-config
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -360,9 +369,14 @@ jobs:
 
       - name: "Install Gmsh (geode mesh, issue #704)"
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gmsh
-          gmsh --version
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends gmsh
+          V="$(gmsh --version 2>&1 | tr -d '\r')"
+          echo "gmsh --version: $V"
+          case "$V" in
+            4.12.*) ;;
+            *) echo "::error::Gmsh $V is not the measured-green 4.12.x (see #1632); the runner image or apt suite moved."; exit 1 ;;
+          esac
 
       - name: Cache cargo registry + target
         uses: actions/cache@v6
@@ -418,9 +432,14 @@ jobs:
 
       - name: "Install Gmsh (geode mesh, issue #704)"
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gmsh
-          gmsh --version
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends gmsh
+          V="$(gmsh --version 2>&1 | tr -d '\r')"
+          echo "gmsh --version: $V"
+          case "$V" in
+            4.12.*) ;;
+            *) echo "::error::Gmsh $V is not the measured-green 4.12.x (see #1632); the runner image or apt suite moved."; exit 1 ;;
+          esac
 
       - name: Cache cargo registry + target
         uses: actions/cache@v6
@@ -459,6 +478,12 @@ jobs:
       # Issue #760 adds the anisotropic-materials AMS golden (spiral smoke
       # with a uniaxial substrate and diagonal mu, AMS-COCG vs direct LU;
       # ~4 s in release).
+      #
+      # Issue #1627 adds the `sweep.adaptive` + `sensitivity` bypass golden
+      # to `adaptive_sweep_golden` (Epic #841 Phase 4: adaptive vs dense
+      # gradients on the spiral sensitivity smoke fixture, ROM parity
+      # diagnostic, `--check-gradient`; ~2.5 min in release, picked up by
+      # the `-- --ignored` run below).
       - name: geode static-extraction benchmark tiers (release, --ignored)
         run: |
           cargo test -p geode-cli --release --test inductance_golden \

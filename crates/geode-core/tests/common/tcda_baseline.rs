@@ -104,6 +104,25 @@ impl BaselineParams {
     }
 }
 
+/// The recorded baseline element (`benchmarks/tcda_baseline/README.md`,
+/// issue #1536). The test and example binaries import it as `P`
+/// (`use tcda_baseline::RECORDED as P`).
+pub const RECORDED: BaselineParams = BaselineParams {
+    pitch: 0.9,
+    half_len: 0.39,
+    strip_cells: 2,
+    n: 14,
+    dz: 0.125,
+    l_dip: 4,
+    l_sub: 2,
+    l_air: 2,
+    eps_sub: 2.0,
+};
+
+/// Feed-line reference impedance of the recorded baseline (normalized
+/// units); about the mid-band broadside `Re Z_scan` (0.152 to 0.190).
+pub const Z_REF: f64 = 0.15;
+
 /// The realized element box of a built cell, in the mesh's own length
 /// units (so already scaled by [`build_cell_scaled`]'s factor). This is
 /// what `ElementGeometry` of `shape::floquet_element` is filled from.
@@ -189,6 +208,7 @@ impl BaselineParts {
                 eps_r: 1.0,
             },
             FloquetSettings::default(),
+            ElementOrder::P1,
             &test_device(),
         )
         .map_err(|e| e.to_string())
@@ -389,6 +409,28 @@ impl ScanGrid {
         Self {
             omegas,
             thetas: [0.0_f64, 15.0, 30.0, 45.0, 60.0]
+                .iter()
+                .map(|d| d.to_radians())
+                .collect(),
+            phis: vec![0.0, PI / 2.0],
+        }
+    }
+
+    /// The reduced comparison grid of issue #1580 (Epic #1252 Phase 4c
+    /// child 3): `ω/π ∈ {0.9, 1.0, 1.1} × θ ∈ {0°, 30°, 60°} × φ ∈ {0°,
+    /// 90°}` — 18 points, about a third of the cost of [`Self::phase4`]
+    /// per evaluation. It deliberately keeps **both recorded binding
+    /// edges** at `θ = 60°, φ = 90°`: the #1536 baseline's worst case sits
+    /// at `ω/π = 1.1` and #1579's optimized design's worst case sits at
+    /// `ω/π = 0.9`, so dropping either band edge would decouple a run from
+    /// the kill floor (baseline − 1 dB) or let it escape into an
+    /// unmeasured frequency. The two interior frequencies sample the 20 %
+    /// band; a two-frequency grid would be too coarse for a min-max
+    /// objective.
+    pub fn reduced_comparison(omega0: f64) -> Self {
+        Self {
+            omegas: vec![0.9 * omega0, omega0, 1.1 * omega0],
+            thetas: [0.0_f64, 30.0, 60.0]
                 .iter()
                 .map(|d| d.to_radians())
                 .collect(),

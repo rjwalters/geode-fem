@@ -320,6 +320,54 @@ fn validate_sweep_accepts_and_rejects() {
     );
 }
 
+/// `sweep.adaptive` + `sensitivity` on a driven spec (Epic #841 Phase 4,
+/// issue #1627): lumped ports run the bypass mode (full-order gradients
+/// next to the ROM sweep rows); wave / hybrid ports keep the Phase 4
+/// rejection with its message unchanged.
+#[test]
+fn adaptive_sensitivity_gate_is_lumped_only() {
+    let spec = |extra: serde_json::Value| -> ProblemSpec {
+        let mut v = serde_json::json!({
+            "schema_version": 1,
+            "mesh": {"path": "m.msh", "length_unit_m": 1e-6},
+            "ports": [{"physical_group": "p", "e_hat": [0.0, 1.0, 0.0], "resistance_ohm": 50.0}],
+            "frequencies": {"unit": "ghz", "values": [1.0, 2.0]},
+            "sensitivity": {"parameters": [{"kind": "eps_r", "physical_group": "p"}]},
+            "sweep": {"adaptive": {}}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        serde_json::from_value(v).expect("spec parses")
+    };
+    // Lumped + adaptive + sensitivity is the bypass mode: accepted.
+    validate_sensitivity(&spec(serde_json::json!({})), Analysis::Driven).unwrap();
+    // Wave ports (alone or mixed with lumped ones) are still rejected,
+    // message unchanged from the pre-bypass gate.
+    for wave in [
+        serde_json::json!({"ports": [], "wave_ports": [{"physical_group": "w"}]}),
+        serde_json::json!({"wave_ports": [{"physical_group": "w"}]}),
+    ] {
+        let Err(CliError::InvalidSpec(m)) =
+            validate_sensitivity(&spec(wave.clone()), Analysis::Driven)
+        else {
+            panic!("expected the wave-port rejection, got Ok for {wave}");
+        };
+        assert!(
+            m.contains("does not support `sweep.adaptive`") && m.contains("Phase 4"),
+            "{wave}: {m}"
+        );
+        assert!(!m.contains("  "), "stray whitespace: {m:?}");
+    }
+    // The dense sweep is unaffected on both port sets.
+    let mut dense_lumped = serde_json::json!({});
+    dense_lumped["sweep"] = serde_json::json!({});
+    validate_sensitivity(&spec(dense_lumped), Analysis::Driven).unwrap();
+    let mut dense_wave = serde_json::json!({"ports": [], "wave_ports": [{"physical_group": "w"}]});
+    dense_wave["sweep"] = serde_json::json!({});
+    validate_sensitivity(&spec(dense_wave), Analysis::Driven).unwrap();
+}
+
 /// `materials[].dispersion` rules (issue #757), all scalar: they fire
 /// before the mesh is read, so a valid driven spec gets as far as the
 /// (absent) mesh file.

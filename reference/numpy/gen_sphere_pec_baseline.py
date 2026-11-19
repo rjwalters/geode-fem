@@ -97,7 +97,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -115,6 +114,7 @@ MESH_PATH = FIXTURE_DIR / "sphere.msh"
 _REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT_STR not in sys.path:
     sys.path.insert(0, _REPO_ROOT_STR)
+from reference.fixture_utils import git_commit  # noqa: E402
 from reference.numpy.sphere_pec import (  # noqa: E402
     R_BUFFER,
     R_SPHERE,
@@ -180,18 +180,6 @@ MIE_ROOTS_K = np.array(
     ],
     dtype=np.float64,
 )
-
-
-def _git_commit() -> str:
-    try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=REPO_ROOT,
-            stderr=subprocess.DEVNULL,
-        )
-        return out.decode().strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown"
 
 
 def _per_row_nnz_histogram(csr) -> list[int]:
@@ -584,7 +572,7 @@ def main():
         },
         "provenance": {
             "source": (
-                f"reference/numpy/sphere_pec.py @ commit {_git_commit()} ; "
+                f"reference/numpy/sphere_pec.py @ commit {git_commit(REPO_ROOT)} ; "
                 f"scipy {scipy.__version__}, numpy {np.__version__}, "
                 f"python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
             ),

@@ -461,12 +461,6 @@ impl SmootherWeight {
         self.source
     }
 
-    /// The stability bound `2 / rho_hat` implied by the estimate (`NaN` if
-    /// there is none). An estimate: see the type-level docs.
-    pub fn stability_bound_estimate(&self) -> f64 {
-        2.0 / self.rho_hat
-    }
-
     /// Set when an explicit override is above both `2 / rho_hat` and the
     /// automatic weight: the message that was printed to stderr at build
     /// time. The override is still used.
@@ -846,6 +840,7 @@ pub(crate) enum CoarseSolve {
     /// configured count (issue #963: the driven vector-nodal block's
     /// measurement option, independent of the process-global
     /// `GEODE_AMG_CYCLES`).
+    #[cfg_attr(not(feature = "tensor"), allow(dead_code))]
     AmgCycles(usize),
 }
 
@@ -1402,6 +1397,7 @@ impl AmsLitePreconditioner {
     }
 
     /// The V-cycle structure this preconditioner was built with (issue #963).
+    #[cfg_attr(not(feature = "tensor"), allow(dead_code))]
     pub(crate) fn vcycle(&self) -> VCycleOptions {
         self.vcycle
     }
@@ -1500,6 +1496,7 @@ impl AmsLitePreconditioner {
     }
 
     /// The V-cycle smoother weight and the estimate behind it (issue #945).
+    #[cfg_attr(not(feature = "tensor"), allow(dead_code))]
     pub(crate) fn smoother(&self) -> &SmootherWeight {
         &self.smoother
     }

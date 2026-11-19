@@ -9,7 +9,13 @@ archive semantics. The accepted 15-file patch has SHA256
 
 `provenance.json` records each crates.io archive checksum, all published
 baseline file hashes, every vendored file hash, and the test-support hashes.
-The complete published source and MIT/Apache notices are retained. The
+The published source and MIT/Apache notices are retained, except the files
+listed in `omitted_from_vendor` in `provenance.json`: 19 superseded PyTorch
+`Declarations-v1.4.0` to `v2.8.0` YAML files (~75 MB) under
+`tch-0.22.0/third_party/pytorch/`, which only the unrunnable OCaml generator
+could read (it names v2.9.0 only, which is kept). This is a size exception,
+following #1452. `run.py` checks that the omitted list equals the baseline
+files that are not vendored (apart from lockfiles). The
 published consumer lockfiles are not vendored (Cargo ignores a dependency's
 own lockfile, and cargo regenerates ignored ones in place, so they are
 untracked and skipped by the file-set check; the baseline hashes still record
@@ -48,7 +54,15 @@ No production source was changed to obtain this result.
 
 ## Reproduce the tests
 
-Use Python 3.11+, Cargo, a C++ compiler, and native LibTorch **2.9**. The
+Before setting up the native suite, run the Python-only source-verification
+regression tests from the repository root. CI runs the same command in the
+`verify-sources-tests` job; it needs no LibTorch or Cargo:
+
+```sh
+python3 -I security/zip-compat/test_verify_sources.py -v
+```
+
+For the full native suite, use Python 3.11+, Cargo, a C++ compiler, and native LibTorch **2.9**. The
 [official CPU archive index](https://download.pytorch.org/libtorch/cpu) supplies
 the Linux ZIP used in CI. Its pinned SHA256 is
 `22de42abde933be46ce843467930bd0190b72271bfa2c11f84db95591a9834f1`, computed

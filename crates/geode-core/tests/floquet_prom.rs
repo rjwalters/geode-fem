@@ -19,6 +19,7 @@ use geode_core::driven::floquet::{
     FloquetCell, FloquetCellSpec, FloquetError, FloquetPortSpec, FloquetProm, FloquetSettings,
 };
 use geode_core::driven::rom::RomSettings;
+use geode_core::elements::ElementOrder;
 use geode_core::mesh::TetMesh;
 use geode_core::mesh::periodic::{
     PeriodicMap, PeriodicMatchOptions, boundary_triangles_on_plane, box_periodic_pairs,
@@ -80,6 +81,8 @@ fn slab_cell(c: &Cell) -> FloquetCell {
             },
         ],
         settings: FloquetSettings::default(),
+
+        element_order: ElementOrder::P1,
     };
     FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).unwrap()
 }

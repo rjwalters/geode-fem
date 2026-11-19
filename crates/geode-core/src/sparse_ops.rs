@@ -4,11 +4,12 @@
 //! driven and assembly modules previously each re-declared privately, plus the
 //! `Lu::solve_in_place` wrapper shared by the real and complex solvers.
 
+use faer::Mat;
+use faer::c64;
 use faer::linalg::solvers::Solve;
 use faer::sparse::SparseColMatRef;
 use faer::sparse::linalg::solvers::Lu;
 use faer::traits::ComplexField;
-use faer::{Mat, c64};
 
 /// Euclidean 2-norm `sqrt(Σ xᵢ²)` of a real slice.
 pub(crate) fn norm2(v: &[f64]) -> f64 {
@@ -16,6 +17,7 @@ pub(crate) fn norm2(v: &[f64]) -> f64 {
 }
 
 /// Hermitian 2-norm `sqrt(Σ |zᵢ|²)` of a complex slice.
+#[cfg(feature = "tensor")]
 pub(crate) fn norm2_c(v: &[c64]) -> f64 {
     v.iter().map(|z| z.norm_sqr()).sum::<f64>().sqrt()
 }
@@ -66,6 +68,7 @@ pub(crate) fn spmv_c_into(a: SparseColMatRef<'_, usize, c64>, x: &[c64], y: &mut
 }
 
 /// `A · x` for a complex CSC sparse matrix, returned as a fresh vector.
+#[cfg(feature = "tensor")]
 pub(crate) fn spmv_c(a: SparseColMatRef<'_, usize, c64>, x: &[c64]) -> Vec<c64> {
     let mut y = vec![c64::new(0.0, 0.0); a.nrows()];
     spmv_c_into(a, x, &mut y);
@@ -73,6 +76,7 @@ pub(crate) fn spmv_c(a: SparseColMatRef<'_, usize, c64>, x: &[c64]) -> Vec<c64> 
 }
 
 /// `y = A · x` for a real CSC matrix and a complex vector (overwrite).
+#[cfg(feature = "tensor")]
 pub(crate) fn spmv_rc_into(a: SparseColMatRef<'_, usize, f64>, x: &[c64], y: &mut [c64]) {
     let zero = c64::new(0.0, 0.0);
     y.iter_mut().for_each(|v| *v = zero);
@@ -92,6 +96,7 @@ pub(crate) fn spmv_rc_into(a: SparseColMatRef<'_, usize, f64>, x: &[c64], y: &mu
 
 /// `A · x` for a real CSC matrix and a complex vector, returned as a fresh
 /// vector.
+#[cfg(feature = "tensor")]
 pub(crate) fn spmv_rc(a: SparseColMatRef<'_, usize, f64>, x: &[c64]) -> Vec<c64> {
     let mut y = vec![c64::new(0.0, 0.0); a.nrows()];
     spmv_rc_into(a, x, &mut y);
@@ -115,6 +120,7 @@ pub(crate) fn spmv_transpose_into(a: SparseColMatRef<'_, usize, f64>, x: &[f64],
 }
 
 /// Quadratic form `xᵀ A x` for a CSC sparse matrix.
+#[cfg(feature = "tensor")]
 pub(crate) fn quad_form(a: SparseColMatRef<'_, usize, f64>, x: &[f64]) -> f64 {
     bilinear_form(a, x, x)
 }

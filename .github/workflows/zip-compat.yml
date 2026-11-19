@@ -4,15 +4,34 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch: {}
+  # Issue #1742: merge queue — run on each merge group's combined tree.
+  # The default checkout (github.sha) is the group's commit, not the PR
+  # head or main.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
 
+# Issue #1742: merge-group runs are keyed by the group's unique head SHA, so
+# a PR or push run can neither supersede nor cancel them; runs are never
+# cancelled in progress.
 concurrency:
-  group: zip-compat-${{ github.event.pull_request.number || github.ref }}
+  group: zip-compat-${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || (github.event.pull_request.number || github.ref) }}
   cancel-in-progress: false
 
 jobs:
+  # Issue #1758: Python-only regression tests for verify_sources(). Needs just
+  # a full checkout (the test reads the vendored tree), so it is deliberately
+  # independent of native-archive-tests and its LibTorch download.
+  verify-sources-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run source-verification regression tests
+        run: python3 -I security/zip-compat/test_verify_sources.py -v
+
   native-archive-tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -28,7 +47,7 @@ jobs:
           df -h /
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
           df -h /
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@stable
       - name: Install checksum-pinned LibTorch 2.9 CPU archive
         shell: bash
         run: |

@@ -16,7 +16,6 @@
 //!   honesty/scale cross-check.
 
 mod common;
-use common::edge_tables;
 
 use burn::tensor::Tensor;
 use faer::c64;
@@ -101,7 +100,7 @@ fn cavity_fixture(n: usize) -> CavityFixture {
 fn cavity_fixture_with_side(n: usize, side: f64) -> CavityFixture {
     let mesh = cube_tet_mesh(n, side);
     let edges = mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&mesh);
+    let (tet_edge_idx, tet_edge_sign) = mesh.tet_edge_tables();
 
     // PEC on every outer-boundary face (a fully closed cavity).
     let metal: Vec<[u32; 3]> = mesh
@@ -627,7 +626,7 @@ struct LondonCavityFixture {
 fn london_cavity_fixture(n: usize) -> LondonCavityFixture {
     let mesh = cube_tet_mesh(n, 1.0);
     let edges = mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&mesh);
+    let (tet_edge_idx, tet_edge_sign) = mesh.tet_edge_tables();
 
     let on = |f: &[u32; 3], c: usize, val: f64| {
         f.iter()
@@ -871,7 +870,7 @@ fn solve_real_bare_cavity(
     Vec<TransmonMode>,
 ) {
     let edges = f.mesh.edges();
-    let (tet_edge_idx, tet_edge_sign) = edge_tables(&f.mesh);
+    let (tet_edge_idx, tet_edge_sign) = f.mesh.tet_edge_tables();
     let metal = f.metal_triangles();
     let exterior = f.exterior_boundary_triangles();
     let interior_mask =

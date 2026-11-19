@@ -36,6 +36,13 @@
 //! never reported for a different forward than the one in the report. A
 //! hybrid spec runs the sensitivity over every swept frequency (mode
 //! tracking is a sweep-wide assignment) and reports the selected ones.
+//! Under the `sweep.adaptive` bypass (Epic #841 Phase 4, issue #1627) the
+//! report's lumped rows may be ROM interpolations, so the S parity runs
+//! against a freshly solved dense reference at the differentiated
+//! frequencies (the same hard `1e-8` bound), the ROM delta is reported as
+//! the non-fatal `forward_parity` diagnostic with warning
+//! `sensitivity_forward_parity`, and no wave-port observable exists to
+//! check (the gate rejects wave / hybrid ports in this mode).
 //!
 //! **FD self-check** (`fd_check` / `--check-gradient`): every parameter is
 //! re-run through the **shipped** `geode driven` forward
@@ -43,7 +50,11 @@
 //! — material: the region's `ε_r` changed; shape: the mesh nodes moved by
 //! `±h` times the parameter's column (never re-meshed), the hybrid faces
 //! rebuilt on the moved mesh — and each entry is compared to the central
-//! difference. A loss parameter within one step of its lossless bound
+//! difference. The perturbed problem is always solved dense (its
+//! `sweep.adaptive` is cleared, issue #1627: a ROM forward would pollute
+//! the estimate against a full-order adjoint), and under the bypass the
+//! unperturbed base values come from the dense reference rows too. A loss
+//! parameter within one step of its lossless bound
 //! (`ε″ = 0`, `tan δ = 0`) uses the one-sided second-order difference
 //! `(f(2h)·(−1) + 4f(h) − 3f(0))/(2h)`: `ε″ < 0` is gain, and a filled
 //! port's outgoing branch flips there (the library's passive-side
@@ -83,7 +94,10 @@ use crate::spec::{
 };
 
 /// Largest accepted relative difference between the sensitivity's S matrix
-/// and the report's (two forwards of one operator: round-off apart).
+/// and the report's (two forwards of one operator: round-off apart). Under
+/// the `sweep.adaptive` bypass (issue #1627) the same bound applies to the
+/// sensitivity's S against a freshly solved dense reference, while the
+/// ROM delta is reported as a non-fatal diagnostic.
 pub const FORWARD_PARITY_TOL: f64 = 1e-8;
 /// Largest accepted relative difference between a port-mode value of the
 /// sensitivity (Phase 3a's evaluator, `zᵀBz` pseudo-power) and the report's
@@ -1347,6 +1361,12 @@ fn perturbed(
     delta: f64,
 ) -> Result<Problem, CliError> {
     let mut q = p.clone();
+    // The FD check must not ride the ROM: its estimate is compared to a
+    // full-order adjoint, so its forward is dense even under the
+    // `sweep.adaptive` bypass (issue #1627).
+    if let Some(sw) = q.spec.sweep.as_mut() {
+        sw.adaptive = None;
+    }
     match (prm.kind, col) {
         (SensitivityParameterKind::Shape, Some(col)) => {
             let t = delta / p.length_unit_m();
@@ -1525,8 +1545,35 @@ pub fn driven(
         &sw.points[at]
     };
 
-    // Forward parity against the report's own rows.
+    // The `sweep.adaptive` bypass (Epic #841 Phase 4, issue #1627): the
+    // report's rows may be reduced-order interpolations while the
+    // gradients are full-order, so the parity of the gradient's own
+    // forward runs against a freshly solved dense reference at the
+    // differentiated frequencies — not the ROM rows — and the ROM delta
+    // becomes the reported non-fatal diagnostic (`forward_parity`,
+    // warning `sensitivity_forward_parity`).
+    let bypass = p.spec.sweep.as_ref().is_some_and(|s| s.adaptive.is_some());
+    let reference: Vec<FrequencyResult> = if bypass {
+        let mut q = p.clone();
+        if let Some(sw) = q.spec.sweep.as_mut() {
+            sw.adaptive = None;
+        }
+        q.frequencies = sens
+            .frequency_indices
+            .iter()
+            .map(|&fi| p.frequencies[fi])
+            .collect();
+        forward_rows(&q, jobs)?
+    } else {
+        Vec::new()
+    };
+
+    // Forward parity: against the report's own rows when they are the
+    // gradients' forward (dense), against the dense reference under the
+    // bypass. `rom_delta` accumulates the bypass's ROM-vs-full-order
+    // delta.
     let mut parity = 0.0_f64;
+    let mut rom_delta = 0.0_f64;
     let faces = d
         .columns
         .iter()
@@ -1541,7 +1588,7 @@ pub fn driven(
         .collect();
     // Frequencies (Hz) at which parameter k's roughness has saturated.
     let mut wall_saturated: Vec<Vec<f64>> = vec![Vec::new(); sens.parameters.len()];
-    for &fi in &sens.frequency_indices {
+    for (si, &fi) in sens.frequency_indices.iter().enumerate() {
         let pt = point_of(fi);
         let row = &rows[fi];
         let n = pt.n_ports;
@@ -1552,12 +1599,26 @@ pub fn driven(
                 row.s.len()
             )));
         }
-        let scale = (0..n * n)
-            .map(|k| row_s(row, k / n, k % n).norm())
-            .fold(0.0, f64::max)
-            .max(f64::MIN_POSITIVE);
-        for (k, sk) in pt.s.iter().enumerate().take(n * n) {
-            parity = parity.max((sk - row_s(row, k / n, k % n)).norm() / scale);
+        // The relative delta of the sensitivity's own full-order S
+        // against row `r`, normalized by `r`'s largest |S|.
+        let s_delta = |r: &FrequencyResult| {
+            let scale = (0..n * n)
+                .map(|k| row_s(r, k / n, k % n).norm())
+                .fold(0.0, f64::max)
+                .max(f64::MIN_POSITIVE);
+            pt.s.iter()
+                .enumerate()
+                .take(n * n)
+                .map(|(k, sk)| (sk - row_s(r, k / n, k % n)).norm() / scale)
+                .fold(0.0, f64::max)
+        };
+        parity = parity.max(if bypass {
+            s_delta(&reference[si])
+        } else {
+            s_delta(row)
+        });
+        if bypass {
+            rom_delta = rom_delta.max(s_delta(row));
         }
         for o in sens.observables.iter().filter(|o| o.wave_port.is_some()) {
             let want = row_port_mode(p, o, row);
@@ -1633,7 +1694,33 @@ pub fn driven(
         eprintln!("warning: {}", w.message);
         warnings.push(w);
     }
-    if parity.is_nan() || parity > FORWARD_PARITY_TOL {
+    if bypass {
+        // The gradient's own forward must still be a true full-order
+        // solve (the dense invariant, now against the freshly solved
+        // reference); only the ROM delta is tolerated (issue #1627).
+        if parity.is_nan() || parity > FORWARD_PARITY_TOL {
+            return Err(CliError::SensitivitySolve(format!(
+                "the sensitivity's forward S differs from the dense full-order reference by \
+                 {parity:.3e} (relative) > {FORWARD_PARITY_TOL:e}: the gradient would not be \
+                 of a full-order solve"
+            )));
+        }
+        warnings.push(WarningResult {
+            kind: "sensitivity_forward_parity",
+            wave_port: None,
+            physical_group: None,
+            message: format!(
+                "`sweep.adaptive`: the report's S rows at the differentiated frequencies are \
+                 reduced-order interpolations and differ from the gradients' full-order forward \
+                 by {rom_delta:.3e} (relative, reported as `forward_parity`) — the gradients \
+                 themselves are full-order solves"
+            ),
+        });
+        warnings.extend(crate::sensitivity::bypass_warnings(
+            p,
+            &sens.frequency_indices,
+        ));
+    } else if parity.is_nan() || parity > FORWARD_PARITY_TOL {
         return Err(CliError::SensitivitySolve(format!(
             "the sensitivity's forward S differs from the report's by {parity:.3e} (relative) > \
              {FORWARD_PARITY_TOL:e}: the gradient would not be of the reported forward"
@@ -1694,9 +1781,16 @@ pub fn driven(
             let mut worst: Option<String> = None;
             let mut n_solves = 0;
             // The FD forward only needs the differentiated frequencies (a
-            // hybrid spec keeps the whole sweep: tracking).
-            let base_rows: Vec<&FrequencyResult> =
-                sens.frequency_indices.iter().map(|&fi| &rows[fi]).collect();
+            // hybrid spec keeps the whole sweep: tracking). Its unperturbed
+            // base is the full-order reference under the bypass — the
+            // report's ROM rows would pollute a one-sided estimate.
+            let base_rows: Vec<&FrequencyResult> = if bypass {
+                (0..sens.frequency_indices.len())
+                    .map(|si| &reference[si])
+                    .collect()
+            } else {
+                sens.frequency_indices.iter().map(|&fi| &rows[fi]).collect()
+            };
             for (k, prm) in sens.parameters.iter().enumerate() {
                 let col = d.columns[k].as_ref();
                 let scale = parameter_scale(p, prm);
@@ -1816,7 +1910,7 @@ pub fn driven(
             .iter()
             .map(|o| observable_summary(p, o))
             .collect(),
-        forward_parity: Some(parity),
+        forward_parity: Some(if bypass { rom_delta } else { parity }),
         warnings,
     })
 }
