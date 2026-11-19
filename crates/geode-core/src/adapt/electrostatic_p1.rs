@@ -370,10 +370,9 @@ pub fn estimate_electrostatic_p1(
                 // Signed jump: ε_{T⁺}∇φ|_{T⁺}·n̂ − ε_{T⁻}∇φ|_{T⁻}·n̂.
                 let j =
                     EPS_0 * (eps_r[*tp] * dot(grad_phi[*tp], n) - eps_r[tm] * dot(grad_phi[tm], n));
-                // Counted once, split ½/½ between the two incident tets.
-                let share = 0.5 * h_face * j * j * area;
-                eta_t2[tm] += share;
-                eta_t2[*tp] += share;
+                // Counted once, split ½/½ between the two incident tets;
+                // accumulated in the second pass over the sorted `faces`
+                // below so the addition order is process-independent.
                 faces.push(FaceJump {
                     nodes: *key,
                     jump: j,
@@ -397,7 +396,6 @@ pub fn estimate_electrostatic_p1(
                     n_unit
                 };
                 let j = -EPS_0 * eps_r[tm] * dot(grad_phi[tm], n);
-                eta_t2[tm] += h_face * j * j * area;
                 faces.push(FaceJump {
                     nodes: *key,
                     jump: j,
@@ -410,6 +408,26 @@ pub fn estimate_electrostatic_p1(
         }
     }
     faces.sort_by_key(|f| f.nodes);
+
+    // Face-jump term: `½ h_F J² A_F` to each incident tet (interior) or
+    // the full `h_F J² A_F` (natural). Accumulated in this second pass
+    // over the **sorted** `faces` — not inside the map-iteration loop
+    // above — because a `HashMap`'s iteration order follows the
+    // per-process `RandomState` seed, which would make the addition
+    // order — and hence `eta_t2`/`eta` in the last ULP — vary run to
+    // run. The per-face share expressions mirror the loop above exactly.
+    for f in &faces {
+        match f.plus {
+            Some(tp) => {
+                let share = 0.5 * f.h * f.jump * f.jump * f.area;
+                eta_t2[f.minus] += share;
+                eta_t2[tp] += share;
+            }
+            None => {
+                eta_t2[f.minus] += f.h * f.jump * f.jump * f.area;
+            }
+        }
+    }
 
     // Cell term: h_T² ‖ρ_T‖²_{L²(T)} = h_T² · ρ_T² · V_T.
     for t in 0..n_tets {
