@@ -1050,6 +1050,75 @@ pub struct ConductionSolverStats {
     pub wall_time_s: f64,
 }
 
+/// One named windowed peak of the conduction observable (issue #1496,
+/// present only with the `--window-edge-m` argument group).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ConductionWindowPeak {
+    /// Which average this entry reports, over candidate windows centred on
+    /// the conducting tets:
+    /// - `"vector_mean"`: magnitude of the volume-averaged current-density
+    ///   vector `|<J>|` (A/m²);
+    /// - `"magnitude_mean"`: volume-averaged current-density magnitude
+    ///   `<|J|>` (A/m²);
+    /// - `"magnitude_rms"`: root-mean-square current-density magnitude
+    ///   `sqrt(<|J|²>)` (A/m²);
+    /// - `"joule_mean"`: volume-averaged Joule density `<σ|∇φ|²>` (W/m³).
+    pub metric: &'static str,
+    /// Peak value of the metric over the candidate windows, in the unit
+    /// named by [`ConductionWindowPeak::metric`].
+    pub value: f64,
+    /// Centre (m) of the winning window.
+    pub location_m: [f64; 3],
+    /// Conducting overlap of the winning window divided by its full box
+    /// volume: `1` when the window sits entirely inside conducting tets,
+    /// smaller when it spills past the conductor surface or into
+    /// insulating tets.
+    pub conducting_volume_fraction: f64,
+    /// `value` divided by the reference of matching units
+    /// (`j_ref_a_m2` for the current-density metrics, `joule_ref_w_m3`
+    /// for `joule_mean`); dimensionless.
+    pub reference_ratio: f64,
+    /// Under-sampling warning: `true` when `window_edge_m` is below the
+    /// largest element edge among the tets whose bounding box intersects
+    /// the winning window — the average then spans fewer than the local
+    /// elements and does not resolve the local field.
+    pub undersampled: bool,
+}
+
+/// Windowed box averages of the current density and Joule density at the
+/// reported operating point (issue #1496; present only with the
+/// `--window-edge-m` argument group).
+///
+/// Per-element maxima are mesh-dependent at a re-entrant corner (`|J| ~
+/// r^(-1/3)`); the windowed averages over a **fixed physical window**
+/// converge under uniform refinement and are the reportable quantities.
+/// Candidate windows are cubes of edge `window_edge_m` centred on the
+/// conducting tets; each metric reports its own winning window (lowest
+/// tet index on ties).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ConductionWindowedPeaks {
+    /// Edge (m) of the cubic averaging window, the same for every
+    /// candidate centre and every refinement.
+    pub window_edge_m: f64,
+    /// Normalization convention, always
+    /// `"conductor_intersection"`: every average's numerator and
+    /// denominator count only exact `tet ∩ window` overlaps with
+    /// positive-conductivity tets, and
+    /// `conducting_volume_fraction` divides that conducting overlap by
+    /// the full window volume (zero outside counts nothing, not zero
+    /// density).
+    pub normalization: &'static str,
+    /// Reference current density (A/m²) for the current-density
+    /// `reference_ratio`s.
+    pub j_ref_a_m2: f64,
+    /// Reference Joule density (W/m³) for the `joule_mean`
+    /// `reference_ratio`.
+    pub joule_ref_w_m3: f64,
+    /// The four named peaks, in the order `vector_mean`, `magnitude_mean`,
+    /// `magnitude_rms`, `joule_mean`.
+    pub peaks: Vec<ConductionWindowPeak>,
+}
+
 /// `geode conduction` report (`kind = "conduction"`, additive in v1).
 ///
 /// The conductance matrix is real, in siemens (SI: the mesh length unit is
@@ -1108,6 +1177,12 @@ pub struct ConductionReport {
     /// mesh units. Present only with `--outdir` (additive in v1).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fields_file: Option<FileRef>,
+    /// Windowed box averages of the current density and Joule density
+    /// (issue #1496; present only with the `--window-edge-m` argument
+    /// group). The per-element maxima above stay and remain the
+    /// mesh-dependent diagnostics.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub windowed_peaks: Option<ConductionWindowedPeaks>,
     /// Solver statistics.
     pub solver: ConductionSolverStats,
 }

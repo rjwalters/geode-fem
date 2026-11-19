@@ -11,6 +11,10 @@
 //!   over axis-aligned boxes ([`Aabb`]). The weight of a tet in a cell is the
 //!   exact volume of `tet ∩ box`, obtained by clipping the tet against the
 //!   box's six half-spaces.
+//! - [`sample_included_cell_average`] — the same overlap weighting with the
+//!   sums restricted to a caller-supplied subset of tets, plus a scalar
+//!   field and the squared magnitude (the conduction observable of issue
+//!   #1496 averages conducting tets only).
 //! - [`sample_points`] — point location plus the potential `φ` (barycentric
 //!   interpolation) and `E = −∇φ` at arbitrary points.
 //!
@@ -299,6 +303,34 @@ fn tet_coords(mesh: &TetMesh, t: &[u32; 4]) -> [V3; 4] {
     std::array::from_fn(|i| mesh.nodes[t[i] as usize])
 }
 
+/// Visit the exact `tet ∩ cell` overlap of every mesh tet against `cell`:
+/// `f(tet_index, overlap_volume)` for each candidate tet with a positive
+/// overlap. Candidates come from the bin grid and are visited in ascending
+/// tet index (the determinism contract of the averaging functions).
+fn for_each_cell_overlap(
+    mesh: &TetMesh,
+    grid: &BinGrid,
+    cell: &Aabb,
+    mut f: impl FnMut(usize, f64),
+) {
+    for ti in grid.candidates(cell.min, cell.max) {
+        let t = &mesh.tets[ti as usize];
+        let (tl, th) = tet_bbox(mesh, t);
+        if (0..3).any(|d| th[d] <= cell.min[d] || tl[d] >= cell.max[d]) {
+            continue;
+        }
+        let coords = tet_coords(mesh, t);
+        let w = if (0..3).all(|d| tl[d] >= cell.min[d] && th[d] <= cell.max[d]) {
+            signed_volume(coords[0], coords[1], coords[2], coords[3]).abs()
+        } else {
+            tet_box_overlap_volume(coords, cell)
+        };
+        if w > 0.0 {
+            f(ti as usize, w);
+        }
+    }
+}
+
 // ------------------------------------------------------------------ public
 
 /// Volume-weighted average of a per-tet field over axis-aligned cells.
@@ -342,28 +374,14 @@ pub fn sample_cell_average(
             let mut vol = 0.0_f64;
             let mut sum = [0.0_f64; 3];
             let mut sum_mag = 0.0_f64;
-            for ti in grid.candidates(cell.min, cell.max) {
-                let t = &mesh.tets[ti as usize];
-                let (tl, th) = tet_bbox(mesh, t);
-                if (0..3).any(|d| th[d] <= cell.min[d] || tl[d] >= cell.max[d]) {
-                    continue;
-                }
-                let coords = tet_coords(mesh, t);
-                let w = if (0..3).all(|d| tl[d] >= cell.min[d] && th[d] <= cell.max[d]) {
-                    signed_volume(coords[0], coords[1], coords[2], coords[3]).abs()
-                } else {
-                    tet_box_overlap_volume(coords, cell)
-                };
-                if w <= 0.0 {
-                    continue;
-                }
-                let e = field_per_tet[ti as usize];
+            for_each_cell_overlap(mesh, &grid, cell, |ti, w| {
+                let e = field_per_tet[ti];
                 vol += w;
                 for d in 0..3 {
                     sum[d] += w * e[d];
                 }
                 sum_mag += w * dot(e, e).sqrt();
-            }
+            });
             if vol > 0.0 {
                 CellAverage {
                     volume_covered: vol,
@@ -375,6 +393,129 @@ pub fn sample_cell_average(
                     volume_covered: 0.0,
                     mean: [0.0; 3],
                     mean_magnitude: 0.0,
+                }
+            }
+        })
+        .collect()
+}
+
+/// Result of averaging over one cell with the weighting restricted to a
+/// subset of tets ([`sample_included_cell_average`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct IncludedCellAverage {
+    /// Overlap volume of the cell with the *included* tets (`Σ w`). Less
+    /// than the box volume when the cell is partly outside the included
+    /// set (or the mesh).
+    pub volume_included: f64,
+    /// Overlap-weighted mean vector `Σ w·E_t / Σ w` over the included tets
+    /// (zero if nothing included).
+    pub mean: [f64; 3],
+    /// Overlap-weighted mean of the magnitude over the included tets, the
+    /// mean of the norm, not the norm of the mean (zero if nothing
+    /// included).
+    pub mean_magnitude: f64,
+    /// Overlap-weighted mean of the squared magnitude `Σ w·|E_t|²/Σ w` —
+    /// the root of this is the RMS magnitude (zero if nothing included).
+    pub mean_square_magnitude: f64,
+    /// Overlap-weighted mean of the per-tet scalar over the included tets
+    /// (zero if nothing included).
+    pub mean_scalar: f64,
+}
+
+/// Volume-weighted averages of a per-tet vector field and a per-tet scalar
+/// over axis-aligned cells, restricted to a subset of the tets.
+///
+/// The weight of tet `t` in a cell is the exact volume of `t ∩ cell`, but
+/// only tets with `include_tet[t] == true` contribute: every sum (and
+/// [`IncludedCellAverage::volume_included`]) counts included tets only,
+/// so a window straddling an insulating region averages the conducting
+/// part alone. `volume_included / cell.volume()` is then the *included*
+/// intersection fraction, as opposed to [`CellAverage::volume_covered`]
+/// which counts every tet of the supplied mesh.
+///
+/// Deterministic: serial, candidates visited in ascending tet index (see
+/// the module docs).
+///
+/// # Panics
+///
+/// Panics if any per-tet slice's length is not `mesh.n_tets()` or if any
+/// cell has `min > max` on some axis.
+pub fn sample_included_cell_average(
+    mesh: &TetMesh,
+    field_per_tet: &[[f64; 3]],
+    scalar_per_tet: &[f64],
+    include_tet: &[bool],
+    cells: &[Aabb],
+) -> Vec<IncludedCellAverage> {
+    let n = mesh.n_tets();
+    assert_eq!(
+        field_per_tet.len(),
+        n,
+        "field length {} != tet count {}",
+        field_per_tet.len(),
+        n
+    );
+    assert_eq!(
+        scalar_per_tet.len(),
+        n,
+        "scalar length {} != tet count {}",
+        scalar_per_tet.len(),
+        n
+    );
+    assert_eq!(
+        include_tet.len(),
+        n,
+        "include mask length {} != tet count {}",
+        include_tet.len(),
+        n
+    );
+    for (i, c) in cells.iter().enumerate() {
+        assert!(
+            (0..3).all(|d| c.min[d] <= c.max[d]),
+            "cell {i} has min > max: {c:?}"
+        );
+    }
+    if cells.is_empty() {
+        return Vec::new();
+    }
+    let grid = BinGrid::new(mesh);
+    cells
+        .iter()
+        .map(|cell| {
+            let mut vol = 0.0_f64;
+            let mut sum = [0.0_f64; 3];
+            let mut sum_mag = 0.0_f64;
+            let mut sum_mag2 = 0.0_f64;
+            let mut sum_scalar = 0.0_f64;
+            for_each_cell_overlap(mesh, &grid, cell, |ti, w| {
+                if !include_tet[ti] {
+                    return;
+                }
+                let e = field_per_tet[ti];
+                vol += w;
+                for d in 0..3 {
+                    sum[d] += w * e[d];
+                }
+                let mag2 = dot(e, e);
+                sum_mag += w * mag2.sqrt();
+                sum_mag2 += w * mag2;
+                sum_scalar += w * scalar_per_tet[ti];
+            });
+            if vol > 0.0 {
+                IncludedCellAverage {
+                    volume_included: vol,
+                    mean: [sum[0] / vol, sum[1] / vol, sum[2] / vol],
+                    mean_magnitude: sum_mag / vol,
+                    mean_square_magnitude: sum_mag2 / vol,
+                    mean_scalar: sum_scalar / vol,
+                }
+            } else {
+                IncludedCellAverage {
+                    volume_included: 0.0,
+                    mean: [0.0; 3],
+                    mean_magnitude: 0.0,
+                    mean_square_magnitude: 0.0,
+                    mean_scalar: 0.0,
                 }
             }
         })

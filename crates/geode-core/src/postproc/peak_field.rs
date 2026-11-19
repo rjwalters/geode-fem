@@ -20,9 +20,18 @@
 //! diagnostics, labelled mesh-dependent: compare it across a refinement
 //! series with [`pointwise_non_convergent`]. Trend fitting is out of scope
 //! here (issue #1481 owns the estimator/DWR slice).
+//!
+//! [`conduction_window_peaks`] applies the same windowing to a conduction
+//! solution's current density and Joule density (issue #1496): the
+//! re-entrant corner of an L-shaped conductor makes the per-element `|J|`
+//! singular the same way, and each of the four averages (`|<J>|`, `<|J|>`,
+//! `sqrt(<|J|²>)`, `<σ|∇φ|²>`) tracks its own winning window over the
+//! conducting tets, normalized by the conductor-intersection volume.
 
 use crate::mesh::{TaggedTetMesh, TetMesh};
-use crate::postproc::sample::{Aabb, sample_cell_average};
+use crate::postproc::sample::{
+    Aabb, IncludedCellAverage, sample_cell_average, sample_included_cell_average,
+};
 
 /// Region over which the observable is evaluated.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -248,6 +257,179 @@ pub fn peak_field_tagged(
         window_edge,
         e_ref,
     )
+}
+
+// ------------------------------------------------------- conduction windows
+
+/// One metric's winning window of the windowed conduction observable
+/// ([`conduction_window_peaks`], issue #1496).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ConductionWindowPeak {
+    /// Peak value of the metric over the candidate windows (the same
+    /// mesh-unit scaling as the per-tet fields passed in).
+    pub value: f64,
+    /// Centre of the winning window.
+    pub location: [f64; 3],
+    /// Conducting overlap of the winning window divided by its full box
+    /// volume (conductor-intersection normalization): `1` when the window
+    /// sits entirely inside conducting tets, smaller when it spills past
+    /// the conductor surface or into insulating tets.
+    pub coverage_fraction: f64,
+    /// Under-sampling warning: `true` when `window_edge` is below the
+    /// largest element edge among the tets whose bounding box intersects
+    /// the winning window (the issue #1480 bounding-box rule) — the
+    /// average then spans fewer than the local elements.
+    pub undersampled: bool,
+}
+
+/// Windowed peak current-density / Joule-density observable for a
+/// conduction solve (issue #1496).
+///
+/// Per-element maxima of `|J|` and the Joule density are mesh-dependent at
+/// a re-entrant corner (`|J| ~ r^(-1/3)`, integrable but unbounded); a
+/// *windowed average over a fixed physical box* converges under uniform
+/// refinement and is the reportable quantity. Each metric below tracks its
+/// own winning window over the same candidate scan (windows of edge
+/// `window_edge` centred on the conducting tets, ascending tet index,
+/// lowest index on ties — the same rules as [`peak_field`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ConductionWindowPeaks {
+    /// Magnitude of the volume-averaged current-density vector, `|<J>|`.
+    pub vector_mean: ConductionWindowPeak,
+    /// Volume-averaged current-density magnitude, `<|J|>`.
+    pub magnitude_mean: ConductionWindowPeak,
+    /// Root-mean-square current-density magnitude, `sqrt(<|J|²>)`.
+    pub magnitude_rms: ConductionWindowPeak,
+    /// Volume-averaged Joule density, `<σ|∇φ|²>`.
+    pub joule_mean: ConductionWindowPeak,
+    /// Pointwise per-tet maximum `|J|` over the conducting tets.
+    ///
+    /// **Mesh-dependent**: at a re-entrant corner this grows under
+    /// refinement, so it is reported for diagnostics only — never as a
+    /// reportable quantity.
+    pub pointwise_max_j: f64,
+    /// Pointwise per-tet maximum Joule density over the conducting tets.
+    /// **Mesh-dependent** in the same way as [`ConductionWindowPeaks::pointwise_max_j`].
+    pub pointwise_max_joule: f64,
+}
+
+/// Windowed peak current-density / Joule-density averages for a conduction
+/// solution (issue #1496).
+///
+/// Candidate window centres are the centroids of the tets with
+/// `conducting[t] == true` (positive conductivity); each window is a cube
+/// of edge `window_edge` centred there. All windows are averaged in one
+/// batched [`sample_included_cell_average`] call with the *same*
+/// `conducting` mask, so both the numerators and the denominator of every
+/// average count conducting-tet overlaps only (conductor-intersection
+/// normalization). Fields are per-tet in the solve's own scaling (pass
+/// `j_per_tet = sol.j`, `joule_per_tet = sol.joule_density`); the returned
+/// values carry that same scaling, so a caller reporting SI divides by its
+/// length unit once (`J`) or squared (Joule density).
+///
+/// # Errors
+///
+/// - [`PeakFieldError::EmptyRegion`] if no tet is conducting, or no
+///   window overlaps a conducting tet.
+/// - [`PeakFieldError::BadWindowEdge`] for a non-positive or non-finite
+///   `window_edge`.
+///
+/// # Panics
+///
+/// Panics if `j_per_tet`, `joule_per_tet` or `conducting` lengths differ
+/// from `mesh.n_tets()` (delegated to [`sample_included_cell_average`]).
+pub fn conduction_window_peaks(
+    mesh: &TetMesh,
+    j_per_tet: &[[f64; 3]],
+    joule_per_tet: &[f64],
+    conducting: &[bool],
+    window_edge: f64,
+) -> Result<ConductionWindowPeaks, PeakFieldError> {
+    if window_edge <= 0.0 || !window_edge.is_finite() {
+        return Err(PeakFieldError::BadWindowEdge(window_edge));
+    }
+    let region_tets: Vec<u32> = (0..mesh.n_tets())
+        .filter(|&t| conducting[t])
+        .map(|t| t as u32)
+        .collect();
+    if region_tets.is_empty() {
+        return Err(PeakFieldError::EmptyRegion);
+    }
+
+    let half = window_edge / 2.0;
+    let windows: Vec<Aabb> = region_tets
+        .iter()
+        .map(|&t| {
+            let c = tet_centroid(mesh, &mesh.tets[t as usize]);
+            Aabb {
+                min: [c[0] - half, c[1] - half, c[2] - half],
+                max: [c[0] + half, c[1] + half, c[2] + half],
+            }
+        })
+        .collect();
+    let avgs = sample_included_cell_average(mesh, j_per_tet, joule_per_tet, conducting, &windows);
+
+    // The four metrics on each candidate; strict `>` in ascending candidate
+    // order keeps the lowest index on ties (one winner per metric).
+    let metric = |k: usize, a: &IncludedCellAverage| -> f64 {
+        match k {
+            0 => norm2(a.mean),
+            1 => a.mean_magnitude,
+            2 => a.mean_square_magnitude.sqrt(),
+            _ => a.mean_scalar,
+        }
+    };
+    let mut best: [Option<usize>; 4] = [None; 4];
+    for (i, a) in avgs.iter().enumerate() {
+        if a.volume_included <= 0.0 {
+            continue;
+        }
+        for (k, b) in best.iter_mut().enumerate() {
+            let better = match *b {
+                None => true,
+                Some(b) => metric(k, a) > metric(k, &avgs[b]),
+            };
+            if better {
+                *b = Some(i);
+            }
+        }
+    }
+    if best.iter().any(Option::is_none) {
+        return Err(PeakFieldError::EmptyRegion);
+    }
+    let window_volume = window_edge * window_edge * window_edge;
+    let winner = |k: usize| -> ConductionWindowPeak {
+        let i = best[k].expect("checked above: every metric found a covered candidate");
+        let w = &windows[i];
+        ConductionWindowPeak {
+            value: metric(k, &avgs[i]),
+            location: [
+                (w.min[0] + w.max[0]) / 2.0,
+                (w.min[1] + w.max[1]) / 2.0,
+                (w.min[2] + w.max[2]) / 2.0,
+            ],
+            coverage_fraction: avgs[i].volume_included / window_volume,
+            undersampled: window_edge < max_element_edge_intersecting(mesh, w),
+        }
+    };
+
+    let pointwise_max_j = region_tets
+        .iter()
+        .map(|&t| norm2(j_per_tet[t as usize]))
+        .fold(f64::NEG_INFINITY, f64::max);
+    let pointwise_max_joule = region_tets
+        .iter()
+        .map(|&t| joule_per_tet[t as usize])
+        .fold(f64::NEG_INFINITY, f64::max);
+
+    Ok(ConductionWindowPeaks {
+        vector_mean: winner(0),
+        magnitude_mean: winner(1),
+        magnitude_rms: winner(2),
+        joule_mean: winner(3),
+        pointwise_max_j,
+        pointwise_max_joule,
+    })
 }
 
 // ----------------------------------------------------------------- helpers
@@ -484,5 +666,209 @@ mod tests {
         assert!(!pointwise_non_convergent(&[15.0, 15.0, 15.0]));
         assert!(!pointwise_non_convergent(&[15.0]));
         assert!(!pointwise_non_convergent(&[]));
+    }
+
+    // ------------------------------------------------ conduction window tests
+
+    /// Mesh of isolated right tets at the given offsets (each
+    /// `[o, o+(1,0,0), o+(0,1,0), o+(0,0,1)]`, volume 1/6, disjoint).
+    fn tets_at(offsets: &[[f64; 3]]) -> TetMesh {
+        let mut nodes = Vec::new();
+        let mut tets = Vec::new();
+        for o in offsets {
+            let base = nodes.len() as u32;
+            nodes.push(*o);
+            nodes.push([o[0] + 1.0, o[1], o[2]]);
+            nodes.push([o[0], o[1] + 1.0, o[2]]);
+            nodes.push([o[0], o[1], o[2] + 1.0]);
+            tets.push([base, base + 1, base + 2, base + 3]);
+        }
+        TetMesh {
+            nodes,
+            tets,
+            physical_groups: std::collections::BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn conduction_window_hand_computed_equal_overlap() {
+        // Two conducting tets of equal volume (1/6) with J = +1 and −3
+        // along x and Joule densities 1 and 6 (σ = 1 and 1.5 under
+        // |J|² = 1 and 9), a third insulating tet in between. A window
+        // large enough to contain both conducting tets fully gives equal
+        // overlap weights, so (issue #1496): |<J>| = 1, <|J|> = 2,
+        // RMS = √5, <q> = 3.5. The insulating tet's fields (huge) must
+        // not leak into any average, and its overlap must not count in
+        // the coverage either.
+        let mesh = tets_at(&[[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [5.0, 0.0, 0.0]]);
+        let j = vec![[1.0, 0.0, 0.0], [-3.0, 0.0, 0.0], [0.0, 0.0, 888.0]];
+        let joule = vec![1.0, 6.0, 999.0];
+        let conducting = [true, true, false];
+        // Edge 22: both windows (centred at x = 0.25 and x = 10.25)
+        // contain both conducting tets fully; the insulating tet at
+        // x ∈ [5, 6] too, but the mask excludes it.
+        let r = conduction_window_peaks(&mesh, &j, &joule, &conducting, 22.0).expect("ok");
+        assert!(
+            (r.vector_mean.value - 1.0).abs() < 1e-12,
+            "{}",
+            r.vector_mean.value
+        );
+        assert!((r.magnitude_mean.value - 2.0).abs() < 1e-12);
+        assert!((r.magnitude_rms.value - 5.0f64.sqrt()).abs() < 1e-12);
+        assert!((r.joule_mean.value - 3.5).abs() < 1e-12);
+        // Identical windows (same two tets, same accumulation order) tie;
+        // the lowest index wins: location = first tet's centroid.
+        let expected_cov = (1.0 / 6.0 + 1.0 / 6.0) / (22.0 * 22.0 * 22.0);
+        for w in [
+            &r.vector_mean,
+            &r.magnitude_mean,
+            &r.magnitude_rms,
+            &r.joule_mean,
+        ] {
+            assert!((w.location[0] - 0.25).abs() < 1e-12, "{w:?}");
+            assert!(
+                (w.coverage_fraction - expected_cov).abs() < 1e-18,
+                "{w:?} vs {expected_cov}"
+            );
+            assert!(!w.undersampled, "window 22 ≫ element edge √3");
+        }
+        assert!((r.pointwise_max_j - 3.0).abs() < 1e-12);
+        assert!((r.pointwise_max_joule - 6.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn conduction_window_metrics_pick_different_windows() {
+        // Three separate windows: A over one tet with J = +10; B over two
+        // equal conducting tets with J = ±12 (cancelling vector mean,
+        // large magnitude metrics); C over one tet with a huge Joule
+        // density and vanishing J. |<J>| must win at A, <|J|> / RMS at B,
+        // <q> at C — different metrics, different winning boxes.
+        let nodes = vec![
+            [5.0, 0.0, 0.0], // A
+            [6.0, 0.0, 0.0],
+            [5.0, 1.0, 0.0],
+            [5.0, 0.0, 1.0],
+            [0.0, 0.0, 0.0], // B1 at the origin
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0], // B2: [(1,0,0),(0,1,0),(1,1,0),(1,0,1)], vol 1/6
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [1.0, 0.0, 1.0],
+            [9.0, 0.0, 0.0], // C
+            [10.0, 0.0, 0.0],
+            [9.0, 1.0, 0.0],
+            [9.0, 0.0, 1.0],
+        ];
+        let tets: Vec<[u32; 4]> = vec![
+            [0, 1, 2, 3],     // A at (5,0,0)
+            [4, 5, 6, 7],     // B1 at the origin
+            [8, 9, 10, 11],   // B2
+            [12, 13, 14, 15], // C at (9,0,0)
+        ];
+        let mesh = TetMesh {
+            nodes,
+            tets,
+            physical_groups: std::collections::BTreeMap::new(),
+        };
+        let j = vec![
+            [10.0, 0.0, 0.0],
+            [12.0, 0.0, 0.0],
+            [-12.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ];
+        let joule = vec![10.0, 100.0, 100.0, 200.0];
+        let conducting = [true; 4];
+        // Edge 2: B's window (centred at B1's centroid (0.25, 0.25, 0.25))
+        // covers B1 and B2 fully (x ≤ 1.25) and excludes A and C; A's and
+        // C's windows each contain only their own tet.
+        let r = conduction_window_peaks(&mesh, &j, &joule, &conducting, 2.0).expect("ok");
+        // |<J>|: A 10, B 0, C 0 → A.
+        assert!(
+            (r.vector_mean.value - 10.0).abs() < 1e-12,
+            "{:?}",
+            r.vector_mean
+        );
+        assert!((r.vector_mean.location[0] - 5.25).abs() < 1e-12);
+        // <|J|> and RMS: B 12, A 10, C 0 → B.
+        assert!(
+            (r.magnitude_mean.value - 12.0).abs() < 1e-12,
+            "{:?}",
+            r.magnitude_mean
+        );
+        assert!(
+            (r.magnitude_rms.value - 12.0).abs() < 1e-12,
+            "{:?}",
+            r.magnitude_rms
+        );
+        assert!((r.magnitude_mean.location[0] - 0.25).abs() < 1e-12);
+        assert!((r.magnitude_rms.location[0] - 0.25).abs() < 1e-12);
+        // <q>: C 200, B 100, A 10 → C.
+        assert!(
+            (r.joule_mean.value - 200.0).abs() < 1e-12,
+            "{:?}",
+            r.joule_mean
+        );
+        assert!((r.joule_mean.location[0] - 9.25).abs() < 1e-12);
+        // Coverage: each window fully contains exactly its own conducting
+        // tet(s) — A and C hold one tet of volume 1/6 in a 2³ window, B two.
+        let sixth = 1.0 / 6.0;
+        assert!((r.vector_mean.coverage_fraction - sixth / 8.0).abs() < 1e-15);
+        assert!((r.joule_mean.coverage_fraction - sixth / 8.0).abs() < 1e-15);
+        assert!(
+            (r.magnitude_mean.coverage_fraction - 2.0 * sixth / 8.0).abs() < 1e-15,
+            "{:?}",
+            r.magnitude_mean
+        );
+        for w in [
+            &r.vector_mean,
+            &r.magnitude_mean,
+            &r.magnitude_rms,
+            &r.joule_mean,
+        ] {
+            assert!(!w.undersampled);
+        }
+        assert!((r.pointwise_max_j - 12.0).abs() < 1e-12);
+        assert!((r.pointwise_max_joule - 200.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn conduction_window_undersampled_warning() {
+        let mesh = cube_tet_mesh(2, 1.0); // max element edge 0.5·√3 ≈ 0.866
+        let j = vec![[1.0, 0.0, 0.0]; mesh.n_tets()];
+        let joule = vec![2.0; mesh.n_tets()];
+        let conducting = vec![true; mesh.n_tets()];
+        let small = conduction_window_peaks(&mesh, &j, &joule, &conducting, 0.1).expect("ok");
+        for w in [
+            &small.vector_mean,
+            &small.magnitude_mean,
+            &small.magnitude_rms,
+            &small.joule_mean,
+        ] {
+            assert!(w.undersampled, "0.1 < element edge: {w:?}");
+        }
+        let big = conduction_window_peaks(&mesh, &j, &joule, &conducting, 2.0).expect("ok");
+        assert!(!big.vector_mean.undersampled);
+        assert!(!big.joule_mean.undersampled);
+    }
+
+    #[test]
+    fn conduction_window_errors() {
+        let mesh = cube_tet_mesh(1, 1.0);
+        let j = vec![[1.0, 0.0, 0.0]; mesh.n_tets()];
+        let joule = vec![1.0; mesh.n_tets()];
+        let none = vec![false; mesh.n_tets()];
+        assert!(matches!(
+            conduction_window_peaks(&mesh, &j, &joule, &none, 0.2),
+            Err(PeakFieldError::EmptyRegion)
+        ));
+        let conducting = vec![true; mesh.n_tets()];
+        for edge in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert!(matches!(
+                conduction_window_peaks(&mesh, &j, &joule, &conducting, edge),
+                Err(PeakFieldError::BadWindowEdge(_))
+            ));
+        }
     }
 }
