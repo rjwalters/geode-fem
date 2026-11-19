@@ -4,7 +4,7 @@ Roadmap generated from the current GitHub label state by the Loom Guide role.
 Everything between the markers below is regenerated; do not edit it by hand.
 
 <!-- guide:plan-body:start -->
-_Generated: 2026-11-18T19:53:54Z (snapshot; compare against live labels)_
+_Generated: 2026-11-18T22:16:08Z (snapshot; compare against live labels)_
 ## Operator Attention: Merge-Risk-Hold Pileup
 
 Judge-approved PRs under a hold (`loom:blocked` or `loom:operator`) — only a human merge decision is missing.
@@ -41,8 +41,7 @@ Human-approved issues (`loom:issue`) ready for implementation — excluding held
 Issues currently being built (`loom:building`).
 
 - **#1391**: Remove flex_precision_spike example and flex feature: spike #451/#374 closed
-- **#1565**: Consolidate duplicated forward-mode Dual number: shape.rs copy is a subset of driven/shape.rs
-- **#1567**: Remove 19 superseded PyTorch Declarations YAMLs from vendored tch (75 MB tracked, read by nothing)
+- **#1754**: Consolidate duplicated TOML test helpers across patch_conformal tests
 
 ## PRs Awaiting Review
 
@@ -53,7 +52,7 @@ PRs waiting on Judge (`loom:review-requested`).
 - **#1395**: test: share onnx/tfjava sphere-PEC harness body in common module *(held)*
 - **#1489**: docs(papers): add GEODE-vs-Palace measured-performance section (transmon-benchmark.26) *(held)*
 - **#1648**: docs: cover every feature merged since v0.9.0 in CHANGELOG [Unreleased] *(held)*
-- **#1749**: chore: drop 19 superseded tch Declarations YAMLs with a checked omission record
+- **#1755**: test: share TOML artifact helpers across patch_conformal tests
 
 ## Approved (Awaiting Merge)
 
@@ -82,8 +81,6 @@ Issues carrying `loom:curated`.
 - **#1363**: postproc: sample piecewise-constant E onto cells or points (point location, cell averages) *(curated)*
 - **#1428**: Meep R2.5/R5 Spot runs on the optimized E4 geometry with harness v3 (split from #1427) *(curated)* *(held)*
 - **#1488**: Honest GEODE-vs-Palace comparison (manuscript section) *(curated)*
-- **#1565**: Consolidate duplicated forward-mode Dual number: shape.rs copy is a subset of driven/shape.rs *(curated)*
-- **#1567**: Remove 19 superseded PyTorch Declarations YAMLs from vendored tch (75 MB tracked, read by nothing) *(curated)*
 - **#1626**: Bring CHANGELOG [Unreleased] up to date with features merged since v0.9.0 *(curated)*
 - **#1629**: Research note: can Palace model the Design A Floquet cell for the #1581 cross-check? *(curated)* *(held)*
 - **#1729**: CI: integration a-m default-tier step overran its 30-min step bound (#1713) uncut; job cancelled at 65 min and log discarded again *(curated)*
@@ -94,7 +91,6 @@ Issues carrying `loom:curated`.
 - **#1621**: Split geode-cli problem/mod.rs (4,064 lines): move the validate_* and resolve_* groups into sibling modules *(hermit)* *(held)*
 - **#1649**: Consolidate the duplicated mie_roots fixture helpers onto tests/common: the julia harness is a verbatim copy of the numpy one (~118 lines) *(hermit)* *(held)*
 - **#1651**: Consolidate duplicated Burn helpers between nedelec_local and p1_local numpy reference harnesses *(hermit)* *(held)*
-- **#1748**: Consolidate duplicated _git_commit/_interleave_c128 helpers across reference fixture generators (~220 LOC) *(hermit)*
 
 ## Epics
 
@@ -113,10 +109,10 @@ Issues carrying `loom:curated`.
 | Very important | 1 |
 | Important | 0 |
 | Ready (`loom:issue`, net of holds/building/merge-pending) | 8 |
-| In Progress (`loom:building`) | 3 |
+| In Progress (`loom:building`) | 2 |
 | PRs awaiting review | 6 |
 | Approved PRs awaiting merge | 0 |
-| Curated | 22 |
-| Architect / Hermit proposals | 5 |
+| Curated | 20 |
+| Architect / Hermit proposals | 4 |
 | Active epics | 6 |
 <!-- guide:plan-body:end -->
