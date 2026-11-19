@@ -83,6 +83,12 @@ pub struct PeakField {
     /// the winning window — the average then spans fewer than the local
     /// elements and does not resolve the local field.
     pub undersampled: bool,
+    /// The winning physical window: the box of edge `window_edge` centred
+    /// on [`PeakField::location`] (exactly the box the scan averaged over,
+    /// so re-weighting tets against it reproduces [`PeakField::value`]).
+    /// On an exact tie this is the lowest-index candidate's box — the
+    /// deterministic branch the goal estimator (#1766) linearizes.
+    pub window: Aabb,
 }
 
 /// Region membership as ascending tet indices.
@@ -237,6 +243,7 @@ pub fn peak_field(
         enhancement: value / e_ref,
         pointwise_max,
         undersampled,
+        window: windows[best_i],
     })
 }
 
