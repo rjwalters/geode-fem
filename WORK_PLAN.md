@@ -4,7 +4,7 @@ Roadmap generated from the current GitHub label state by the Loom Guide role.
 Everything between the markers below is regenerated; do not edit it by hand.
 
 <!-- guide:plan-body:start -->
-_Generated: 2026-11-18T22:16:08Z (snapshot; compare against live labels)_
+_Generated: 2026-11-19T21:06:03Z (snapshot; compare against live labels)_
 ## Operator Attention: Merge-Risk-Hold Pileup
 
 Judge-approved PRs under a hold (`loom:blocked` or `loom:operator`) — only a human merge decision is missing.
@@ -29,8 +29,6 @@ Human-approved issues (`loom:issue`) ready for implementation — excluding held
 
 - **#1267**: [#835 P6] CLI adaptive_mesh — spec block, per-iteration report, geode check bound, MSH 4.1 writer
 - **#1299**: mshio: error Display dumps unbounded hex of remaining input
-- **#1363**: postproc: sample piecewise-constant E onto cells or points (point location, cell averages)
-- **#1382**: Remove dense mixed-pencil assembly (assemble_mixed_pencil, MixedOperators, restrict_mixed): test-only, production uses sparse path
 - **#1393**: Consolidate duplicated onnx/tfjava sphere-PEC reference harnesses
 - **#1488**: Honest GEODE-vs-Palace comparison (manuscript section)
 - **#1626**: Bring CHANGELOG [Unreleased] up to date with features merged since v0.9.0
@@ -41,7 +39,8 @@ Human-approved issues (`loom:issue`) ready for implementation — excluding held
 Issues currently being built (`loom:building`).
 
 - **#1391**: Remove flex_precision_spike example and flex feature: spike #451/#374 closed
-- **#1754**: Consolidate duplicated TOML test helpers across patch_conformal tests
+- **#1767**: Drive scalar refinement by peak-field error and measure effectivity on two geometries
+- **#1775**: Make electrostatic P1 residual eta_t2 accumulation order-independent
 
 ## PRs Awaiting Review
 
@@ -51,8 +50,9 @@ PRs waiting on Judge (`loom:review-requested`).
 - **#1341**: feat: export per-tet eta in adaptive field VTU and add adaptive_mesh cookbook spec *(held)*
 - **#1395**: test: share onnx/tfjava sphere-PEC harness body in common module *(held)*
 - **#1489**: docs(papers): add GEODE-vs-Palace measured-performance section (transmon-benchmark.26) *(held)*
+- **#1625**: docs: roadmap as of 2026-11-13
 - **#1648**: docs: cover every feature merged since v0.9.0 in CHANGELOG [Unreleased] *(held)*
-- **#1755**: test: share TOML artifact helpers across patch_conformal tests
+- **#1777**: fix: accumulate electrostatic P1 eta_t2 in sorted face order
 
 ## Approved (Awaiting Merge)
 
@@ -78,12 +78,13 @@ Issues carrying `loom:curated`.
 - **#1288**: layout v2: gds2palace XML stackup importer and scripts/gds2geode-layout.py (IHP 400 pH inductor) *(curated)* *(held)*
 - **#1299**: mshio: error Display dumps unbounded hex of remaining input *(curated)*
 - **#1340**: adaptive_mesh: support interior lumped-port sheets in geode-core::adapt (adapt_driven) *(curated)* *(held)*
-- **#1363**: postproc: sample piecewise-constant E onto cells or points (point location, cell averages) *(curated)*
 - **#1428**: Meep R2.5/R5 Spot runs on the optimized E4 geometry with harness v3 (split from #1427) *(curated)* *(held)*
 - **#1488**: Honest GEODE-vs-Palace comparison (manuscript section) *(curated)*
 - **#1626**: Bring CHANGELOG [Unreleased] up to date with features merged since v0.9.0 *(curated)*
 - **#1629**: Research note: can Palace model the Design A Floquet cell for the #1581 cross-check? *(curated)* *(held)*
 - **#1729**: CI: integration a-m default-tier step overran its 30-min step bound (#1713) uncut; job cancelled at 65 min and log discarded again *(curated)*
+- **#1767**: Drive scalar refinement by peak-field error and measure effectivity on two geometries *(curated)*
+- **#1775**: Make electrostatic P1 residual eta_t2 accumulation order-independent *(curated)*
 
 ## Proposed (Architect / Hermit)
 
@@ -108,11 +109,11 @@ Issues carrying `loom:curated`.
 | Operator merge-risk holds | 0 |
 | Very important | 1 |
 | Important | 0 |
-| Ready (`loom:issue`, net of holds/building/merge-pending) | 8 |
-| In Progress (`loom:building`) | 2 |
-| PRs awaiting review | 6 |
+| Ready (`loom:issue`, net of holds/building/merge-pending) | 6 |
+| In Progress (`loom:building`) | 3 |
+| PRs awaiting review | 7 |
 | Approved PRs awaiting merge | 0 |
-| Curated | 20 |
+| Curated | 21 |
 | Architect / Hermit proposals | 4 |
 | Active epics | 6 |
 <!-- guide:plan-body:end -->
