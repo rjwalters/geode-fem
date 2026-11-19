@@ -437,11 +437,12 @@ fn tet_volume(mesh: &TetMesh, t: usize) -> f64 {
 /// term last): `eta_t2` must equal that reference bitwise, not merely to a
 /// tolerance. The fixture is a **zero-charge** cube: with `rho = 0` the
 /// per-tet cell term vanishes, so last-bit differences between face-sum
-/// orderings are no longer masked. On the pre-fix map-order accumulation
-/// this fixture split into two adjacent `eta_t2[4]` bit patterns across 50
-/// separate processes (measured during the #1775 review, parent
-/// `3b4037b1`); the sorted-order accumulation matches the reference
-/// bitwise.
+/// orderings are no longer masked. With the pre-fix map-order accumulation
+/// reintroduced on this fixture (26 faces, post-#1779), 6 of the 12
+/// `eta_t2` entries — tets 2, 4, 5, 7, 10, 11 — each split into two
+/// adjacent bit patterns across 50 separate processes (measured on the
+/// merged tree over main `afc17922`); the sorted-order accumulation
+/// matches the reference bitwise.
 #[test]
 fn eta_t2_accumulates_in_sorted_faces_order_bitwise() {
     let mesh = cube();
@@ -454,8 +455,8 @@ fn eta_t2_accumulates_in_sorted_faces_order_bitwise() {
     let r = estimate_electrostatic_p1(&mesh, &phi, &eps_r, &rho, &electrodes, &ground).unwrap();
     assert_eq!(
         r.faces.len(),
-        18,
-        "18 interior apex faces; all boundary faces are prescribed"
+        26,
+        "18 interior apex faces + 8 mixed side-wall natural-flux faces; only the 4 plate faces are prescribed"
     );
     assert!(
         r.faces.windows(2).all(|w| w[0].nodes <= w[1].nodes),
@@ -508,9 +509,12 @@ fn eta_t2_accumulates_in_sorted_faces_order_bitwise() {
 /// iteration orders across 200 fresh maps during triage of #1775.)
 ///
 /// Both fixtures use **zero charge**: with the cell term out of the way
-/// the cube's face sums split into two adjacent bit patterns under
-/// map-order accumulation — this test failed 20/20 runs on the parent
-/// (`3b4037b1`) and passes only with the sorted-order accumulation.
+/// the cube's face sums still split into two adjacent bit patterns under
+/// map-order accumulation — 6 of 12 tets across 50 separate processes,
+/// measured with that accumulation reintroduced on the post-#1779
+/// 26-face fixture (merged tree over main `afc17922`) — and this test
+/// failed 20/20 separate process runs on that tree, passing only with
+/// the sorted-order accumulation.
 ///
 /// Property ownership: this test pins **in-process repeated-call
 /// stability** (same thread, fresh map per call).
