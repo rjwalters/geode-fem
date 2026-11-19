@@ -132,134 +132,6 @@ impl MixedDofLayout {
     }
 }
 
-/// The dense mixed-pencil operators `A = diag(K − k₀²M_ε, 0)` and
-/// `B = [[M₁, G],[Gᵀ, L]]`, on the full (un-restricted) mixed DOF ordering.
-///
-/// Boundary conditions (PEC on E_t edges, Dirichlet `ẽ_z = 0` on boundary
-/// nodes) are applied *after* assembly by [`restrict_mixed`], mirroring the
-/// dense `apply_pec_2d` / `apply_dirichlet_bc` reduction pattern used elsewhere
-/// in the crate.
-#[derive(Debug, Clone)]
-pub struct MixedOperators {
-    /// LHS `A = diag(K − k₀²M_ε, 0)` (the z-block is exactly zero).
-    pub a: Mat<f64>,
-    /// RHS `B = [[M₁, G],[Gᵀ, L]]`.
-    pub b: Mat<f64>,
-    /// DOF layout.
-    pub layout: MixedDofLayout,
-}
-
-/// Assemble the dense mixed E_t–E_z pencil operators `(A, B)` for a triangle
-/// mesh at free-space wavenumber `k0`, with per-triangle relative permittivity
-/// `eps_r`.
-///
-/// `couple` gates the grad–div / E_z coupling block `G`: with `couple = false`
-/// the `G` (and `Gᵀ`) block is left at zero, which decouples `ẽ_z` and reduces
-/// the transverse rows to the reduced pencil — this is the **inverse tripwire**
-/// (see the module docs). With `couple = true` (the physical mixed pencil) the
-/// coupling is included.
-///
-/// The transverse blocks (`K`, `M_ε`, `M₁`) reuse [`tri_nedelec2_local`] and
-/// the exact p=2 DOF numbering / orientation signs of
-/// [`super::waveguide::assemble_2d_nedelec2_with_epsilon`]; the longitudinal
-/// blocks reuse [`tri_p1_local`] (P1 stiffness + mass); the coupling block uses
-/// the same degree-4 quadrature ([`TRI_QUAD_DEG4`]).
-///
-/// # Panics
-///
-/// Panics if `eps_r.len() != mesh.n_tris()`.
-pub fn assemble_mixed_pencil(
-    mesh: &TriMesh,
-    eps_r: &[f64],
-    k0: f64,
-    couple: bool,
-) -> MixedOperators {
-    assert_eq!(
-        eps_r.len(),
-        mesh.n_tris(),
-        "eps_r length ({}) must equal the triangle count ({})",
-        eps_r.len(),
-        mesh.n_tris()
-    );
-    assert!(k0 > 0.0, "k0 must be positive; got {k0}");
-
-    let layout = MixedDofLayout::new(mesh);
-    let n = layout.total();
-    let n_edges = mesh.edges().len();
-    let tri_edges = mesh.tri_edges();
-    let k0_sq = k0 * k0;
-
-    let mut a = Mat::<f64>::zeros(n, n);
-    let mut b = Mat::<f64>::zeros(n, n);
-
-    for (tri_index, ((tri, row), &eps)) in mesh
-        .tris
-        .iter()
-        .zip(tri_edges.iter())
-        .zip(eps_r.iter())
-        .enumerate()
-    {
-        let coords = [
-            mesh.nodes[tri[0] as usize],
-            mesh.nodes[tri[1] as usize],
-            mesh.nodes[tri[2] as usize],
-        ];
-
-        // Transverse p=2 Nédélec local blocks (curl-curl K, unit mass M).
-        let (k_local, m_local, signed_area) = tri_nedelec2_local(&coords);
-        assert!(
-            signed_area > 0.0,
-            "TriMesh must produce CCW triangles; got signed area {signed_area}"
-        );
-
-        // Longitudinal P1 local blocks (stiffness Kz, mass Mz).
-        let (kz_local, mz_local, _signed_area_p1) = tri_p1_local(&coords);
-
-        // Coupling local block G_ik = ∫ N_i·∇φ_k dA (8×3), and the local
-        // integral ∫ N_i dA used to build it.
-        let (g_local, _) = tri_nedelec2_p1_coupling_local(&coords);
-
-        let dofs = nedelec2_local_dofs(row, tri_index, n_edges);
-
-        // --- Transverse tt blocks ---
-        for i in 0..8 {
-            let (gi, si) = dofs[i];
-            for j in 0..8 {
-                let (gj, sj) = dofs[j];
-                let s = si * sj;
-                // A_tt = K − k₀² M_ε.
-                a[(gi, gj)] += s * (k_local[i][j] - k0_sq * eps * m_local[i][j]);
-                // B_tt = M₁ (unit mass, ε ≡ 1).
-                b[(gi, gj)] += s * m_local[i][j];
-            }
-        }
-
-        // --- Longitudinal zz block: L = Kz − k₀² ε Mz (P1 nodes) ---
-        for p in 0..3 {
-            let gp = layout.z_index(tri[p] as usize);
-            for q in 0..3 {
-                let gq = layout.z_index(tri[q] as usize);
-                b[(gp, gq)] += kz_local[p][q] - k0_sq * eps * mz_local[p][q];
-            }
-        }
-
-        // --- Coupling tz / zt blocks: G and Gᵀ ---
-        if couple {
-            for i in 0..8 {
-                let (gi, si) = dofs[i];
-                for k in 0..3 {
-                    let gz = layout.z_index(tri[k] as usize);
-                    let val = si * g_local[i][k];
-                    b[(gi, gz)] += val; // G
-                    b[(gz, gi)] += val; // Gᵀ (symmetric placement)
-                }
-            }
-        }
-    }
-
-    MixedOperators { a, b, layout }
-}
-
 /// Local coupling block `G_ik = ∫ N_i·∇φ_k dA` for one affine triangle, on the
 /// same hierarchical p=2 Nédélec basis and quadrature as
 /// [`tri_nedelec2_local`], paired with the P1 nodal gradients `∇φ_k = ∇λ_k`.
@@ -400,41 +272,6 @@ pub fn mixed_free_mask(
     mask.extend_from_slice(interior_dof_mask_t);
     mask.extend_from_slice(free_node_mask_z);
     mask
-}
-
-/// Restrict the dense mixed operators `(A, B)` to their free DOFs, dropping
-/// boundary rows/columns (PEC on E_t, Dirichlet `ẽ_z = 0` on boundary nodes).
-///
-/// Returns the reduced `(A_free, B_free)` and the free-DOF index list (mapping
-/// each reduced index back to its full mixed-DOF index), used to scatter a
-/// reduced eigenvector back to full length.
-pub fn restrict_mixed(
-    ops: &MixedOperators,
-    free_mask: &[bool],
-) -> (Mat<f64>, Mat<f64>, Vec<usize>) {
-    let n = ops.a.nrows();
-    assert_eq!(
-        free_mask.len(),
-        n,
-        "free_mask length ({}) must equal operator size ({})",
-        free_mask.len(),
-        n
-    );
-    let free: Vec<usize> = free_mask
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &keep)| if keep { Some(i) } else { None })
-        .collect();
-    let dim = free.len();
-    let mut a = Mat::<f64>::zeros(dim, dim);
-    let mut b = Mat::<f64>::zeros(dim, dim);
-    for (ri, &fi) in free.iter().enumerate() {
-        for (rj, &fj) in free.iter().enumerate() {
-            a[(ri, rj)] = ops.a[(fi, fj)];
-            b[(ri, rj)] = ops.b[(fi, fj)];
-        }
-    }
-    (a, b, free)
 }
 
 /// One recovered guided mode of the mixed E_t–E_z pencil.
@@ -1122,21 +959,50 @@ mod tests {
     }
     use crate::analytic::waveguide::rect_tri_mesh;
 
+    /// Assemble the *unrestricted* (all-DOFs-free) mixed pencil with the
+    /// production sparse assembler and densify it, so structural invariants are
+    /// checked on the code `solve_mixed_modes` actually runs. Returns
+    /// `(n_t, A, B)` with `A`, `B` as row-major `n × n` dense matrices.
+    fn sparse_pencil_dense(
+        mesh: &TriMesh,
+        eps: &[f64],
+        k0: f64,
+        couple: bool,
+    ) -> (usize, usize, Vec<f64>, Vec<f64>) {
+        let layout = MixedDofLayout::new(mesh);
+        let n = layout.total();
+        let free_mask = vec![true; n];
+        let free: Vec<usize> = (0..n).collect();
+        let (a_sp, b_sp) =
+            assemble_mixed_pencil_sparse(mesh, eps, k0, couple, &layout, &free_mask, &free)
+                .expect("sparse mixed assembly");
+        let densify = |m: &SparseColMat<usize, f64>| {
+            let mut d = vec![0.0_f64; n * n];
+            let r = m.as_ref();
+            for j in 0..n {
+                for (i, &v) in r.row_idx_of_col(j).zip(r.val_of_col(j)) {
+                    d[i * n + j] += v;
+                }
+            }
+            d
+        };
+        (layout.n_t, n, densify(&a_sp), densify(&b_sp))
+    }
+
     /// The `B` block must be symmetric (`M₁`, `L` symmetric; `G`/`Gᵀ` placed
     /// symmetrically), a structural invariant of the mixed pencil.
     #[test]
     fn mixed_b_block_is_symmetric() {
         let mesh = rect_tri_mesh(3, 3, 1.0, 1.0);
         let eps = vec![2.25_f64; mesh.n_tris()];
-        let ops = assemble_mixed_pencil(&mesh, &eps, 1.0, true);
-        let n = ops.b.nrows();
+        let (_, n, _, b) = sparse_pencil_dense(&mesh, &eps, 1.0, true);
         for i in 0..n {
             for j in 0..n {
                 assert!(
-                    (ops.b[(i, j)] - ops.b[(j, i)]).abs() < 1e-9,
+                    (b[i * n + j] - b[j * n + i]).abs() < 1e-9,
                     "B must be symmetric at ({i},{j}): {} vs {}",
-                    ops.b[(i, j)],
-                    ops.b[(j, i)]
+                    b[i * n + j],
+                    b[j * n + i]
                 );
             }
         }
@@ -1149,43 +1015,38 @@ mod tests {
     fn mixed_a_z_block_is_zero() {
         let mesh = rect_tri_mesh(3, 3, 1.0, 1.0);
         let eps = vec![2.25_f64; mesh.n_tris()];
-        let ops = assemble_mixed_pencil(&mesh, &eps, 1.3, true);
-        let n_t = ops.layout.n_t;
-        let n = ops.a.nrows();
+        let (n_t, n, a, _) = sparse_pencil_dense(&mesh, &eps, 1.3, true);
         for i in n_t..n {
             for j in 0..n {
-                assert_eq!(ops.a[(i, j)], 0.0, "A z-row must be zero at ({i},{j})");
-                assert_eq!(ops.a[(j, i)], 0.0, "A z-col must be zero at ({j},{i})");
+                assert_eq!(a[i * n + j], 0.0, "A z-row must be zero at ({i},{j})");
+                assert_eq!(a[j * n + i], 0.0, "A z-col must be zero at ({j},{i})");
             }
         }
     }
 
     /// With `couple = false` the coupling block `G` must be exactly zero, and
-    /// the transverse tt sub-block of `A` must equal `K − k₀²M_ε` while the
-    /// tt sub-block of `B` equals `M₁` — the reduced pencil. We check the
-    /// coupling entries vanish and the coupled/decoupled tt blocks agree.
+    /// the transverse tt sub-blocks of `A` and `B` (the reduced pencil
+    /// `K − k₀²M_ε`, `M₁`) must be unchanged relative to the coupled assembly.
     #[test]
     fn decoupled_matches_reduced_tt_blocks() {
         let mesh = rect_tri_mesh(3, 3, 1.0, 1.0);
         let eps = vec![2.25_f64; mesh.n_tris()];
         let k0 = 1.7;
-        let coupled = assemble_mixed_pencil(&mesh, &eps, k0, true);
-        let decoupled = assemble_mixed_pencil(&mesh, &eps, k0, false);
-        let n_t = coupled.layout.n_t;
-        let n = coupled.a.nrows();
+        let (n_t, n, ca, cb) = sparse_pencil_dense(&mesh, &eps, k0, true);
+        let (_, _, da, db) = sparse_pencil_dense(&mesh, &eps, k0, false);
 
         // tt blocks identical regardless of coupling.
         for i in 0..n_t {
             for j in 0..n_t {
-                assert!((coupled.a[(i, j)] - decoupled.a[(i, j)]).abs() < 1e-12);
-                assert!((coupled.b[(i, j)] - decoupled.b[(i, j)]).abs() < 1e-12);
+                assert!((ca[i * n + j] - da[i * n + j]).abs() < 1e-12);
+                assert!((cb[i * n + j] - db[i * n + j]).abs() < 1e-12);
             }
         }
         // Decoupled coupling block is zero.
         for i in 0..n_t {
             for j in n_t..n {
-                assert_eq!(decoupled.b[(i, j)], 0.0);
-                assert_eq!(decoupled.b[(j, i)], 0.0);
+                assert_eq!(db[i * n + j], 0.0);
+                assert_eq!(db[j * n + i], 0.0);
             }
         }
     }
@@ -1199,13 +1060,11 @@ mod tests {
     fn coupling_block_is_nontrivial_on_gradient_dofs() {
         let mesh = rect_tri_mesh(2, 2, 1.0, 1.0);
         let eps = vec![1.0_f64; mesh.n_tris()];
-        let ops = assemble_mixed_pencil(&mesh, &eps, 1.0, true);
-        let n_t = ops.layout.n_t;
-        let n = ops.b.nrows();
+        let (n_t, n, _, b) = sparse_pencil_dense(&mesh, &eps, 1.0, true);
         let mut max_abs = 0.0_f64;
         for i in 0..n_t {
             for j in n_t..n {
-                max_abs = max_abs.max(ops.b[(i, j)].abs());
+                max_abs = max_abs.max(b[i * n + j].abs());
             }
         }
         assert!(
