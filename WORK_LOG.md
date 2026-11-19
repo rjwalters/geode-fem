@@ -5,6 +5,13 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-19
 
+- **PR #1773**: ci: retry apt installs on transient mirror failures via Acquire::Retries=3
+- **PR #1770**: feat: windowed peak averages of current and Joule density in geode conduction
+- **PR #1768**: feat: scalar P1 electrostatic residual estimator with signed cell/face terms
+- **Issue #1774** (closed): ci: docker/geode-cli/Dockerfile apt-get has no Acquire::Retries, same flake class as #1771
+- **Issue #1771** (closed): CI flake: apt dependency-install steps fail on Ubuntu mirror unreachability (arpack + geode-cli jobs, exit 100)
+- **Issue #1765** (closed): Compute cell and face residual indicators for scalar P1 electrostatics
+- **Issue #1496** (closed): conduction: windowed averages of current and Joule density with fixed physical window (split from #1495)
 - **PR #1764**: chore: refresh Squad block and skill so unattended roles do not stop
 - **PR #1763**: feat: box-averaged peak-field observable for corner fields
 - **Issue #1480** (closed): Electrostatics: ball/box-averaged peak-field observable with location and enhancement factor (#1477 slice A)
