@@ -44,7 +44,9 @@ mod icem_shape;
 
 #[path = "../tests/common/example_io.rs"]
 mod example_io;
-use example_io::write_json_out as write_json;
+use example_io::{
+    H_REF, HS, mesh_bytes, step_factor, sweep_header, sweep_record, write_json_out as write_json,
+};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -56,31 +58,16 @@ use geode_core::mesh::icem_parametric::{
 use icem::{I_PEAK_INITIAL, IcemModel, IronLaw, LEVELS};
 use icem_design::{
     CurrentBase, CurrentRule, DesignGradient, DesignPoint, DesignSetup, Evaluation, K_ANGLE,
-    K_LENGTH, K_SCALE, Mode, N_DESIGN, StepRow, design_gradient, design_names, design_unit,
-    evaluate, group1_area, step_sweep, taylor_window,
+    K_LENGTH, K_SCALE, Mode, N_DESIGN, design_gradient, design_names, design_unit, evaluate,
+    group1_area, step_sweep, taylor_window,
 };
 use serde_json::{Value, json};
 
-/// Steps of the sweep in metres (geometric parameters and `LENGTH`); the
-/// angle uses `× 1e3` degrees and `ScaleR` `× 10`.
-const HS: [f64; 13] = [
-    1e-3, 3e-4, 1e-4, 3e-5, 1e-5, 3e-6, 1e-6, 3e-7, 1e-7, 3e-8, 1e-8, 3e-9, 1e-9,
-];
-/// Reference step of the Taylor window (× the parameter's unit factor).
-const H_REF: f64 = 1e-5;
 /// Tolerances of the stability study; the last is the reference.
 const TOLS: [f64; 3] = [1e-8, 1e-12, 1e-14];
 /// Parameters and steps of the remeshed cross-check.
 const REMESH_PARAMS: [&str; 3] = ["MW", "SW1", "SW2"];
 const REMESH_HS: [f64; 7] = [1e-3, 3e-4, 1e-4, 3e-5, 1e-5, 3e-6, 1e-6];
-
-fn step_factor(k: usize) -> f64 {
-    match k {
-        K_ANGLE => 1e3,
-        K_SCALE => 10.0,
-        _ => 1.0,
-    }
-}
 
 struct Args {
     cmd: String,
@@ -156,17 +143,6 @@ fn cfg(rel_tol: f64) -> NewtonConfig {
     }
 }
 
-fn mesh_bytes(a: &Args) -> Vec<u8> {
-    let p = a.mesh.clone().unwrap_or_else(|| icem::mesh_path(a.level));
-    std::fs::read(&p).unwrap_or_else(|e| {
-        panic!(
-            "read {}: {e}. L1-L3 are gitignored; regenerate them with the \
-             benchmarks/motor_reference/geometry/README.md command",
-            p.display()
-        )
-    })
-}
-
 fn design_point(reference: &Value, which: &str) -> DesignPoint {
     let d0 = DesignPoint::from_reference(reference, "initial");
     match which {
@@ -192,95 +168,11 @@ fn grad_json(g: &DesignGradient) -> Value {
     })
 }
 
-/// Sweep records and summaries of one parameter under one rule.
-fn sweep_record(
-    md: &mut String,
-    name: &str,
-    k: usize,
-    adj: [f64; 2],
-    j0: [f64; 2],
-    rows: &[StepRow],
-    rejected: &[(f64, String)],
-) -> Value {
-    let f = step_factor(k);
-    let mut out_rows = Vec::new();
-    let mut best = [(f64::INFINITY, 0.0); 2];
-    let mut rems = [Vec::new(), Vec::new()];
-    for r in rows {
-        let mut e = [0.0; 2];
-        for o in 0..2 {
-            e[o] = (r.central(o) - adj[o]).abs() / adj[o].abs();
-            if e[o] < best[o].0 {
-                best[o] = (e[o], r.h);
-            }
-            rems[o].push(r.remainder(o, j0[o], adj[o]));
-        }
-        out_rows.push(json!({
-            "h": r.h, "plus": r.plus.to_vec(), "minus": r.minus.to_vec(),
-            "fd": [r.central(0), r.central(1)], "rel_err": e.to_vec(),
-            "remainder": [rems[0].last(), rems[1].last()],
-        }));
-    }
-    let hs: Vec<f64> = rows.iter().map(|r| r.h).collect();
-    let windows: Vec<Value> = (0..2)
-        .map(|o| match taylor_window(&hs, &rems[o], H_REF * f) {
-            Some((hi, lo, dec)) => json!({"h_hi": hi, "h_lo": lo, "decades": dec}),
-            None => Value::Null,
-        })
-        .collect();
-    let orders: Vec<Vec<f64>> = (0..2)
-        .map(|o| {
-            (1..hs.len())
-                .map(|i| (rems[o][i - 1] / rems[o][i]).ln() / (hs[i - 1] / hs[i]).ln())
-                .collect()
-        })
-        .collect();
-    let win = |o: usize| {
-        windows[o]
-            .as_object()
-            .map(|w| {
-                format!(
-                    "{:.0e} .. {:.0e}, {:.1}",
-                    w["h_hi"].as_f64().unwrap(),
-                    w["h_lo"].as_f64().unwrap(),
-                    w["decades"].as_f64().unwrap()
-                )
-            })
-            .unwrap_or_else(|| "none".into())
-    };
-    let _ = writeln!(
-        md,
-        "| {name} | {:+.6e} | {:.1e} ({:.0e}) | {} | {:+.6e} | {:.1e} ({:.0e}) | {} | {} |",
-        adj[0],
-        best[0].0,
-        best[0].1,
-        win(0),
-        adj[1],
-        best[1].0,
-        best[1].1,
-        win(1),
-        if rejected.is_empty() {
-            String::new()
-        } else {
-            format!("{:?}", rejected.iter().map(|r| r.0).collect::<Vec<_>>())
-        }
-    );
-    json!({
-        "parameter": name, "k": k, "unit": design_unit(k), "step_factor": f,
-        "adjoint": adj.to_vec(), "j0": j0.to_vec(),
-        "rows": out_rows,
-        "best": [{"rel_err": best[0].0, "h": best[0].1}, {"rel_err": best[1].0, "h": best[1].1}],
-        "taylor_window": windows, "orders": orders,
-        "rejected": rejected.iter().map(|(h, e)| json!({"h": h, "error": e})).collect::<Vec<_>>(),
-    })
-}
-
-const SWEEP_HEADER: &str = "| parameter | d mean (adjoint) | mean: best FD rel. err (h) | mean: Taylor window, decades | d std (adjoint) | std: best FD rel. err (h) | std: Taylor window, decades | rejected h |\n|---|---|---|---|---|---|---|---|";
-
 #[allow(clippy::needless_range_loop)] // k indexes parameters across several arrays
 fn cmd_study(a: &Args) {
     let reference = icem::load_reference();
-    let bytes = mesh_bytes(a);
+    let mesh_p = a.mesh.clone().unwrap_or_else(|| icem::mesh_path(a.level));
+    let bytes = mesh_bytes(&mesh_p);
     let dp = design_point(&reference, &a.design);
     let setup =
         DesignSetup::new(a.level, &bytes, &reference, a.mode, IcemDesign::INITIAL).expect("setup");
@@ -342,10 +234,11 @@ fn cmd_study(a: &Args) {
         } else {
             vec![CurrentRule::Prescribed]
         };
+        let header = sweep_header("parameter");
         for rule in rules {
             let _ = writeln!(
                 md,
-                "### Step sweep, current rule {} (central differences re-move the mesh)\n\n{SWEEP_HEADER}",
+                "### Step sweep, current rule {} (central differences re-move the mesh)\n\n{header}",
                 rule.name()
             );
             let mut srec = Vec::new();
@@ -353,7 +246,7 @@ fn cmd_study(a: &Args) {
                 if rule == CurrentRule::Jinit && (k == K_LENGTH || k == K_ANGLE) {
                     continue; // identical to the prescribed rule
                 }
-                let f = step_factor(k);
+                let f = step_factor(k, K_ANGLE, K_SCALE);
                 let hs: Vec<f64> = a.hs.iter().map(|h| h * f).collect();
                 let (rows, rejected) =
                     step_sweep(&setup, &dp, k, &hs, rule, &cb, &c, &base).expect("sweep");
@@ -361,14 +254,20 @@ fn cmd_study(a: &Args) {
                     CurrentRule::Prescribed => [g.d_mean[k], g.d_std[k]],
                     CurrentRule::Jinit => [g.d_mean_jinit[k], g.d_std_jinit[k]],
                 };
+                let rows: Vec<(f64, [f64; 2], [f64; 2])> =
+                    rows.iter().map(|r| (r.h, r.plus, r.minus)).collect();
                 srec.push(sweep_record(
                     &mut md,
                     names[k],
                     k,
+                    f,
                     adj,
                     [g.mean, g.std],
                     &rows,
                     &rejected,
+                    taylor_window,
+                    Some(design_unit(k)),
+                    true,
                 ));
             }
             let _ = writeln!(md);
@@ -438,7 +337,8 @@ fn median(v: &mut [f64]) -> f64 {
 
 fn cmd_cost(a: &Args) {
     let reference = icem::load_reference();
-    let bytes = mesh_bytes(a);
+    let mesh_p = a.mesh.clone().unwrap_or_else(|| icem::mesh_path(a.level));
+    let bytes = mesh_bytes(&mesh_p);
     let dp = design_point(&reference, "initial");
     let setup =
         DesignSetup::new(a.level, &bytes, &reference, a.mode, IcemDesign::INITIAL).expect("setup");
@@ -474,7 +374,7 @@ fn cmd_cost(a: &Args) {
         let t2 = Instant::now();
         for k in 0..N_DESIGN {
             for sgn in [1.0, -1.0] {
-                let d = dp.moved(k, sgn * 1e-6 * step_factor(k));
+                let d = dp.moved(k, sgn * 1e-6 * step_factor(k, K_ANGLE, K_SCALE));
                 evaluate(&setup, &d, CurrentRule::Prescribed, &cb, &c, Some(&init))
                     .expect("fd forward");
             }

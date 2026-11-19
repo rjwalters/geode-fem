@@ -66,7 +66,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -87,6 +86,7 @@ MESH_PATH = (
 _REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT_STR not in sys.path:
     sys.path.insert(0, _REPO_ROOT_STR)
+from reference.fixture_utils import git_commit, interleave_c128  # noqa: E402
 from reference.numpy.sphere_mie import (  # noqa: E402
     K0_REF,
     SIGMA_0_DEFAULT,
@@ -134,25 +134,6 @@ Q_LOWER_BAND_TM11 = 1.5
 
 # Strict cross-IR window (#160 cluster closure): the TM_1,1 triplet.
 STRICT_MODE_WINDOW_LEN = 3
-
-
-def _git_commit() -> str:
-    try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=REPO_ROOT,
-            stderr=subprocess.DEVNULL,
-        )
-        return out.decode().strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown"
-
-
-def _interleave_c128(z: np.ndarray) -> list[float]:
-    """Serialize a complex128 array (row-major flattened) to the
-    canonical real-imag interleaved flat list per ``reference/SCHEMA.md``."""
-    z = np.ascontiguousarray(z, dtype=np.complex128).reshape(-1)
-    return z.view(np.float64).tolist()
 
 
 def main() -> None:
@@ -363,7 +344,7 @@ def main() -> None:
                     "(tet, axis) flattened, real-imag interleaved per "
                     "reference/SCHEMA.md."
                 ),
-                "data": _interleave_c128(eps_tensor),
+                "data": interleave_c128(eps_tensor),
             },
         },
         "outputs": {
@@ -430,7 +411,7 @@ def main() -> None:
                     "On-disk: real-imag interleaved per reference/SCHEMA.md."
                 ),
                 "tolerance_abs": EIG_C128_TOL_ABS,
-                "data": _interleave_c128(eigvals_all),
+                "data": interleave_c128(eigvals_all),
             },
             "physical_eigenvalues_complex": {
                 "shape": [int(len(physical))],
@@ -446,7 +427,7 @@ def main() -> None:
                     "but excluded from the cluster-closure claim."
                 ),
                 "tolerance_abs": PHYSICAL_C128_TOL_ABS,
-                "data": _interleave_c128(physical),
+                "data": interleave_c128(physical),
             },
             "strict_mode_window_len": {
                 "shape": [1],
@@ -536,7 +517,7 @@ def main() -> None:
         },
         "provenance": {
             "source": (
-                f"reference/numpy/sphere_mie.py @ commit {_git_commit()} ; "
+                f"reference/numpy/sphere_mie.py @ commit {git_commit(REPO_ROOT)} ; "
                 f"scipy {scipy.__version__}, numpy {np.__version__}, "
                 f"python {sys.version_info.major}.{sys.version_info.minor}"
                 f".{sys.version_info.micro} ; dense LAPACK ZGGEV "

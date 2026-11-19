@@ -33,7 +33,7 @@
 mod scratch_support;
 
 use std::f64::consts::PI;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use scratch_support::Scratch;
@@ -46,24 +46,7 @@ const HURAY: (f64, f64, f64) = (0.5e-6, 14.0, 1.0e-10);
 
 #[path = "support/cli.rs"]
 mod cli_support;
-use cli_support::manifest_dir;
-
-/// `fixture` with its mesh path made absolute and `edit` applied, written
-/// to `dir/name`.
-fn spec_from(fixture: &str, dir: &Path, name: &str, edit: impl FnOnce(&mut Value)) -> PathBuf {
-    let fixtures = manifest_dir().join("tests/fixtures");
-    let raw = std::fs::read_to_string(fixtures.join(fixture)).unwrap();
-    let mut v: Value = serde_json::from_str(&raw).unwrap();
-    let mesh = fixtures
-        .join(v["mesh"]["path"].as_str().unwrap())
-        .canonicalize()
-        .expect("fixture mesh");
-    v["mesh"]["path"] = mesh.display().to_string().into();
-    edit(&mut v);
-    let path = dir.join(name);
-    std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
-    path
-}
+use cli_support::spec_from;
 
 fn geode(args: &[&str], spec: &Path) -> Value {
     let out = Command::new(env!("CARGO_BIN_EXE_geode"))

@@ -178,16 +178,8 @@ fn cube_pec_cavity_system_with_meta() -> (
     let mesh = cube_tet_mesh(N_CUBE, 1.0);
     let (nodes_t, tets_t) = upload_mesh::<B>(&mesh, &device());
 
-    let tet_edges_v = mesh.tet_edges();
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let n_edges = mesh.edges().len();
-    let tet_idx: Vec<[u32; 6]> = tet_edges_v
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges_v
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
 
     let sys = assemble_global_nedelec(nodes_t, tets_t, &tet_idx, &tet_sign, n_edges);
 

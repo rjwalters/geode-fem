@@ -302,6 +302,8 @@ impl Fem {
                 },
             ],
             settings: FloquetSettings::default(),
+
+            element_order: ElementOrder::P1,
         };
         FloquetCell::assemble::<B>(mesh, &self.map, &spec, &device()).unwrap()
     }

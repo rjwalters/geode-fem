@@ -14,12 +14,18 @@
 //!    equals the JVP contraction.
 //! 5. **Typed errors** for a moved port-face node, a moved periodic-face
 //!    node, a broken pairing and a material region on a port.
+//! 6. **p=2 (issue #1683)**: the same FD bounds for `ε′`, `ε″` and shape on
+//!    a p=2 brick at oblique incidence, one factorization per point, the
+//!    delta-gap `∂Z`/`d|Γ|²` FD and the one-factorization count, the
+//!    typed fences still firing at p=2, and the feed-edge-vs-DOF-id and
+//!    PEC-eliminated typed errors of the lumped-feed path.
 
 #[path = "common/periodic_fixtures.rs"]
 mod fixtures;
 
 use faer::c64;
 
+use geode_core::assembly::hcurl_space::HcurlSpace;
 use geode_core::assembly::nedelec::tet_centroid as centroid;
 use geode_core::driven::floquet::{
     FloquetCell, FloquetCellSpec, FloquetChannel, FloquetIncidence, FloquetPolarization,
@@ -27,9 +33,11 @@ use geode_core::driven::floquet::{
 };
 use geode_core::driven::floquet_sensitivity::{
     FloquetDesign, FloquetGeometry, FloquetSensitivity, FloquetSensitivityError,
-    FloquetSensitivityFault, FloquetSensitivityOptions, floquet_s_sensitivity, floquet_s_vjp,
+    FloquetSensitivityFault, FloquetSensitivityOptions, floquet_edge_gamma_vjp,
+    floquet_s_sensitivity, floquet_s_vjp,
 };
 use geode_core::driven::s_sensitivity::{MaterialDesign, SParam, ShapeDesign};
+use geode_core::elements::ElementOrder;
 use geode_core::mesh::TetMesh;
 use geode_core::mesh::periodic::{
     PeriodicMap, PeriodicMatchOptions, boundary_triangles_on_plane, box_periodic_pairs,
@@ -72,6 +80,12 @@ fn cell(n: [usize; 3], size: [f64; 3], seed: u64) -> Cell {
 }
 
 fn floquet_on(c: &Cell, mesh: &TetMesh, eps: &[c64]) -> FloquetCell {
+    floquet_on_at(c, mesh, eps, ElementOrder::P1)
+}
+
+/// [`floquet_on`] at an explicit element order (issue #1683: the p=2
+/// sensitivities).
+fn floquet_on_at(c: &Cell, mesh: &TetMesh, eps: &[c64], order: ElementOrder) -> FloquetCell {
     let spec = FloquetCellSpec {
         eps_r: eps,
         sigma: None,
@@ -87,12 +101,20 @@ fn floquet_on(c: &Cell, mesh: &TetMesh, eps: &[c64]) -> FloquetCell {
             },
         ],
         settings: FloquetSettings::default(),
+
+        element_order: order,
     };
     FloquetCell::assemble::<B>(mesh, &c.map, &spec, &device()).unwrap()
 }
 
-fn s_of(c: &Cell, mesh: &TetMesh, eps: &[c64], k_t: [f64; 3]) -> Vec<Vec<c64>> {
-    let fc = floquet_on(c, mesh, eps);
+fn s_of(
+    c: &Cell,
+    mesh: &TetMesh,
+    eps: &[c64],
+    order: ElementOrder,
+    k_t: [f64; 3],
+) -> Vec<Vec<c64>> {
+    let fc = floquet_on_at(c, mesh, eps, order);
     fc.factor(K0, k_t, 0.0).unwrap().s_matrix().unwrap().s
 }
 
@@ -104,6 +126,8 @@ struct Setup {
     n_regions: usize,
     /// Shape column (full node length), interior nodes only.
     velocity: Vec<[f64; 3]>,
+    /// The element order the goldens run at (issue #1683).
+    order: ElementOrder,
 }
 
 impl Setup {
@@ -161,6 +185,7 @@ fn slab_setup() -> Setup {
         region_of_tet: region,
         n_regions: 1,
         velocity,
+        order: ElementOrder::P1,
     }
 }
 
@@ -196,6 +221,7 @@ fn bragg_setup() -> Setup {
         region_of_tet: region,
         n_regions: 2,
         velocity,
+        order: ElementOrder::P1,
     }
 }
 
@@ -225,6 +251,7 @@ fn brick_setup() -> Setup {
         region_of_tet: region,
         n_regions: 2,
         velocity,
+        order: ElementOrder::P1,
     }
 }
 
@@ -270,7 +297,7 @@ fn fd(s: &Setup, param: SParam, k_t: [f64; 3]) -> Vec<Vec<c64>> {
                 unreachable!("Floquet sensitivity has no direction, σ or wall columns")
             }
         }
-        s_of(&s.c, &mesh, &eps, k_t)
+        s_of(&s.c, &mesh, &eps, s.order, k_t)
     };
     let (sp, sm) = (at(FD_H), at(-FD_H));
     sp.iter()
@@ -324,7 +351,7 @@ fn run_ad(
 /// FD-check every parameter, TE and TM blocks separately; returns the worst
 /// relative error and prints a table.
 fn check_all(s: &Setup, k_t: [f64; 3], label: &str) -> f64 {
-    let fc = floquet_on(&s.c, &s.c.mesh, &s.eps);
+    let fc = floquet_on_at(&s.c, &s.c.mesh, &s.eps, s.order);
     let ad = run_ad(s, &fc, k_t, FloquetSensitivityFault::None);
     assert_eq!(ad.propagating.len(), 4, "TE + TM at two ports");
     let mut worst = 0.0_f64;
@@ -601,5 +628,421 @@ fn pinned_faces_broken_pairing_and_port_regions_are_typed_errors() {
     match run(design) {
         Err(FloquetSensitivityError::MaterialTouchesPort { port: 0, .. }) => {}
         other => panic!("region on a port: {other:?}"),
+    }
+
+    // The same fences at p=2 (issue #1683): a p=2 cell on the same slab.
+    // All four fire in `Prepared::new`, before any solve.
+    let fc2 = floquet_on_at(&s.c, &s.c.mesh, &s.eps, ElementOrder::P2);
+    let run2 = |design: FloquetDesign| {
+        floquet_s_sensitivity(
+            &fc2,
+            &geometry(&s),
+            K0,
+            k_t,
+            0.0,
+            &design,
+            &FloquetSensitivityOptions::default(),
+        )
+    };
+
+    // A port-face node (the same pick as at p=1).
+    let mut col = vec![[0.0; 3]; nodes.len()];
+    col[n_port] = [0.0, 0.0, 1.0];
+    match run2(shape(col)) {
+        Err(FloquetSensitivityError::ShapeMovesPinnedNode { node, what, .. }) => {
+            assert_eq!(node, n_port);
+            assert_eq!(what, "Floquet port face");
+        }
+        other => panic!("p=2 port-face node: {other:?}"),
+    }
+
+    // A periodic-face node moved consistently with its partner: pinned.
+    let mut col = vec![[0.0; 3]; nodes.len()];
+    col[s.c.map.node_alias(n_per).expect("periodic node").master] = [0.0, 0.0, 1.0];
+    s.c.map.alias_node_motion(&mut col);
+    match run2(shape(col)) {
+        Err(FloquetSensitivityError::ShapeMovesPinnedNode { what, .. }) => {
+            assert_eq!(what, "periodic face");
+        }
+        other => panic!("p=2 periodic-face node: {other:?}"),
+    }
+
+    // The alias of a moved master that stays put: a broken pairing.
+    let mut col = vec![[0.0; 3]; nodes.len()];
+    col[master] = [0.0, 0.0, 1.0];
+    match run2(shape(col)) {
+        Err(FloquetSensitivityError::ShapeBreaksPairing { master: m, .. }) => assert_eq!(m, master),
+        other => panic!("p=2 broken pairing: {other:?}"),
+    }
+
+    // A material region that holds a port face: the p=2 face-DOF count of
+    // the fence (8 = 3 edges × {W, Q} + {φ0, φ1}) still catches it.
+    let region: Vec<Option<usize>> = (0..s.c.mesh.n_tets())
+        .map(|t| (centroid(&s.c.mesh, t)[2] < 0.1).then_some(0))
+        .collect();
+    let design = FloquetDesign {
+        material: Some(MaterialDesign::from_regions(region, vec!["near_port".into()]).unwrap()),
+        shape: None,
+    };
+    match run2(design) {
+        Err(FloquetSensitivityError::MaterialTouchesPort { port: 0, .. }) => {}
+        other => panic!("p=2 region on a port: {other:?}"),
+    }
+}
+
+/// [`brick_setup`] on a coarser mesh at p=2 (issue #1683). The FD bound
+/// compares AD against a perturbed re-solve of the **same** discrete
+/// system, so coarseness costs fidelity of the underlying model, not of
+/// the check; the regions keep the brick's mirror-breaking asymmetry on
+/// bounds the coarse mesh resolves.
+fn brick_setup_p2() -> Setup {
+    let c = cell([3, 3, 12], [0.3, 0.3, 1.0], 23);
+    let (mut eps, mut region) = (Vec::new(), Vec::new());
+    for t in 0..c.mesh.n_tets() {
+        let p = centroid(&c.mesh, t);
+        let inside = p[0] < 0.2 && p[1] < 0.15 && p[2] > 0.3 && p[2] < 0.7;
+        let wedge = p[0] > 0.1 && p[1] > 0.15 && p[2] > 0.35 && p[2] < 0.5;
+        let (e, r) = if inside {
+            (6.0, Some(0))
+        } else if wedge {
+            (3.0, Some(1))
+        } else {
+            (1.0, None)
+        };
+        eps.push(c64::new(e, 0.0));
+        region.push(r);
+    }
+    let velocity = bump_velocity(&c);
+    Setup {
+        c,
+        eps,
+        region_of_tet: region,
+        n_regions: 2,
+        velocity,
+        order: ElementOrder::P2,
+    }
+}
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "direct solves are slow in debug; runs in release CI"
+)]
+fn p2_brick_cell_matches_fd_at_oblique_incidence_and_shares_the_forward_lu() {
+    let s = brick_setup_p2();
+    let fc = floquet_on_at(&s.c, &s.c.mesh, &s.eps, s.order);
+    let k_t = fc
+        .k_t_of(K0, &FloquetIncidence::degrees(40.0, 30.0, 0))
+        .unwrap();
+
+    // One factorization per (ω, k_t): the forward-only count, the adjoints
+    // riding it (issue #1683).
+    let n0 = fc.factorization_count();
+    let ad = run_ad(&s, &fc, k_t, FloquetSensitivityFault::None);
+    assert_eq!(fc.factorization_count() - n0, 1);
+    assert_eq!(ad.n_factorizations, 1);
+    assert_eq!(ad.n_adjoint_solves, ad.propagating.len());
+
+    // FD-check every parameter: the ε′ / ε″ columns AND the shape column.
+    let fds: Vec<Vec<Vec<c64>>> = ad.params.iter().map(|&p| fd(&s, p, k_t)).collect();
+    let worst_of = |t: &FloquetSensitivity| {
+        t.ds.iter()
+            .zip(&fds)
+            .map(|(a, f)| rel_err(a, f, |_, _| true).0)
+            .fold(0.0_f64, f64::max)
+    };
+    let good = worst_of(&ad);
+    eprintln!("brick p=2, oblique: worst rel_err {good:.2e}");
+    assert!(good <= TOL, "correct adjoint: {good:.2e}");
+
+    // The mirrored-order transpose is load-bearing at p=2 too: the plain
+    // forward solve as adjoint fails the same FD table.
+    let bad = worst_of(&run_ad(
+        &s,
+        &fc,
+        k_t,
+        FloquetSensitivityFault::ForwardSolveAsAdjoint,
+    ));
+    eprintln!("brick p=2, oblique, ForwardSolveAsAdjoint: worst rel_err {bad:.2e}");
+    assert!(
+        bad > 10.0 * TOL,
+        "ForwardSolveAsAdjoint must fail: {bad:.2e}"
+    );
+
+    // And the VJP entry point folds onto the JVP contraction of the same
+    // table (g = Σ w_ij |S_ij|² with positive weights).
+    let np = ad.propagating.len();
+    let g = |sm: &[Vec<c64>]| -> (f64, Vec<Vec<c64>>) {
+        let mut v = 0.0;
+        let mut cot = vec![vec![c64::new(0.0, 0.0); np]; np];
+        for (i, row) in sm.iter().enumerate() {
+            for (j, s) in row.iter().enumerate() {
+                let w = 1.0 + 0.3 * i as f64 + 0.7 * j as f64;
+                v += w * s.norm_sqr();
+                cot[i][j] = s.conj() * w;
+            }
+        }
+        (v, cot)
+    };
+    let (_, cot) = g(&ad.s);
+    let jvp = ad.contract(&cot);
+    let vjp = floquet_s_vjp(
+        &fc,
+        &geometry(&s),
+        K0,
+        k_t,
+        0.0,
+        &s.design(),
+        &FloquetSensitivityOptions::default(),
+        g,
+    )
+    .unwrap();
+    assert_eq!(vjp.n_factorizations, 1);
+    for (a, b) in vjp.grad.iter().zip(&jvp) {
+        assert!(
+            (a - b).abs() <= 1e-9 * (1.0 + b.abs()),
+            "VJP {a} vs JVP {b}"
+        );
+    }
+}
+
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "direct solves are slow in debug; runs in release CI"
+)]
+fn p2_edge_gamma_vjp_matches_central_fd_with_one_factorization() {
+    // The lumped-feed entry point at p=2 (issue #1683): the complex ∂Z/∂θ
+    // and the |Γ|² gradient against a perturbed re-solve.
+    let c = cell([2, 2, 10], [0.3, 0.3, 1.0], 7);
+    let (mut eps, mut regions) = (Vec::new(), Vec::new());
+    for t in 0..c.mesh.n_tets() {
+        let z = centroid(&c.mesh, t)[2];
+        let slab = z > 0.35 && z < 0.65;
+        eps.push(c64::new(if slab { 4.0 } else { 1.0 }, 0.0));
+        regions.push(slab.then_some(0));
+    }
+    let velocity = bump_velocity(&c);
+    let design = FloquetDesign {
+        material: Some(MaterialDesign::from_regions(regions.clone(), vec!["slab".into()]).unwrap()),
+        shape: Some(
+            ShapeDesign::from_columns(vec![velocity.clone()], vec!["bump".into()]).unwrap(),
+        ),
+    };
+    let mesh0 = c.mesh.clone();
+    let fc = floquet_on_at(&c, &mesh0, &eps, ElementOrder::P2);
+    let (theta, phi) = (30.0_f64.to_radians(), 0.0);
+
+    // A mid-height feed edge (a mesh edge, not a DOF id).
+    let feed = c
+        .mesh
+        .edges()
+        .iter()
+        .position(|e| {
+            let z = |v: u32| c.mesh.nodes[v as usize][2];
+            ((z(e[0]) + z(e[1])) / 2.0 - 0.5).abs() < 1e-12
+        })
+        .expect("a mid-height edge");
+
+    let z_of = |eps: &[c64], mesh: &TetMesh| -> c64 {
+        floquet_on_at(&c, mesh, eps, ElementOrder::P2)
+            .edge_scan_impedance(K0, theta, phi, feed)
+            .unwrap()
+    };
+    let z0 = z_of(&eps, &mesh0);
+    // A real reference at half |Z| keeps |Γ| ≈ 1/3, away from the pole.
+    let z_ref = z0.norm() / 2.0;
+    let geo = FloquetGeometry {
+        mesh: &mesh0,
+        map: &c.map,
+        eps_r: &eps,
+        sigma: None,
+    };
+    let n0 = fc.factorization_count();
+    let vjp = floquet_edge_gamma_vjp(
+        &fc,
+        &geo,
+        K0,
+        theta,
+        phi,
+        feed,
+        z_ref,
+        &design,
+        &FloquetSensitivityOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(vjp.n_factorizations, 1, "the adjoint shares the forward LU");
+    assert_eq!(fc.factorization_count() - n0, 1);
+    assert_eq!(vjp.n_adjoint_solves, 1);
+
+    // Γ of the adjoint is the forward Γ.
+    let zr = c64::new(z_ref, 0.0);
+    let gamma0 = (z0 - zr) / (z0 + zr);
+    assert!(
+        (vjp.objective - gamma0.norm_sqr()).abs() <= 1e-12 * gamma0.norm_sqr().max(1e-300),
+        "|Γ|² {} vs forward {}",
+        vjp.objective,
+        gamma0.norm_sqr()
+    );
+
+    // Central FD of the complex ∂Z and of d|Γ|²/dθ for every parameter.
+    for (pi, &param) in vjp.params.iter().enumerate() {
+        let at = |h: f64| -> (c64, f64) {
+            let (mut e2, mut m2) = (eps.clone(), mesh0.clone());
+            match param {
+                SParam::EpsPrime { region } => {
+                    for (e, r) in e2.iter_mut().zip(&regions) {
+                        if *r == Some(region) {
+                            e.re += h;
+                        }
+                    }
+                }
+                // ε = ε′ − jε″.
+                SParam::EpsDoublePrime { region } => {
+                    for (e, r) in e2.iter_mut().zip(&regions) {
+                        if *r == Some(region) {
+                            e.im -= h;
+                        }
+                    }
+                }
+                SParam::Shape { .. } => {
+                    for (p, v) in m2.nodes.iter_mut().zip(&velocity) {
+                        for k in 0..3 {
+                            p[k] += h * v[k];
+                        }
+                    }
+                }
+                _ => unreachable!("Floquet edge VJP builds only ε′, ε″ and shape columns"),
+            }
+            let z = z_of(&e2, &m2);
+            (z, ((z - zr) / (z + zr)).norm_sqr())
+        };
+        let (zp, gp) = at(FD_H);
+        let (zm, gm) = at(-FD_H);
+        let dz_fd = (zp - zm) / (2.0 * FD_H);
+        let dg_fd = (gp - gm) / (2.0 * FD_H);
+        eprintln!(
+            "{param:?}: dz AD {:.6e} FD {dz_fd:.6e} | d|Γ|² AD {:.6e} FD {dg_fd:.6e}",
+            vjp.dz[pi], vjp.grad[pi]
+        );
+        assert!(
+            dz_fd.norm() > 1e-8,
+            "{param:?}: a vanishing derivative proves nothing"
+        );
+        assert!(
+            (vjp.dz[pi] - dz_fd).norm() <= TOL * dz_fd.norm(),
+            "{param:?}: ∂Z rel_err {}",
+            (vjp.dz[pi] - dz_fd).norm() / dz_fd.norm()
+        );
+        assert!(
+            (vjp.grad[pi] - dg_fd).abs() <= TOL * dg_fd.abs().max(1e-6),
+            "{param:?}: d|Γ|² AD {} vs FD {dg_fd}",
+            vjp.grad[pi]
+        );
+    }
+}
+
+#[test]
+fn p2_edge_gamma_vjp_typed_errors_for_feed_edges_and_references() {
+    // The lumped-feed fences at p=2 (issue #1683). A feed edge is a mesh
+    // edge, not a DOF id: they coincide only at p=1.
+    let c = cell([2, 2, 4], [0.3, 0.3, 0.2], 3);
+    let eps = vec![c64::new(1.0, 0.0); c.mesh.n_tets()];
+    let fc = floquet_on_at(&c, &c.mesh, &eps, ElementOrder::P2);
+    let space = HcurlSpace::build(&c.mesh, ElementOrder::P2);
+    let n_edges = space.n_edges();
+    let n_dofs = fc.operator().n_dofs();
+    assert!(n_dofs > n_edges, "a p=2 space has more DOFs than edges");
+
+    let zero = vec![[0.0_f64; 3]; c.mesh.n_nodes()];
+    let design = FloquetDesign {
+        material: None,
+        shape: Some(ShapeDesign::from_columns(vec![zero], vec!["z".into()]).unwrap()),
+    };
+    let geo = FloquetGeometry {
+        mesh: &c.mesh,
+        map: &c.map,
+        eps_r: &eps,
+        sigma: None,
+    };
+    let opts = FloquetSensitivityOptions::default();
+
+    // An index in n_edges..n_dofs is a DOF id: refused against the edge
+    // count (the pre-#1683 check accepted it against n_dofs and would have
+    // aliased a face DOF).
+    let bad = n_edges + (n_dofs - n_edges) / 2;
+    match floquet_edge_gamma_vjp(&fc, &geo, K0, 0.0, 0.0, bad, 100.0, &design, &opts) {
+        Err(FloquetSensitivityError::InvalidDesign(m)) => assert!(m.contains("edges"), "{m}"),
+        other => panic!("DOF-id feed edge: {other:?}"),
+    }
+    // A non-positive reference impedance is refused (the constructible
+    // sibling of the Z + z_ref = 0 pole, which no solve reaches exactly).
+    for bad_ref in [0.0, -50.0] {
+        assert!(
+            matches!(
+                floquet_edge_gamma_vjp(&fc, &geo, K0, 0.0, 0.0, 0, bad_ref, &design, &opts),
+                Err(FloquetSensitivityError::InvalidDesign(_))
+            ),
+            "z_ref = {bad_ref} must be refused"
+        );
+    }
+    // The last valid edge answers, with the forward-only LU count.
+    let ok = floquet_edge_gamma_vjp(&fc, &geo, K0, 0.0, 0.0, n_edges - 1, 100.0, &design, &opts)
+        .unwrap();
+    assert_eq!(ok.n_factorizations, 1);
+    assert_eq!(ok.n_adjoint_solves, 1);
+
+    // A PEC-eliminated feed edge is a typed refusal. Both of the edge's
+    // {W, Q} DOFs are eliminated (a lone half is refused at assemble, the
+    // #1699 pre-check); the edge runs through the cell centre, off the
+    // ports and the periodic boundary, so the elimination is a plain local
+    // constraint.
+    let centre = [0.15, 0.15, 0.1];
+    let feed = c
+        .mesh
+        .edges()
+        .iter()
+        .position(|e| {
+            let near = |q: [f64; 3], p: [f64; 3]| {
+                (q[0] - p[0]).abs() < 1e-12
+                    && (q[1] - p[1]).abs() < 1e-12
+                    && (q[2] - p[2]).abs() < 1e-12
+            };
+            let a = c.mesh.nodes[e[0] as usize];
+            let b = c.mesh.nodes[e[1] as usize];
+            (near(a, centre) && near(b, [centre[0] + 0.15, centre[1], centre[2]]))
+                || (near(b, centre) && near(a, [centre[0] + 0.15, centre[1], centre[2]]))
+        })
+        .expect("an interior feed edge through the cell centre");
+    let (w, q) = {
+        let d = space.edge_dofs(feed);
+        (d[0] as usize, d[1] as usize)
+    };
+    let mut mask = vec![true; space.n_dofs()];
+    mask[w] = false;
+    mask[q] = false;
+    let spec = FloquetCellSpec {
+        eps_r: &eps,
+        sigma: None,
+        pec_interior_mask: Some(&mask),
+        ports: [
+            FloquetPortSpec {
+                triangles: &c.bottom,
+                eps_r: 1.0,
+            },
+            FloquetPortSpec {
+                triangles: &c.top,
+                eps_r: 1.0,
+            },
+        ],
+        settings: FloquetSettings::default(),
+        element_order: ElementOrder::P2,
+    };
+    let fc_pec = FloquetCell::assemble::<B>(&c.mesh, &c.map, &spec, &device()).unwrap();
+    match floquet_edge_gamma_vjp(&fc_pec, &geo, K0, 0.0, 0.0, feed, 100.0, &design, &opts) {
+        Err(FloquetSensitivityError::InvalidDesign(m)) => {
+            assert!(m.contains("PEC-eliminated"), "{m}")
+        }
+        other => panic!("PEC-eliminated feed edge: {other:?}"),
     }
 }

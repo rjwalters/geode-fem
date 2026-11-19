@@ -37,7 +37,6 @@ What this fixture pins
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -54,6 +53,7 @@ MESH_PATH = REPO_ROOT / "reference" / "fixtures" / "sphere_pec" / "sphere.msh"
 _REPO_ROOT_STR = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT_STR not in sys.path:
     sys.path.insert(0, _REPO_ROOT_STR)
+from reference.fixture_utils import git_commit  # noqa: E402
 from reference.numpy.derham import (  # noqa: E402
     _read_msh_tets,
     build_edges,
@@ -63,18 +63,6 @@ from reference.numpy.derham import (  # noqa: E402
     euler_ranks,
     gradient_map,
 )
-
-
-def _git_commit() -> str:
-    try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=REPO_ROOT,
-            stderr=subprocess.DEVNULL,
-        )
-        return out.decode().strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown"
 
 
 def _csr_field(description: str, arr, *, dtype: str = "f64") -> dict:
@@ -290,7 +278,7 @@ def main():
             ),
             "issue": (
                 f"#149 (Epic #88, Phase I bridge); generated at git "
-                f"commit {_git_commit()}"
+                f"commit {git_commit(REPO_ROOT)}"
             ),
         },
     }

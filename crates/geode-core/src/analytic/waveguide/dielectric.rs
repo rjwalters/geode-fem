@@ -593,8 +593,39 @@ pub(crate) fn dielectric_raw_candidates_with_target(
     // sparse nonzeros equal the previous dense
     // `apply_pec_2d(&assemble_2d_nedelec_with_epsilon …)` output entry for
     // entry.
-    let k0_sq = k0 * k0;
     let ops = assemble_2d_nedelec_sparse_interior(mesh, eps_r, interior_edge_mask)?;
+    dielectric_raw_candidates_tail(
+        ops,
+        eps_r,
+        k0,
+        n_core,
+        beta_sq_ceiling,
+        n_request,
+        n_eff_target,
+    )
+}
+
+/// Shared post-assembly tail of [`dielectric_raw_candidates_with_target`]
+/// (p=1) and [`dielectric_raw_candidates_p2`] (p=2): from the
+/// already-assembled interior-restricted [`SparseModalOperators`], build the
+/// standard-form pencil, place the shift-invert σ, compute the guided β²
+/// window, and recover up to `n_request` raw eigenpairs sorted by decreasing
+/// β².
+///
+/// The two orders must stay in lockstep here (same σ placement, same window,
+/// same solve) — a single shared copy makes that structural instead of a
+/// convention two duplicated bodies have to honour. Callers differ only in
+/// the assembler that produced `ops`.
+pub(super) fn dielectric_raw_candidates_tail(
+    ops: SparseModalOperators,
+    eps_r: &[f64],
+    k0: f64,
+    n_core: f64,
+    beta_sq_ceiling: f64,
+    n_request: usize,
+    n_eff_target: Option<f64>,
+) -> Result<RawDielectricSolve, EigenError> {
+    let k0_sq = k0 * k0;
     let dim = ops.dim;
     if dim == 0 {
         return Ok(RawDielectricSolve {

@@ -147,20 +147,11 @@ fn run_burn_pml_pipeline_from_fixture(
     // Convert faer::c64 → num_complex::Complex64 once for the
     // comparator (the on-disk encoding round-trips through
     // `Vec<Complex64>` via `Fixture::input_c128`).
-    let epsilon_r_complex: Vec<Complex64> =
-        geode_util::convert::complex_slice_to_vec(&eps_complex_faer);
+    let epsilon_r_complex: Vec<Complex64> = eps_complex_faer.to_vec();
 
     let edges = fixture.mesh.edges();
     let n_edges = edges.len();
-    let tet_edges = fixture.mesh.tet_edges();
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
+    let (tet_idx, tet_sign) = fixture.mesh.tet_edge_tables();
 
     let (mask_edges, interior_mask) = sphere_pec_interior_edges(&fixture.mesh, R_BUFFER);
     assert_eq!(mask_edges.len(), n_edges, "Burn-side edge mask shape");
@@ -349,8 +340,7 @@ fn sphere_pml_spectrum_agrees_with_numpy() {
             n_request,
         )
         .expect("Burn complex eigensolve");
-    let burn_eigvals: Vec<Complex64> =
-        geode_util::convert::complex_slice_to_vec(&burn_eigvals_faer);
+    let burn_eigvals: Vec<Complex64> = burn_eigvals_faer.to_vec();
 
     // Compare against the NumPy baseline via the c128 comparator.
     let golden_full = fixture
@@ -752,8 +742,7 @@ fn sphere_pml_small_spectrum_agrees_with_numpy() {
         gevd_wall.as_secs_f64()
     );
 
-    let burn_eigvals: Vec<Complex64> =
-        geode_util::convert::complex_slice_to_vec(&burn_eigvals_faer);
+    let burn_eigvals: Vec<Complex64> = burn_eigvals_faer.to_vec();
 
     // Compare against the NumPy baseline via the c128 comparator.
     let golden_full = fixture

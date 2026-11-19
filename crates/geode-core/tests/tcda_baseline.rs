@@ -8,23 +8,8 @@ mod tcda_baseline;
 
 use std::f64::consts::PI;
 
-use tcda_baseline::{BaselineParams, ScanGrid, build_cell, max_gamma_active};
+use tcda_baseline::{RECORDED as P, ScanGrid, Z_REF, build_cell, max_gamma_active};
 
-const P: BaselineParams = BaselineParams {
-    pitch: 0.9,
-    half_len: 0.39,
-    strip_cells: 2,
-    n: 14,
-    dz: 0.125,
-    l_dip: 4,
-    l_sub: 2,
-    l_air: 2,
-    eps_sub: 2.0,
-};
-
-/// Feed-line reference impedance of the recorded baseline (normalized
-/// units); about the mid-band broadside `Re Z_scan` (0.152 to 0.190).
-const Z_REF: f64 = 0.15;
 /// Recorded `|Γ|` (dB) at the coarse sub-grid points re-run by the
 /// regression test: `(ω/π, θ°, φ°, dB)`.
 const RECORDED_SUB: [(f64, f64, f64, f64); 3] = [

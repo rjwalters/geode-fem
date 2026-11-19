@@ -21,7 +21,8 @@
 
 use faer::c64;
 
-use super::hybrid::{HybridPortFace, HybridWavePort, HybridWavePortOpts, WavePortSpec};
+use super::hybrid::{HybridPortFace, HybridWavePort, WavePortSpec};
+use super::hybrid_report::HybridWavePortOpts;
 use super::wave_face::PortFaceError;
 use crate::analytic::microstrip::StripFaceMesh;
 use crate::mesh::{ExtrudedTriMesh, extrude_tri_mesh};

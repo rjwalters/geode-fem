@@ -426,7 +426,7 @@ pub fn assemble_lossy_pencil<B: Backend>(
     device: &B::Device,
 ) -> Result<LossyPencil, LossyCavityError> {
     validate_materials(mesh.n_tets(), materials)?;
-    let tet_edges = mesh.tet_edges();
+    let (tet_idx, tet_sign) = mesh.tet_edge_tables();
     let n_edges = mesh.edges().len();
     if pec_interior_mask.len() != n_edges {
         return Err(LossyCavityError::InvalidInput(format!(
@@ -434,14 +434,6 @@ pub fn assemble_lossy_pencil<B: Backend>(
             pec_interior_mask.len()
         )));
     }
-    let tet_idx: Vec<[u32; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].0))
-        .collect();
-    let tet_sign: Vec<[i8; 6]> = tet_edges
-        .iter()
-        .map(|row| std::array::from_fn(|i| row[i].1))
-        .collect();
 
     let mut remap = vec![usize::MAX; n_edges];
     let mut n_interior = 0usize;

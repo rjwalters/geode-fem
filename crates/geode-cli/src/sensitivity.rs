@@ -81,7 +81,7 @@ use crate::backend::CompiledBackend;
 use crate::error::CliError;
 use crate::problem::{CapacitanceTarget, Problem, SensitivityTarget};
 use crate::report::{
-    FdCheckSummary, SensitivityEntry, SensitivityParameterSummary, SensitivityReport,
+    FdCheckSummary, SensitivityEntry, SensitivityParameterSummary, SensitivityReport, WarningResult,
 };
 use crate::spec::SensitivityParameterKind;
 
@@ -124,6 +124,46 @@ pub(crate) fn with_region_value(
         .zip(region_of_tet)
         .map(|(&b, &r)| if r == region { value } else { b })
         .collect()
+}
+
+/// The two bypass-mode warnings of a driven sensitivity under
+/// `sweep.adaptive` (Epic #841 Phase 4, issue #1627): which rows carry
+/// gradients and that those are full-order solves
+/// (`sensitivity_full_order_gradients`), and the cost note when no
+/// `sensitivity.frequencies` restricts the set
+/// (`sensitivity_full_order_cost`). `frequency_indices` are the
+/// differentiated frequencies (the resolved `sensitivity.frequencies`,
+/// else every swept frequency).
+pub(crate) fn bypass_warnings(p: &Problem, frequency_indices: &[usize]) -> Vec<WarningResult> {
+    let hz: Vec<String> = frequency_indices
+        .iter()
+        .map(|&fi| format!("{}", p.frequencies[fi].hz))
+        .collect();
+    let mut out = vec![WarningResult {
+        kind: "sensitivity_full_order_gradients",
+        wave_port: None,
+        physical_group: None,
+        message: format!(
+            "`sweep.adaptive`: the sweep's `results` rows may be reduced-order interpolations \
+             (full-order only at its snapshot / fallback rows) — the sensitivity gradients at \
+             {} Hz are independent full-order solves (Epic #841 Phase 4)",
+            hz.join(", ")
+        ),
+    }];
+    if frequency_indices.len() == p.frequencies.len() {
+        out.push(WarningResult {
+            kind: "sensitivity_full_order_cost",
+            wave_port: None,
+            physical_group: None,
+            message: format!(
+                "`sweep.adaptive` with no `sensitivity.frequencies`: the gradients run a \
+                 full-order solve at every one of the {} swept frequencies, at the dense \
+                 sweep's cost — name `sensitivity.frequencies` to differentiate a subset",
+                p.frequencies.len()
+            ),
+        });
+    }
+    out
 }
 
 /// Wrap gradients into the report, running the FD self-check with
@@ -637,8 +677,11 @@ pub fn eigen_lossy(
 /// (issue #739): one entry per (parameter, frequency) with `index =
 /// [frequency index]` (into the report's `results`). `problem::load`
 /// admitted the section only for exactly one lumped port, no wave ports,
-/// no `absorbing_regions`, a direct solver and a dense sweep. Up to `jobs`
-/// frequencies are differentiated concurrently.
+/// no `absorbing_regions` and a direct solver. Under the `sweep.adaptive`
+/// bypass (Epic #841 Phase 4, issue #1627) the values and gradients stay
+/// full-order solves of this path either way — only the report's sweep
+/// rows turn into ROM interpolations, and the report carries the bypass
+/// warnings. Up to `jobs` frequencies are differentiated concurrently.
 pub fn driven(
     p: &Problem,
     sens: &SensitivityTarget,
@@ -742,7 +785,7 @@ pub fn driven(
         })
     };
     let hz: Vec<f64> = p.frequencies.iter().map(|f| f.hz).collect();
-    finish(
+    let mut report = finish(
         sens,
         "s11_mag_sq",
         "1",
@@ -751,7 +794,14 @@ pub fn driven(
         |idx| format!("|S11|² at {} Hz", hz[idx[0]]),
         forward,
         t0,
-    )
+    )?;
+    // The `sweep.adaptive` bypass (Epic #841 Phase 4, issue #1627): this
+    // path's values and gradients are its own full-order solves either
+    // way, so only the warnings separate it from the dense report.
+    if p.spec.sweep.as_ref().is_some_and(|s| s.adaptive.is_some()) {
+        report.warnings = bypass_warnings(p, &sens.frequency_indices);
+    }
+    Ok(report)
 }
 
 #[cfg(test)]

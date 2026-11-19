@@ -19,7 +19,8 @@ Phase F is split into two sequenced issues under Epic #88:
   (issue [#123](https://github.com/rjwalters/geode-fem/issues/123))**:
   shipped. The runtime payload lives in [`cube_cavity/`](cube_cavity/),
   the sidecar driver is
-  [`reference/driver/eigensolve_from_onnx.py`](../driver/eigensolve_from_onnx.py),
+  [`reference/driver/eigensolve_from_sidecar.py`](../driver/eigensolve_from_sidecar.py)
+  (invoked with `--backend onnx --problem cube-cavity`),
   and the CI gate is
   [`.github/workflows/onnx-cube-cavity.yml`](../../.github/workflows/onnx-cube-cavity.yml)
   — modeled on `tfjava-cube-cavity.yml` and aligned with the n=10
@@ -111,8 +112,9 @@ python3 -m pip install -r requirements.txt
 mkdir -p ../../target/out
 python3 cube_cavity/gen_cube_cavity_reduced.py \
     --n 10 --side 1.0 --out ../../target/out/reduced_kM.json
-python3 ../driver/eigensolve_from_onnx.py \
-    ../../target/out/reduced_kM.json --k 5 \
+python3 ../driver/eigensolve_from_sidecar.py \
+    ../../target/out/reduced_kM.json --backend onnx --problem cube-cavity \
+    --k 5 \
     --out ../../target/out/eigenresult_onnx.json
 python3 ../driver/compare_eigenvalues.py \
     --onnx ../../target/out/eigenresult_onnx.json \
@@ -176,11 +178,9 @@ issue #123 / this directory):
   audit's IR-level transparency contract (audit doc lines 51–55; F.2
   curator decision on issue #123).
 - Eigensolve seam: a JSON sidecar consumed by
-  [`reference/driver/eigensolve_from_onnx.py`](../driver/eigensolve_from_onnx.py)
-  — near-clone of `eigensolve_from_tfjava.py`. Consolidation into a
-  backend-agnostic `eigensolve_from_sidecar.py` is deferred to a
-  follow-up issue once a second sidecar consumer triggers the
-  generalization.
+  [`reference/driver/eigensolve_from_sidecar.py`](../driver/eigensolve_from_sidecar.py)
+  — backend- and problem-agnostic; pass `--backend onnx` and
+  `--problem cube-cavity` explicitly on the invocation line.
 
 ## Parent epic + related
 

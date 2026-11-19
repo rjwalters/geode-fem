@@ -246,7 +246,7 @@ Second + third concrete backends for the cube-cavity spine slice
   cleanly through assembly without I/O in the path.
 - **TF-Java reference**: `tf_java/cube_cavity/` — Maven project,
   static-graph (`Ops` + `Session`) assembly that emits a JSON sidecar
-  for the eigensolve seam in `driver/eigensolve_from_tfjava.py`. The
+  for the eigensolve seam in `driver/eigensolve_from_sidecar.py`. The
   baked graph is the differentiable artifact, so a programmatic mesh
   is required here too.
 - **NumPy sibling oracle**: `numpy/cube_cavity_minimal.py` — minimal

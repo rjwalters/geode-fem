@@ -448,20 +448,9 @@ fn benchmark_tier_holds_oracle_and_converges() {
 
 // ---- validation ----------------------------------------------------------
 
-/// Run `geode <sub>` on the JSON `spec` (written to a scratch file) and
-/// return the error report's `(code, message)`; asserts a non-zero exit.
+/// [`cli_support::run_err_in`] bound to this file's scratch directory.
 fn run_err(sub: &str, name: &str, spec: serde_json::Value) -> (String, String) {
-    let dir = scratch(name);
-    let path = dir.join("spec.json");
-    std::fs::write(&path, spec.to_string()).unwrap();
-    let out = geode(&[sub, path.to_str().unwrap()]);
-    assert!(!out.status.success(), "{name}: expected failure");
-    let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("error report");
-    assert_eq!(v["kind"], "error");
-    (
-        v["error"]["code"].as_str().unwrap().to_string(),
-        v["error"]["message"].as_str().unwrap().to_string(),
-    )
+    cli_support::run_err_in(&scratch(name), sub, name, spec)
 }
 
 /// A valid one-path inductance spec on `mesh`.

@@ -225,13 +225,12 @@ use crate::driven::ports::{
     ChanAt, ChanOrigin, FaceModeSet, HybridWavePort, LumpedPort, WavePort, WavePortSpec,
     assemble_modal_flux, assemble_port_flux, hybrid_port_channel_sweep,
 };
-use crate::driven::shape::{
-    Dual, nedelec_local_dual, nedelec_local_dual_tensor, wall_face_mass_dual,
-};
+use crate::driven::shape::{nedelec_local_dual, nedelec_local_dual_tensor, wall_face_mass_dual};
 use crate::driven::solve::{
     CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, DrivenSource,
     ElementOrder, SolverMode, SurfaceImpedanceBc, WallParam, validate_driven_surfaces,
 };
+use crate::dual::Dual;
 use crate::mesh::{TET_LOCAL_FACES, TaggedTetMesh, TetMesh};
 use crate::shape::{BoundaryMotionDof, FreeformBoundaryMorph};
 
@@ -2369,7 +2368,6 @@ impl<'n> Prepared<'n> {
 
         let shape = match (&design.shape, moving) {
             (Some(s), Some(mv)) => {
-                let tet_edges = mesh.tet_edges();
                 let lookup = crate::elements::whitney::edge_lookup(&edges);
                 let mut wall_faces = Vec::new();
                 for (wall, bc) in net.surfaces.iter().enumerate() {
@@ -2388,18 +2386,13 @@ impl<'n> Prepared<'n> {
                         });
                     }
                 }
+                let (tet_idx, tet_sign) = mesh.tet_edge_tables();
                 Some(ShapeData {
                     wall_faces,
                     columns: s.columns.clone(),
                     moving: mv,
-                    tet_idx: tet_edges
-                        .iter()
-                        .map(|row| std::array::from_fn(|i| row[i].0))
-                        .collect(),
-                    tet_sign: tet_edges
-                        .iter()
-                        .map(|row| std::array::from_fn(|i| row[i].1))
-                        .collect(),
+                    tet_idx,
+                    tet_sign,
                 })
             }
             _ => None,

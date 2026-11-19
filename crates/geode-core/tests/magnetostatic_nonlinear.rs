@@ -32,6 +32,7 @@ mod common;
 
 use std::f64::consts::{PI, TAU};
 
+use common::box_fixtures::fit_slope;
 use common::{Lcg, norm};
 use faer::Side;
 use geode_core::analytic::waveguide::{
@@ -675,7 +676,7 @@ fn orders(r: &[f64]) -> Vec<f64> {
 /// Least-squares slope of `ln r_{k+1}` against `ln r_k`: the convergence
 /// order over a window (2 for quadratic, 1 for linear).
 fn loglog_order(r: &[f64]) -> f64 {
-    fit_rate(&r[..r.len() - 1], &r[1..])
+    fit_slope(&r[..r.len() - 1], &r[1..])
 }
 
 /// Print a Newton history and return the terminal full-step residuals that
@@ -1021,17 +1022,6 @@ fn mms_source(law: &BrauerLaw, x: f64, y: f64) -> f64 {
     -law.nu(b2) * lap - 2.0 * law.dnu_db2(b2) * ghg
 }
 
-fn fit_rate(hs: &[f64], es: &[f64]) -> f64 {
-    let n = hs.len() as f64;
-    let lx: Vec<f64> = hs.iter().map(|h| h.ln()).collect();
-    let ly: Vec<f64> = es.iter().map(|e| e.ln()).collect();
-    let mx = lx.iter().sum::<f64>() / n;
-    let my = ly.iter().sum::<f64>() / n;
-    let num: f64 = lx.iter().zip(&ly).map(|(x, y)| (x - mx) * (y - my)).sum();
-    let den: f64 = lx.iter().map(|x| (x - mx).powi(2)).sum();
-    num / den
-}
-
 #[test]
 fn manufactured_solution_converges_at_optimal_rates() {
     println!("\n[4] manufactured solution, Brauer nu, A* = 0.35 e^y sin(2x+0.5) on [0,1]^2");
@@ -1124,8 +1114,8 @@ fn manufactured_solution_converges_at_optimal_rates() {
         e_h1.push(h1);
         e_l2.push(l2);
     }
-    let rate_h1 = fit_rate(&hs, &e_h1);
-    let rate_l2 = fit_rate(&hs, &e_l2);
+    let rate_h1 = fit_slope(&hs, &e_h1);
+    let rate_l2 = fit_slope(&hs, &e_l2);
     println!(
         "    least-squares fitted rates over {} levels: H1-semi {rate_h1:.3}, L2 {rate_l2:.3}",
         levels.len()

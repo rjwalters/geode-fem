@@ -208,15 +208,29 @@
 //! on any narrow cell, where `|b|` is large, also when the terminated
 //! orders have long decayed and carry nothing.
 //!
-//! A p=2 periodic cell (Epic #836) would lower the floor, and the
-//! residual estimator of Epic #835 could replace this a-priori fit by an
-//! a-posteriori one. Neither is wired to Floquet ports yet.
+//! A p=2 cell lowers the floor: on the p=2 golden's slab fixture (same mesh
+//! for both orders), the worst |ΔS| against the analytic Fresnel/Airy
+//! result drops from `1.9e-3` (p=1) to `2.8e-7` (p=2) at TE/TM, normal and
+//! 30° incidence (measured 2026-11-15, `p2_cell_beats_p1_on_the_slab_against_fresnel`).
+//! The estimate above is calibrated at p=1 and stays a conservative upper
+//! bound at p=2. The residual estimator of Epic #835 could replace
+//! this a-priori fit by an a-posteriori one; it is not wired to Floquet
+//! ports yet.
 //!
 //! # Scope
 //!
-//! The scope is p=1, direct LU only, with scalar per-tet `ε_r` (complex
-//! allowed inside the cell, not on the port faces), optional `σ`, and
-//! optional PEC (e.g. a metal FSS patch) off the port faces.
+//! The scope is p=1 or p=2 ([`ElementOrder`], issue #1628 — the cell
+//! assembles on the order-generic H(curl) space, with the p=2 periodic
+//! constraint and the p=2 port-face trace of [`crate::assembly::surface_p2`]),
+//! direct LU only, with scalar per-tet `ε_r` (complex allowed inside the
+//! cell, not on the port faces), optional `σ`, and optional PEC (e.g. a
+//! metal FSS patch) off the port faces. The lumped delta-gap feed
+//! ([`FactoredFloquetCell::edge_current_rhs`] /
+//! [`FactoredFloquetCell::edge_voltage`], hence
+//! [`FloquetCell::edge_scan_impedance`] and the radiator cell) is
+//! order-generic too (issue #1682: it reads the edge's Whitney DOF). Still
+//! p=1 only: the Floquet-port sensitivities — they fail with
+//! [`FloquetError::UnsupportedAtOrder`] on a p=2 cell.
 //!
 //! # Array elements: active reflection (issue #1513)
 //!
@@ -248,11 +262,12 @@ use faer::sparse::{SparseColMat, Triplet};
 use crate::analytic::waveguide::TRI_QUAD_DEG4;
 use crate::assembly::hcurl_space::HcurlSpace;
 use crate::assembly::periodic::{DofAliasMap, PeriodicConstraint, PeriodicError};
+use crate::assembly::surface_p2::{TRI_NEDELEC2_TRACE_DOFS, tri_nedelec2_trace_shapes};
 use crate::dense_ops::dense_solve_multi;
 use crate::driven::periodic::lu_solve_transpose;
 use crate::driven::rom::{RomSettings, dot_h, grow_reduced};
 use crate::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator,
+    CurrentSource, DrivenBcs, DrivenError, DrivenMaterials, DrivenOperator, DrivenSource,
 };
 use crate::eigen::complex::spmv;
 use crate::elements::ElementOrder;
@@ -340,6 +355,18 @@ pub enum FloquetError {
     /// Sparse assembly / factorization / solve failure.
     #[error("Floquet solve failed: {0}")]
     Solve(String),
+    /// A piece of the cell is still p=1-only: the Floquet-port
+    /// sensitivities (tracked for p=2 in issue #1660, child 2 #1683). The
+    /// lumped delta-gap feed, the scan-impedance radiator path and the
+    /// rest of issue #1628 landed (issue #1682). Build the cell at
+    /// [`ElementOrder::P1`] for the sensitivities.
+    #[error(
+        "{feature} is p=1 only for now: the Floquet-port sensitivities are the last remaining piece (issue #1683); build the cell at ElementOrder::P1"
+    )]
+    UnsupportedAtOrder {
+        /// The unsupported piece.
+        feature: &'static str,
+    },
     /// The fixed-`k_t` reduced-order model does not apply to this band: the
     /// set of channels `(port, order, polarization)` changes across it, so
     /// the port vectors cannot be projected once (see [`FloquetProm`]). A
@@ -567,8 +594,9 @@ pub struct FloquetArraySpec<'a> {
     pub eps_r: &'a [c64],
     /// Optional conductivity per tet.
     pub sigma: Option<&'a [f64]>,
-    /// PEC interior mask over the edges (`true` = kept): the guide walls /
-    /// ground plane / radiators. It must not touch the aperture face.
+    /// PEC interior mask over the space's DOFs (`true` = kept): the guide
+    /// walls / ground plane / radiators (`mesh.n_edges()` entries at p=1,
+    /// `HcurlSpace::n_dofs()` at p=2). It must not touch the aperture face.
     pub pec_interior_mask: Option<&'a [bool]>,
     /// The aperture Floquet port (port 0).
     pub aperture: FloquetPortSpec<'a>,
@@ -576,6 +604,18 @@ pub struct FloquetArraySpec<'a> {
     pub feed: ModalFeedSpec<'a>,
     /// Settings.
     pub settings: FloquetSettings,
+    /// Element order of the H(curl) space (issue #1628);
+    /// [`ElementOrder::P1`] until set with [`Self::with_element_order`].
+    pub element_order: ElementOrder,
+}
+
+impl FloquetArraySpec<'_> {
+    /// The same spec assembled at element order `order` (issue #1628).
+    #[must_use]
+    pub fn with_element_order(mut self, order: ElementOrder) -> Self {
+        self.element_order = order;
+        self
+    }
 }
 
 /// Floquet-port settings.
@@ -614,13 +654,31 @@ pub struct FloquetCellSpec<'a> {
     /// Optional conductivity per tet (natural units), as
     /// [`DrivenOperator::assemble`].
     pub sigma: Option<&'a [f64]>,
-    /// Optional PEC interior mask over the edges (`true` = kept), e.g. a
-    /// metal FSS patch. It must not touch a port face.
+    /// Optional PEC interior mask over the space's DOFs (`true` = kept,
+    /// e.g. a metal FSS patch): `mesh.n_edges()` entries at p=1,
+    /// `HcurlSpace::n_dofs()` at p=2 (build it with
+    /// [`crate::assembly::hcurl_space::HcurlSpace::pec_interior_mask`]). It
+    /// must not touch a port face.
     pub pec_interior_mask: Option<&'a [bool]>,
     /// The two Floquet ports (the two open faces).
     pub ports: [FloquetPortSpec<'a>; 2],
     /// Settings.
     pub settings: FloquetSettings,
+    /// Element order of the H(curl) space the cell is assembled on
+    /// (issue #1628). [`ElementOrder::P1`] unless set with
+    /// [`Self::with_element_order`].
+    pub element_order: ElementOrder,
+}
+
+impl FloquetCellSpec<'_> {
+    /// The same spec assembled at element order `order` (issue #1628).
+    /// [`ElementOrder::P1`] is the default and the pre-#1628 behavior bit
+    /// for bit.
+    #[must_use]
+    pub fn with_element_order(mut self, order: ElementOrder) -> Self {
+        self.element_order = order;
+        self
+    }
 }
 
 /// A plane-wave incidence: polar angle `theta` from the lattice normal
@@ -769,12 +827,19 @@ impl FloquetSolution {
 #[derive(Debug, Clone)]
 struct PortTriangle {
     p: [[f64; 3]; 3],
-    /// Surface gradients of the barycentrics.
+    /// Surface gradients of the barycentrics (vertices in ascending global
+    /// order).
     grad: [[f64; 3]; 3],
     area: f64,
     h: f64,
     /// `(full DOF, local lo vertex, local hi vertex)` of the three edges.
+    /// The DOF is the edge's Whitney DOF at p=2 (only the p=1 mode
+    /// integrals read it).
     edges: [(usize, usize, usize); 3],
+    /// At p=2: the 8 global tangential-trace DOFs in the
+    /// [`crate::assembly::surface_p2`] layout
+    /// `[W01, Q01, W02, Q02, W12, Q12, φ0, φ1]`; `None` at p=1.
+    trace: Option<[usize; TRI_NEDELEC2_TRACE_DOFS]>,
 }
 
 /// The analytic `TE_m0` profile of a [`ModalFeedSpec`].
@@ -802,8 +867,9 @@ struct PortFace {
     clearance: f64,
 }
 
-/// A p=1 periodic unit cell with two Floquet ports (see the
-/// [module docs](self)).
+/// A periodic unit cell with two Floquet ports (see the
+/// [module docs](self)), on the order-generic H(curl) space (p=1 or p=2,
+/// issue #1628).
 pub struct FloquetCell {
     op: DrivenOperator,
     constraint: PeriodicConstraint,
@@ -811,6 +877,12 @@ pub struct FloquetCell {
     ports: Vec<PortFace>,
     settings: FloquetSettings,
     interior_to_full: Vec<usize>,
+    /// The Whitney DOF of every mesh edge: [`HcurlSpace::edge_dofs`]`[0]`
+    /// (the identity at p=1, the `W` of the `(W, Q)` pair at p=2, issue
+    /// #1682). The delta-gap feed reads and drives only this DOF: `Q` is
+    /// the exact gradient `∇(λ_aλ_b)`, whose line integral along the edge
+    /// vanishes, so `∫E·dl` is the `W` coefficient at either order.
+    edge_w_dofs: Vec<u32>,
     /// Sparse LU factorizations performed by [`Self::factor`] so far.
     n_factorizations: AtomicUsize,
 }
@@ -825,8 +897,8 @@ impl FloquetCell {
     /// translations, a port that does not cover one planar open cell face,
     /// two ports on the same side, a port medium that is not the port's
     /// homogeneous real `ε_r` (or has `σ`, or PEC), or mismatched input
-    /// lengths. Also the errors of [`DrivenOperator::assemble`] and
-    /// [`PeriodicConstraint::build`].
+    /// lengths. Also the errors of [`DrivenOperator::assemble_with_space`]
+    /// and [`PeriodicConstraint::build`].
     pub fn assemble<B: Backend>(
         mesh: &TetMesh,
         map: &PeriodicMap,
@@ -840,6 +912,7 @@ impl FloquetCell {
             spec.sigma,
             spec.pec_interior_mask,
             spec.settings,
+            spec.element_order,
             &[(spec.ports[0], None), (spec.ports[1], None)],
             device,
         )
@@ -888,6 +961,7 @@ impl FloquetCell {
             spec.sigma,
             spec.pec_interior_mask,
             spec.settings,
+            spec.element_order,
             &[
                 (spec.aperture, None),
                 (
@@ -907,6 +981,10 @@ impl FloquetCell {
     /// closed by the PEC mask (a ground plane and the radiating metal). Feed
     /// it with a delta-gap edge current, [`Self::edge_scan_impedance`].
     ///
+    /// The delta-gap feed is order-generic (issue #1682), so the cell
+    /// assembles at the `order` given here — [`ElementOrder::P1`] or
+    /// [`ElementOrder::P2`], as with [`FloquetArraySpec::with_element_order`].
+    ///
     /// # Errors
     ///
     /// As [`Self::assemble`].
@@ -919,6 +997,7 @@ impl FloquetCell {
         pec_interior_mask: Option<&[bool]>,
         aperture: FloquetPortSpec<'_>,
         settings: FloquetSettings,
+        order: ElementOrder,
         device: &B::Device,
     ) -> Result<Self, FloquetError> {
         Self::assemble_ports::<B>(
@@ -928,6 +1007,7 @@ impl FloquetCell {
             sigma,
             pec_interior_mask,
             settings,
+            order,
             &[(aperture, None)],
             device,
         )
@@ -941,6 +1021,7 @@ impl FloquetCell {
         sigma: Option<&[f64]>,
         pec_interior_mask: Option<&[bool]>,
         settings: FloquetSettings,
+        order: ElementOrder,
         port_specs: &[(FloquetPortSpec<'_>, Option<ModalProfile>)],
         device: &B::Device,
     ) -> Result<Self, FloquetError> {
@@ -969,23 +1050,73 @@ impl FloquetCell {
                 "rayleigh_warn must be finite and >= 0".into(),
             ));
         }
+        let space = HcurlSpace::build(mesh, order);
+        let edge_w_dofs: Vec<u32> = (0..space.n_edges())
+            .map(|e| space.edge_dofs(e)[0])
+            .collect();
         let lattice = FloquetLattice::from_periodic_map(map)?;
         let edges = mesh.edges();
-        let n_edges = edges.len();
-        let all_kept = vec![true; n_edges];
+        let n_dofs = space.n_dofs();
+        let all_kept = vec![true; n_dofs];
         let mask = pec_interior_mask.unwrap_or(&all_kept);
-        if mask.len() != n_edges {
+        if mask.len() != n_dofs {
             return Err(FloquetError::InvalidSpec(format!(
-                "PEC mask has {} entries, the mesh {n_edges} edges",
-                mask.len()
+                "PEC mask has {} entries, the p={} space has {n_dofs} DOFs",
+                mask.len(),
+                order.degree()
             )));
+        }
+        // A p=2 PEC edge is a `{W, Q}` pair (issue #1699): a mask that
+        // eliminates only one half leaves the edge's constraint split and
+        // singularizes the reduction far from the bad input, at `factor`,
+        // as a sparse-LU `SymbolicSingular`. The library-built
+        // [`HcurlSpace::pec_interior_mask`] always eliminates the pair
+        // together; a caller hand-building a mask gets a typed rejection
+        // naming the edge instead. p=1 edge DOFs are singletons and pass.
+        for e in 0..space.n_edges() {
+            let d = space.edge_dofs(e);
+            if let [w, q] = d
+                && mask[*w as usize] != mask[*q as usize]
+            {
+                let state = |kept: bool| if kept { "kept" } else { "eliminated" };
+                return Err(FloquetError::InvalidSpec(format!(
+                    "PEC mask treats edge {e}'s (W, Q) DOFs differently (W {}, Q {}): a p=2 \
+                     PEC edge must keep or eliminate both",
+                    state(mask[*w as usize]),
+                    state(mask[*q as usize])
+                )));
+            }
+        }
+        // A p=2 PEC face is a `{φ0, φ1}` pair (issue #1705), the face-level
+        // twin of the edge check above: [`HcurlSpace::pec_interior_mask`]
+        // eliminates the pair together, but a caller hand-eliminating a lone
+        // φ assembles fine and singularizes the reduction at `factor` as a
+        // sparse-LU `SymbolicSingular` (measured 2026-11-16 on the #1699
+        // cell: a lone φ1 failed that way, a lone φ0 factored fine). The
+        // same typed rejection naming the face applies; p=1 faces carry no
+        // DOFs and pass.
+        for f in 0..space.n_faces() {
+            let d = space.face_dofs(f);
+            if let [p0, p1] = d
+                && mask[*p0 as usize] != mask[*p1 as usize]
+            {
+                let state = |kept: bool| if kept { "kept" } else { "eliminated" };
+                return Err(FloquetError::InvalidSpec(format!(
+                    "PEC mask treats face {f}'s (φ0, φ1) DOFs differently (φ0 {}, φ1 {}): a \
+                     p=2 PEC face must keep or eliminate both",
+                    state(mask[*p0 as usize]),
+                    state(mask[*p1 as usize])
+                )));
+            }
         }
 
         let inputs = CellInputs { eps_r, sigma, mask };
         let ports: Vec<PortFace> = port_specs
             .iter()
             .enumerate()
-            .map(|(p, (ps, modal))| prepare_port(mesh, &edges, &lattice, &inputs, p, ps, *modal))
+            .map(|(p, (ps, modal))| {
+                prepare_port(mesh, &space, &edges, &lattice, &inputs, p, ps, *modal)
+            })
             .collect::<Result<_, _>>()?;
         let side = |p: &PortFace| plane_of(&p.tris[0], lattice.normal);
         if ports.len() == 2
@@ -1000,11 +1131,11 @@ impl FloquetCell {
             ));
         }
 
-        let space = HcurlSpace::build(mesh, ElementOrder::P1);
         let constraint = PeriodicConstraint::build(&space, map, pec_interior_mask)?;
         let zero = c64::new(0.0, 0.0);
         let source = CurrentSource::from_centroids(mesh, |_| [zero; 3]);
-        let op = DrivenOperator::assemble::<B>(
+        let op = DrivenOperator::assemble_with_space::<B>(
+            &space,
             mesh,
             DrivenMaterials::Scalar(eps_r),
             sigma,
@@ -1013,7 +1144,7 @@ impl FloquetCell {
             },
             &[],
             &[],
-            &source,
+            DrivenSource::Constant(&source),
             device,
         )?;
         let interior_to_full = op.interior_to_full();
@@ -1024,6 +1155,7 @@ impl FloquetCell {
             ports,
             settings,
             interior_to_full,
+            edge_w_dofs,
             n_factorizations: AtomicUsize::new(0),
         })
     }
@@ -1047,8 +1179,9 @@ impl FloquetCell {
         self.ports.len()
     }
 
-    /// The full edge DOFs on the triangles of Floquet port `p` (sorted,
-    /// unique). The sensitivities pin the nodes of these edges.
+    /// The full DOFs on the triangles of Floquet port `p` (sorted,
+    /// unique): the edges' DOFs at p=1; the edges' `(W, Q)` and the faces'
+    /// `(φ0, φ1)` at p=2. The sensitivities pin the nodes of these edges.
     ///
     /// # Panics
     ///
@@ -1593,15 +1726,17 @@ impl FloquetCell {
     }
 
     /// The **scan impedance** `Z = −V/I` of an array element driven by a
-    /// unit delta-gap current on the full edge DOF `edge` (issue #1513 AC2):
-    /// the lumped-feed counterpart of [`Self::active_reflection`]. The cell
-    /// needs only the aperture Floquet port (the radiator is PEC in the
-    /// mask); the Bloch phase is that of the beam scanned to `(theta, phi)`.
-    /// One LU and one back-solve.
+    /// unit delta-gap current on mesh edge `edge` (issue #1513 AC2): the
+    /// lumped-feed counterpart of [`Self::active_reflection`]. The edge is
+    /// resolved to its Whitney DOF ([`HcurlSpace::edge_dofs`]`[0]`), so the
+    /// feed is order-generic (issue #1682). The cell needs only the aperture
+    /// Floquet port (the radiator is PEC in the mask); the Bloch phase is
+    /// that of the beam scanned to `(theta, phi)`. One LU and one back-solve.
     ///
     /// # Errors
     ///
-    /// [`FloquetError::InvalidSpec`] if `edge` is out of range or
+    /// [`FloquetError::InvalidSpec`] if `edge` is out of range (it must be a
+    /// mesh edge, not a DOF id — they coincide only at p=1) or
     /// PEC-eliminated, and the errors of [`Self::k_t_of`] / [`Self::factor`].
     pub fn edge_scan_impedance(
         &self,
@@ -1610,9 +1745,10 @@ impl FloquetCell {
         phi: f64,
         edge: usize,
     ) -> Result<c64, FloquetError> {
-        if edge >= self.op.n_dofs() {
+        if edge >= self.edge_w_dofs.len() {
             return Err(FloquetError::InvalidSpec(format!(
-                "feed edge {edge} out of range"
+                "feed edge {edge} out of range (the mesh has {} edges)",
+                self.edge_w_dofs.len()
             )));
         }
         let inc = FloquetIncidence {
@@ -1622,30 +1758,12 @@ impl FloquetCell {
         };
         let k_t = self.k_t_of(omega, &inc)?;
         let f = self.factor(omega, k_t, phi)?;
-        let b = f.edge_current_rhs(edge).ok_or_else(|| {
+        let b = f.edge_current_rhs(edge)?.ok_or_else(|| {
             FloquetError::InvalidSpec(format!("feed edge {edge} is PEC-eliminated"))
         })?;
         let mut x = vec![c64::new(0.0, 0.0); f.n_reduced()];
         f.back_solve(&b, &mut x)?;
-        Ok(-f.edge_voltage(&x, edge))
-    }
-
-    /// [`Self::active_reflection`] over a list of polar angles at one
-    /// `(omega, phi)`: a scan cut. One factorization per angle.
-    ///
-    /// # Errors
-    ///
-    /// The first error of [`Self::active_reflection`].
-    pub fn scan_cut(
-        &self,
-        omega: f64,
-        phi: f64,
-        thetas: &[f64],
-    ) -> Result<Vec<ActiveReflection>, FloquetError> {
-        thetas
-            .iter()
-            .map(|&t| self.active_reflection(omega, t, phi))
-            .collect()
+        Ok(-f.edge_voltage(&x, edge)?)
     }
 
     /// The polar scan angle (radians) at azimuth `phi` where the first
@@ -1820,30 +1938,51 @@ impl FactoredFloquetCell<'_> {
     }
 
     /// The reduced right-hand side of a unit **delta-gap current** `I = 1`
-    /// impressed along the single edge `edge` (a full edge DOF, issue
-    /// #1513 AC2): `b = −iω Pᴴ e_edge` (the sign of the curl–curl
-    /// equation `∇×∇×E − k²εE = −iωJ`, which makes `Re(−V/I) > 0` a passive
-    /// load), since the line integral of the edge's own Nédélec function
-    /// along it is `1`. `None` if the edge is
-    /// PEC-eliminated (it carries no field).
+    /// impressed along mesh edge `edge`: `b = −iω Pᴴ e_W` (the sign of the
+    /// curl–curl equation `∇×∇×E − k²εE = −iωJ`, which makes `Re(−V/I) > 0`
+    /// a passive load), where `e_W` is the edge's Whitney DOF — the unit
+    /// vector on `edge_dofs(edge)[0]`. At p=1 that is the edge's own
+    /// Nédélec function (line integral `1` along it); at p=2 only the `W`
+    /// member of the `(W, Q)` pair enters, because `Q = ∇(λ_aλ_b)` has zero
+    /// line integral along the edge (issue #1682). `None` if the edge is
+    /// PEC-eliminated (its `W` DOF carries no field; the `Q` DOF's state is
+    /// irrelevant to the feed).
+    ///
+    /// # Errors
+    ///
+    /// No error is produced beyond the [`FloquetError`] contract; the
+    /// delta-gap feed is order-generic.
     ///
     /// # Panics
     ///
     /// Panics if `edge` is out of range.
-    pub fn edge_current_rhs(&self, edge: usize) -> Option<Vec<c64>> {
-        let i = self.cell.op.interior_index(edge)?;
+    pub fn edge_current_rhs(&self, edge: usize) -> Result<Option<Vec<c64>>, FloquetError> {
+        let dof = self.cell.edge_w_dofs[edge] as usize;
+        let Some(i) = self.cell.op.interior_index(dof) else {
+            // The edge is PEC-eliminated (it carries no field).
+            return Ok(None);
+        };
         let mut b = vec![c64::new(0.0, 0.0); self.n_reduced()];
         let w = c64::new(0.0, -self.omega);
         for (r, c) in self.interior.row(i) {
             b[r] += c.conj() * w;
         }
-        Some(b)
+        Ok(Some(b))
     }
 
-    /// The gap voltage `V = ∫E·dl` along `edge` of a reduced solution `x_r`
-    /// (the edge DOF itself).
-    pub fn edge_voltage(&self, x_r: &[c64], edge: usize) -> c64 {
-        self.expand(x_r)[edge]
+    /// The gap voltage `V = ∫E·dl` along mesh edge `edge` of a reduced
+    /// solution `x_r`: the edge's Whitney DOF, `expand(x_r)[edge_dofs(edge)[0]]`.
+    /// At p=1 that is the edge DOF itself; at p=2 the `Q` DOF contributes
+    /// exactly zero (`Q = ∇(λ_aλ_b)` has no line integral along the edge),
+    /// so the `W` coefficient alone is the circulation at either order
+    /// (issue #1682).
+    ///
+    /// # Errors
+    ///
+    /// No error is produced beyond the [`FloquetError`] contract; the
+    /// delta-gap feed is order-generic.
+    pub fn edge_voltage(&self, x_r: &[c64], edge: usize) -> Result<c64, FloquetError> {
+        Ok(self.expand(x_r)[self.cell.edge_w_dofs[edge] as usize])
     }
 
     /// Solve `A_r x = b`.
@@ -2484,7 +2623,21 @@ fn mode_integrals(port: &PortFace, ch: &FloquetChannel, cell_area: f64) -> Vec<c
             level += 1;
         }
         let pts = sub_quadrature(level);
-        let mut acc = [c64::new(0.0, 0.0); 3];
+        // Local DOF slots of this triangle: 3 at p=1 (the `edges` list), 8
+        // at p=2 (the trace layout, mapped into `port.dofs` positions).
+        let slots: Vec<usize> = if let Some(trace) = &t.trace {
+            trace
+                .iter()
+                .map(|&d| port.dofs.binary_search(&d).expect("face DOF"))
+                .collect()
+        } else {
+            t.edges
+                .iter()
+                .map(|&(f, _, _)| port.dofs.binary_search(&f).expect("face DOF"))
+                .collect()
+        };
+        let p2 = t.trace.is_some();
+        let mut acc = [c64::new(0.0, 0.0); TRI_NEDELEC2_TRACE_DOFS];
         for (lam, w) in &pts {
             let r = [
                 lam[0] * t.p[0][0] + lam[1] * t.p[1][0] + lam[2] * t.p[2][0],
@@ -2499,17 +2652,26 @@ fn mode_integrals(port: &PortFace, ch: &FloquetChannel, cell_area: f64) -> Vec<c
                 let ph = dot(ch.kappa, r);
                 c64::new(ph.cos(), ph.sin()) * (w * t.area * norm_c)
             };
-            for (k, &(_, a, b)) in t.edges.iter().enumerate() {
-                let wv = [
-                    lam[a] * t.grad[b][0] - lam[b] * t.grad[a][0],
-                    lam[a] * t.grad[b][1] - lam[b] * t.grad[a][1],
-                    lam[a] * t.grad[b][2] - lam[b] * t.grad[a][2],
-                ];
-                acc[k] += e * dot(wv, ch.e_hat);
+            if p2 {
+                // The p=2 tangential trace (the triangle's vertices are in
+                // ascending global order, so the trace DOFs are the global
+                // DOFs with unit sign — `surface_p2`).
+                let n = tri_nedelec2_trace_shapes(lam, &t.grad);
+                for (k, nv) in n.iter().enumerate() {
+                    acc[k] += e * dot(*nv, ch.e_hat);
+                }
+            } else {
+                for (k, &(_, a, b)) in t.edges.iter().enumerate() {
+                    let wv = [
+                        lam[a] * t.grad[b][0] - lam[b] * t.grad[a][0],
+                        lam[a] * t.grad[b][1] - lam[b] * t.grad[a][1],
+                        lam[a] * t.grad[b][2] - lam[b] * t.grad[a][2],
+                    ];
+                    acc[k] += e * dot(wv, ch.e_hat);
+                }
             }
         }
-        for (k, &(f, _, _)) in t.edges.iter().enumerate() {
-            let i = port.dofs.binary_search(&f).expect("face DOF");
+        for (k, &i) in slots.iter().enumerate() {
             g[i] += acc[k];
         }
     }
@@ -2566,8 +2728,10 @@ struct CellInputs<'a> {
 }
 
 /// Validate and prepare port `p`.
+#[allow(clippy::too_many_arguments)]
 fn prepare_port(
     mesh: &TetMesh,
+    space: &HcurlSpace,
     edges: &[[u32; 2]],
     lattice: &FloquetLattice,
     spec: &CellInputs<'_>,
@@ -2594,6 +2758,17 @@ fn prepare_port(
         .enumerate()
         .map(|(i, e)| ((e[0], e[1]), i))
         .collect();
+    let p2 = space.order() == ElementOrder::P2;
+    // Face index lookup for the p=2 trace DOFs (`mesh.faces()` is sorted).
+    let face_index: HashMap<[u32; 3], usize> = if p2 {
+        mesh.faces()
+            .iter()
+            .enumerate()
+            .map(|(i, f)| (*f, i))
+            .collect()
+    } else {
+        HashMap::new()
+    };
     // Which tets own each port triangle.
     let mut owner: HashMap<[u32; 3], Vec<usize>> = ps
         .triangles
@@ -2701,20 +2876,63 @@ fn prepare_port(
         let gl1 = add(scale_v(e1, i00), scale_v(e2, i01));
         let gl2 = add(scale_v(e1, i01), scale_v(e2, i11));
         let gl0 = scale_v(add(gl1, gl2), -1.0);
+        // A port DOF must be PEC-free (a Floquet port face is a homogeneous
+        // dielectric; a modal feed's wall edges may touch its plane where
+        // the mode vanishes).
+        let need_free = |d: usize, what: &str| -> Result<(), FloquetError> {
+            if !mask[d] && modal.is_none() {
+                return Err(FloquetError::InvalidSpec(format!(
+                    "Floquet port {p}: {what} {d} on the port face is PEC; a Floquet port face \
+                     must be a homogeneous dielectric (move the metal off the port plane)"
+                )));
+            }
+            Ok(())
+        };
         let mut tedges = [(0usize, 0usize, 0usize); 3];
+        let mut trace: Option<[usize; TRI_NEDELEC2_TRACE_DOFS]> = None;
         for (k, (a, b)) in [(0usize, 1usize), (1, 2), (0, 2)].into_iter().enumerate() {
             // s is ascending, so local a < b ⇔ global s[a] < s[b].
             let f = *edge_index
                 .get(&(s[a], s[b]))
                 .expect("triangle edge is a mesh edge");
-            if !mask[f] && modal.is_none() {
-                return Err(FloquetError::InvalidSpec(format!(
-                    "Floquet port {p}: edge {f} on the port face is PEC; a Floquet port face \
-                     must be a homogeneous dielectric (move the metal off the port plane)"
-                )));
+            let mut trace_edge = [0usize; 2];
+            if p2 {
+                let ed = space.edge_dofs(f);
+                need_free(ed[0] as usize, "the W DOF of edge")?;
+                need_free(ed[1] as usize, "the Q DOF of edge")?;
+                trace_edge = [ed[0] as usize, ed[1] as usize];
+                dofs.push(ed[0] as usize);
+                dofs.push(ed[1] as usize);
+            } else {
+                need_free(f, "edge")?;
+                dofs.push(f);
             }
-            tedges[k] = (f, a, b);
-            dofs.push(f);
+            tedges[k] = (if p2 { trace_edge[0] } else { f }, a, b);
+            if p2 {
+                // Fill the trace layout by the edge's own vertex positions:
+                // the kernel's layout is [W01, Q01, W02, Q02, W12, Q12, …],
+                // while this loop visits the edges in (p=1) order
+                // (0,1), (1,2), (0,2).
+                let base = match (a, b) {
+                    (0, 1) => 0,
+                    (0, 2) => 2,
+                    _ => 4,
+                };
+                let tr = trace.get_or_insert([0usize; TRI_NEDELEC2_TRACE_DOFS]);
+                tr[base] = trace_edge[0];
+                tr[base + 1] = trace_edge[1];
+            }
+        }
+        if p2 {
+            let gf = *face_index.get(&s).expect("a port triangle is a mesh face");
+            let fd = space.face_dofs(gf);
+            need_free(fd[0] as usize, "the φ0 DOF of face")?;
+            need_free(fd[1] as usize, "the φ1 DOF of face")?;
+            let tr = trace.as_mut().expect("trace filled above");
+            tr[6] = fd[0] as usize;
+            tr[7] = fd[1] as usize;
+            dofs.push(fd[0] as usize);
+            dofs.push(fd[1] as usize);
         }
         area_sum += 0.5 * a2;
         tris.push(PortTriangle {
@@ -2723,6 +2941,7 @@ fn prepare_port(
             area: 0.5 * a2,
             h,
             edges: tedges,
+            trace,
         });
     }
     if (area_sum - lattice.area).abs() > 1e-8 * lattice.area {
@@ -2763,7 +2982,15 @@ fn prepare_port(
         }
     }
     for (f, e) in edges.iter().enumerate().filter(|_| modal.is_none()) {
-        if !mask[f] {
+        // An edge is PEC when either of its DOFs is eliminated (the mask
+        // eliminates `(W, Q)` together, but stay robust to a hand-made one).
+        let pec = if p2 {
+            let ed = space.edge_dofs(f);
+            !mask[ed[0] as usize] || !mask[ed[1] as usize]
+        } else {
+            !mask[f]
+        };
+        if pec {
             for &v in e {
                 clearance = clearance.min((dot(node(v), n) - pl).abs());
             }

@@ -48,22 +48,16 @@
 
 mod common;
 use common::repo_root;
+use common::spiral_benchmark::{self, FemRow, l_nh, row_at, sweep};
 
-use faer::c64;
 use std::fs;
 
 use geode_core::analytic::spiral::{SquareSpiral, mohan_current_sheet_l};
 use geode_core::constants::ETA_0_OHM as ETA_0;
-use geode_core::driven::extraction::{SweepPoint, driven_frequency_sweep, extrapolate_l0};
-use geode_core::driven::solve::{
-    CurrentSource, DrivenBcs, DrivenMaterials, SurfaceImpedanceBc, SurfaceImpedanceModel,
-};
+use geode_core::driven::extraction::extrapolate_l0;
 use geode_core::mesh::{
-    SLCFET_3HP_MATERIALS, SpiralFixture, pec_interior_mask_from_triangles,
-    read_spiral_slcfet_3hp_fixture, read_spiral_slcfet_3hp_smoke_fixture,
+    SLCFET_3HP_MATERIALS, read_spiral_slcfet_3hp_fixture, read_spiral_slcfet_3hp_smoke_fixture,
 };
-use geode_core::testing::TestBackend;
-use geode_util::units::ghz_to_omega_um as ghz_to_omega;
 
 /// Reference frequency for the **Q** tracking ratio: 3 GHz — the mom
 /// 3HP LUT reference frequency; Au skin depth 1.28 µm < 2.25 µm OVERLAY
@@ -90,99 +84,21 @@ const FIXTURE_SPIRAL: SquareSpiral = SquareSpiral {
     d_in: 100.0e-6,
 };
 
-/// Run the benchmark pipeline (Leontovich Au conductor surface, PEC
-/// outer walls, 50 Ω port, SLCFET 3HP materials) on `fixture` at the
-/// given frequencies.
-fn sweep(fixture: &SpiralFixture, freqs_ghz: &[f64]) -> Vec<SweepPoint> {
-    use burn::tensor::backend::BackendTypes;
-    type B = TestBackend;
-    let device = <B as BackendTypes>::Device::default();
-
-    let edges = fixture.mesh.edges();
-    let eps = fixture.epsilon_r_for(&SLCFET_3HP_MATERIALS);
-    let outer = fixture.outer_boundary_triangles();
-    let mask = pec_interior_mask_from_triangles(&edges, &[outer.as_slice()]);
-    let cond = fixture.conductor_triangles();
-    let surface = SurfaceImpedanceBc {
-        triangles: &cond,
-        model: SurfaceImpedanceModel::GoodConductor {
-            sigma: SLCFET_3HP_MATERIALS.conductor_sigma_natural(),
-        },
-    };
-    let port = fixture.port();
-    let lp = port.lumped_port(50.0 / ETA_0, c64::new(1.0, 0.0));
-    let source = CurrentSource {
-        j_tet: vec![[c64::new(0.0, 0.0); 3]; fixture.mesh.n_tets()],
-    };
-    let omegas: Vec<f64> = freqs_ghz.iter().map(|&f| ghz_to_omega(f)).collect();
-
-    driven_frequency_sweep::<B>(
-        &fixture.mesh,
-        DrivenMaterials::Scalar(&eps),
-        None,
-        &DrivenBcs {
-            pec_interior_mask: &mask,
-        },
-        std::slice::from_ref(&lp),
-        std::slice::from_ref(&surface),
-        &omegas,
-        &source,
-        &device,
-    )
-    .expect("port-driven sweep on the SLCFET 3HP spiral fixture")
-}
-
-/// L (nH) from a sweep point: `Im(Z·η₀) / (2π f_GHz)`.
-fn l_nh(pt: &SweepPoint, f_ghz: f64) -> f64 {
-    (pt.ports[0].z * ETA_0).im / (2.0 * std::f64::consts::PI * f_ghz)
-}
-
-/// One committed sweep row: `(f_ghz, l_nh, r_ohm, q)`.
-type FemRow = (f64, f64, f64, f64);
-
 /// One mom baseline row: `(f_ghz, l_nh, r_ohm, q)`.
 type MomRow = (f64, f64, f64, f64);
 
 /// Committed benchmark sweep, parsed: [`FemRow`]s plus the recorded SRF
 /// (GHz) if present.
+///
+/// Issue #687: the pre-#687 artifact came from the f32 Wgpu default
+/// (pre-#413) and sat -0.57 % off in L0 and ~2x off in Q(3 GHz), so the
+/// committed artifact must come from an f64 backend — the shared parser
+/// asserts `[meta].float_dtype = "F64"` with this issue number.
 fn committed_results() -> (Vec<FemRow>, Option<f64>) {
-    let path = repo_root().join("benchmarks/slcfet_3hp/results.toml");
-    let raw = fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read committed results {}: {e}", path.display()));
-    let doc: toml::Value = toml::from_str(&raw).expect("results.toml is valid TOML");
-
-    // Issue #687: the pre-#687 artifact came from the f32 Wgpu default
-    // (pre-#413) and sat -0.57 % off in L0 and ~2x off in Q(3 GHz), so
-    // the committed artifact must come from an f64 backend.
-    let dtype = doc
-        .get("meta")
-        .and_then(|m| m.get("float_dtype"))
-        .and_then(|v| v.as_str());
-    assert_eq!(
-        dtype,
-        Some("F64"),
-        "results.toml [meta].float_dtype must record an f64 generation backend (issue #687)"
-    );
-
-    let srf_ghz = doc
-        .get("meta")
-        .and_then(|m| m.get("srf_ghz"))
-        .and_then(|v| v.as_float());
-
-    let mut rows = Vec::new();
-    for i in 0.. {
-        let Some(pt) = doc.get(format!("point_{i}")) else {
-            break;
-        };
-        let f = |key: &str| {
-            pt.get(key)
-                .and_then(|v| v.as_float())
-                .unwrap_or_else(|| panic!("point_{i}.{key} missing"))
-        };
-        rows.push((f("f_ghz"), f("l_nh"), f("r_ohm"), f("q")));
-    }
-    assert!(rows.len() >= 10, "benchmark sweep has at least 10 points");
-    (rows, srf_ghz)
+    spiral_benchmark::committed_results(
+        &repo_root().join("benchmarks/slcfet_3hp/results.toml"),
+        687,
+    )
 }
 
 /// mom PEEC baseline, parsed: [`MomRow`]s of the single exact-geometry
@@ -210,18 +126,6 @@ fn mom_baseline() -> Vec<MomRow> {
             )
         })
         .collect()
-}
-
-fn row_at(rows: &[FemRow], f_ghz: f64) -> FemRow {
-    *rows
-        .iter()
-        .min_by(|a, b| {
-            (a.0 - f_ghz)
-                .abs()
-                .partial_cmp(&(b.0 - f_ghz).abs())
-                .unwrap()
-        })
-        .expect("non-empty sweep")
 }
 
 /// Quasi-static inductance L0 (nH) by Richardson extrapolation of the
@@ -355,7 +259,7 @@ fn committed_results_consistent_with_oracles() {
 fn smoke_fixture_extraction_is_physical() {
     let fixture = read_spiral_slcfet_3hp_smoke_fixture().expect("bundled 3HP smoke fixture");
     let f_ghz = Q_REF_GHZ;
-    let pts = sweep(&fixture, &[f_ghz]);
+    let pts = sweep(&fixture, &SLCFET_3HP_MATERIALS, &[f_ghz]);
     assert_eq!(pts.len(), 1);
     let pt = &pts[0];
     assert!(
@@ -407,7 +311,7 @@ fn benchmark_fixture_l0_matches_committed_results() {
     // Re-solve the two lowest-frequency points and re-extrapolate L0.
     let fixture = read_spiral_slcfet_3hp_fixture().expect("bundled 3HP benchmark fixture");
     let anchors = [0.1_f64, 0.2_f64];
-    let pts = sweep(&fixture, &anchors);
+    let pts = sweep(&fixture, &SLCFET_3HP_MATERIALS, &anchors);
     let fresh: Vec<FemRow> = pts
         .iter()
         .zip(anchors)

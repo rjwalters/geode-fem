@@ -21,6 +21,10 @@ pub use lanczos::{
 // Cross-module complex sparse-linear-algebra helper consumed by
 // `driven` / `scattering` / `solver::ksp` under this namespace's
 // historical name; the kernel itself lives in `crate::sparse_ops`.
+// Every consumer module is `tensor`-gated, so the re-export must be too
+// or the slim (`--no-default-features`) build flags it as an unused
+// import under `-D warnings`.
+#[cfg(feature = "tensor")]
 pub(crate) use crate::sparse_ops::spmv_c_into as spmv;
 // Fixed-input regression pencils shared with `eigen::lossy_cavity`'s tests.
 #[cfg(test)]

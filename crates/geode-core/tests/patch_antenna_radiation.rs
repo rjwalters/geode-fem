@@ -58,11 +58,13 @@
 mod common;
 use common::repo_root;
 
+#[path = "common/patch_antenna.rs"]
+mod patch_antenna_common;
+
 use std::fs;
 
 use faer::c64;
 
-use geode_core::analytic::patch::PatchCavity;
 use geode_core::constants::ETA_0_OHM as ETA_0;
 use geode_core::driven::ports::{port_current, port_voltage};
 use geode_core::driven::scattering::flux_power_box;
@@ -75,18 +77,8 @@ use geode_core::postproc::ntff::{broadside_directivity, directivity, gain, ntff_
 use geode_core::testing::TestBackend;
 use geode_util::units::ghz_to_omega_mm as ghz_to_omega;
 
-const R_PORT_OHM: f64 = 50.0;
-const SIGMA_0: f64 = 25.0;
-const PML_THICK_BENCH_MM: f64 = 25.0;
-const PML_THICK_SMOKE_MM: f64 = 8.0;
-const FLUX_SHRINK: f64 = 0.10;
-
-const FIXTURE_PATCH: PatchCavity = PatchCavity {
-    width: 38.0e-3,
-    length: 29.0e-3,
-    height: 1.6e-3,
-    eps_r: 4.4,
-    tan_delta: 0.02,
+use patch_antenna_common::{
+    FIXTURE_PATCH, FLUX_SHRINK, PML_THICK_BENCH_MM, PML_THICK_SMOKE_MM, R_PORT_OHM, SIGMA_0,
 };
 
 /// A parsed `[cut.*]` principal-plane block.

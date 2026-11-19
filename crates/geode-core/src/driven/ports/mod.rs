@@ -44,9 +44,19 @@
 //!   #884); the TE-only TM guard takes its P2 face estimate from
 //!   [`PortFaceProjection::tm_cutoff_estimate_at_order`] and the same margin
 //!   law at every order ([`tm_guard_margin`], issue #905).
+//!
+//! The hybrid-port concern is itself spread over one leaf per job, so no
+//! single file carries the whole path: `hybrid` holds the port-face
+//! construction and the spec-sweep drivers, `hybrid_report` the pure-data
+//! report / warning model those sweeps return, `hybrid_state` the real
+//! mode-tracking and degeneracy state machine, `hybrid_lossy` the complex
+//! pencil of a lossy or dispersive face, `hybrid_z` the per-channel line
+//! impedances, and `mode_gauge` the canonical mode sign.
 
 mod hybrid;
 mod hybrid_lossy;
+mod hybrid_report;
+mod hybrid_state;
 mod hybrid_z;
 mod lumped;
 pub(crate) mod mixed;
@@ -57,16 +67,19 @@ mod wave_face;
 pub(crate) mod wave_p2;
 mod wave_tm_guide;
 
-pub(crate) use hybrid::{ChanAt, ChanOrigin, FaceModeSet, hybrid_port_channel_sweep};
+pub(crate) use hybrid::hybrid_port_channel_sweep;
 pub use hybrid::{
-    DEFAULT_MIN_TRACK_OVERLAP, DispersiveEps, FaceConductor, HybridChannelReport,
-    HybridComplexLineReport, HybridFaceSweep, HybridLineReport, HybridModalFlux, HybridPortFace,
-    HybridPortPointReport, HybridPortReport, HybridWavePort, HybridWavePortOpts,
-    MixedPortSpecSweep, PortAccuracyOpts, PortWarning, PortWarningKind, WavePortSpec,
-    WavePortSpecSweep, solve_hybrid_port_face_sweep,
+    DEFAULT_MIN_TRACK_OVERLAP, DispersiveEps, FaceConductor, HybridFaceSweep, HybridModalFlux,
+    HybridPortFace, HybridWavePort, WavePortSpec, solve_hybrid_port_face_sweep,
     solve_mixed_port_spec_sweep_dispersive_with_mode, solve_mixed_port_spec_sweep_with_mode,
     solve_wave_port_spec_sweep_dispersive_with_mode, solve_wave_port_spec_sweep_with_mode,
 };
+pub use hybrid_report::{
+    HybridChannelReport, HybridComplexLineReport, HybridLineReport, HybridPortPointReport,
+    HybridPortReport, HybridWavePortOpts, MixedPortSpecSweep, PortAccuracyOpts, PortWarning,
+    PortWarningKind, WavePortSpecSweep,
+};
+pub(crate) use hybrid_state::{ChanAt, ChanOrigin, FaceModeSet};
 pub use hybrid_z::{
     DEFAULT_IMPEDANCE_ACCURACY_THRESHOLD, ImpedanceAccuracy, ImpedanceEstimate, LineImpedance,
     MAX_IMPEDANCE_RATE, MIN_IMPEDANCE_RATE, SINGULAR_IMPEDANCE_RATE,
@@ -84,13 +97,13 @@ pub use mode_gauge::{
     relative_gap,
 };
 pub use strip_line::{StripLineSection, strip_line_section};
-pub(crate) use wave::assemble_modal_flux;
 pub use wave::{
     ExtrudedHeightStepMesh, ExtrudedWaveguideMesh, PortMedium, PortMode, WavePort,
     WavePortSweepPoint, extruded_height_step_waveguide_mesh, extruded_rect_waveguide_mesh,
     map_mode_profile_to_full_mesh, solve_wave_port_sweep, solve_wave_port_sweep_with_mode,
     waveguide_mode_reduce,
 };
+pub(crate) use wave::{assemble_modal_flux, invert_complex_dense};
 pub use wave_face::{
     CandidateConfirmation, DegenerateCandidate, FaceSolveCounts, GuideAxialMesh, GuideScan,
     PLANARITY_REL_TOL, PortFaceError, PortFaceProjection, TM_GUARD_AXIAL_COEFF,

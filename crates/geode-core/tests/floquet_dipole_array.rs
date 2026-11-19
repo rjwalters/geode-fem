@@ -118,6 +118,7 @@ fn dipole_cell(n: usize, strip_cells: usize, half_len: f64) -> Dipole {
             eps_r: 1.0,
         },
         FloquetSettings::default(),
+        ElementOrder::P1,
         &device(),
     )
     .unwrap();

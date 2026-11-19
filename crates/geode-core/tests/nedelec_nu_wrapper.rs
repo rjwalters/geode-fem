@@ -7,7 +7,6 @@
 //! unweighted), matching the unweighted `assemble_global_nedelec` baseline.
 
 mod common;
-use common::edge_tables;
 
 use burn::backend::NdArray;
 use burn::tensor::{Int, Tensor, TensorData};
@@ -20,7 +19,7 @@ type B = NdArray<f32>;
 fn nu_wrapper_scales_stiffness_leaves_mass() {
     let mesh = cube_tet_mesh(3, 1.0);
     let n_edges = mesh.edges().len();
-    let (idx, sign) = edge_tables(&mesh);
+    let (idx, sign) = mesh.tet_edge_tables();
     let dev = Default::default();
     let nodes_flat: Vec<f32> = mesh
         .nodes
