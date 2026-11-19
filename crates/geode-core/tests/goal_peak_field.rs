@@ -21,13 +21,14 @@ use faer::sparse::SparseColMat;
 use geode_core::adapt::electrostatic_p1::estimate_electrostatic_p1;
 use geode_core::adapt::goal_peak_field::{
     PeakFieldGoalError, goal_load_fine, localize_signed_residual, peak_field_goal_estimate,
+    refined_dirichlet_nodes,
 };
 use geode_core::adapt::refine::{RefineOpts, Refined, refine};
 use geode_core::assembly::electrostatic::{
     EPS_0, Electrode, assemble_electrostatic, recover_e_field, tet_bary_grads,
 };
 use geode_core::mesh::{TaggedTetMesh, TetMesh, cube_tet_mesh};
-use geode_core::postproc::peak_field::{Region, peak_field};
+use geode_core::postproc::peak_field::{PeakFieldError, Region, peak_field};
 use geode_core::postproc::sample::{Aabb, sample_cell_average};
 
 type V3 = [f64; 3];
@@ -362,6 +363,7 @@ fn non_affine_solve_oracle_galerkin_and_gain() {
         &rho,
         &electrodes,
         &ground,
+        None,
         &whole_cube(),
         0.4,
         1.0,
@@ -438,7 +440,7 @@ fn non_affine_solve_oracle_galerkin_and_gain() {
         })
         .collect();
     let w_coarse = prolong(&est.refined.node_prolongation, &v_coarse);
-    let (_, total_coarse) = localize_signed_residual(&mesh, fine, parent, &residual, &w_coarse)
+    let (_, total_coarse) = localize_signed_residual(&mesh, &est.refined, &residual, &w_coarse)
         .expect("localization succeeds");
     assert!(
         total_coarse.abs() <= 1e-9 * oracle_scale,
@@ -507,6 +509,7 @@ fn affine_problem_has_zero_error() {
         &rho,
         &electrodes,
         &ground,
+        None,
         &whole_cube(),
         0.4,
         1.0,
@@ -535,6 +538,7 @@ fn bad_inputs_are_rejected() {
             &vec![0.0; mesh.n_tets()],
             &electrodes,
             &ground,
+            None,
             &whole_cube(),
             0.4,
             1.0,
@@ -550,10 +554,255 @@ fn bad_inputs_are_rejected() {
             &vec![0.0; mesh.n_tets()],
             &[],
             &[],
+            None,
             &whole_cube(),
             0.4,
             1.0,
         ),
         Err(PeakFieldGoalError::NoDirichlet)
+    ));
+}
+
+/// Review regression (PR #1779, finding 1): with ground at `z = 0` and the
+/// electrode at `z = 1` covering *all eight* coarse nodes of the 1-cell
+/// cube, the union ground+electrode node set used to mark every coarse
+/// face — including the interior mixed ones — as prescribed, pinning the
+/// body-diagonal midpoint `(½,½,½)`: the one free fine degree of freedom
+/// between the plates (the adjoint collapsed to zero and the estimate
+/// with it). The prescribed-face identity is per conductor group, so the
+/// centre stays free and the mixed faces carry residual jumps.
+#[test]
+fn refined_adjoint_keeps_interior_node_between_plates_free() {
+    let mesh = cube_tet_mesh(1, 1.0);
+    let eps_r = vec![1.0; mesh.n_tets()];
+    let rho = vec![0.5; mesh.n_tets()];
+    let (ground, electrodes) = plates(&mesh);
+
+    // Plate-compatible but non-affine potential (0 V at z = 0, 1 V at
+    // z = 1), so the goal load between the plates is nonzero.
+    let phi: Vec<f64> = mesh
+        .nodes
+        .iter()
+        .map(|p| p[2] + 0.3 * p[0] * p[2] * (1.0 - p[2]))
+        .collect();
+
+    let refined = refine_all(&mesh);
+    let fine = &refined.mesh.mesh;
+    let pinned = refined_dirichlet_nodes(&mesh, &refined, &electrodes, &ground);
+
+    // The body-diagonal midpoint (the cube's centre) exists as a new fine
+    // node and must stay free: it lies only on mixed ground/electrode
+    // faces, which are not prescribed.
+    let centre = fine
+        .nodes
+        .iter()
+        .position(|&p| p == [0.5, 0.5, 0.5])
+        .expect("the body-diagonal midpoint exists");
+    assert!(
+        centre >= mesh.n_nodes(),
+        "the centre must be a new fine node"
+    );
+    assert!(
+        !pinned.contains(&(centre as u32)),
+        "the interior node between the plates must stay free"
+    );
+    // Plate midpoints (edges inside one conductor's surface) stay pinned.
+    for (i, &p) in fine.nodes.iter().enumerate().skip(mesh.n_nodes()) {
+        if p[2] == 0.0 || p[2] == 1.0 {
+            assert!(
+                pinned.contains(&(i as u32)),
+                "plate midpoint {p:?} must be pinned"
+            );
+        }
+    }
+
+    // The residual now carries the mixed faces: under the old union rule
+    // every face of this mesh was prescribed and the list was empty.
+    let residual = estimate_electrostatic_p1(&mesh, &phi, &eps_r, &rho, &electrodes, &ground)
+        .expect("residual succeeds");
+    assert!(
+        !residual.faces.is_empty(),
+        "mixed ground/electrode faces must carry residual jumps"
+    );
+
+    // Through the public estimate: every coarse node is Dirichlet, so the
+    // prolongated coarse part of the adjoint vanishes at the centre and
+    // the defect there is the free adjoint value itself — nonzero, with a
+    // nonzero estimate (both were identically zero under the old rule).
+    let est = peak_field_goal_estimate(
+        &mesh,
+        &phi,
+        &eps_r,
+        &rho,
+        &electrodes,
+        &ground,
+        None,
+        &whole_cube(),
+        0.9,
+        1.0,
+    )
+    .expect("goal estimate succeeds");
+    assert!(
+        est.defect[centre] != 0.0,
+        "the free interior node must carry adjoint defect"
+    );
+    assert!(
+        est.estimate.abs() > 0.0,
+        "the estimate must not collapse to zero"
+    );
+}
+
+/// Review regression (PR #1779, finding 2): face localization and
+/// midpoint pinning used to compare dimensionless barycentric coordinates
+/// against a length tolerance, so translating an otherwise identical
+/// small mesh (edge lengths ≈ 1e-6) by `0.01` broke them — localization
+/// returned "lies on no coarse face" and left an on-face midpoint
+/// unpinned. Identification is now topological (refinement parent and
+/// nodal support), so the same fixture passes at both offsets.
+#[test]
+fn localization_and_pinning_are_translation_invariant() {
+    let base = [
+        [0.0, 0.0, 0.0],
+        [4.0, 3.0, 2.0],
+        [1.0, 4.0, 1.0],
+        [1.0, 2.0, 4.0],
+    ];
+    let make = |offset: f64| TetMesh {
+        nodes: base
+            .iter()
+            .map(|p| {
+                [
+                    p[0] * 1e-6 + offset,
+                    p[1] * 1e-6 + offset,
+                    p[2] * 1e-6 + offset,
+                ]
+            })
+            .collect(),
+        tets: vec![[0, 1, 2, 3]],
+        physical_groups: Default::default(),
+    };
+    let ground = vec![0_u32, 1, 3]; // face [0, 1, 3] grounded, no electrode
+    let phi = [0.0, 0.0, 0.0, 1.0];
+    let eps_r = vec![1.0];
+    let rho = vec![0.0];
+
+    let mut results = Vec::new();
+    for offset in [0.0_f64, 0.01] {
+        let mesh = make(offset);
+        let refined = refine_all(&mesh);
+        // Longest-edge bisection of the single tet splits edge 0–1, so
+        // fine node 4 (the first new node) is its midpoint — a vertex of
+        // the grounded face [0, 1, 3] and therefore pinned.
+        let pinned = refined_dirichlet_nodes(&mesh, &refined, &[], &ground);
+        assert_eq!(
+            pinned,
+            [0, 1, 3, 4]
+                .into_iter()
+                .collect::<std::collections::BTreeSet<u32>>(),
+            "at offset {offset}: the on-face midpoint must be pinned"
+        );
+
+        let residual = estimate_electrostatic_p1(&mesh, &phi, &eps_r, &rho, &[], &ground)
+            .expect("residual succeeds");
+        assert_eq!(residual.faces.len(), 3, "only face [0,1,3] is prescribed");
+        let w = [0.1, -0.2, 0.3, 0.05, -0.15];
+        let (per_tet, total) = localize_signed_residual(&mesh, &refined, &residual, &w)
+            .unwrap_or_else(|_| panic!("localization must succeed at offset {offset}"));
+        results.push((pinned, per_tet, total));
+    }
+
+    let (r0, r1) = (&results[0], &results[1]);
+    assert_eq!(r0.0, r1.0, "pinned sets must be identical");
+    let scale = r0.2.abs().max(1e-30);
+    assert!(
+        (r0.2 - r1.2).abs() <= 1e-9 * scale,
+        "total {:e} vs translated {:e}",
+        r0.2,
+        r1.2
+    );
+    for (a, b) in r0.1.iter().zip(&r1.1) {
+        assert!(
+            (a - b).abs() <= 1e-9 * a.abs().max(1e-30),
+            "per-tet {a:e} vs translated {b:e}"
+        );
+    }
+}
+
+/// Review regression (PR #1779, finding 3): the estimator used to pass
+/// `None` tags to the observable scan, so every `Region::Tag` was rejected
+/// as `MissingTags`. Forwarded tags must reproduce `peak_field`'s tagged
+/// scan exactly — same winning window and value — including the tets
+/// outside the candidate region that the winning window overlaps.
+#[test]
+fn tagged_region_matches_the_tagged_scan() {
+    let mesh = cube();
+    let phi: Vec<f64> = mesh
+        .nodes
+        .iter()
+        .map(|p| p[0] * p[0] + 0.3 * p[1] * p[1] * p[1] + 0.2 * p[2])
+        .collect();
+    let eps_r = vec![1.0; mesh.n_tets()];
+    let rho = vec![0.25; mesh.n_tets()];
+    let (ground, electrodes) = plates(&mesh);
+
+    // Tag the upper-half tets; the lower half stays tag 0.
+    let tags: Vec<i32> = mesh
+        .tets
+        .iter()
+        .map(|tet| {
+            let cz = (0..4).map(|i| mesh.nodes[tet[i] as usize][2]).sum::<f64>() / 4.0;
+            if cz > 0.5 { 7 } else { 0 }
+        })
+        .collect();
+    let region = Region::Tag(7);
+
+    let e = recover_e_field(&mesh, &phi);
+    let expected =
+        peak_field(&mesh, Some(&tags), &e, &region, 0.8, 1.0).expect("tagged scan succeeds");
+    // The winning window reaches below z = 0.5 into untagged territory:
+    // the check genuinely covers overlapping tets outside the region.
+    assert!(
+        expected.window.min[2] < 0.5,
+        "winning window {:?} must overlap tets outside the tagged region",
+        expected.window
+    );
+
+    let est = peak_field_goal_estimate(
+        &mesh,
+        &phi,
+        &eps_r,
+        &rho,
+        &electrodes,
+        &ground,
+        Some(&tags),
+        &region,
+        0.8,
+        1.0,
+    )
+    .expect("goal estimate succeeds");
+    assert_eq!(est.peak.window, expected.window);
+    assert_eq!(est.peak.location, expected.location);
+    assert!(
+        (est.peak.value - expected.value).abs() <= 1e-12 * expected.value,
+        "value {} vs tagged scan {}",
+        est.peak.value,
+        expected.value
+    );
+
+    // Without tags the same region is the typed MissingTags error.
+    assert!(matches!(
+        peak_field_goal_estimate(
+            &mesh,
+            &phi,
+            &eps_r,
+            &rho,
+            &electrodes,
+            &ground,
+            None,
+            &region,
+            0.8,
+            1.0,
+        ),
+        Err(PeakFieldGoalError::PeakField(PeakFieldError::MissingTags))
     ));
 }

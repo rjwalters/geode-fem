@@ -49,8 +49,11 @@
 //! mesh ([`crate::adapt::refine`]): the material coefficients ride the
 //! parent-tet map ([`crate::adapt::refine::Refined::parent_of_tet`]), the
 //! prescribed surfaces are carried onto the refinement (every coarse
-//! Dirichlet node stays pinned, and new fine nodes lying on an
-//! all-Dirichlet coarse face are pinned too), and the goal derivative
+//! Dirichlet node stays pinned, and new fine nodes lying on a prescribed
+//! coarse face — one conductor group's face, the shared identity
+//! [`crate::adapt::electrostatic_p1::prescribed_faces`] — are pinned
+//! too; a face mixing ground and electrode nodes is *not* prescribed, so
+//! its midpoints stay free), and the goal derivative
 //! above is the load. The adjoint defect is
 //!
 //! ```text
@@ -100,7 +103,7 @@ use std::collections::{BTreeSet, HashMap};
 use faer::Mat;
 
 use crate::adapt::electrostatic_p1::{
-    ElectrostaticP1Error, P1ElectrostaticResidual, estimate_electrostatic_p1,
+    ElectrostaticP1Error, P1ElectrostaticResidual, estimate_electrostatic_p1, prescribed_faces,
 };
 use crate::adapt::refine::{RefineError, RefineOpts, Refined};
 use crate::assembly::electrostatic::{
@@ -192,6 +195,17 @@ pub struct PeakFieldGoalEstimate {
 /// coarse faces contribute nothing (they are absent from the residual
 /// list, and the goal defect vanishes on them anyway).
 ///
+/// Subface-to-coarse-face matching is **topological**, never geometric:
+/// a fine face shared by children of two different coarse parents lies on
+/// the parents' shared coarse face, identified through the refinement's
+/// nodal support (the rows of
+/// [`crate::adapt::refine::Refined::node_prolongation`]: an old node is
+/// its own support, an edge midpoint's support is the edge's two coarse
+/// endpoints) — a fine face lies on the coarse face of its parent that
+/// contains every fine node's support. No length tolerance touches
+/// barycentric coordinates, so the result is exactly translation and
+/// scale invariant.
+///
 /// # Errors
 ///
 /// [`PeakFieldGoalError::ShapeMismatch`] on length mismatches or a
@@ -200,11 +214,12 @@ pub struct PeakFieldGoalEstimate {
 /// on no coarse face of its parent tet (a refinement bug).
 pub fn localize_signed_residual(
     coarse: &TetMesh,
-    fine: &TetMesh,
-    parent_of_tet: &[usize],
+    refined: &Refined,
     residual: &P1ElectrostaticResidual,
     w_fine: &[f64],
 ) -> Result<(Vec<f64>, f64), PeakFieldGoalError> {
+    let fine = &refined.mesh.mesh;
+    let parent_of_tet = &refined.parent_of_tet;
     let n_coarse_tets = coarse.n_tets();
     if parent_of_tet.len() != fine.n_tets() {
         return Err(PeakFieldGoalError::ShapeMismatch(format!(
@@ -234,6 +249,7 @@ pub fn localize_signed_residual(
             )));
         }
     }
+    let support = node_support(&refined.node_prolongation, fine.n_nodes());
 
     let mut per_tet = vec![0.0_f64; n_coarse_tets];
 
@@ -279,7 +295,6 @@ pub fn localize_signed_residual(
         }
     }
 
-    let tol = mesh_diagonal(coarse) * 1e-9;
     for (key, (t_minus, t_plus)) in &fine_faces {
         let p = parent_of_tet[*t_minus];
         // A fine face shared by two children of the same coarse parent is
@@ -289,7 +304,9 @@ pub fn localize_signed_residual(
         {
             continue;
         }
-        // The face lies on exactly one coarse face of the parent tet.
+        // The face lies on exactly one coarse face of the parent tet,
+        // identified topologically: the coarse face whose node set
+        // contains every fine node's support.
         let ct = coarse.tets[p];
         let cface = (0..4)
             .map(|a| {
@@ -300,9 +317,8 @@ pub fn localize_signed_residual(
                 ])
             })
             .find(|c| {
-                let tri: [[f64; 3]; 3] = std::array::from_fn(|i| coarse.nodes[c[i] as usize]);
                 key.iter()
-                    .all(|&v| point_on_triangle(fine.nodes[v as usize], &tri, tol))
+                    .all(|&v| support[v as usize].iter().all(|&s| c.contains(&s)))
             });
         let Some(cface) = cface else {
             return Err(PeakFieldGoalError::Localization(format!(
@@ -421,6 +437,9 @@ pub fn goal_load_fine(
 /// * `electrodes` / `ground` — the primal Dirichlet node sets; the adjoint
 ///   pins the same surfaces (plus the refinement nodes lying on them) to
 ///   zero.
+/// * `tet_tags` — per-tet physical tags (parallel to `mesh.tets`),
+///   forwarded to the observable scan so [`Region::Tag`] resolves;
+///   `None` only for tag-free regions.
 /// * `region` / `window_edge` — the observable's candidate region and
 ///   window edge, as in [`crate::postproc::peak_field::peak_field`].
 /// * `e_ref` — the enhancement reference forwarded to the observable
@@ -428,8 +447,10 @@ pub fn goal_load_fine(
 ///
 /// # Errors
 ///
-/// [`PeakFieldGoalError`] variants for input mismatches, the observable,
-/// the residual estimator, the refinement, or the adjoint solve
+/// [`PeakFieldGoalError`] variants for input mismatches, the observable
+/// (including [`crate::postproc::peak_field::PeakFieldError::MissingTags`]
+/// for a [`Region::Tag`] without `tet_tags`), the residual estimator, the
+/// refinement, or the adjoint solve
 /// ([`PeakFieldGoalError::NoDirichlet`] when the mesh pins no node at
 /// all).
 #[allow(clippy::too_many_arguments)]
@@ -440,6 +461,7 @@ pub fn peak_field_goal_estimate(
     rho: &[f64],
     electrodes: &[Electrode],
     ground: &[u32],
+    tet_tags: Option<&[i32]>,
     region: &Region,
     window_edge: f64,
     e_ref: f64,
@@ -467,7 +489,7 @@ pub fn peak_field_goal_estimate(
 
     // 1. The observable and its winning window (fixed from here on).
     let field_per_tet = recover_e_field(mesh, phi);
-    let peak = peak_field(mesh, None, &field_per_tet, region, window_edge, e_ref)?;
+    let peak = peak_field(mesh, tet_tags, &field_per_tet, region, window_edge, e_ref)?;
     let window = peak.window;
 
     // 2. Covered-volume denominator of the scan, recomputed with the same
@@ -502,7 +524,7 @@ pub fn peak_field_goal_estimate(
     let eps_r_fine: Vec<f64> = parent_of_tet.iter().map(|&p| eps_r[p]).collect();
 
     // 6. Homogeneous-Dirichlet node set of the refinement.
-    let dirichlet_fine = refined_dirichlet_nodes(mesh, fine, electrodes, ground);
+    let dirichlet_fine = refined_dirichlet_nodes(mesh, &refined, electrodes, ground);
     if dirichlet_fine.is_empty() {
         return Err(PeakFieldGoalError::NoDirichlet);
     }
@@ -558,10 +580,11 @@ pub fn peak_field_goal_estimate(
     }
     let defect: Vec<f64> = z_f.iter().zip(&pzc).map(|(&z, &p)| z - p).collect();
 
-    // 10. Signed residual localization onto the coarse tets.
+    // 10. Signed residual localization onto the coarse tets (the same
+    //     prescribed-face identity drives the residual's face selection
+    //     and the adjoint's pinning above).
     let residual = estimate_electrostatic_p1(mesh, phi, eps_r, rho, electrodes, ground)?;
-    let (per_tet, estimate) =
-        localize_signed_residual(mesh, fine, parent_of_tet, &residual, &defect)?;
+    let (per_tet, estimate) = localize_signed_residual(mesh, &refined, &residual, &defect)?;
 
     Ok(PeakFieldGoalEstimate {
         peak,
@@ -579,79 +602,54 @@ pub fn peak_field_goal_estimate(
 /// [`crate::adapt::electrostatic_p1`].
 const TET_FACES: [[usize; 3]; 4] = [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]];
 
-/// Mesh extent (bounding-box diagonal), the length scale of geometric
-/// tolerances.
-fn mesh_diagonal(mesh: &TetMesh) -> f64 {
-    let mut lo = [f64::INFINITY; 3];
-    let mut hi = [f64::NEG_INFINITY; 3];
-    for p in &mesh.nodes {
-        for d in 0..3 {
-            lo[d] = lo[d].min(p[d]);
-            hi[d] = hi[d].max(p[d]);
+/// The coarse-node support of every fine node, from the rows of the
+/// refinement's nodal prolongation: an old (coarse) node's support is the
+/// node itself, and an edge midpoint's support is the edge's two coarse
+/// endpoints. This is the refinement's own parent/nodal-support
+/// information, used instead of any geometric test — subface and midpoint
+/// identification then cannot depend on the mesh's position, scale or
+/// conditioning in the coordinate system.
+fn node_support(
+    prolongation: &faer::sparse::SparseColMat<usize, f64>,
+    n_fine: usize,
+) -> Vec<Vec<u32>> {
+    let p = prolongation.as_ref();
+    let cp = p.col_ptr();
+    let rows = p.row_idx();
+    let mut support: Vec<Vec<u32>> = vec![Vec::new(); n_fine];
+    for j in 0..p.ncols() {
+        for k in cp[j]..cp[j + 1] {
+            support[rows[k]].push(j as u32);
         }
     }
-    norm(sub(hi, lo))
-}
-
-/// Whether `p` lies on the triangle `tri` (within an absolute `tol` on the
-/// plane distance and on the barycentric coordinates). Refinement nodes
-/// are exact edge midpoints, so points that geometrically lie on a coarse
-/// face satisfy this at roundoff level.
-fn point_on_triangle(p: [f64; 3], tri: &[[f64; 3]; 3], tol: f64) -> bool {
-    let n = cross(sub(tri[1], tri[0]), sub(tri[2], tri[0]));
-    let nn = norm(n);
-    if nn == 0.0 {
-        return false;
-    }
-    if dot(sub(p, tri[0]), n).abs() > tol * nn {
-        return false;
-    }
-    // Barycentric coordinates in the projection dropping the dominant
-    // normal axis (never degenerate for a non-degenerate triangle).
-    let axis = (0..3)
-        .max_by(|&a, &b| n[a].abs().total_cmp(&n[b].abs()))
-        .unwrap();
-    let keep: [usize; 2] = if axis == 0 {
-        [1, 2]
-    } else if axis == 1 {
-        [0, 2]
-    } else {
-        [0, 1]
-    };
-    let x0 = tri[0][keep[0]];
-    let y0 = tri[0][keep[1]];
-    let x1 = tri[1][keep[0]];
-    let y1 = tri[1][keep[1]];
-    let x2 = tri[2][keep[0]];
-    let y2 = tri[2][keep[1]];
-    let px = p[keep[0]];
-    let py = p[keep[1]];
-    let denom = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
-    if denom == 0.0 {
-        return false;
-    }
-    let l0 = ((y1 - y2) * (px - x2) + (x2 - x1) * (py - y2)) / denom;
-    let l1 = ((y2 - y0) * (px - x2) + (x0 - x2) * (py - y2)) / denom;
-    let l2 = 1.0 - l0 - l1;
-    (-tol..=1.0 + tol).contains(&l0)
-        && (-tol..=1.0 + tol).contains(&l1)
-        && (-tol..=1.0 + tol).contains(&l2)
+    support
 }
 
 /// The homogeneous-Dirichlet node set of the refinement: every coarse
 /// Dirichlet node (they keep their indices) plus every *new* fine node
-/// lying on a prescribed coarse face — a face whose three coarse nodes are
-/// all Dirichlet, the same prescribed-face rule
-/// [`estimate_electrostatic_p1`] uses (covering electrode/ground surfaces
-/// and internal conductor sheets). A node of that set is exactly a vertex
-/// of the prescribed surface's subdivision, so the remaining nodes' hat
-/// functions span the refined mesh's homogeneous-Dirichlet space.
-fn refined_dirichlet_nodes(
+/// lying on a **prescribed** coarse face — one conductor group's face,
+/// the shared identity
+/// [`crate::adapt::electrostatic_p1::prescribed_faces`] (covering an
+/// electrode's or the ground's surface faces and internal conductor
+/// sheets of a single conductor). A face mixing nodes of different
+/// conductors is *not* prescribed — its P1 trace merely interpolates
+/// their prescribed node values, so the free interior degrees of freedom
+/// between two electrodes stay free.
+///
+/// Membership is decided topologically through the refinement's nodal
+/// support: a new node (an edge midpoint of coarse edge `(a, b)`) lies on
+/// a prescribed face iff `(a, b)` is an edge of that face, i.e. both
+/// support endpoints belong to it. A node of the resulting set is exactly
+/// a vertex of the prescribed surface's subdivision, so the remaining
+/// nodes' hat functions span the refined mesh's homogeneous-Dirichlet
+/// space.
+pub fn refined_dirichlet_nodes(
     coarse: &TetMesh,
-    fine: &TetMesh,
+    refined: &Refined,
     electrodes: &[Electrode],
     ground: &[u32],
 ) -> BTreeSet<u32> {
+    let fine = &refined.mesh.mesh;
     let dirichlet: BTreeSet<u32> = electrodes
         .iter()
         .flat_map(|el| el.nodes.iter().copied())
@@ -660,23 +658,22 @@ fn refined_dirichlet_nodes(
     if dirichlet.is_empty() {
         return dirichlet;
     }
-    let mut keys: BTreeSet<[u32; 3]> = BTreeSet::new();
-    for tet in &coarse.tets {
-        for f in &TET_FACES {
-            let key = sorted3([tet[f[0]], tet[f[1]], tet[f[2]]]);
-            if key.iter().all(|v| dirichlet.contains(v)) {
-                keys.insert(key);
+    // Edges of the prescribed faces: a midpoint of such an edge is a
+    // vertex of the prescribed surface's subdivision.
+    let mut prescribed_edges: BTreeSet<(u32, u32)> = BTreeSet::new();
+    for f in prescribed_faces(coarse, electrodes, ground) {
+        for i in 0..3 {
+            for j in i + 1..3 {
+                prescribed_edges.insert((f[i].min(f[j]), f[i].max(f[j])));
             }
         }
     }
-    let tol = mesh_diagonal(coarse) * 1e-9;
-    let faces: Vec<[[f64; 3]; 3]> = keys
-        .iter()
-        .map(|k| std::array::from_fn(|i| coarse.nodes[k[i] as usize]))
-        .collect();
+    let support = node_support(&refined.node_prolongation, fine.n_nodes());
     let mut pinned = dirichlet;
-    for (i, &p) in fine.nodes.iter().enumerate().skip(coarse.n_nodes()) {
-        if faces.iter().any(|f| point_on_triangle(p, f, tol)) {
+    for (i, sup) in support.iter().enumerate().skip(coarse.n_nodes()) {
+        if let [a, b] = sup.as_slice()
+            && prescribed_edges.contains(&((*a).min(*b), (*a).max(*b)))
+        {
             pinned.insert(i as u32);
         }
     }

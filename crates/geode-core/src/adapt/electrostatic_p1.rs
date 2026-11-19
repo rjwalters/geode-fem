@@ -66,13 +66,18 @@
 //!   `J_F = −ε_T ∇φ_h|_T·n̂ = D·n_out` (C/m²); the homogeneous natural
 //!   condition is `J_F = 0`.
 //!
-//! **Prescribed faces are skipped.** A face whose **all three** nodes
-//! lie in the electrode/ground Dirichlet node sets carries no residual
-//! contribution (the test functions vanish there). This covers the
-//! electrode/ground surfaces and also tagged **internal conductor
-//! sheets** (faces interior to the mesh whose nodes are all Dirichlet).
-//! A face with one or two Dirichlet nodes is *not* skipped: the free
-//! node's test function is nonzero there.
+//! **Prescribed faces are skipped.** A face whose three nodes all lie in
+//! **one conductor group** — the ground set, or a single electrode's node
+//! set ([`prescribed_faces`]) — carries no residual contribution (the
+//! trace of the discrete solution there is the conductor's prescribed
+//! data). This covers the electrode/ground surfaces and also tagged
+//! **internal conductor sheets** (faces interior to the mesh whose nodes
+//! all belong to one conductor). A face whose Dirichlet nodes come from
+//! *different* conductors is **not** prescribed: it is not part of any
+//! conductor surface, and its P1 trace merely interpolates between the
+//! conductors' node values, so its jump/flux is a genuine residual term.
+//! A face with one or two Dirichlet nodes is likewise not skipped: the
+//! free node's test function is nonzero there.
 //!
 //! **Units.** `ρ_T` in C/m³, `J_F` in C/m², `h_T`, `h_F` in m, `A_F` in
 //! m², `V_T` in m³, `ε₀` in F/m. Then `η_T²` and `η²` carry C²/m and
@@ -175,6 +180,42 @@ pub struct P1ElectrostaticResidual {
 /// (same table as [`crate::assembly::electrostatic::face_to_tet_map`]).
 const TET_FACES: [[usize; 3]; 4] = [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]];
 
+/// The prescribed (Dirichlet-data) face keys of `mesh`: every tet face
+/// whose three nodes all belong to **one conductor group** — the ground
+/// set, or a single electrode's node set.
+///
+/// This is the canonical prescribed-face identity of the P1 residual
+/// estimator and the goal estimator ([`crate::adapt::goal_peak_field`]):
+/// on such a face the discrete solution's trace is the conductor's
+/// prescribed data (an equipotential surface, an electrode's boundary
+/// skin, or an internal conductor sheet). A face whose Dirichlet nodes
+/// come from *different* conductors is **not** prescribed — it is not
+/// part of any conductor surface, so its flux jump is a genuine residual
+/// term. Faces with a free node are never prescribed.
+pub fn prescribed_faces(
+    mesh: &TetMesh,
+    electrodes: &[Electrode],
+    ground: &[u32],
+) -> BTreeSet<[u32; 3]> {
+    let groups: Vec<BTreeSet<u32>> = std::iter::once(ground.iter().copied().collect())
+        .chain(
+            electrodes
+                .iter()
+                .map(|el| el.nodes.iter().copied().collect()),
+        )
+        .collect();
+    let mut keys = BTreeSet::new();
+    for tet in &mesh.tets {
+        for f in &TET_FACES {
+            let key = sorted3([tet[f[0]], tet[f[1]], tet[f[2]]]);
+            if groups.iter().any(|g| key.iter().all(|v| g.contains(v))) {
+                keys.insert(key);
+            }
+        }
+    }
+    keys
+}
+
 /// Compute the per-tet residual indicators and the signed cell/face
 /// residual terms of the scalar P1 electrostatic solve.
 ///
@@ -190,8 +231,8 @@ const TET_FACES: [[usize; 3]; 4] = [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]];
 ///   `mesh.n_tets()`.
 /// * `electrodes` / `ground` — the Dirichlet node sets
 ///   (`assemble_electrostatic`'s); together they define the prescribed
-///   faces (all three nodes Dirichlet) that are excluded from the
-///   residual.
+///   faces ([`prescribed_faces`]: all three nodes in one conductor
+///   group) that are excluded from the residual.
 ///
 /// `∇φ_h` is recovered per tet as `−E` with
 /// [`recover_e_field`].
@@ -236,12 +277,9 @@ pub fn estimate_electrostatic_p1(
         .map(|e| scale(e, -1.0))
         .collect();
 
-    // Dirichlet node set: every electrode node plus every ground node.
-    let dirichlet: BTreeSet<u32> = electrodes
-        .iter()
-        .flat_map(|el| el.nodes.iter().copied())
-        .chain(ground.iter().copied())
-        .collect();
+    // The prescribed-face identity shared with the goal estimator: all
+    // three nodes in one conductor group (ground or a single electrode).
+    let prescribed = prescribed_faces(mesh, electrodes, ground);
 
     // Per-tet diameter h_T (longest edge, m) and volume V_T (m³).
     let mut h_tet = vec![0.0_f64; n_tets];
@@ -299,10 +337,11 @@ pub fn estimate_electrostatic_p1(
 
     for (key, (t_minus, t_plus)) in &face_tets {
         let tm = *t_minus;
-        // Prescribed face: all three nodes Dirichlet ⇒ the test functions
-        // vanish ⇒ no residual contribution (electrode/ground surfaces,
-        // and internal conductor sheets, whose faces are interior).
-        if key.iter().all(|v| dirichlet.contains(v)) {
+        // Prescribed face: all three nodes in one conductor group ⇒ the
+        // trace there is prescribed data ⇒ no residual contribution
+        // (electrode/ground surfaces, and internal conductor sheets,
+        // whose faces are interior).
+        if prescribed.contains(key) {
             continue;
         }
         let pa = mesh.nodes[key[0] as usize];
