@@ -18,6 +18,13 @@
 //!   matcher after every step), reports mesh quality, and returns the exact
 //!   nested prolongations (Whitney p=1, P1 nodes, and p=2 via
 //!   [`crate::assembly::hcurl_space::HcurlSpace`]).
+//! - [`electrostatic_p1`]: the scalar P1 electrostatic residual estimator
+//!   (issue #1765, the first slice of #1481): per-tet indicators `η_T² =
+//!   h_T²‖ρ_T‖² + ½Σ_{interior} h_F‖J_F‖² + Σ_{natural} h_F‖J_F‖²` from
+//!   the element charge residual and the
+//!   normal displacement-flux jumps of the
+//!   [`crate::assembly::electrostatic`] solve, with the signed `ρ_T` / `J_F`
+//!   terms exposed before norms for the goal estimator (#1766).
 //! - [`goal`]: the [`goal::GoalFunctional`] trait, the interface shared with
 //!   the differentiable-EDA epic (#841) that the goal-oriented DWR phase
 //!   (#835 Phase 4) will consume. Only the trait and a linear reference goal
@@ -41,6 +48,7 @@ pub mod driver;
 pub mod dwr;
 pub mod dwr_eigen;
 pub mod dwr_wave;
+pub mod electrostatic_p1;
 pub mod estimator;
 pub mod goal;
 pub mod refine;
