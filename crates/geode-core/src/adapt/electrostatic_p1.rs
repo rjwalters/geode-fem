@@ -186,7 +186,7 @@ const TET_FACES: [[usize; 3]; 4] = [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]];
 ///   residual.
 ///
 /// `∇φ_h` is recovered per tet as `−E` with
-/// [`recover_e_field`](crate::assembly::electrostatic::recover_e_field).
+/// [`recover_e_field`].
 ///
 /// # Errors
 ///

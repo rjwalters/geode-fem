@@ -151,6 +151,7 @@ jobs:
               --test electromigration \
               --test electrostatic_capacitance \
               --test electrostatic_capacitance_2d \
+              --test electrostatic_p1 \
               --test eqs_transient \
               --test extraction \
               --test faer_qz_debug_overflow_guard \
@@ -304,6 +305,7 @@ jobs:
               --test electromigration \
               --test electrostatic_capacitance \
               --test electrostatic_capacitance_2d \
+              --test electrostatic_p1 \
               --test eqs_transient \
               --test extraction \
               --test faer_qz_debug_overflow_guard \
