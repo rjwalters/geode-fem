@@ -23,24 +23,41 @@ use std::time::Instant;
 use geode_core::assembly::conduction::{
     ConductionOptions, ConductionTerminal, assemble_conduction,
 };
+use geode_core::postproc::peak_field::{
+    ConductionWindowPeak as CoreWindowPeak, conduction_window_peaks,
+};
 
 use crate::check::{conductor_summaries, mesh_summary, region_summaries};
 use crate::error::{CliError, scaled_matrix};
 use crate::export::OutDir;
 use crate::problem;
 use crate::report::{
-    ConductionReport, ConductionSettingsSummary, ConductionSolverStats, Provenance,
+    ConductionReport, ConductionSettingsSummary, ConductionSolverStats, ConductionWindowPeak,
+    ConductionWindowedPeaks, Provenance,
 };
 use crate::spec::Analysis;
 
 /// Name of the per-element field file written under `--outdir`.
 pub const FIELDS_FILE_NAME: &str = "conduction_fields.vtu";
 
+/// Optional windowed-peak inputs (`--window-edge-m` plus its two
+/// references, issue #1496): all three come as a group.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WindowOpts {
+    /// Cube edge of the averaging window, metres.
+    pub edge_m: f64,
+    /// Reference current density (A/m²) for the current-density ratios.
+    pub j_ref_a_m2: f64,
+    /// Reference Joule density (W/m³) for the Joule ratio.
+    pub joule_ref_w_m3: f64,
+}
+
 /// Load, solve and report.
 pub fn run(
     spec_path: &Path,
     provenance: Provenance,
     outdir: Option<&Path>,
+    window: Option<WindowOpts>,
 ) -> Result<ConductionReport, CliError> {
     // Create `--outdir` up front so an unwritable path fails before the solve.
     let out = OutDir::create_opt(outdir)?;
@@ -120,6 +137,70 @@ pub fn run(
         })
         .transpose()?;
 
+    let windowed_peaks = window
+        .map(|w| {
+            if !(w.edge_m.is_finite() && w.edge_m > 0.0) {
+                return Err(CliError::InvalidSpec(format!(
+                    "--window-edge-m must be finite and > 0, got {}",
+                    w.edge_m
+                )));
+            }
+            for (name, r, unit) in [
+                ("--j-ref-a-m2", w.j_ref_a_m2, "A/m^2"),
+                ("--joule-ref-w-m3", w.joule_ref_w_m3, "W/m^3"),
+            ] {
+                if !(r.is_finite() && r > 0.0) {
+                    return Err(CliError::InvalidSpec(format!(
+                        "{name} must be finite and > 0 {unit}, got {r}"
+                    )));
+                }
+            }
+            // The window is physical and fixed across refinements: metres
+            // in, mesh units for the library observable.
+            let conducting: Vec<bool> = target.sigma_s_m.iter().map(|&s| s > 0.0).collect();
+            let peaks = conduction_window_peaks(
+                mesh,
+                &sol.j,
+                &sol.joule_density,
+                &conducting,
+                w.edge_m / scale,
+            )
+            .map_err(|e| CliError::InvalidSpec(format!("windowed peaks: {e}")))?;
+            let peak = |metric, wp: CoreWindowPeak, unit_scale: f64, r: f64| {
+                let value = wp.value / unit_scale;
+                ConductionWindowPeak {
+                    metric,
+                    reference_ratio: value / r,
+                    value,
+                    location_m: [
+                        wp.location[0] * scale,
+                        wp.location[1] * scale,
+                        wp.location[2] * scale,
+                    ],
+                    conducting_volume_fraction: wp.coverage_fraction,
+                    undersampled: wp.undersampled,
+                }
+            };
+            Ok(ConductionWindowedPeaks {
+                window_edge_m: w.edge_m,
+                normalization: "conductor_intersection",
+                j_ref_a_m2: w.j_ref_a_m2,
+                joule_ref_w_m3: w.joule_ref_w_m3,
+                peaks: vec![
+                    peak("vector_mean", peaks.vector_mean, scale, w.j_ref_a_m2),
+                    peak("magnitude_mean", peaks.magnitude_mean, scale, w.j_ref_a_m2),
+                    peak("magnitude_rms", peaks.magnitude_rms, scale, w.j_ref_a_m2),
+                    peak(
+                        "joule_mean",
+                        peaks.joule_mean,
+                        scale * scale,
+                        w.joule_ref_w_m3,
+                    ),
+                ],
+            })
+        })
+        .transpose()?;
+
     Ok(ConductionReport {
         provenance,
         kind: "conduction",
@@ -142,6 +223,7 @@ pub fn run(
             "not_exported: pass `--outdir DIR` to write the per-element fields"
         },
         fields_file,
+        windowed_peaks,
         solver: ConductionSolverStats {
             method: "gradient_energy",
             inner: "direct_lu_jacobi_scaled",

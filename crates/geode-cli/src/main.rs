@@ -208,7 +208,8 @@ struct StaticArgs {
 }
 
 /// `geode conduction` arguments: the shared static-solve arguments plus
-/// `--outdir` for the per-element field export.
+/// `--outdir` for the per-element field export and the optional
+/// `--window-edge-m` group for the windowed peak averages.
 #[derive(Args)]
 struct ConductionArgs {
     #[command(flatten)]
@@ -219,6 +220,56 @@ struct ConductionArgs {
     /// references it. Default: nothing is written.
     #[arg(long, value_name = "DIR")]
     outdir: Option<PathBuf>,
+    /// Edge (m) of the cubic averaging window for the windowed peak
+    /// observable (issue #1496): the report adds `windowed_peaks` — the
+    /// box averages `|<J>|`, `<|J|>`, `sqrt(<|J|²>)` and `<σ|∇φ|²>` over
+    /// candidate windows centred on the conducting tets, each with its
+    /// location, conducting volume fraction and ratio to the two
+    /// `--*-ref` densities. The window is physical and stays fixed across
+    /// mesh refinements. Requires `--j-ref-a-m2` and `--joule-ref-w-m3`.
+    #[arg(
+        long,
+        value_name = "M",
+        requires = "j_ref_a_m2",
+        requires = "joule_ref_w_m3",
+        value_parser = positive_f64
+    )]
+    window_edge_m: Option<f64>,
+    /// Reference current density (A/m²) the windowed current-density
+    /// peaks are reported against (dimensionless `reference_ratio`).
+    /// Requires `--window-edge-m` and `--joule-ref-w-m3`.
+    #[arg(
+        long,
+        value_name = "A/M2",
+        requires = "window_edge_m",
+        requires = "joule_ref_w_m3",
+        value_parser = positive_f64
+    )]
+    j_ref_a_m2: Option<f64>,
+    /// Reference Joule density (W/m³) the windowed Joule peak is reported
+    /// against (dimensionless `reference_ratio`). Requires
+    /// `--window-edge-m` and `--j-ref-a-m2`.
+    #[arg(
+        long,
+        value_name = "W/M3",
+        requires = "window_edge_m",
+        requires = "j_ref_a_m2",
+        value_parser = positive_f64
+    )]
+    joule_ref_w_m3: Option<f64>,
+}
+
+/// Positive, finite `f64` value parser (shared by the windowed-peak
+/// arguments).
+fn positive_f64(s: &str) -> Result<f64, String> {
+    let v: f64 = s
+        .parse()
+        .map_err(|e| format!("`{s}` is not a number: {e}"))?;
+    if v.is_finite() && v > 0.0 {
+        Ok(v)
+    } else {
+        Err(format!("must be finite and > 0, got {v}"))
+    }
 }
 
 /// `geode capacitance` arguments: the shared static-solve arguments plus
@@ -519,11 +570,27 @@ impl App for Cli {
                 let result = capacitance::run(&a.spec, prov.clone(), spice.as_deref(), opts);
                 finish("capacitance", prov, a.output.as_deref(), result)
             }
-            Command::Conduction(ConductionArgs { base: a, outdir }) => {
+            Command::Conduction(ConductionArgs {
+                base: a,
+                outdir,
+                window_edge_m,
+                j_ref_a_m2,
+                joule_ref_w_m3,
+            }) => {
                 let threads = a.threads.map(NonZeroUsize::get);
                 let prov = Self::provenance(&a.spec, threads);
                 let _par = threads.map(apply_thread_cap);
-                let result = conduction::run(&a.spec, prov.clone(), outdir.as_deref());
+                let window = match (window_edge_m, j_ref_a_m2, joule_ref_w_m3) {
+                    (Some(edge_m), Some(j_ref_a_m2), Some(joule_ref_w_m3)) => {
+                        Some(conduction::WindowOpts {
+                            edge_m,
+                            j_ref_a_m2,
+                            joule_ref_w_m3,
+                        })
+                    }
+                    _ => None,
+                };
+                let result = conduction::run(&a.spec, prov.clone(), outdir.as_deref(), window);
                 finish("conduction", prov, a.output.as_deref(), result)
             }
             Command::Eqs(a) => {
