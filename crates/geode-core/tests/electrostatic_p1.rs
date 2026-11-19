@@ -556,3 +556,54 @@ fn repeated_estimator_calls_are_bitwise_stable() {
         }
     }
 }
+
+/// Bitwise reproducibility of `eta`/`eta_t2` (#1772). The face-jump
+/// shares were accumulated while iterating the face-adjacency
+/// `HashMap`, whose order follows the per-thread `RandomState` seed, so
+/// the last-ULP bits of the sums varied run to run. The accumulation now
+/// happens in a second pass over the sorted `faces`, so independent
+/// computations must agree exactly. Each spawned thread seeds its own
+/// `RandomState` — a different face iteration order in the pre-fix
+/// code — and the generic potential below makes every face's jump share
+/// nonzero, so the sums actually cross rounding boundaries.
+#[test]
+fn eta_t2_is_bitwise_reproducible_independent_of_hash_order() {
+    let build = || {
+        let mesh = cube();
+        // Generic nodal potentials: adjacent tets then have different
+        // gradients, so all 18 interior + 12 natural faces contribute
+        // nonzero, mutually distinct shares.
+        let phi = vec![0.1, 0.04, 0.3, 0.22, 0.9, 1.0, 0.7, 0.85, 0.5];
+        let eps_r = vec![
+            1.0, 5.0, 0.3, 40.0, 0.1, 7.0, 100.0, 0.5, 3.0, 25.0, 0.2, 12.0,
+        ];
+        // ρ = 0: `eta_t2` is then purely the face-share sum, whose order
+        // the adjacency map decides (a nonzero ρ cell term ~1e-2 would
+        // swallow the ~1e-24 shares below one ULP and mask the effect).
+        let rho = vec![0.0; 12];
+        estimate_electrostatic_p1(&mesh, &phi, &eps_r, &rho, &[], &[]).unwrap()
+    };
+
+    let reference = build();
+    assert_eq!(reference.faces.len(), 30, "every face of the cube counted");
+    assert!(
+        reference.faces.iter().any(|f| f.jump != 0.0),
+        "fixture must exercise nonzero jump shares"
+    );
+
+    let handles: Vec<_> = (0..3).map(|_| std::thread::spawn(build)).collect();
+    for r in handles.into_iter().map(|h| h.join().unwrap()) {
+        for (i, (a, b)) in r.eta_t2.iter().zip(&reference.eta_t2).enumerate() {
+            assert_eq!(
+                a.to_bits(),
+                b.to_bits(),
+                "eta_t2[{i}] differs in its last bits: {a} vs {b}"
+            );
+        }
+        assert_eq!(
+            r.eta.to_bits(),
+            reference.eta.to_bits(),
+            "eta differs bitwise"
+        );
+    }
+}
