@@ -4,7 +4,7 @@ Roadmap generated from the current GitHub label state by the Loom Guide role.
 Everything between the markers below is regenerated; do not edit it by hand.
 
 <!-- guide:plan-body:start -->
-_Generated: 2026-11-20T05:53:26Z (snapshot; compare against live labels)_
+_Generated: 2026-11-20T11:37:38Z (snapshot; compare against live labels)_
 ## Operator Attention: Merge-Risk-Hold Pileup
 
 Judge-approved PRs under a hold (`loom:blocked` or `loom:operator`) — only a human merge decision is missing.
@@ -38,7 +38,6 @@ Human-approved issues (`loom:issue`) ready for implementation — excluding held
 Issues currently being built (`loom:building`).
 
 - **#1391**: Remove flex_precision_spike example and flex feature: spike #451/#374 closed
-- **#1767**: Drive scalar refinement by peak-field error and measure effectivity on two geometries
 
 ## PRs Awaiting Review
 
@@ -54,7 +53,7 @@ PRs waiting on Judge (`loom:review-requested`).
 
 PRs that passed review and are queued for Champion auto-merge (`loom:pr`).
 
-- **#1784**: feat: add goal-oriented peak-field adaptive loop with effectivity study
+_None._
 
 ## Proposed
 
@@ -78,7 +77,6 @@ Issues carrying `loom:curated`.
 - **#1488**: Honest GEODE-vs-Palace comparison (manuscript section) *(curated)*
 - **#1626**: Bring CHANGELOG [Unreleased] up to date with features merged since v0.9.0 *(curated)*
 - **#1629**: Research note: can Palace model the Design A Floquet cell for the #1581 cross-check? *(curated)* *(held)*
-- **#1767**: Drive scalar refinement by peak-field error and measure effectivity on two geometries *(curated)*
 
 ## Proposed (Architect / Hermit)
 
@@ -104,10 +102,10 @@ Issues carrying `loom:curated`.
 | Very important | 1 |
 | Important | 0 |
 | Ready (`loom:issue`, net of holds/building/merge-pending) | 5 |
-| In Progress (`loom:building`) | 2 |
+| In Progress (`loom:building`) | 1 |
 | PRs awaiting review | 5 |
-| Approved PRs awaiting merge | 1 |
-| Curated | 19 |
+| Approved PRs awaiting merge | 0 |
+| Curated | 18 |
 | Architect / Hermit proposals | 4 |
 | Active epics | 6 |
 <!-- guide:plan-body:end -->
