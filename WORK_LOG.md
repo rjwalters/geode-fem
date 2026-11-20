@@ -5,6 +5,9 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-20
 
+- **Issue #1481** (closed): Electrostatics: scalar P1 a-posteriori estimator, DWR for peak-field observable, adaptive loop (#1477 slice B)
+- **Issue #1785** (closed): Polish adapt::peak_field_loop: quadratic conductor-node transfer and an inaccurate n_marked doc
+- **PR #1788**: perf(adapt): share one nodal-support pass across conductor transfers; document n_marked's budget-stop value
 - **PR #1784**: feat: add goal-oriented peak-field adaptive loop with effectivity study
 - **Issue #1767** (closed): Drive scalar refinement by peak-field error and measure effectivity on two geometries
 
