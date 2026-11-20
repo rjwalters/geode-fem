@@ -3,6 +3,11 @@
 Chronological record of merged pull requests and closed issues, newest first.
 Maintained automatically by the Loom Guide role; entries are appended, never edited.
 
+### 2026-11-20
+
+- **PR #1784**: feat: add goal-oriented peak-field adaptive loop with effectivity study
+- **Issue #1767** (closed): Drive scalar refinement by peak-field error and measure effectivity on two geometries
+
 ### 2026-11-19
 
 - **Issue #1775** (closed): Make electrostatic P1 residual eta_t2 accumulation order-independent
