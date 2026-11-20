@@ -594,3 +594,222 @@ fn dof_budget_stops_and_retains_last_solved_level() {
     assert_eq!(result.history[0].n_dofs, n0);
     assert_eq!(result.phi.len(), n0);
 }
+
+// ---------------------------------------------------------------------
+// Conductor-node transfer membership (issue #1785)
+// ---------------------------------------------------------------------
+
+/// The pre-#1785 transfer scan (column rescan per new node), kept here as
+/// the differential oracle of
+/// [`transfer_conductor_nodes`]'s shared-support rewrite: the two must
+/// produce identical node sets.
+fn transfer_scan_oracle(
+    coarse: &TetMesh,
+    refined: &geode_core::adapt::refine::Refined,
+    group: &[u32],
+) -> std::collections::BTreeSet<u32> {
+    use geode_core::adapt::electrostatic_p1::prescribed_faces;
+    use std::collections::BTreeSet;
+    let fine = &refined.mesh.mesh;
+    let mut nodes: BTreeSet<u32> = group.iter().copied().collect();
+    if group.is_empty() {
+        return nodes;
+    }
+    let faces = prescribed_faces(
+        coarse,
+        &[Electrode {
+            name: "transfer".to_string(),
+            nodes: group.to_vec(),
+            voltage: 0.0,
+        }],
+        &[],
+    );
+    let mut edges: BTreeSet<(u32, u32)> = BTreeSet::new();
+    for f in &faces {
+        for i in 0..3 {
+            for j in i + 1..3 {
+                edges.insert((f[i].min(f[j]), f[i].max(f[j])));
+            }
+        }
+    }
+    let p = refined.node_prolongation.as_ref();
+    let (cp, ri) = (p.col_ptr(), p.row_idx());
+    for i in coarse.n_nodes()..fine.n_nodes() {
+        let mut support = [0_u32; 2];
+        let mut n = 0;
+        'col: for j in 0..p.ncols() {
+            for &row in &ri[cp[j]..cp[j + 1]] {
+                if row == i {
+                    if n == 2 {
+                        n = 3;
+                        break 'col;
+                    }
+                    support[n] = j as u32;
+                    n += 1;
+                }
+            }
+        }
+        if n == 2 {
+            let key = (support[0].min(support[1]), support[0].max(support[1]));
+            if edges.contains(&key) {
+                nodes.insert(i as u32);
+            }
+        }
+    }
+    nodes
+}
+
+/// Test Plan (issue #1785): transfer membership on a small refinement —
+/// an empty ground (the shortcut), two conductor groups adjacent on the
+/// `z = 1` plate (each keeps its own nodes and gains the midpoints of its
+/// prescribed faces' edges), a **face shared by the two groups** (its
+/// edge midpoints join neither group), and the differential oracle above:
+/// the shared-support transfer reproduces the per-node scan's exact node
+/// sets on every level.
+#[test]
+fn transfer_conductor_nodes_membership() {
+    use geode_core::adapt::electrostatic_p1::prescribed_faces;
+    use geode_core::adapt::peak_field_loop::transfer_conductor_nodes;
+    use geode_core::adapt::refine::{BisectionMesh, RefineOpts};
+    use std::collections::BTreeSet;
+
+    let mesh = cube_tet_mesh(4, 1.0);
+    // Two groups adjacent on the z = 1 plate, sharing the seam x = 0.5.
+    let left: Vec<u32> = (0..mesh.n_nodes() as u32)
+        .filter(|&v| {
+            let p = mesh.nodes[v as usize];
+            p[2] == 1.0 && p[0] <= 0.5
+        })
+        .collect();
+    let right: Vec<u32> = (0..mesh.n_nodes() as u32)
+        .filter(|&v| {
+            let p = mesh.nodes[v as usize];
+            p[2] == 1.0 && p[0] > 0.5
+        })
+        .collect();
+    let left_set: BTreeSet<u32> = left.iter().copied().collect();
+    let right_set: BTreeSet<u32> = right.iter().copied().collect();
+
+    // Two uniform levels through one persistent bisection mesh: the first
+    // bisects the interior cell diagonals only, the second the plate
+    // edges, so the second level's transfer has actual joins.
+    let tagged = TaggedTetMesh {
+        tet_physical_tags: vec![0; mesh.n_tets()],
+        mesh: mesh.clone(),
+        ..Default::default()
+    };
+    let mut bis = BisectionMesh::new(tagged).expect("bisection mesh");
+    let mut prev = mesh.clone();
+    let mut joined_any_level = false;
+    let mut saw_seam_midpoint = false;
+    for _level in 0..2 {
+        let marked: Vec<usize> = (0..prev.n_tets()).collect();
+        let refined = bis.refine(&marked, &RefineOpts::default()).expect("refine");
+        let n_prev = prev.n_nodes();
+
+        // Empty ground: the shortcut returns the (empty) set unchanged.
+        assert!(
+            transfer_conductor_nodes(&prev, &refined, &[]).is_empty(),
+            "empty group transfers to the empty set"
+        );
+
+        // Differential oracle: identical node sets to the per-node scan.
+        let tl = transfer_conductor_nodes(&prev, &refined, &left);
+        let tr = transfer_conductor_nodes(&prev, &refined, &right);
+        assert_eq!(tl, transfer_scan_oracle(&prev, &refined, &left), "left");
+        assert_eq!(tr, transfer_scan_oracle(&prev, &refined, &right), "right");
+
+        // Old nodes are retained; no node joins both groups.
+        assert!(tl.is_superset(&left_set) && tr.is_superset(&right_set));
+        assert!(
+            tl.intersection(&tr).next().is_none(),
+            "a node joined two conductor groups"
+        );
+
+        // Every element is the group's own (old) node or a NEW node — the
+        // old nodes' one-entry support rows are skipped — and every joined
+        // node has exactly two support entries (a plain edge midpoint).
+        let p = refined.node_prolongation.as_ref();
+        let (cp, ri) = (p.col_ptr(), p.row_idx());
+        let mut support: Vec<Vec<u32>> = vec![Vec::new(); refined.mesh.mesh.n_nodes()];
+        for j in 0..p.ncols() {
+            for k in cp[j]..cp[j + 1] {
+                support[ri[k]].push(j as u32);
+            }
+        }
+        for (set, group) in [(&tl, &left_set), (&tr, &right_set)] {
+            for &v in set {
+                assert!(
+                    group.contains(&v) || v as usize >= n_prev,
+                    "a transfer node is neither an old group node nor a new node"
+                );
+            }
+            for &v in set.iter().filter(|v| (**v as usize) >= n_prev) {
+                assert_eq!(
+                    support[v as usize].len(),
+                    2,
+                    "a joined node without a two-entry (edge midpoint) support"
+                );
+            }
+        }
+
+        // Faces mixing the two groups are prescribed for neither: no face
+        // of either group's prescribed set spans both groups, and a new
+        // midpoint of a seam edge (one endpoint per group) joins no group.
+        let left_faces = prescribed_faces(
+            &prev,
+            &[Electrode {
+                name: "left".to_string(),
+                nodes: left.clone(),
+                voltage: 0.0,
+            }],
+            &[],
+        );
+        let right_faces = prescribed_faces(
+            &prev,
+            &[Electrode {
+                name: "right".to_string(),
+                nodes: right.clone(),
+                voltage: 0.0,
+            }],
+            &[],
+        );
+        for f in left_faces.iter().chain(right_faces.iter()) {
+            assert!(
+                !(f.iter().any(|v| left_set.contains(v))
+                    && f.iter().any(|v| right_set.contains(v))),
+                "a face mixing both conductor groups is prescribed"
+            );
+        }
+        let mut seam = 0;
+        for (i, sup) in support.iter().enumerate().skip(n_prev) {
+            if let [a, b] = sup.as_slice()
+                && (left_set.contains(a) && right_set.contains(b)
+                    || right_set.contains(a) && left_set.contains(b))
+            {
+                seam += 1;
+                saw_seam_midpoint = true;
+                assert!(
+                    !tl.contains(&(i as u32)) && !tr.contains(&(i as u32)),
+                    "a mixed-group seam midpoint joined a conductor group"
+                );
+            }
+        }
+        if tl.len() > left.len() {
+            joined_any_level = true;
+        }
+        if seam > 0 {
+            println!(
+                "transfer level {_level}: left +{} right +{} seam midpoints {seam}",
+                tl.len() - left.len(),
+                tr.len() - right.len()
+            );
+        }
+        prev = refined.mesh.mesh.clone();
+    }
+    assert!(joined_any_level, "no new node ever joined a group");
+    assert!(
+        saw_seam_midpoint,
+        "no mixed-group seam midpoint was refined"
+    );
+}
