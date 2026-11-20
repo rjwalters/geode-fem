@@ -50,6 +50,15 @@
 //!   wave-port S-parameter goals, and the goal-oriented loop marking
 //!   ([`driver::Marking::Goal`], [`driver::DrivenGoal`]). The eigenfrequency
 //!   goal ([`dwr_eigen`]) is step 5.
+//!
+//! - [`peak_field_loop`]: the goal-oriented adaptive loop of the scalar P1
+//!   electrostatic problem, driven by the peak-field goal estimate (issue
+//!   #1767, parent #1481): solve → estimate → Dörfler mark on the absolute
+//!   local goal contributions → bisect on one persistent
+//!   [`refine::BisectionMesh`], with material/charge/tag/conductor carry
+//!   between levels, the primal DOF budget measured after conformity
+//!   closure, honest stopping reasons and a per-level history
+//!   ([`peak_field_loop::adapt_peak_field`]).
 
 pub mod driver;
 pub mod dwr;
@@ -59,4 +68,5 @@ pub mod electrostatic_p1;
 pub mod estimator;
 pub mod goal;
 pub mod goal_peak_field;
+pub mod peak_field_loop;
 pub mod refine;

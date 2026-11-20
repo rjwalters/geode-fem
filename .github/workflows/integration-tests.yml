@@ -123,6 +123,7 @@ jobs:
           cargo test -p geode-core --release --features spade-mesh --no-run \
               --test adapt_loop \
               --test adapt_refine \
+              --test adaptive_peak_field \
               --test analytic_cladding_bc_fiber_benchmark \
               --test assembly \
               --test bloch_bands \
@@ -279,6 +280,7 @@ jobs:
           cargo test -p geode-core --release --features spade-mesh \
               --test adapt_loop \
               --test adapt_refine \
+              --test adaptive_peak_field \
               --test analytic_cladding_bc_fiber_benchmark \
               --test assembly \
               --test bloch_bands \
