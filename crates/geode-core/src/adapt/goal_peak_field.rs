@@ -609,7 +609,11 @@ const TET_FACES: [[usize; 3]; 4] = [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]];
 /// information, used instead of any geometric test — subface and midpoint
 /// identification then cannot depend on the mesh's position, scale or
 /// conditioning in the coordinate system.
-fn node_support(
+///
+/// Shared within `adapt` (the conductor-node transfer of
+/// [`crate::adapt::peak_field_loop`] reuses it): one `O(nnz)` CSC pass
+/// instead of a rescan per fine node.
+pub(super) fn node_support(
     prolongation: &faer::sparse::SparseColMat<usize, f64>,
     n_fine: usize,
 ) -> Vec<Vec<u32>> {

@@ -47,7 +47,10 @@
 //!   face mixing two conductors belongs to neither — its P1 trace
 //!   interpolates the prescribed node values, exactly the free-DOF
 //!   convention of the estimator's adjoint pinning
-//!   ([`crate::adapt::goal_peak_field::refined_dirichlet_nodes`]).
+//!   ([`crate::adapt::goal_peak_field::refined_dirichlet_nodes`]). The
+//!   loop reads the prolongation once per accepted level (the shared
+//!   `goal_peak_field` nodal-support index) and shares it across all
+//!   groups.
 //!
 //! # DOF budget after closure
 //!
@@ -93,7 +96,7 @@ use std::collections::BTreeSet;
 
 use crate::adapt::driver::dorfler_mark;
 use crate::adapt::electrostatic_p1::prescribed_faces;
-use crate::adapt::goal_peak_field::peak_field_goal_estimate;
+use crate::adapt::goal_peak_field::{node_support, peak_field_goal_estimate};
 use crate::adapt::refine::{BisectionMesh, RefineOpts, Refined};
 use crate::assembly::electrostatic::{Electrode, assemble_electrostatic};
 use crate::mesh::{TaggedTetMesh, TetMesh};
@@ -273,8 +276,13 @@ pub struct PeakFieldLevelRecord {
     pub n_dofs: usize,
     /// Tets of the level's mesh.
     pub n_tets: usize,
-    /// Tets the level's Dörfler marking selected (0 on the level the loop
-    /// stopped on — no refinement was accepted from it).
+    /// Tets the level's Dörfler marking selected — the marking the level
+    /// **attempted**: zero for a [`PeakFieldStopReason::ToleranceMet`] or
+    /// [`PeakFieldStopReason::MaxLevels`] stop and for an empty marking
+    /// ([`PeakFieldStopReason::NothingToMark`]); nonzero on a
+    /// [`PeakFieldStopReason::DofBudget`] stop, where the marked set was
+    /// computed and then rejected for exceeding the budget — no refinement
+    /// was accepted from it either.
     pub n_marked: usize,
     /// The observable `peak.value` (V/m).
     pub peak_value: f64,
@@ -488,7 +496,11 @@ pub fn adapt_peak_field(
         let rho_next: Vec<f64> = parent.iter().map(|&p| rho[p]).collect();
         eps_r = eps_next;
         rho = rho_next;
-        ground = transfer_conductor_nodes(&mesh, &refined, &ground)
+        // One CSC pass over the prolongation, shared by every conductor
+        // group of the level (a per-group scan per new node would be
+        // quadratic in the node count).
+        let support = node_support(&refined.node_prolongation, refined.mesh.mesh.n_nodes());
+        ground = transfer_conductor_nodes_with_support(&mesh, &ground, &support)
             .into_iter()
             .collect();
         electrodes = electrodes
@@ -496,7 +508,7 @@ pub fn adapt_peak_field(
             .map(|el| Electrode {
                 name: el.name.clone(),
                 voltage: el.voltage,
-                nodes: transfer_conductor_nodes(&mesh, &refined, &el.nodes)
+                nodes: transfer_conductor_nodes_with_support(&mesh, &el.nodes, &support)
                     .into_iter()
                     .collect(),
             })
@@ -538,7 +550,24 @@ pub fn transfer_conductor_nodes(
     refined: &Refined,
     group: &[u32],
 ) -> BTreeSet<u32> {
-    let fine = &refined.mesh.mesh;
+    if group.is_empty() {
+        return BTreeSet::new();
+    }
+    let support = node_support(&refined.node_prolongation, refined.mesh.mesh.n_nodes());
+    transfer_conductor_nodes_with_support(coarse, group, &support)
+}
+
+/// [`transfer_conductor_nodes`] on a nodal-support index precomputed once
+/// per refinement ([`node_support`], shared with
+/// [`crate::adapt::goal_peak_field`]): the loop transfers ground and every
+/// electrode of one accepted level through the same index, so the
+/// prolongation is read once (`O(nnz(P))`) instead of once per new node
+/// per group. Output is identical to the public helper's.
+fn transfer_conductor_nodes_with_support(
+    coarse: &TetMesh,
+    group: &[u32],
+    support: &[Vec<u32>],
+) -> BTreeSet<u32> {
     let mut nodes: BTreeSet<u32> = group.iter().copied().collect();
     if group.is_empty() {
         return nodes;
@@ -562,34 +591,15 @@ pub fn transfer_conductor_nodes(
             }
         }
     }
-    // Nodal support from the prolongation: row i lists the coarse nodes
-    // fine node i prolongs from (an old node: itself; a midpoint: the
-    // edge's two coarse endpoints).
-    let p = refined.node_prolongation.as_ref();
-    let (cp, ri) = (p.col_ptr(), p.row_idx());
-    for i in coarse.n_nodes()..fine.n_nodes() {
-        let mut support = [0_u32; 2];
-        let mut n = 0;
-        'col: for j in 0..p.ncols() {
-            for &row in &ri[cp[j]..cp[j + 1]] {
-                if row == i {
-                    if n == 2 {
-                        // A refinement midpoint always has exactly two
-                        // support endpoints; anything else is not a plain
-                        // edge midpoint, leave it free.
-                        n = 3;
-                        break 'col;
-                    }
-                    support[n] = j as u32;
-                    n += 1;
-                }
-            }
-        }
-        if n == 2 {
-            let key = (support[0].min(support[1]), support[0].max(support[1]));
-            if edges.contains(&key) {
-                nodes.insert(i as u32);
-            }
+    // Nodal support of every new fine node: exactly two entries — the
+    // bisected coarse edge's endpoints — iff it is a plain edge midpoint;
+    // any other support count leaves the node free (old nodes are skipped
+    // by the range: their support is the node itself).
+    for (i, sup) in support.iter().enumerate().skip(coarse.n_nodes()) {
+        if let [a, b] = sup.as_slice()
+            && edges.contains(&((*a).min(*b), (*a).max(*b)))
+        {
+            nodes.insert(i as u32);
         }
     }
     nodes
