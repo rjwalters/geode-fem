@@ -4,7 +4,7 @@ Roadmap generated from the current GitHub label state by the Loom Guide role.
 Everything between the markers below is regenerated; do not edit it by hand.
 
 <!-- guide:plan-body:start -->
-_Generated: 2026-11-19T23:33:18Z (snapshot; compare against live labels)_
+_Generated: 2026-11-20T05:53:26Z (snapshot; compare against live labels)_
 ## Operator Attention: Merge-Risk-Hold Pileup
 
 Judge-approved PRs under a hold (`loom:blocked` or `loom:operator`) — only a human merge decision is missing.
@@ -54,7 +54,7 @@ PRs waiting on Judge (`loom:review-requested`).
 
 PRs that passed review and are queued for Champion auto-merge (`loom:pr`).
 
-_None._
+- **#1784**: feat: add goal-oriented peak-field adaptive loop with effectivity study
 
 ## Proposed
 
@@ -106,7 +106,7 @@ Issues carrying `loom:curated`.
 | Ready (`loom:issue`, net of holds/building/merge-pending) | 5 |
 | In Progress (`loom:building`) | 2 |
 | PRs awaiting review | 5 |
-| Approved PRs awaiting merge | 0 |
+| Approved PRs awaiting merge | 1 |
 | Curated | 19 |
 | Architect / Hermit proposals | 4 |
 | Active epics | 6 |
