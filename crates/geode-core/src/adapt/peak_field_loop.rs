@@ -4,12 +4,12 @@
 //! Each **level** of [`adapt_peak_field`]
 //!
 //! 1. solves the primal problem on the current mesh with
-//!    [`assemble_electrostatic`](crate::assembly::electrostatic::assemble_electrostatic)`;
+//!    [`assemble_electrostatic`];
 //! 2. evaluates the peak-field goal estimate
-//!    [`peak_field_goal_estimate`](crate::adapt::goal_peak_field) — the
+//!    [`peak_field_goal_estimate`] — the
 //!    observable value, its signed error estimate and one signed
 //!    contribution per tet — using the current mesh's own tags so a
-//!    [`Region::Tag`](crate::postproc::peak_field::Region::Tag) resolves
+//!    [`Region::Tag`] resolves
 //!    on every level;
 //! 3. records the level: primal DOF count, observable value, winning
 //!    location, signed estimate;
@@ -33,7 +33,7 @@
 //! - tet tags and boundary-triangle tags are carried by the refinement
 //!   itself (see [`crate::adapt::refine`]), so tagged-region selection
 //!   works unchanged on every level. Prefer a [`Region::Tag`] goal for
-//!   the spec: a [`Region::Box`](crate::postproc::peak_field::Region::Box)
+//!   the spec: a [`Region::Box`]
 //!   is re-selected by tet centroids on each level's mesh, and bisecting
 //!   the box's own tets can move every child centroid out of the box —
 //!   emptying the region and failing the level's estimate; the tagged
@@ -47,7 +47,7 @@
 //!   face mixing two conductors belongs to neither — its P1 trace
 //!   interpolates the prescribed node values, exactly the free-DOF
 //!   convention of the estimator's adjoint pinning
-//!   ([`refined_dirichlet_nodes`]).
+//!   ([`crate::adapt::goal_peak_field::refined_dirichlet_nodes`]).
 //!
 //! # DOF budget after closure
 //!
