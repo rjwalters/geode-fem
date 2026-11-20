@@ -162,7 +162,10 @@ impl FaceJump {
 #[derive(Debug, Clone, PartialEq)]
 pub struct P1ElectrostaticResidual {
     /// Per-tet squared indicator `η_T²` (C²/m, nonnegative), parallel to
-    /// `mesh.tets`.
+    /// `mesh.tets`. The face terms are accumulated in the sorted
+    /// [`P1ElectrostaticResidual::faces`] order (cell term last), so the
+    /// values are bitwise-reproducible across runs despite `HashMap`'s
+    /// per-process iteration order.
     pub eta_t2: Vec<f64>,
     /// Global estimate `η = (Σ_T η_T²)^{1/2}` (C·m^{−1/2}).
     pub eta: f64,
@@ -172,7 +175,9 @@ pub struct P1ElectrostaticResidual {
     /// `mesh.tets`.
     pub cell_rho: Vec<f64>,
     /// Signed face terms, one per non-prescribed face, sorted by
-    /// [`FaceJump::nodes`] for determinism.
+    /// [`FaceJump::nodes`] for determinism — the same order the face
+    /// shares are accumulated into `eta_t2` in, so the indicators are
+    /// bitwise-reproducible across runs.
     pub faces: Vec<FaceJump>,
 }
 

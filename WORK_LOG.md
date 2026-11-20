@@ -5,6 +5,12 @@ Maintained automatically by the Loom Guide role; entries are appended, never edi
 
 ### 2026-11-19
 
+- **Issue #1775** (closed): Make electrostatic P1 residual eta_t2 accumulation order-independent
+- **PR #1777**: fix: accumulate electrostatic P1 eta_t2 in sorted face order
+- **PR #1625**: docs: roadmap as of 2026-11-13
+- **Issue #1729** (closed): CI: integration a-m default-tier step overran its 30-min step bound (#1713) uncut; job cancelled at 65 min and log discarded again
+- **PR #1779**: feat: signed goal estimate of the box-averaged peak field via a refined P1 adjoint
+- **Issue #1766** (closed): Estimate box-averaged peak-field error with a refined P1 adjoint
 - **PR #1778**: fix: accumulate electrostatic P1 face shares over sorted faces for bitwise reproducible eta
 - **Issue #1772** (closed): electrostatic_p1: eta_t2 accumulates in HashMap iteration order, so eta is not bitwise reproducible (~1 ULP)
 - **PR #1773**: ci: retry apt installs on transient mirror failures via Acquire::Retries=3
